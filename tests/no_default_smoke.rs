@@ -9,7 +9,11 @@
 
 use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
-use grafton_visca::{command::PowerOn, profiles::GenericVisca, CameraId, ProfileSpec, Request};
+use grafton_visca::{
+    profiles::{GenericVisca, ProfileSpec},
+    request::Request,
+    types::CameraId,
+};
 
 /// Counts executable test declarations in one source file.
 ///
@@ -27,11 +31,11 @@ fn executable_test_declarations(source: &str) -> usize {
 #[test]
 fn no_default_pure_request_profile_smoke_and_facade_inventory() {
     let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
-    let request = PowerOn::new();
+    let request = grafton_visca::command::power::On;
     request
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 profile.clone(),
             )
             .expect("target registration"),

@@ -23,15 +23,16 @@ use crate::{
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```no_run
 /// # #[cfg(feature = "runtime-tokio")]
-/// use grafton_visca::{Runtime, TokioRuntime};
+/// use grafton_visca::{runtime::Runtime, runtime::TokioRuntime};
 ///
 /// # #[cfg(feature = "runtime-tokio")]
-/// # #[tokio::main]
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let runtime = TokioRuntime::from_current()?;
-/// let tcp_transport = runtime.connect_tcp("192.168.0.110:5678", Default::default()).await?;
+/// let tcp_transport = runtime
+///     .connect_tcp("192.168.0.110:5678", Default::default())
+///     .await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -47,7 +48,7 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     ///
     /// This is present only with Tokio serial support. Runtimes that do not
     /// support Tokio serial must use an uninhabited type, so a
-    /// [`TransportHandle`] cannot be constructed with Tokio reactor I/O for
+    /// [`crate::runtime::TransportHandle`] cannot be constructed with Tokio reactor I/O for
     /// the wrong runtime.
     #[cfg(feature = "transport-serial-tokio")]
     type SerialTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
@@ -83,29 +84,27 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
         addr: &'a str,
         cfg: TransportConfig,
     ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a;
-}
 
-/// Runtime trait extension for serial transport support.
-///
-/// This sub-trait extends the base Runtime trait with serial-specific connectivity.
-/// [`Runtime::SerialTransport`] stays on the base trait so [`TransportHandle`]
-/// remains runtime-paired, while runtimes without serial support use an
-/// uninhabited associated type and do not implement this connector trait.
-///
-/// Currently only implemented for Tokio runtime as it has tokio-serial integration.
-#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
-pub trait RuntimeSerial: Runtime {
     /// Connect to a serial port.
     ///
-    /// This method creates a serial transport using the runtime's specific
-    /// implementation. The transport is configured with the provided settings.
+    /// Runtimes with serial support return their own serial transport. The
+    /// default rejects the connection without opening a device, allowing every
+    /// runtime to share the same connection entry point.
     ///
     /// The returned future is [`Send`] so standard construction can move it to
     /// an executor task before polling.
+    #[cfg(feature = "transport-serial-tokio")]
+    #[allow(clippy::manual_async_fn)]
     fn connect_serial(
         &self,
-        cfg: crate::transport::serial::Config,
-    ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_;
+        _config: crate::transport::SerialConfig,
+    ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
+        async {
+            Err(Error::FeatureNotSupported {
+                feature: "serial transport for this runtime",
+            })
+        }
+    }
 }
 
 // A runtime that has no Tokio serial integration still needs an associated
@@ -147,16 +146,18 @@ impl HasTransportConfig for std::convert::Infallible {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```no_run
 /// # #[cfg(feature = "runtime-tokio")]
-/// use grafton_visca::{Runtime, TokioRuntime, TransportHandle};
+/// use grafton_visca::{runtime::Runtime, runtime::TokioRuntime, runtime::TransportHandle};
 ///
 /// # #[cfg(feature = "runtime-tokio")]
-/// # #[tokio::main]
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let runtime = TokioRuntime::from_current()?;
-/// let transport: TransportHandle<TokioRuntime> =
-///     TransportHandle::Tcp(runtime.connect_tcp("192.168.0.110:5678", Default::default()).await?);
+/// let transport: TransportHandle<TokioRuntime> = TransportHandle::Tcp(
+///     runtime
+///         .connect_tcp("192.168.0.110:5678", Default::default())
+///         .await?,
+/// );
 /// # Ok(())
 /// # }
 /// ```
@@ -220,7 +221,7 @@ impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
 }
 
 // Tokio runtime implementation
-/// Implements [`Executor`] for a built-in runtime by delegating every item to
+/// Implements [`crate::runtime::Executor`] for a built-in runtime by delegating every item to
 /// the executor it wraps in its `executor` field.
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 macro_rules! delegate_executor {
@@ -279,7 +280,7 @@ mod tokio_impl {
     use super::*;
     use crate::{
         executor::TokioExecutor,
-        runtime_adapters::tokio::{TcpTransport, UdpTransport},
+        transport::tokio::{TcpTransport, UdpTransport},
         transport::{
             connect::preflight,
             socket_options::{TcpConnectionConfig, UdpSocketConfig},
@@ -370,17 +371,14 @@ mod tokio_impl {
                 Ok(UdpTransport::new(socket, cfg))
             }
         }
-    }
 
-    // Implement RuntimeSerial for TokioRuntime when tokio-serial feature is enabled
-    #[cfg(feature = "transport-serial-tokio")]
-    impl RuntimeSerial for TokioRuntime {
+        #[cfg(feature = "transport-serial-tokio")]
         fn connect_serial(
             &self,
-            cfg: crate::transport::serial::Config,
+            config: crate::transport::SerialConfig,
         ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
             let handle = self.executor.handle().clone();
-            crate::transport::tokio::serial::Serial::connect_on(handle, cfg)
+            crate::transport::tokio::serial::Serial::connect_on(handle, config)
         }
     }
 
@@ -404,7 +402,7 @@ mod tokio_impl {
         fn assert_invalid_buffer_error<T>(result: Result<T, Error>) {
             assert!(matches!(
                 result,
-                Err(Error::InvalidRequest(actual))
+                Err(Error::InvalidRequest { reason: actual })
                     if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
             ));
         }
@@ -423,7 +421,7 @@ mod tokio_impl {
 
             assert!(matches!(
                 tcp,
-                Err(Error::InvalidRequest(actual))
+                Err(Error::InvalidRequest { reason: actual })
                     if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
             ));
             assert!(
@@ -446,19 +444,19 @@ mod tokio_impl {
         #[tokio::test]
         async fn invalid_runtime_serial_config_returns_before_device_open() {
             let runtime = TokioRuntime::from_current().expect("runtime");
-            let config = crate::transport::serial::Config::new(
+            let config = crate::transport::SerialConfig::new(
                 "grafton-visca-invalid-buffer-bounds-serial-device",
             )
-            .buffer_config(BufferConfig {
+            .with_buffer_config(BufferConfig {
                 recv_buffer_size: 65,
                 max_buffer_size: 64,
             });
 
-            let result = RuntimeSerial::connect_serial(&runtime, config).await;
+            let result = Runtime::connect_serial(&runtime, config).await;
 
             assert!(matches!(
                 result,
-                Err(Error::InvalidRequest(actual))
+                Err(Error::InvalidRequest { reason: actual })
                     if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
             ));
         }
@@ -551,7 +549,7 @@ mod smol_impl {
     use super::*;
     use crate::{
         executor::SmolExecutor,
-        runtime_adapters::smol::{TcpTransport, UdpTransport},
+        transport::smol::{TcpTransport, UdpTransport},
     };
 
     use std::future::Future;
@@ -635,7 +633,7 @@ mod smol_impl {
                     .await;
                 assert!(matches!(
                     tcp,
-                    Err(Error::InvalidRequest(actual))
+                    Err(Error::InvalidRequest { reason: actual })
                         if actual.as_ref()
                             == "transport receive buffer cannot exceed maximum buffer"
                 ));
@@ -647,11 +645,32 @@ mod smol_impl {
                     .await;
                 assert!(matches!(
                     udp,
-                    Err(Error::InvalidRequest(actual))
+                    Err(Error::InvalidRequest { reason: actual })
                         if actual.as_ref()
                             == "transport receive buffer cannot exceed maximum buffer"
                 ));
             });
+        }
+
+        #[cfg(feature = "transport-serial-tokio")]
+        #[test]
+        fn unsupported_serial_runtime_returns_a_send_future_without_device_io() {
+            fn connect<R: Runtime>(
+                runtime: &R,
+            ) -> impl Future<Output = Result<R::SerialTransport, Error>> + Send + '_ {
+                runtime.connect_serial(crate::transport::SerialConfig::new(
+                    "grafton-visca-unsupported-runtime-serial-device",
+                ))
+            }
+
+            let runtime = SmolRuntime::new();
+            let result = smol::block_on(connect(&runtime));
+            assert!(matches!(
+                result,
+                Err(Error::FeatureNotSupported {
+                    feature: "serial transport for this runtime"
+                })
+            ));
         }
     }
 }

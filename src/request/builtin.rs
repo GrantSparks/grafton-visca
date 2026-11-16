@@ -18,7 +18,7 @@ use crate::{
     request, AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request, RetryClass,
     TimeoutClass,
 };
-use crate::{command::preset::PresetAction, wire::WireValue};
+use crate::{command::preset_wire::PresetAction, wire::WireValue};
 use std::borrow::Cow;
 
 #[cfg(test)]
@@ -35,12 +35,12 @@ pub(crate) fn reset_request_write_count() {
 pub(crate) fn request_write_count() -> usize {
     REQUEST_WRITE_COUNT.with(std::cell::Cell::get)
 }
-#[cfg(any(feature = "blocking", feature = "async"))]
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 use crate::types::SpeedLevel;
 use crate::types::{FocusPosition, IrisLevel, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed};
 use crate::{
     capabilities::PanTiltWireCodec,
-    command::pan_tilt::{MoveSpeeds, PanTiltFraming, PanTiltProfiled},
+    command::pan_tilt_wire::{MoveSpeeds, PanTiltFraming, PanTiltProfiled},
 };
 use crate::{units::Degrees, PanTiltCoordinateConversion};
 
@@ -80,9 +80,9 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 /// a value-selecting type; constant `by_value` rows additionally prove their
 /// exact selected row at compile time.
 macro_rules! builtin_request {
-    (@class Plain) => { request::Plain };
-    (@class Targeted) => { request::Operation<completion::Targeted> };
-    (@class AppliedOnly) => { request::Operation<completion::AppliedOnly> };
+    (@class Plain) => { request::PlainClass };
+    (@class Targeted) => { request::OperationClass<completion::Targeted> };
+    (@class AppliedOnly) => { request::OperationClass<completion::AppliedOnly> };
 
     (@policy $class:ident ($timeout:ident, $retry:ident, $control:ident)) => {
         (TimeoutClass::$timeout, RetryClass::$retry, ControlClass::$control)
@@ -117,7 +117,6 @@ macro_rules! builtin_request {
             fn selected_ledger_row(&self) -> BuiltinCommand {
                 builtin_request!(@row self $(, $by_value)?)
             }
-            #[cfg(test)]
             const LEDGER_ROWS: &'static [BuiltinCommand] = builtin_request!(@row_inventory $type, $row, [$($by_value)?]);
             type State = <crate::command::semantics::LedgerRow<{ BuiltinCommand::$row as usize }> as crate::command::semantics::LedgerState>::State;
         }
@@ -137,7 +136,6 @@ macro_rules! builtin_request {
             "a selected request row changes its class, axes or state-effect contract",
         );)+
         impl $type {
-            #[cfg(test)]
             pub(crate) const VALUE_SELECTED_LEDGER_ROWS: &'static [BuiltinCommand] = &[$(BuiltinCommand::$row),+];
             /// The ledger row this value serves, whose typed capability gate
             /// admits it.
@@ -414,23 +412,23 @@ fn validate_move_speeds(profile: &crate::ProfileSpec, speeds: MoveSpeeds) -> Res
     let current = PanTiltFraming::for_conversion(facts.coordinates)
         .move_speeds(PanSpeed::new(pan)?, TiltSpeed::new(tilt)?)?;
     if current != speeds {
-        return Err(Error::InvalidRequest(
-            "position speeds belong to another wire grammar".into(),
-        ));
+        return Err(Error::InvalidRequest {
+            reason: "position speeds belong to another wire grammar".into(),
+        });
     }
     Ok(())
 }
 
 /// Lowers one coarse position speed through the profile-owned position grammar.
 ///
-/// Standard VISCA keeps [`SpeedLevel`]'s asymmetric pan/tilt mapping. The
+/// Standard VISCA keeps [`crate::types::SpeedLevel`]'s asymmetric pan/tilt mapping. The
 /// profile still owns the usable maximum for each axis, so a coarse level such
-/// as [`SpeedLevel::Fastest`] means that profile's fastest valid speed rather
+/// as [`crate::types::SpeedLevel::Fastest`] means that profile's fastest valid speed rather
 /// than an unconditional `24`/`20` pair. Sony BRC-300 position frames carry
 /// one `VV` byte, so both public speed wrappers deliberately receive one value
 /// from the intersection of the profile's pan and tilt ranges before the
 /// paired-speed validator runs.
-#[cfg(any(feature = "blocking", feature = "async"))]
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 fn pan_tilt_position_speeds_from_level(
     speed: SpeedLevel,
     profile: &crate::ProfileSpec,
@@ -463,7 +461,11 @@ fn pan_tilt_position_speeds_from_level(
 fn validate_power_state(profile: &crate::ProfileSpec, standby: bool) -> Result<(), Error> {
     if standby {
         require(
-            profile.capabilities().supports_standby(),
+            profile
+                .capabilities()
+                .power
+                .as_ref()
+                .is_some_and(|domain| domain.standby.is_some()),
             "standby power control",
         )?;
     }
@@ -477,8 +479,11 @@ fn validate_exposure_mode(
     let capabilities = profile.capabilities();
 
     require(
-        capabilities.supports_exposure_mode(mode),
-        crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE,
+        capabilities
+            .exposure
+            .as_ref()
+            .is_some_and(|domain| domain.modes.contains(&mode)),
+        crate::command::exposure_wire::SHARED_EXPOSURE_MODE_FEATURE,
     )?;
     Ok(())
 }
@@ -659,25 +664,25 @@ fn validate_motion_sync_speed(
     )
 }
 
-impl BuiltinValidation for crate::command::power::PowerOn {
+impl BuiltinValidation for crate::command::power_wire::PowerOn {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_power_state(profile, false)
     }
 }
 
-impl BuiltinValidation for crate::command::power::PowerStandby {
+impl BuiltinValidation for crate::command::power_wire::PowerStandby {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_power_state(profile, true)
     }
 }
 
-impl BuiltinValidation for crate::command::exposure::ExposureCommand {
+impl BuiltinValidation for crate::command::exposure_wire::ExposureCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_exposure_mode(profile, self.mode)
     }
 }
 
-impl BuiltinValidation for crate::command::exposure::ExposureCompensation {
+impl BuiltinValidation for crate::command::exposure_wire::ExposureCompensation {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let value = match self {
             Self::SetLevel(level) => Some(level.value()),
@@ -687,9 +692,9 @@ impl BuiltinValidation for crate::command::exposure::ExposureCompensation {
     }
 }
 
-impl BuiltinValidation for crate::command::exposure::DynamicRange {}
+impl BuiltinValidation for crate::command::exposure_wire::DynamicRange {}
 
-impl BuiltinValidation for crate::command::exposure::Shutter {
+impl BuiltinValidation for crate::command::exposure_wire::Shutter {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_shutter(
             profile,
@@ -701,7 +706,7 @@ impl BuiltinValidation for crate::command::exposure::Shutter {
     }
 }
 
-impl BuiltinValidation for crate::command::exposure::Brightness {
+impl BuiltinValidation for crate::command::exposure_wire::Brightness {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_brightness(
             profile,
@@ -713,7 +718,7 @@ impl BuiltinValidation for crate::command::exposure::Brightness {
     }
 }
 
-impl BuiltinValidation for crate::command::exposure::AntiFlickerCommand {}
+impl BuiltinValidation for crate::command::exposure_wire::AntiFlickerCommand {}
 
 impl BuiltinValidation for crate::command::gain::Gain {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
@@ -811,7 +816,7 @@ impl BuiltinValidation for crate::command::color::BlueGain {
     }
 }
 
-impl BuiltinValidation for crate::command::image::Sharpness {
+impl BuiltinValidation for crate::command::image_wire::Sharpness {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         match self {
             Self::SetLevel { value } => validate_image_range(
@@ -828,7 +833,7 @@ impl BuiltinValidation for crate::command::image::Sharpness {
     }
 }
 
-impl BuiltinValidation for crate::command::image::Luminance {
+impl BuiltinValidation for crate::command::image_wire::Luminance {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_image_range(
             "luminance control",
@@ -842,7 +847,7 @@ impl BuiltinValidation for crate::command::image::Luminance {
     }
 }
 
-impl BuiltinValidation for crate::command::image::Contrast {
+impl BuiltinValidation for crate::command::image_wire::Contrast {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_image_range(
             "contrast control",
@@ -856,7 +861,7 @@ impl BuiltinValidation for crate::command::image::Contrast {
     }
 }
 
-impl BuiltinValidation for crate::command::image::GammaCommand {
+impl BuiltinValidation for crate::command::image_wire::GammaCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_image_range(
             "gamma control",
@@ -870,23 +875,27 @@ impl BuiltinValidation for crate::command::image::GammaCommand {
     }
 }
 
-impl BuiltinValidation for crate::command::image::BacklightCommand {}
+impl BuiltinValidation for crate::command::image_wire::BacklightCommand {}
 
-impl BuiltinValidation for crate::command::image::NoiseReduction2DModeCommand {}
+impl BuiltinValidation for crate::command::image_wire::NoiseReduction2DModeCommand {}
 
-impl BuiltinValidation for crate::command::image::NoiseReduction2D {}
+impl BuiltinValidation for crate::command::image_wire::NoiseReduction2DCommand {}
 
-impl BuiltinValidation for crate::command::image::NoiseReduction3D {}
+impl BuiltinValidation for crate::command::image_wire::NoiseReduction3DCommand {}
 
-impl BuiltinValidation for crate::command::image::ImageFlipCombinedCommand {}
+impl BuiltinValidation for crate::command::image_wire::ImageFlipCombinedCommand {}
 
-impl BuiltinValidation for crate::command::image::PictureEffectCommand {}
+impl BuiltinValidation for crate::command::image_wire::PictureEffectCommand {}
 
-impl BuiltinValidation for crate::command::focus::FocusZoneCommand {
+impl BuiltinValidation for crate::command::focus_wire::FocusZoneCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
 
-        if capabilities.supports_focus_zone(self.zone) {
+        if capabilities
+            .focus
+            .as_ref()
+            .is_some_and(|domain| domain.zones.contains(&self.zone))
+        {
             Ok(())
         } else {
             Err(Error::InvalidParameter {
@@ -900,60 +909,60 @@ impl BuiltinValidation for crate::command::focus::FocusZoneCommand {
     }
 }
 
-impl BuiltinValidation for crate::command::focus::AutoFocusSensitivityCommand {}
+impl BuiltinValidation for crate::command::focus_wire::AutoFocusSensitivityCommand {}
 
-impl BuiltinValidation for crate::command::focus::FocusNearLimitCommand {
+impl BuiltinValidation for crate::command::focus_wire::FocusNearLimitCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let value = self.position.value();
         require_in_range("focus near limit", value, &focus_facts(profile)?.range)
     }
 }
 
-impl BuiltinValidation for crate::command::white_balance::WhiteBalanceCommand {
+impl BuiltinValidation for crate::command::white_balance_wire::WhiteBalanceCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_white_balance_mode(profile, self)
     }
 }
 
-impl BuiltinValidation for crate::command::white_balance::AWBSensitivityCommand {}
+impl BuiltinValidation for crate::command::white_balance_wire::AWBSensitivityCommand {}
 
-impl BuiltinValidation for crate::command::menu::SetMenuDisplay {}
+impl BuiltinValidation for crate::command::menu_wire::SetMenuDisplay {}
 
-impl BuiltinValidation for crate::command::menu::MenuNavigate {}
+impl BuiltinValidation for crate::command::menu_wire::MenuNavigate {}
 
-impl BuiltinValidation for crate::command::menu::PerformMenuAction {}
+impl BuiltinValidation for crate::command::menu_wire::PerformMenuAction {}
 
-impl BuiltinValidation for crate::command::menu::DirectMenuControl {}
+impl BuiltinValidation for crate::command::menu_wire::DirectMenuControl {}
 
-impl BuiltinValidation for crate::command::streaming::UsbAudioCommand {}
+impl BuiltinValidation for crate::command::streaming_wire::UsbAudioCommand {}
 
-impl BuiltinValidation for crate::command::system::SettingsSaveCommand {}
+impl BuiltinValidation for crate::command::system_wire::SettingsSaveCommand {}
 
-impl BuiltinValidation for crate::command::tally::TallyRedOn {}
+impl BuiltinValidation for crate::command::tally_wire::TallyRedOn {}
 
-impl BuiltinValidation for crate::command::tally::TallyRedOff {}
+impl BuiltinValidation for crate::command::tally_wire::TallyRedOff {}
 
-impl BuiltinValidation for crate::command::tally::TallyGreenOn {}
+impl BuiltinValidation for crate::command::tally_wire::TallyGreenOn {}
 
-impl BuiltinValidation for crate::command::tally::TallyGreenOff {}
+impl BuiltinValidation for crate::command::tally_wire::TallyGreenOff {}
 
-impl BuiltinValidation for crate::command::motion_sync::SetMotionSyncMode {
+impl BuiltinValidation for crate::command::motion_sync_wire::SetMotionSyncMode {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         motion_sync_speed_range(profile).map(|_| ())
     }
 }
 
-impl BuiltinValidation for crate::command::motion_sync::SetMotionSyncPreset {
+impl BuiltinValidation for crate::command::motion_sync_wire::SetMotionSyncPreset {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_motion_sync_speed(profile, self.speed())
     }
 }
 
-impl BuiltinValidation for crate::command::system::AddressSetCommand {}
+impl BuiltinValidation for crate::command::system_wire::AddressSetCommand {}
 
-impl BuiltinValidation for crate::command::system::InterfaceClearCommand {}
+impl BuiltinValidation for crate::command::system_wire::InterfaceClearCommand {}
 
-impl BuiltinValidation for crate::command::system::CommandCancelCommand {
+impl BuiltinValidation for crate::command::system_wire::CommandCancelCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         require(
             profile.supports_command_cancel(),
@@ -997,9 +1006,9 @@ impl PreparedPanTiltPosition {
 
     fn validate(self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         if profile.pan_tilt_coordinates() != Some(self.conversion) {
-            return Err(Error::InvalidRequest(
-                "pan/tilt request was converted for a different profile".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "pan/tilt request was converted for a different profile".into(),
+            });
         }
         require_in_range(
             "pan position",
@@ -1045,9 +1054,9 @@ impl PreparedPanTiltOffset {
 
     fn validate(self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         if profile.pan_tilt_coordinates() != Some(self.conversion) {
-            return Err(Error::InvalidRequest(
-                "pan/tilt offset was converted for a different profile".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "pan/tilt offset was converted for a different profile".into(),
+            });
         }
         Ok(())
     }
@@ -1064,6 +1073,86 @@ builtin_request! {
     };
 }
 
+/// Internal value-selected encoder for the canonical boolean setter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SpotlightToggle {
+    enabled: bool,
+}
+impl SpotlightToggle {
+    pub(crate) const fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+}
+impl WireEncode for SpotlightToggle {
+    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        if self.enabled {
+            WireEncode::write_into(
+                &crate::command::exposure_wire::SpotlightOn::new(),
+                camera_id,
+                buffer,
+            )
+        } else {
+            WireEncode::write_into(
+                &crate::command::exposure_wire::SpotlightOff::new(),
+                camera_id,
+                buffer,
+            )
+        }
+    }
+}
+impl BuiltinValidation for SpotlightToggle {}
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for SpotlightToggle {
+    fn state_value(&self) -> bool {
+        self.enabled
+    }
+}
+builtin_request! {
+    SpotlightToggle => SpotlightOn: Plain { size: 6,
+        rows: |request| match (request.enabled) { true => SpotlightOn, false => SpotlightOff },
+    };
+}
+
+/// Internal value-selected encoder for the canonical boolean setter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AutoSlowShutterToggle {
+    enabled: bool,
+}
+impl AutoSlowShutterToggle {
+    pub(crate) const fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+}
+impl WireEncode for AutoSlowShutterToggle {
+    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        if self.enabled {
+            WireEncode::write_into(
+                &crate::command::exposure_wire::AutoSlowShutterOn::new(),
+                camera_id,
+                buffer,
+            )
+        } else {
+            WireEncode::write_into(
+                &crate::command::exposure_wire::AutoSlowShutterOff::new(),
+                camera_id,
+                buffer,
+            )
+        }
+    }
+}
+impl BuiltinValidation for AutoSlowShutterToggle {}
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for AutoSlowShutterToggle {
+    fn state_value(&self) -> bool {
+        self.enabled
+    }
+}
+builtin_request! {
+    AutoSlowShutterToggle => AutoSlowShutterOn: Plain { size: 6,
+        rows: |request| match (request.enabled) { true => AutoSlowShutterOn, false => AutoSlowShutterOff },
+    };
+}
+
 // Built-in command values that are already structurally homogeneous carry
 // their request contract directly: every branch represented by the type is a
 // configuration, mode, persistence, or output-policy write, so it needs no
@@ -1071,14 +1160,14 @@ builtin_request! {
 // Zoom, Focus, Iris, ND, and Preset) are represented by the structurally
 // distinct request types below.
 builtin_request! {
-    crate::command::preset::PresetRecallSpeedCommand => PresetRecallSpeed: Plain { size: 6 };
-    crate::command::focus::FocusLockCommand => FocusLock: Plain { size: 6 };
-    crate::command::exposure::SpotlightOn => SpotlightOn: Plain { size: 6 };
-    crate::command::exposure::SpotlightOff => SpotlightOff: Plain { size: 6 };
-    crate::command::exposure::AutoSlowShutterOn => AutoSlowShutterOn: Plain { size: 6 };
-    crate::command::exposure::AutoSlowShutterOff => AutoSlowShutterOff: Plain { size: 6 };
-    crate::command::nd_filter::NdFilterModeCommand => NdFilterMode: Plain { size: 7 };
-    crate::command::nd_filter::AutoNdCommand => NdFilterAutoOn: Plain {
+    crate::command::preset_wire::PresetRecallSpeedCommand => PresetRecallSpeed: Plain { size: 6 };
+    crate::command::focus_wire::FocusLockCommand => FocusLock: Plain { size: 6 };
+    crate::command::exposure_wire::SpotlightOn => SpotlightOn: Plain { size: 6 };
+    crate::command::exposure_wire::SpotlightOff => SpotlightOff: Plain { size: 6 };
+    crate::command::exposure_wire::AutoSlowShutterOn => AutoSlowShutterOn: Plain { size: 6 };
+    crate::command::exposure_wire::AutoSlowShutterOff => AutoSlowShutterOff: Plain { size: 6 };
+    crate::command::nd_filter_wire::NdFilterModeCommand => NdFilterMode: Plain { size: 7 };
+    crate::command::nd_filter_wire::AutoNdCommand => NdFilterAutoOn: Plain {
         size: 7,
         rows: |command| match (command.enabled()) {
             true => NdFilterAutoOn,
@@ -1092,8 +1181,8 @@ builtin_request! {
             false => ImageFreezeOff,
         },
     };
-    crate::command::zoom::DigitalZoom => DigitalZoom: Plain { size: 6 };
-    crate::command::streaming::MulticastStreamingCommand => MulticastStreamingOn: Plain {
+    crate::command::zoom_wire::DigitalZoom => DigitalZoom: Plain { size: 6 };
+    crate::command::streaming_wire::MulticastStreamingCommand => MulticastStreamingOn: Plain {
         size: 6,
         policy: (Network, Standard, Normal),
         rows: |command| match (command.enabled()) {
@@ -1101,50 +1190,50 @@ builtin_request! {
             false => MulticastStreamingOff,
         },
     };
-    crate::command::streaming::SetNdiQuality => NdiQuality: Plain {
+    crate::command::streaming_wire::SetNdiQuality => NdiQuality: Plain {
         size: 6,
         policy: (Network, Standard, Normal),
     };
-    crate::command::tally::TallyBrightLo => TallyBrightLow: Plain { size: 8 };
-    crate::command::tally::TallyBrightHi => TallyBrightHigh: Plain { size: 8 };
+    crate::command::tally_wire::TallyBrightLo => TallyBrightLow: Plain { size: 8 };
+    crate::command::tally_wire::TallyBrightHi => TallyBrightHigh: Plain { size: 8 };
     crate::command::variable_speed::SetVariableSpeedMode => VariableSpeedMode: Plain { size: 6 };
-    crate::command::tally::TallyOn => TallyOn: Plain { size: 6 };
-    crate::command::tally::TallyOff => TallyOff: Plain { size: 6 };
-    crate::command::tally::TallyFlash => TallyFlash: Plain { size: 6 };
-    crate::command::power::PowerOn => PowerOn: Plain { size: 6 };
-    crate::command::power::PowerStandby => PowerStandby: Plain { size: 6 };
-    crate::command::exposure::ExposureCommand => ExposureMode: Plain { size: 6 };
-    crate::command::exposure::ExposureCompensation => ExposureCompensationOn: Plain {
+    crate::command::tally_wire::TallyOn => TallyOn: Plain { size: 6 };
+    crate::command::tally_wire::TallyOff => TallyOff: Plain { size: 6 };
+    crate::command::tally_wire::TallyFlash => TallyFlash: Plain { size: 6 };
+    crate::command::power_wire::PowerOn => PowerOn: Plain { size: 6 };
+    crate::command::power_wire::PowerStandby => PowerStandby: Plain { size: 6 };
+    crate::command::exposure_wire::ExposureCommand => ExposureMode: Plain { size: 6 };
+    crate::command::exposure_wire::ExposureCompensation => ExposureCompensationOn: Plain {
         size: 9,
         rows: |command| match (command) {
-            crate::command::exposure::ExposureCompensation::On => ExposureCompensationOn,
-            crate::command::exposure::ExposureCompensation::Off => ExposureCompensationOff,
-            crate::command::exposure::ExposureCompensation::Reset => ExposureCompensationReset,
-            crate::command::exposure::ExposureCompensation::Up => ExposureCompensationUp,
-            crate::command::exposure::ExposureCompensation::Down => ExposureCompensationDown,
-            crate::command::exposure::ExposureCompensation::SetLevel(_) => ExposureCompensationDirect,
+            crate::command::exposure_wire::ExposureCompensation::On => ExposureCompensationOn,
+            crate::command::exposure_wire::ExposureCompensation::Off => ExposureCompensationOff,
+            crate::command::exposure_wire::ExposureCompensation::Reset => ExposureCompensationReset,
+            crate::command::exposure_wire::ExposureCompensation::Up => ExposureCompensationUp,
+            crate::command::exposure_wire::ExposureCompensation::Down => ExposureCompensationDown,
+            crate::command::exposure_wire::ExposureCompensation::SetLevel(_) => ExposureCompensationDirect,
         },
     };
-    crate::command::exposure::DynamicRange => DynamicRange: Plain { size: 9 };
-    crate::command::exposure::Shutter => ShutterReset: Plain {
+    crate::command::exposure_wire::DynamicRange => DynamicRange: Plain { size: 9 };
+    crate::command::exposure_wire::Shutter => ShutterReset: Plain {
         size: 9,
         rows: |command| match (command) {
-            crate::command::exposure::Shutter::Reset => ShutterReset,
-            crate::command::exposure::Shutter::Up => ShutterUp,
-            crate::command::exposure::Shutter::Down => ShutterDown,
-            crate::command::exposure::Shutter::SetSpeed(_) => ShutterDirect,
+            crate::command::exposure_wire::Shutter::Reset => ShutterReset,
+            crate::command::exposure_wire::Shutter::Up => ShutterUp,
+            crate::command::exposure_wire::Shutter::Down => ShutterDown,
+            crate::command::exposure_wire::Shutter::SetSpeed(_) => ShutterDirect,
         },
     };
-    crate::command::exposure::Brightness => BrightnessReset: Plain {
+    crate::command::exposure_wire::Brightness => BrightnessReset: Plain {
         size: 9,
         rows: |command| match (command) {
-            crate::command::exposure::Brightness::Reset => BrightnessReset,
-            crate::command::exposure::Brightness::Up => BrightnessUp,
-            crate::command::exposure::Brightness::Down => BrightnessDown,
-            crate::command::exposure::Brightness::SetLevel(_) => BrightnessSet,
+            crate::command::exposure_wire::Brightness::Reset => BrightnessReset,
+            crate::command::exposure_wire::Brightness::Up => BrightnessUp,
+            crate::command::exposure_wire::Brightness::Down => BrightnessDown,
+            crate::command::exposure_wire::Brightness::SetLevel(_) => BrightnessSet,
         },
     };
-    crate::command::exposure::AntiFlickerCommand => AntiFlicker: Plain { size: 6 };
+    crate::command::exposure_wire::AntiFlickerCommand => AntiFlicker: Plain { size: 6 };
     crate::command::gain::Gain => GainReset: Plain {
         size: 9,
         rows: |command| match (command) {
@@ -1188,41 +1277,47 @@ builtin_request! {
             crate::command::color::BlueGain::SetValue(_) => BlueGainDirect,
         },
     };
-    crate::command::image::Sharpness => SharpnessReset: Plain {
+    crate::command::image_wire::Sharpness => SharpnessReset: Plain {
         size: 9,
         rows: |command| match (command) {
-            crate::command::image::Sharpness::Mode(_) => SharpnessMode,
-            crate::command::image::Sharpness::Reset => SharpnessReset,
-            crate::command::image::Sharpness::Up => SharpnessUp,
-            crate::command::image::Sharpness::Down => SharpnessDown,
-            crate::command::image::Sharpness::SetLevel { .. } => SharpnessDirect,
+            crate::command::image_wire::Sharpness::Mode(_) => SharpnessMode,
+            crate::command::image_wire::Sharpness::Reset => SharpnessReset,
+            crate::command::image_wire::Sharpness::Up => SharpnessUp,
+            crate::command::image_wire::Sharpness::Down => SharpnessDown,
+            crate::command::image_wire::Sharpness::SetLevel { .. } => SharpnessDirect,
         },
     };
-    crate::command::image::Luminance => Luminance: Plain { size: 9 };
-    crate::command::image::Contrast => Contrast: Plain { size: 9 };
-    crate::command::image::GammaCommand => Gamma: Plain { size: 6 };
-    crate::command::image::BacklightCommand => Backlight: Plain { size: 6 };
-    crate::command::image::NoiseReduction2DModeCommand => NoiseReduction2dMode: Plain { size: 6 };
-    crate::command::image::NoiseReduction2D => NoiseReduction2d: Plain {
+    crate::command::image_wire::Luminance => Luminance: Plain { size: 9 };
+    crate::command::image_wire::Contrast => Contrast: Plain { size: 9 };
+    crate::command::image_wire::GammaCommand => Gamma: Plain { size: 6 };
+    crate::command::image_wire::BacklightCommand => Backlight: Plain { size: 6 };
+    crate::command::image_wire::NoiseReduction2DModeCommand => NoiseReduction2dMode: Plain { size: 6 };
+    crate::command::image_wire::NoiseReduction2DCommand => NoiseReduction2d: Plain {
         size: 6,
-        rows: |command| match (command) {
+        rows: |command| match (command.setting) {
             crate::command::NoiseReduction2D::Off => NoiseReduction2dOff,
             crate::command::NoiseReduction2D::Level(_) => NoiseReduction2d,
         },
     };
-    crate::command::image::NoiseReduction3D => NoiseReduction3d: Plain {
+    crate::command::image_wire::NoiseReduction3DCommand => NoiseReduction3d: Plain {
         size: 6,
-        rows: |command| match (command) {
+        rows: |command| match (command.setting) {
             crate::command::NoiseReduction3D::Off => NoiseReduction3dOff,
             crate::command::NoiseReduction3D::Level(_) => NoiseReduction3d,
         },
     };
-    crate::command::image::ImageFlipCombinedCommand => ImageFlipBoth: Plain { size: 6 };
-    crate::command::image::PictureEffectCommand => PictureEffect: Plain { size: 6 };
-    crate::command::focus::FocusZoneCommand => FocusZone: Plain { size: 6 };
-    crate::command::focus::AutoFocusSensitivityCommand => FocusAutoSensitivity: Plain { size: 6 };
-    crate::command::focus::FocusNearLimitCommand => FocusNearLimit: Plain { size: 9 };
-    crate::command::white_balance::WhiteBalanceCommand => WhiteBalanceAuto: Plain {
+    crate::command::image_wire::ImageFlipCombinedCommand => ImageFlipBoth: Plain {
+        size: 6,
+        rows: |command| match ((command.mode as u8) == (crate::types::ImageFlipMode::Both as u8)) {
+            true => ImageFlipBoth,
+            false => ImageFlipCombined,
+        },
+    };
+    crate::command::image_wire::PictureEffectCommand => PictureEffect: Plain { size: 6 };
+    crate::command::focus_wire::FocusZoneCommand => FocusZone: Plain { size: 6 };
+    crate::command::focus_wire::AutoFocusSensitivityCommand => FocusAutoSensitivity: Plain { size: 6 };
+    crate::command::focus_wire::FocusNearLimitCommand => FocusNearLimit: Plain { size: 9 };
+    crate::command::white_balance_wire::WhiteBalanceCommand => WhiteBalanceAuto: Plain {
         size: 6,
         rows: |command| match (command.mode) {
             crate::command::WhiteBalanceMode::Auto => WhiteBalanceAuto,
@@ -1235,41 +1330,41 @@ builtin_request! {
             crate::command::WhiteBalanceMode::ColorTemperature => WhiteBalanceColorTemperature,
         },
     };
-    crate::command::white_balance::AWBSensitivityCommand => AutoWhiteBalanceSensitivity: Plain {
+    crate::command::white_balance_wire::AWBSensitivityCommand => AutoWhiteBalanceSensitivity: Plain {
         size: 6,
     };
-    crate::command::menu::SetMenuDisplay => MenuDisplay: Plain { size: 6 };
-    crate::command::menu::MenuNavigate => MenuNavigate: AppliedOnly { size: 9 };
-    crate::command::menu::PerformMenuAction => MenuSelect: Plain {
+    crate::command::menu_wire::SetMenuDisplay => MenuDisplay: Plain { size: 6 };
+    crate::command::menu_wire::MenuNavigate => MenuNavigate: AppliedOnly { size: 9 };
+    crate::command::menu_wire::PerformMenuAction => MenuSelect: Plain {
         size: 6,
         rows: |command| match (command.action) {
-            crate::command::menu::MenuAction::Select => MenuSelect,
-            crate::command::menu::MenuAction::Cancel => MenuCancel,
+            crate::command::menu_wire::MenuAction::Select => MenuSelect,
+            crate::command::menu_wire::MenuAction::Cancel => MenuCancel,
         },
     };
-    crate::command::menu::DirectMenuControl => DirectMenu: Plain { size: 8 };
-    crate::command::streaming::UsbAudioCommand => UsbAudioOn: Plain {
+    crate::command::menu_wire::DirectMenuControl => DirectMenu: Plain { size: 8 };
+    crate::command::streaming_wire::UsbAudioCommand => UsbAudioOn: Plain {
         size: 7,
         rows: |command| match (command.enabled()) {
             true => UsbAudioOn,
             false => UsbAudioOff,
         },
     };
-    crate::command::system::SettingsSaveCommand => SettingsSave: Plain { size: 6 };
-    crate::command::tally::TallyRedOn => TallyRedOn: Plain { size: 8 };
-    crate::command::tally::TallyRedOff => TallyRedOff: Plain { size: 8 };
-    crate::command::tally::TallyGreenOn => TallyGreenOn: Plain { size: 8 };
-    crate::command::tally::TallyGreenOff => TallyGreenOff: Plain { size: 8 };
-    crate::command::motion_sync::SetMotionSyncMode => MotionSyncMode: Plain { size: 6 };
-    crate::command::motion_sync::SetMotionSyncPreset => MotionSyncPreset: Plain { size: 6 };
+    crate::command::system_wire::SettingsSaveCommand => SettingsSave: Plain { size: 6 };
+    crate::command::tally_wire::TallyRedOn => TallyRedOn: Plain { size: 8 };
+    crate::command::tally_wire::TallyRedOff => TallyRedOff: Plain { size: 8 };
+    crate::command::tally_wire::TallyGreenOn => TallyGreenOn: Plain { size: 8 };
+    crate::command::tally_wire::TallyGreenOff => TallyGreenOff: Plain { size: 8 };
+    crate::command::motion_sync_wire::SetMotionSyncMode => MotionSyncMode: Plain { size: 6 };
+    crate::command::motion_sync_wire::SetMotionSyncPreset => MotionSyncPreset: Plain { size: 6 };
     // These three protocol controls deliberately have crate-private request
     // implementations. Address assignment and interface clear run only while
     // the serial transport handshake owns the wire; socket cancellation is
     // emitted by the operation owner that holds the exact request/socket
     // correlation.
-    crate::command::system::AddressSetCommand => AddressSet: Plain { size: 4 };
-    crate::command::system::InterfaceClearCommand => InterfaceClear: Plain { size: 5 };
-    crate::command::system::CommandCancelCommand => CommandCancel: Plain {
+    crate::command::system_wire::AddressSetCommand => AddressSet: Plain { size: 4 };
+    crate::command::system_wire::InterfaceClearCommand => InterfaceClear: Plain { size: 5 };
+    crate::command::system_wire::CommandCancelCommand => CommandCancel: Plain {
         size: 3,
         policy: (Quick, Never, Urgent),
     };
@@ -1310,12 +1405,6 @@ impl ImageMirrorCommand {
     pub const fn new(enabled: bool) -> Self {
         Self { enabled }
     }
-
-    /// Returns whether mirroring is enabled.
-    #[must_use]
-    pub const fn enabled(self) -> bool {
-        self.enabled
-    }
 }
 
 builtin_request! {
@@ -1329,149 +1418,178 @@ builtin_request! {
     };
 }
 
-/// One semantic row tied to a concrete typed request implementation.
-///
-/// Each inventory entry is an inline const that asserts, while the `#[used]`
-/// inventory is initialized, that its request type may serve its row. The
-/// test-only metadata then gives the runtime audit a readable row; that audit
-/// lives with the preparation-backed request tests.
+/// A canonical request's exact protocol-row coverage, generated from the noun table.
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BuiltinTypedRequestCoverage {
-    /// Authoritative semantic ledger row.
-    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub row: BuiltinCommand,
-    /// Stable source type name used by diagnostics and audits.
-    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub type_name: &'static str,
-    /// Command branch/value family represented by the typed request.
-    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub branch: &'static str,
-    /// Key selected by the row's generated projection type.
-    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub state_key: Option<crate::StateKey>,
 }
 
-/// The one construction site of [`BuiltinTypedRequestCoverage`].
-///
-/// The inline const asserts at compile time that `$ty` serves `$row`. A
-/// `by_value` request supplies a constant value or a constant witness for an
-/// argument-bearing constructor. Its `ledger_row` must select `$row`; generated
-/// row tests also check that the evaluated request selects the same row. Other
-/// request forms are checked on their type alone.
-macro_rules! typed_request_coverage {
-    ($row:ident, $ty:ty, [by_value [$witness:expr] $request:expr]) => {
-        typed_request_coverage!(@entry $row, $ty, stringify!([by_value [$witness] $request]),
-            assert_value_selects_row::<$ty>(BuiltinCommand::$row, ($witness).ledger_row()))
-    };
-    ($row:ident, $ty:ty, [by_value $($value:tt)*]) => {
-        typed_request_coverage!(@entry $row, $ty, stringify!([by_value $($value)*]),
-            assert_value_selects_row::<$ty>(BuiltinCommand::$row, ($($value)*).ledger_row()))
-    };
-    ($row:ident, $ty:ty, $request:tt) => {
-        typed_request_coverage!(@entry $row, $ty, stringify! $request,
-            assert_row_served_by::<$ty>(BuiltinCommand::$row))
-    };
-    (@exception $row:ident, $ty:ty, $kind:ident) => {
-        typed_request_coverage!(@entry $row, $ty, stringify!($kind),
-            assert_row_served_by::<$ty>(BuiltinCommand::$row))
-    };
-    (@entry $row:ident, $ty:ty, $branch:expr, $check:expr) => {
-        const {
-            $check;
-            BuiltinTypedRequestCoverage {
-                #[cfg(all(test, any(feature = "blocking", feature = "async")))]
-                row: BuiltinCommand::$row,
-                #[cfg(all(test, any(feature = "blocking", feature = "async")))]
-                type_name: stringify!($ty),
-                #[cfg(all(test, any(feature = "blocking", feature = "async")))]
-                branch: $branch,
-                #[cfg(all(test, any(feature = "blocking", feature = "async")))]
-                state_key: <<$ty as BuiltinRequestContract>::State as super::builtin_contract::StateDescriptor>::KEY,
-            }
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+#[derive(Clone, Copy)]
+struct TypedRequestFamily {
+    rows: &'static [BuiltinCommand],
+    type_name: &'static str,
+    branch: &'static str,
+    state_key: Option<crate::StateKey>,
+    state_by_row: &'static [(BuiltinCommand, Option<crate::StateKey>)],
+}
+
+/// Validates every declared row rather than interpreting public request names as
+/// protocol enum variants. Encoding-selected requests may have distinct state
+/// keys; their exact row-to-state map is checked by the generated inventory.
+const fn assert_request_rows<T: BuiltinRequestContract>() {
+    assert!(
+        !T::LEDGER_ROWS.is_empty(),
+        "a canonical request declares no protocol rows"
+    );
+    let mut index = 0;
+    while index < T::LEDGER_ROWS.len() {
+        let row = T::LEDGER_ROWS[index];
+        assert!(
+            row.classification().kind() as usize == T::LEDGER_ROW.classification().kind() as usize,
+            "a typed request serves a ledger row whose request class differs from its own row"
+        );
+        assert!(
+            row_gate(row).same_as(row_gate(T::LEDGER_ROW)),
+            "a typed request serves ledger rows with different capability gates"
+        );
+        let mut previous = 0;
+        while previous < index {
+            assert!(
+                row as usize != T::LEDGER_ROWS[previous] as usize,
+                "a request repeats a declared protocol row"
+            );
+            previous += 1;
         }
+        index += 1;
+    }
+}
+
+macro_rules! assert_canonical_request {
+    (inquiry, $request:ty) => {};
+    ($kind:ident, $request:ty) => {
+        assert_request_rows::<$request>();
     };
 }
 
-/// Fails const evaluation unless `T` may serve `row` through a request form
-/// that is not a constant: the row must classify exactly like `T`'s own
-/// ledger row (class, axes and state effect) and carry the same typed
-/// capability gate. Value-dependent gates are still checked by the request.
-const fn assert_row_served_by<T: BuiltinRequestContract>(row: BuiltinCommand) {
-    assert!(
-        row.classification()
-            .same_contract(T::LEDGER_ROW.classification()),
-        "a typed request serves a ledger row whose classification differs from its own row",
-    );
-    assert!(
-        row_gate(row).same_as(row_gate(T::LEDGER_ROW)),
-        "a typed request serves ledger rows with different capability gates",
-    );
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+macro_rules! typed_request_family {
+    (inquiry, $request:ty, $expression:tt) => { None };
+    ($kind:ident, $request:ty, $expression:tt) => {
+        Some(TypedRequestFamily {
+            rows: <$request as BuiltinRequestContract>::LEDGER_ROWS,
+            type_name: stringify!($request),
+            branch: stringify!($expression),
+            state_key: <<$request as BuiltinRequestContract>::State as super::builtin_contract::StateDescriptor>::KEY,
+            state_by_row: <<$request as BuiltinRequestContract>::State as super::builtin_contract::StateDescriptor>::BY_ROW,
+        })
+    };
 }
 
-/// Fails const evaluation unless the constant request of a `by_value` noun
-/// row selects that row: `selected` (the value's `ledger_row`) must be `row`,
-/// and `row` must classify exactly like `T`'s own ledger row.
-const fn assert_value_selects_row<T: BuiltinRequestContract>(
-    row: BuiltinCommand,
-    selected: BuiltinCommand,
-) {
-    assert!(
-        row.classification()
-            .same_contract(T::LEDGER_ROW.classification()),
-        "a typed request serves a ledger row whose classification differs from its own row",
-    );
-    assert!(
-        selected as usize == row as usize,
-        "a `by_value` noun row sends a value whose ledger row is a different row",
-    );
-}
-
-/// Generates the typed-request inventory from the noun table.
-///
-/// Every noun row that names a command contributes one entry for its request
-/// type, and every protocol exception one entry for its request type, so the
-/// inventory has no hand-written row. Rows are repeated when one homogeneous
-/// type serves several protocol branches. Inquiry and convenience rows (`[]`)
-/// contribute nothing: their request types are checked by the facades'
-/// `execute`/`submit` bounds. The first arm normalizes each row to its
-/// command, request type and bracketed request tokens; the second emits the
-/// entries.
 macro_rules! typed_request_inventory {
-    (@entries
-        $( [$($command:ident)?] $ret:ty, $request:tt; )*
-        @exceptions; $( $exkind:ident [$excommand:ident] $exty:ty; )*
-    ) => {
-        /// Compile-time coverage of every semantic built-in row by its typed
-        /// request; see `typed_request_coverage!`.
-        #[used]
-        pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage] = {
-            use crate::{command, request::builtin, types};
-            &[
-                $( $( typed_request_coverage!($command, $ret, $request), )? )*
-                $( typed_request_coverage!(@exception $excommand, $exty, $exkind), )*
-            ]
-        };
-    };
-
     (
         $(
             @noun $noun:ident { $($header:tt)* };
             $(
                 $(#[$doc:meta])*
-                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$key:ident] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
         @exceptions;
         $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
-        typed_request_inventory!(@entries
-            $( $( [$($command)?] $ret, [$($request)*]; )* )*
-            @exceptions; $( $exkind [$excommand] $exty; )*);
+        const _: () = {
+            use crate::command;
+            $( $( assert_canonical_request!($kind, $ret); )* )*
+            $( assert_request_rows::<$exty>(); )*
+        };
+
+        #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+        const TYPED_REQUEST_FAMILIES: &[Option<TypedRequestFamily>] = {
+            use crate::command;
+            &[
+                $( $( typed_request_family!($kind, $ret, [$($request)*]), )* )*
+                $( typed_request_family!(plain, $exty, [$exkind]), )*
+            ]
+        };
     };
 }
 
 noun_table!(typed_request_inventory);
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+const fn typed_request_coverage_count() -> usize {
+    let mut count = 0;
+    let mut index = 0;
+    while index < TYPED_REQUEST_FAMILIES.len() {
+        if let Some(family) = TYPED_REQUEST_FAMILIES[index] {
+            count += family.rows.len();
+        }
+        index += 1;
+    }
+    count
+}
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+const fn build_typed_request_coverage<const N: usize>() -> [BuiltinTypedRequestCoverage; N] {
+    let mut coverage = [BuiltinTypedRequestCoverage {
+        row: BuiltinCommand::ALL[0],
+        type_name: "",
+        branch: "",
+        state_key: None,
+    }; N];
+    let mut output = 0;
+    let mut family_index = 0;
+    while family_index < TYPED_REQUEST_FAMILIES.len() {
+        if let Some(family) = TYPED_REQUEST_FAMILIES[family_index] {
+            if !family.state_by_row.is_empty() {
+                assert!(
+                    family.state_by_row.len() == family.rows.len(),
+                    "an encoding-selected state map must cover exactly its declared rows"
+                );
+            }
+            let mut row_index = 0;
+            while row_index < family.rows.len() {
+                let row = family.rows[row_index];
+                let mut state_key = family.state_key;
+                if !family.state_by_row.is_empty() {
+                    let mut found = false;
+                    let mut state_index = 0;
+                    while state_index < family.state_by_row.len() {
+                        let (candidate, key) = family.state_by_row[state_index];
+                        if candidate as usize == row as usize {
+                            assert!(!found, "an encoding-selected state map repeats a row");
+                            found = true;
+                            state_key = key;
+                        }
+                        state_index += 1;
+                    }
+                    assert!(found, "an encoding-selected state map omits a declared row");
+                }
+                coverage[output] = BuiltinTypedRequestCoverage {
+                    row,
+                    type_name: family.type_name,
+                    branch: family.branch,
+                    state_key,
+                };
+                output += 1;
+                row_index += 1;
+            }
+        }
+        family_index += 1;
+    }
+    assert!(output == N);
+    coverage
+}
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage] =
+    &build_typed_request_coverage::<{ typed_request_coverage_count() }>();
 
 /// Reset the pan/tilt mechanism.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -1500,9 +1618,9 @@ impl PanTiltDrive {
         tilt_speed: TiltSpeed,
     ) -> Result<Self, Error> {
         if direction == PanTiltDirection::Stop {
-            return Err(Error::InvalidRequest(
-                "use PanTiltStop for the stop operation".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "use PanTiltStop for the stop operation".into(),
+            });
         }
         Ok(Self {
             direction,
@@ -1579,7 +1697,7 @@ impl PanTiltAbsolute {
 
     /// Creates an absolute target from one coarse speed through the profile's
     /// position-command grammar.
-    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub(crate) fn for_target_speed_level(
         pan: Degrees,
         tilt: Degrees,
@@ -1629,7 +1747,7 @@ impl PanTiltRelative {
 
     /// Creates a relative target from one coarse speed through the profile's
     /// position-command grammar.
-    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub(crate) fn for_target_speed_level(
         pan: Degrees,
         tilt: Degrees,
@@ -1699,6 +1817,7 @@ impl PanTiltLimitClear {
     ///
     /// Use [`Self::for_profile`] when the camera profile owns a different
     /// position-command framing, such as Sony BRC-300.
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     #[must_use]
     pub const fn new(corner: PanTiltLimitCorner) -> Self {
         Self {
@@ -1753,8 +1872,8 @@ impl ZoomTarget {
     /// Creates a direct zoom target from a normalized position.
     ///
     /// `0.0` is the wide end and `1.0` the telephoto end of the selected
-    /// domain. [`ZoomDomain::Optical`] always normalizes across the profile's
-    /// documented optical range; [`ZoomDomain::OpticalPlusDigital`] requires a
+    /// domain. [`crate::types::ZoomDomain::Optical`] always normalizes across the profile's
+    /// documented optical range; [`crate::types::ZoomDomain::OpticalPlusDigital`] requires a
     /// documented digital maximum and never falls back to the optical one.
     ///
     /// # Errors
@@ -1762,8 +1881,8 @@ impl ZoomTarget {
     /// Returns an error when the selected domain has no documented maximum for
     /// `profile`, or when the mapped raw value is outside the VISCA zoom range.
     ///
-    /// [`ZoomDomain::Optical`]: crate::ZoomDomain::Optical
-    /// [`ZoomDomain::OpticalPlusDigital`]: crate::ZoomDomain::OpticalPlusDigital
+    /// [`crate::types::ZoomDomain::Optical`]: crate::types::ZoomDomain::Optical
+    /// [`crate::types::ZoomDomain::OpticalPlusDigital`]: crate::types::ZoomDomain::OpticalPlusDigital
     pub fn from_normalized(
         position: crate::units::UnitInterval,
         domain: crate::ZoomDomain,
@@ -1960,14 +2079,6 @@ builtin_request! {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct IrisReset;
 
-impl IrisReset {
-    /// Creates an iris-reset request.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
 builtin_request! {
     IrisReset => IrisReset: Targeted {
         size: 6,
@@ -1979,14 +2090,6 @@ builtin_request! {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct IrisUp;
 
-impl IrisUp {
-    /// Creates an iris-step-up request.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
 builtin_request! {
     IrisUp => IrisUp: Targeted {
         size: 6,
@@ -1997,14 +2100,6 @@ builtin_request! {
 /// Decrease the iris/aperture by one camera-defined step.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct IrisDown;
-
-impl IrisDown {
-    /// Creates an iris-step-down request.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
-    }
-}
 
 builtin_request! {
     IrisDown => IrisDown: Targeted {
@@ -2022,12 +2117,6 @@ impl IrisDirect {
     #[must_use]
     pub const fn new(level: IrisLevel) -> Self {
         Self(level)
-    }
-
-    /// Returns the requested iris level.
-    #[must_use]
-    pub const fn level(self) -> IrisLevel {
-        self.0
     }
 }
 
@@ -2048,12 +2137,6 @@ impl NdFilterDirect {
     pub const fn new(value: NdFilterDensity) -> Self {
         Self(value)
     }
-
-    /// Returns the requested ND-filter value.
-    #[must_use]
-    pub const fn value(self) -> NdFilterDensity {
-        self.0
-    }
 }
 
 builtin_request! {
@@ -2067,14 +2150,6 @@ builtin_request! {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NdFilterStepUp;
 
-impl NdFilterStepUp {
-    /// Creates an ND-filter-step-up request.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
 builtin_request! {
     NdFilterStepUp => NdFilterStepUp: Targeted {
         size: 7,
@@ -2085,14 +2160,6 @@ builtin_request! {
 /// Decrease the ND filter by one camera-defined step.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NdFilterStepDown;
-
-impl NdFilterStepDown {
-    /// Creates an ND-filter-step-down request.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
-    }
-}
 
 builtin_request! {
     NdFilterStepDown => NdFilterStepDown: Targeted {
@@ -2254,9 +2321,9 @@ impl BuiltinValidation for PanTiltAbsolute {
     fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
         self.validate(target.profile())?;
         if self.position.mount != target.mount() {
-            return Err(Error::InvalidRequest(
-                "pan/tilt position belongs to a different target mount".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "pan/tilt position belongs to a different target mount".into(),
+            });
         }
         Ok(())
     }
@@ -2290,9 +2357,9 @@ impl BuiltinValidation for PanTiltLimitSet {
     fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
         self.validate(target.profile())?;
         if self.position.mount != target.mount() {
-            return Err(Error::InvalidRequest(
-                "pan/tilt limit belongs to a different target mount".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "pan/tilt limit belongs to a different target mount".into(),
+            });
         }
         Ok(())
     }
@@ -2308,9 +2375,9 @@ impl BuiltinValidation for PanTiltLimitClear {
             .pan_tilt_coordinates()
             .is_none_or(|conversion| conversion.wire_codec() != self.wire_codec)
         {
-            return Err(Error::InvalidRequest(
-                "pan/tilt limit-clear request was built for a different wire codec".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "pan/tilt limit-clear request was built for a different wire codec".into(),
+            });
         }
         Ok(())
     }
@@ -2320,7 +2387,7 @@ impl BuiltinValidation for ZoomTarget {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
         let zoom = zoom_facts(profile)?;
-        let digital = capabilities.permits_typed(TypedSupportSurface::DigitalZoomRange);
+        let digital = capabilities.supports(TypedSupportSurface::DigitalZoomRange);
         if self.1 == Some(crate::ZoomDomain::OpticalPlusDigital) {
             require(digital, "optical-plus-digital zoom positioning")?;
         }
@@ -2382,7 +2449,13 @@ impl BuiltinValidation for FocusModeCommand {
         let capabilities = profile.capabilities();
 
         if matches!(self, Self::Auto | Self::Toggle) {
-            require(capabilities.has_auto_focus(), "automatic focus")?;
+            require(
+                capabilities
+                    .focus
+                    .as_ref()
+                    .is_some_and(|domain| domain.auto_focus),
+                "automatic focus",
+            )?;
         }
         Ok(())
     }
@@ -2432,9 +2505,9 @@ impl BuiltinValidation for PresetRecall {
         if profile.preset_recall_axes() == Some(self.axes) {
             Ok(())
         } else {
-            Err(Error::InvalidRequest(
-                "preset recall was prepared for a different profile axis set".into(),
-            ))
+            Err(Error::InvalidRequest {
+                reason: "preset recall was prepared for a different profile axis set".into(),
+            })
         }
     }
 }
@@ -2451,7 +2524,7 @@ impl BuiltinValidation for PresetReset {
     }
 }
 
-impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
+impl BuiltinValidation for crate::command::preset_wire::PresetRecallSpeedCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let speed = self.speed.value();
         let range = presets_facts(profile)?.recall_speed_range.as_ref().ok_or(
@@ -2463,44 +2536,44 @@ impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
     }
 }
 
-impl BuiltinValidation for crate::command::focus::FocusLockCommand {}
+impl BuiltinValidation for crate::command::focus_wire::FocusLockCommand {}
 
-impl BuiltinValidation for crate::command::exposure::SpotlightOn {}
+impl BuiltinValidation for crate::command::exposure_wire::SpotlightOn {}
 
-impl BuiltinValidation for crate::command::exposure::SpotlightOff {}
+impl BuiltinValidation for crate::command::exposure_wire::SpotlightOff {}
 
-impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOn {}
+impl BuiltinValidation for crate::command::exposure_wire::AutoSlowShutterOn {}
 
-impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {}
+impl BuiltinValidation for crate::command::exposure_wire::AutoSlowShutterOff {}
 
-impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {}
+impl BuiltinValidation for crate::command::nd_filter_wire::NdFilterModeCommand {}
 
-impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {}
+impl BuiltinValidation for crate::command::nd_filter_wire::AutoNdCommand {}
 
 impl BuiltinValidation for crate::command::flip::ImageFreeze {}
 
-impl BuiltinValidation for crate::command::zoom::DigitalZoom {}
+impl BuiltinValidation for crate::command::zoom_wire::DigitalZoom {}
 
-impl BuiltinValidation for crate::command::streaming::MulticastStreamingCommand {}
+impl BuiltinValidation for crate::command::streaming_wire::MulticastStreamingCommand {}
 
-impl BuiltinValidation for crate::command::streaming::SetNdiQuality {}
+impl BuiltinValidation for crate::command::streaming_wire::SetNdiQuality {}
 
-impl BuiltinValidation for crate::command::tally::TallyBrightLo {}
+impl BuiltinValidation for crate::command::tally_wire::TallyBrightLo {}
 
-impl BuiltinValidation for crate::command::tally::TallyBrightHi {}
+impl BuiltinValidation for crate::command::tally_wire::TallyBrightHi {}
 
 impl BuiltinValidation for crate::command::variable_speed::SetVariableSpeedMode {}
 
-impl BuiltinValidation for crate::command::tally::TallyOn {}
+impl BuiltinValidation for crate::command::tally_wire::TallyOn {}
 
-impl BuiltinValidation for crate::command::tally::TallyOff {}
+impl BuiltinValidation for crate::command::tally_wire::TallyOff {}
 
-impl BuiltinValidation for crate::command::tally::TallyFlash {}
+impl BuiltinValidation for crate::command::tally_wire::TallyFlash {}
 
 // State keys and verbs come from the ledger; requests supply only typed values.
 #[cfg(any(feature = "blocking", feature = "async"))]
 impl BuiltinStateValue<crate::command::ImageFlipMode>
-    for crate::command::image::ImageFlipCombinedCommand
+    for crate::command::image_wire::ImageFlipCombinedCommand
 {
     fn state_value(&self) -> crate::command::ImageFlipMode {
         self.mode
@@ -2522,51 +2595,53 @@ impl BuiltinStateValue<crate::PanTiltLimitUpdate> for PanTiltLimitClear {
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<u8> for crate::command::preset::PresetRecallSpeedCommand {
-    fn state_value(&self) -> u8 {
-        self.speed.value()
+impl BuiltinStateValue<crate::types::PresetSpeed>
+    for crate::command::preset_wire::PresetRecallSpeedCommand
+{
+    fn state_value(&self) -> crate::types::PresetSpeed {
+        self.speed
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::focus::FocusLockCommand {
+impl BuiltinStateValue<bool> for crate::command::focus_wire::FocusLockCommand {
     fn state_value(&self) -> bool {
         self.enabled()
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::exposure::SpotlightOn {
+impl BuiltinStateValue<bool> for crate::command::exposure_wire::SpotlightOn {
     fn state_value(&self) -> bool {
         true
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::exposure::SpotlightOff {
+impl BuiltinStateValue<bool> for crate::command::exposure_wire::SpotlightOff {
     fn state_value(&self) -> bool {
         false
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::exposure::AutoSlowShutterOn {
+impl BuiltinStateValue<bool> for crate::command::exposure_wire::AutoSlowShutterOn {
     fn state_value(&self) -> bool {
         true
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::exposure::AutoSlowShutterOff {
+impl BuiltinStateValue<bool> for crate::command::exposure_wire::AutoSlowShutterOff {
     fn state_value(&self) -> bool {
         false
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
 impl BuiltinStateValue<crate::command::NdFilterMode>
-    for crate::command::nd_filter::NdFilterModeCommand
+    for crate::command::nd_filter_wire::NdFilterModeCommand
 {
     fn state_value(&self) -> crate::command::NdFilterMode {
         self.mode()
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::nd_filter::AutoNdCommand {
+impl BuiltinStateValue<bool> for crate::command::nd_filter_wire::AutoNdCommand {
     fn state_value(&self) -> bool {
         self.enabled()
     }
@@ -2578,33 +2653,37 @@ impl BuiltinStateValue<bool> for crate::command::flip::ImageFreeze {
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::zoom::DigitalZoom {
+impl BuiltinStateValue<bool> for crate::command::zoom_wire::DigitalZoom {
     fn state_value(&self) -> bool {
         self.enabled()
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::streaming::MulticastStreamingCommand {
+impl BuiltinStateValue<bool> for crate::command::streaming_wire::MulticastStreamingCommand {
     fn state_value(&self) -> bool {
         self.enabled()
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<crate::types::NdiQuality> for crate::command::streaming::SetNdiQuality {
+impl BuiltinStateValue<crate::types::NdiQuality> for crate::command::streaming_wire::SetNdiQuality {
     fn state_value(&self) -> crate::types::NdiQuality {
         self.quality
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::tally::TallyBrightLo {
-    fn state_value(&self) -> bool {
-        false
+impl BuiltinStateValue<crate::types::TallyBrightness>
+    for crate::command::tally_wire::TallyBrightLo
+{
+    fn state_value(&self) -> crate::types::TallyBrightness {
+        crate::types::TallyBrightness::Low
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::tally::TallyBrightHi {
-    fn state_value(&self) -> bool {
-        true
+impl BuiltinStateValue<crate::types::TallyBrightness>
+    for crate::command::tally_wire::TallyBrightHi
+{
+    fn state_value(&self) -> crate::types::TallyBrightness {
+        crate::types::TallyBrightness::High
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
@@ -2616,15 +2695,30 @@ impl BuiltinStateValue<crate::command::PanTiltSpeedMode>
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::tally::TallyOn {
-    fn state_value(&self) -> bool {
-        true
+impl BuiltinStateValue<crate::types::TallyMode> for crate::command::tally_wire::TallyOn {
+    fn state_value(&self) -> crate::types::TallyMode {
+        crate::types::TallyMode::On
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<bool> for crate::command::tally::TallyOff {
-    fn state_value(&self) -> bool {
-        false
+impl BuiltinStateValue<crate::types::TallyMode> for crate::command::tally_wire::TallyOff {
+    fn state_value(&self) -> crate::types::TallyMode {
+        crate::types::TallyMode::Off
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<crate::types::TallyMode> for crate::command::tally_wire::TallyFlash {
+    fn state_value(&self) -> crate::types::TallyMode {
+        crate::types::TallyMode::Flash
+    }
+}
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<crate::types::MotionSyncSpeed>
+    for crate::command::motion_sync_wire::SetMotionSyncPreset
+{
+    fn state_value(&self) -> crate::types::MotionSyncSpeed {
+        self.speed()
     }
 }
 
@@ -2636,20 +2730,20 @@ mod tests {
     use super::*;
     use crate::{
         command::{
-            AntiFlickerCommand, AutoNdCommand, AutoSlowShutterOff, AutoSlowShutterOn, DigitalZoom,
-            ExposureCommand, ExposureMode, FocusLockCommand, ImageFreeze,
+            flip::ImageFreeze, zoom_wire::DigitalZoom, AntiFlickerCommand, AutoNdCommand,
+            AutoSlowShutterOff, AutoSlowShutterOn, ExposureCommand, ExposureMode, FocusLockCommand,
             MulticastStreamingCommand, NdFilterMode, NdFilterModeCommand, PanTiltLimitCorner,
             PanTiltSpeedMode, PresetSpeed, SetNdiQuality, SettingsSaveCommand, SpotlightOff,
             SpotlightOn, TallyBrightHi, TallyBrightLo, TallyFlash, TallyOff, TallyOn, TallyRedOn,
-            WhiteBalanceCommand, WhiteBalanceMode,
+            WhiteBalanceMode,
         },
         prepared::{
             test_support::{prepare_builtin_command, prepare_builtin_operation, prepare_command},
             ClassSelection,
         },
         profiles::{
-            GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-            SonyBRCH900, SonyEVIH100, SonyFR7,
+            GenericVisca, NearusBrc300, PtzOptics30x, PtzOpticsG2, PtzOpticsG3, SonyBrc300,
+            SonyBrcH900, SonyEviH100, SonyFr7,
         },
         types::{FocusSpeed, NdiQuality},
         OperationalTuning, PlainCommand, ProfileSpec,
@@ -2661,12 +2755,12 @@ mod tests {
         let profiles = [
             ProfileSpec::from_compile_time::<PtzOpticsG2>(),
             ProfileSpec::from_compile_time::<PtzOpticsG3>(),
-            ProfileSpec::from_compile_time::<PtzOptics30X>(),
-            ProfileSpec::from_compile_time::<SonyFR7>(),
-            ProfileSpec::from_compile_time::<SonyBRCH900>(),
-            ProfileSpec::from_compile_time::<SonyEVIH100>(),
-            ProfileSpec::from_compile_time::<SonyBRC300>(),
-            ProfileSpec::from_compile_time::<NearusBRC300>(),
+            ProfileSpec::from_compile_time::<PtzOptics30x>(),
+            ProfileSpec::from_compile_time::<SonyFr7>(),
+            ProfileSpec::from_compile_time::<SonyBrcH900>(),
+            ProfileSpec::from_compile_time::<SonyEviH100>(),
+            ProfileSpec::from_compile_time::<SonyBrc300>(),
+            ProfileSpec::from_compile_time::<NearusBrc300>(),
             ProfileSpec::from_compile_time::<GenericVisca>(),
         ];
         fn prepared<C: OperationCommand<completion::AppliedOnly> + BuiltinValidation>(
@@ -2839,7 +2933,7 @@ mod tests {
         );
         let sony = crate::TargetRegistration::new(
             CameraId::CAMERA_1,
-            ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI"),
+            ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI"),
         )
         .expect("target");
         let bytes = prepare_builtin_operation::<completion::Targeted, _>(
@@ -2908,6 +3002,31 @@ mod tests {
             .write_into(CameraId::CAMERA_1, &mut buffer)
             .expect("command must encode");
         buffer[..length].to_vec()
+    }
+
+    /// Copy complete protocol facts while retaining only selections whose
+    /// grants the caller preserved in its deliberately altered test profile.
+    fn runtime_profile_builder(
+        source: &ProfileSpec,
+        capabilities: crate::capabilities::Capabilities,
+    ) -> crate::profiles::ProfileSpecBuilder {
+        let grants = capabilities.typed_support;
+        let mut builder = ProfileSpec::builder(capabilities)
+            .transports(source.transports())
+            .envelope(source.envelope())
+            .timing(source.timing())
+            .maximum_command_sockets(source.maximum_command_sockets())
+            .supports_operation_complete(source.supports_operation_complete())
+            .supports_command_cancel(source.supports_command_cancel())
+            .position_inquiries(source.position_inquiries());
+        for encoding in source
+            .encodings()
+            .iter()
+            .filter(|value| grants.contains(value.surface()))
+        {
+            builder = builder.encoding(encoding);
+        }
+        builder
     }
 
     fn assert_profile_range_error(
@@ -2994,8 +3113,8 @@ mod tests {
     fn usb_audio_direct_validation_follows_the_registry_capability_fact() {
         let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
         let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
-        let thirty_x = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile");
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let thirty_x = ProfileSpec::from_compile_time::<PtzOptics30x>().expect("30X profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
         let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
 
         for profile in [&g2, &thirty_x] {
@@ -3029,12 +3148,12 @@ mod tests {
     fn vendor_command_validation_follows_the_static_typed_surface() {
         let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
         let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
-        let thirty_x = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile");
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
-        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
-        let evi = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI profile");
-        let brc300 = ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC300 profile");
-        let nearus = ProfileSpec::from_compile_time::<NearusBRC300>().expect("Nearus profile");
+        let thirty_x = ProfileSpec::from_compile_time::<PtzOptics30x>().expect("30X profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBrcH900>().expect("H900 profile");
+        let evi = ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI profile");
+        let brc300 = ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC300 profile");
+        let nearus = ProfileSpec::from_compile_time::<NearusBrc300>().expect("Nearus profile");
         let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
         let profiles = [
             &g2, &g3, &thirty_x, &fr7, &h900, &evi, &brc300, &nearus, &generic,
@@ -3061,7 +3180,7 @@ mod tests {
                             OperationalTuning::new(),
                         )
                         .is_ok(),
-                        profile.capabilities().permits_typed($surface),
+                        profile.capabilities().supports($surface),
                         "{request:?} runtime validation must match {:?} for {}",
                         $surface,
                         profile.capabilities().model_name,
@@ -3071,39 +3190,54 @@ mod tests {
         }
 
         follows_static_surface!(
-            TypedSupportSurface::PtzOpticsAntiFlicker,
+            TypedSupportSurface::AntiFlicker,
             AntiFlickerCommand::new(crate::command::AntiFlickerMode::Hz50)
         );
         follows_static_surface!(
-            TypedSupportSurface::PtzOpticsSettingsSave,
+            TypedSupportSurface::SettingsSave,
             SettingsSaveCommand::new()
         );
-        follows_static_surface!(
-            TypedSupportSurface::PtzOpticsPresetRecallSpeed,
-            crate::command::PresetRecallSpeedCommand::new(
-                PresetSpeed::new(12).expect("valid recall speed")
+        for profile in profiles {
+            let target = crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                profile.clone(),
+            );
+            let result = crate::command::presets::SetRecallSpeed::for_target(
+                &target,
+                PresetSpeed::new(12).expect("valid recall speed"),
             )
-        );
-        follows_static_surface!(TypedSupportSurface::SonySpotlight, SpotlightOn::new());
-        follows_static_surface!(TypedSupportSurface::SonySpotlight, SpotlightOff::new());
+            .and_then(|request| {
+                prepare_builtin_command(&request, &target, OperationalTuning::new()).map(drop)
+            });
+            assert_eq!(
+                result.is_ok(),
+                profile
+                    .capabilities()
+                    .supports(TypedSupportSurface::PresetRecallSpeed),
+                "canonical recall speed uses the selected encoding for {}: {result:?}",
+                profile.name()
+            );
+        }
+        follows_static_surface!(TypedSupportSurface::Spotlight, SpotlightOn::new());
+        follows_static_surface!(TypedSupportSurface::Spotlight, SpotlightOff::new());
         follows_static_surface!(
-            TypedSupportSurface::SonyAutoSlowShutter,
+            TypedSupportSurface::AutoSlowShutter,
             AutoSlowShutterOn::new()
         );
         follows_static_surface!(
-            TypedSupportSurface::SonyAutoSlowShutter,
+            TypedSupportSurface::AutoSlowShutter,
             AutoSlowShutterOff::new()
         );
         follows_static_surface!(
-            TypedSupportSurface::PtzOpticsMulticastStreaming,
+            TypedSupportSurface::MulticastStreaming,
             MulticastStreamingCommand::new(true)
         );
         follows_static_surface!(
-            TypedSupportSurface::PtzOpticsMulticastStreaming,
+            TypedSupportSurface::MulticastStreaming,
             MulticastStreamingCommand::new(false)
         );
         follows_static_surface!(
-            TypedSupportSurface::PtzOpticsNdiQuality,
+            TypedSupportSurface::NdiQuality,
             SetNdiQuality::new(NdiQuality::High)
         );
         follows_static_surface!(
@@ -3111,131 +3245,59 @@ mod tests {
             FocusTrigger::OnePush
         );
         follows_static_surface!(
-            completion::AppliedOnly: TypedSupportSurface::PtzOpticsSnapFocus,
+            completion::AppliedOnly: TypedSupportSurface::SnapFocus,
             FocusTrigger::Snap
-        );
-        follows_static_surface!(
-            TypedSupportSurface::OnePushWhiteBalance,
-            WhiteBalanceCommand::new(WhiteBalanceMode::OnePush)
-        );
-        follows_static_surface!(
-            TypedSupportSurface::AutoTrackingWhiteBalance,
-            WhiteBalanceCommand::new(WhiteBalanceMode::Atw)
-        );
-        follows_static_surface!(
-            TypedSupportSurface::ColorTemperature,
-            WhiteBalanceCommand::new(WhiteBalanceMode::ColorTemperature)
         );
     }
 
-    /// Each white-balance mode is gated by the typed gate of the ledger row
-    /// it selects. A built-in profile's mode list already rejects every mode
-    /// whose typed gate it denies, so this runtime profile admits every mode
-    /// and withdraws one row gate at a time.
+    /// Modes are a profile value inventory. Optional white-balance action
+    /// grants do not redefine which mode values the camera accepts.
     #[test]
-    fn white_balance_modes_follow_the_typed_gate_of_their_own_row() {
-        const MODES: [WhiteBalanceMode; 7] = [
-            WhiteBalanceMode::Auto,
-            WhiteBalanceMode::Indoor,
-            WhiteBalanceMode::Outdoor,
-            WhiteBalanceMode::OnePush,
-            WhiteBalanceMode::Atw,
-            WhiteBalanceMode::Manual,
-            WhiteBalanceMode::ColorTemperature,
-        ];
-        let gated = [
-            (
-                WhiteBalanceMode::OnePush,
-                TypedSupportSurface::OnePushWhiteBalance,
-                "one-push white balance",
-            ),
-            (
-                WhiteBalanceMode::Atw,
-                TypedSupportSurface::AutoTrackingWhiteBalance,
-                "auto-tracking white balance",
-            ),
-            (
-                WhiteBalanceMode::ColorTemperature,
-                TypedSupportSurface::ColorTemperature,
-                "color-temperature white balance",
-            ),
-        ];
-
-        let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
-        let mut capabilities = source.capabilities().clone();
-        capabilities.profile_id = None;
-        capabilities.model_name = "Every white-balance mode".into();
-        capabilities
-            .white_balance
-            .as_mut()
-            .expect("white balance")
-            .modes = MODES.to_vec();
-        capabilities
-            .white_balance
-            .as_mut()
-            .expect("white balance")
-            .one_push = true;
-        capabilities
-            .white_balance
-            .as_mut()
-            .expect("white balance")
-            .color_temp_range = Some(crate::capabilities::CapabilityRange::<u16>::new(2500, 8000));
-        capabilities.typed_support =
-            capabilities
-                .typed_support
-                .union(crate::capabilities::TypedSupportSet::from_surfaces(&[
-                    TypedSupportSurface::OnePushWhiteBalance,
-                    TypedSupportSurface::AutoTrackingWhiteBalance,
-                    TypedSupportSurface::ColorTemperature,
-                ]));
-        let profile = |typed_support| {
-            let mut capabilities = capabilities.clone();
-            capabilities.typed_support = typed_support;
-            ProfileSpec::builder(capabilities)
-                .transports(source.transports())
-                .envelope(source.envelope())
-                .timing(source.timing())
-                .maximum_command_sockets(source.maximum_command_sockets())
-                .supports_operation_complete(source.supports_operation_complete())
-                .supports_command_cancel(source.supports_command_cancel())
-                .position_inquiries(source.position_inquiries())
-                .build()
-                .expect("runtime profile admitting every white-balance mode")
-        };
-
-        let full = profile(capabilities.typed_support);
-        for mode in MODES {
-            assert!(
-                WhiteBalanceCommand::new(mode)
-                    .validate_for_target(&crate::TargetRegistration::from_profile(
-                        crate::target::TargetSlot::CAMERA_1,
-                        full.clone()
-                    ))
-                    .is_ok(),
-                "{mode:?} must be admitted when every row gate is permitted"
-            );
-        }
-        for (denied, surface, feature) in gated {
-            let profile = profile(capabilities.typed_support.without(surface));
-            for mode in MODES {
-                let result = WhiteBalanceCommand::new(mode).validate_for_target(
-                    &crate::TargetRegistration::from_profile(
-                        crate::target::TargetSlot::CAMERA_1,
-                        profile.clone(),
-                    ),
+    fn white_balance_mode_families_admit_only_sourced_profile_values() {
+        use crate::command::white_balance::SetMode;
+        for model in crate::profiles::ProfileId::all() {
+            let profile = model.spec().expect("built-in profile");
+            let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
+                .expect("target");
+            let modes = &profile
+                .capabilities()
+                .white_balance
+                .as_ref()
+                .expect("white-balance domain")
+                .modes;
+            let mut admitted = 0;
+            for code in u8::MIN..=u8::MAX {
+                let Ok(mode) = WhiteBalanceMode::from_wire(code) else {
+                    continue;
+                };
+                let request = SetMode::new(mode);
+                let result = request.validate_for_target(&target);
+                assert_eq!(
+                    result.is_ok(),
+                    modes.contains(&mode),
+                    "{model:?} {mode:?}: {result:?}"
                 );
-                if mode == denied {
-                    assert!(
-                        matches!(result, Err(Error::FeatureNotSupported { .. })),
-                        "{mode:?} without {surface:?} must report {feature:?}, got {result:?}"
-                    );
-                } else {
-                    assert!(
-                        result.is_ok(),
-                        "{mode:?} must not depend on {surface:?}, got {result:?}"
-                    );
+                if result.is_err() {
+                    continue;
                 }
+                admitted += 1;
+                let row = request
+                    .selected_ledger_row_for_target(&target)
+                    .expect("selected mode row");
+                assert!(<SetMode as BuiltinRequestContract>::LEDGER_ROWS.contains(&row));
+                assert!(
+                    row.source().covers_model(Some(*model)),
+                    "{model:?} {mode:?} lacks its selected source"
+                );
+                let mut buffer = [0; 16];
+                let written = crate::requests::write_for_target(&request, &target, &mut buffer)
+                    .expect("source-backed mode frame");
+                row.packet()
+                    .expect("sourced mode packet")
+                    .validate_frame(&buffer[..written], "admitted white-balance mode")
+                    .expect("selected source packet");
             }
+            assert!(admitted > 0, "{model:?} mode proof must not be vacuous");
         }
     }
 
@@ -3243,12 +3305,12 @@ mod tests {
     fn profile_aware_speed_level_lowering_keeps_standard_pairs_and_mirrors_brc300() {
         let standard = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
         let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
-        let thirty_x = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile");
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
-        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
-        let evi = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI profile");
-        let brc300 = ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile");
-        let nearus = ProfileSpec::from_compile_time::<NearusBRC300>().expect("Nearus profile");
+        let thirty_x = ProfileSpec::from_compile_time::<PtzOptics30x>().expect("30X profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBrcH900>().expect("H900 profile");
+        let evi = ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI profile");
+        let brc300 = ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300 profile");
+        let nearus = ProfileSpec::from_compile_time::<NearusBrc300>().expect("Nearus profile");
         let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
 
         let standard_absolute = PanTiltAbsolute::for_target_speed_level(
@@ -3353,9 +3415,9 @@ mod tests {
     /// Preset 255 exercises a final data byte equal to the terminator (#683).
     #[test]
     fn preset_and_direct_menu_value_domains_stay_terminated() {
-        use crate::command::menu::DirectMenuControl;
+        use crate::command::menu_wire::DirectMenuControl;
 
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
 
         for number in 0..=u8::MAX {
             let preset = PresetNumber::new(number).expect("preset number in range");
@@ -3420,9 +3482,9 @@ mod tests {
     /// before encoding, while retaining its distinct direct-menu command.
     #[test]
     fn fr7_preset_boundary_and_direct_menu_prepare_with_source_backed_facts() {
-        use crate::command::menu::DirectMenuControl;
+        use crate::command::menu_wire::DirectMenuControl;
 
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
         let registration = crate::TargetRegistration::new(CameraId::CAMERA_1, fr7.clone())
             .expect("target registration");
         let highest = PresetNumber::new(99).expect("R7 highest preset");
@@ -3598,8 +3660,8 @@ mod tests {
         }
 
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
-        let evi = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
+        let evi = ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI profile");
 
         macro_rules! row {
             ($name:literal, $command:expr, $profile:expr, $semantic:expr, $expected:expr) => {{
@@ -3628,7 +3690,7 @@ mod tests {
             .expect("limit set"),
             &ptz,
             B::PanTiltLimitSet,
-            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::PanTiltLimits(
+            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::PanTiltLimit(
                 crate::PanTiltLimitUpdate::set(
                     PanTiltLimitCorner::DownLeft,
                     crate::camera::PanTiltUnits::new(0, 0)
@@ -3640,7 +3702,7 @@ mod tests {
             PanTiltLimitClear::new(PanTiltLimitCorner::UpRight),
             &ptz,
             B::PanTiltLimitClear,
-            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::PanTiltLimits(
+            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::PanTiltLimit(
                 crate::PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight)
             ))
         );
@@ -3653,7 +3715,7 @@ mod tests {
             &ptz,
             B::PresetRecallSpeed,
             crate::runtime::engine::AppliedStateProjection::set(
-                crate::KnownState::PresetRecallSpeed(12)
+                crate::KnownState::PresetsRecallSpeed(PresetSpeed::new(12).expect("preset speed"))
             )
         );
         row!(
@@ -3661,16 +3723,14 @@ mod tests {
             FocusLockCommand::new(true),
             &ptz,
             B::FocusLock,
-            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::FocusLockMode(
-                true
-            ))
+            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::FocusLock(true))
         );
         row!(
             "focus lock off",
             FocusLockCommand::new(false),
             &ptz,
             B::FocusLock,
-            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::FocusLockMode(
+            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::FocusLock(
                 false
             ))
         );
@@ -3680,16 +3740,18 @@ mod tests {
             SpotlightOn::new(),
             &fr7,
             B::SpotlightOn,
-            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::Spotlight(true))
+            crate::runtime::engine::AppliedStateProjection::set(
+                crate::KnownState::ExposureSpotlight(true)
+            )
         );
         row!(
             "spotlight off",
             SpotlightOff::new(),
             &fr7,
             B::SpotlightOff,
-            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::Spotlight(
-                false
-            ))
+            crate::runtime::engine::AppliedStateProjection::set(
+                crate::KnownState::ExposureSpotlight(false)
+            )
         );
         row!(
             "auto slow shutter on",
@@ -3697,7 +3759,7 @@ mod tests {
             &evi,
             B::AutoSlowShutterOn,
             crate::runtime::engine::AppliedStateProjection::set(
-                crate::KnownState::AutoSlowShutter(true)
+                crate::KnownState::ExposureAutoSlowShutter(true)
             )
         );
         row!(
@@ -3706,7 +3768,7 @@ mod tests {
             &evi,
             B::AutoSlowShutterOff,
             crate::runtime::engine::AppliedStateProjection::set(
-                crate::KnownState::AutoSlowShutter(false)
+                crate::KnownState::ExposureAutoSlowShutter(false)
             )
         );
 
@@ -3733,7 +3795,7 @@ mod tests {
             AutoNdCommand::new(true),
             &fr7,
             B::NdFilterAutoOn,
-            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::AutoNdFilter(
+            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::NdFilterAuto(
                 true
             ))
         );
@@ -3742,7 +3804,7 @@ mod tests {
             AutoNdCommand::new(false),
             &fr7,
             B::NdFilterAutoOff,
-            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::AutoNdFilter(
+            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::NdFilterAuto(
                 false
             ))
         );
@@ -3769,7 +3831,7 @@ mod tests {
             &evi,
             B::DigitalZoom,
             crate::runtime::engine::AppliedStateProjection::set(
-                crate::KnownState::DigitalZoomMode(true)
+                crate::KnownState::ZoomDigitalZoom(true)
             )
         );
         row!(
@@ -3778,7 +3840,7 @@ mod tests {
             &evi,
             B::DigitalZoom,
             crate::runtime::engine::AppliedStateProjection::set(
-                crate::KnownState::DigitalZoomMode(false)
+                crate::KnownState::ZoomDigitalZoom(false)
             )
         );
 
@@ -3788,7 +3850,7 @@ mod tests {
             &ptz,
             B::MulticastStreamingOn,
             crate::runtime::engine::AppliedStateProjection::set(
-                crate::KnownState::MulticastStreaming(true)
+                crate::KnownState::StreamingMulticast(true)
             )
         );
         row!(
@@ -3797,7 +3859,7 @@ mod tests {
             &ptz,
             B::MulticastStreamingOff,
             crate::runtime::engine::AppliedStateProjection::set(
-                crate::KnownState::MulticastStreaming(false)
+                crate::KnownState::StreamingMulticast(false)
             )
         );
         for (name, quality) in [
@@ -3812,9 +3874,9 @@ mod tests {
                 &command,
                 &ptz,
                 B::NdiQuality,
-                crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::NdiQuality(
-                    quality,
-                )),
+                crate::runtime::engine::AppliedStateProjection::set(
+                    crate::KnownState::StreamingNdiQuality(quality),
+                ),
             );
         }
 
@@ -3823,7 +3885,7 @@ mod tests {
             TallyBrightLo::new(),
             B::TallyBrightLow,
             crate::runtime::engine::AppliedStateProjection::set(
-                crate::KnownState::TallyBrightness(false)
+                crate::KnownState::TallyBrightness(crate::types::TallyBrightness::Low)
             )
         );
         semantic_row!(
@@ -3831,7 +3893,7 @@ mod tests {
             TallyBrightHi::new(),
             B::TallyBrightHigh,
             crate::runtime::engine::AppliedStateProjection::set(
-                crate::KnownState::TallyBrightness(true)
+                crate::KnownState::TallyBrightness(crate::types::TallyBrightness::High)
             )
         );
         row!(
@@ -3860,21 +3922,25 @@ mod tests {
             "tally on",
             TallyOn::new(),
             B::TallyOn,
-            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::TallyMode(true))
+            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::TallyMode(
+                crate::types::TallyMode::On
+            ))
         );
         semantic_row!(
             "tally off",
             TallyOff::new(),
             B::TallyOff,
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::TallyMode(
-                false
+                crate::types::TallyMode::Off
             ))
         );
         semantic_row!(
             "tally flash",
             TallyFlash::new(),
             B::TallyFlash,
-            crate::runtime::engine::AppliedStateProjection::invalidate(S::TallyMode)
+            crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::TallyMode(
+                crate::types::TallyMode::Flash
+            ))
         );
 
         // The combined-flip opcode carries both axes, so it records the pair
@@ -3897,7 +3963,9 @@ mod tests {
                 &crate::command::ImageFlipCombinedCommand::new(mode),
                 &ptz,
                 B::ImageFlipCombined,
-                crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::Flip(mode)),
+                crate::runtime::engine::AppliedStateProjection::set(
+                    crate::KnownState::ImageFlipMode(mode),
+                ),
             );
         }
         row!(
@@ -3905,21 +3973,21 @@ mod tests {
             ImageFlipCommand::new(true),
             &ptz,
             B::ImageFlipVertical,
-            crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
+            crate::runtime::engine::AppliedStateProjection::invalidate(S::ImageFlipMode)
         );
         row!(
             "separate horizontal mirror",
             ImageMirrorCommand::new(true),
             &ptz,
             B::ImageFlipHorizontal,
-            crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
+            crate::runtime::engine::AppliedStateProjection::invalidate(S::ImageFlipMode)
         );
         row!(
             "separate horizontal mirror off",
             ImageMirrorCommand::new(false),
             &ptz,
             B::ImageFlipHorizontalOff,
-            crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
+            crate::runtime::engine::AppliedStateProjection::invalidate(S::ImageFlipMode)
         );
     }
 
@@ -4191,7 +4259,7 @@ mod tests {
 
     fn assert_targeted<R>()
     where
-        R: Request<Class = request::Operation<completion::Targeted>>
+        R: Request<Class = request::OperationClass<completion::Targeted>>
             + OperationCommand<completion::Targeted>,
     {
         let _ = core::marker::PhantomData::<R>;
@@ -4199,7 +4267,7 @@ mod tests {
 
     fn assert_applied_only<R>()
     where
-        R: Request<Class = request::Operation<completion::AppliedOnly>>
+        R: Request<Class = request::OperationClass<completion::AppliedOnly>>
             + OperationCommand<completion::AppliedOnly>,
     {
         let _ = core::marker::PhantomData::<R>;
@@ -4268,14 +4336,7 @@ mod tests {
             .as_mut()
             .expect("white-balance domain")
             .color_temperature_steps = vec![2500, 3000, 5700, 8000].into();
-        let profile = ProfileSpec::builder(capabilities)
-            .transports(source.transports())
-            .envelope(source.envelope())
-            .timing(source.timing())
-            .maximum_command_sockets(source.maximum_command_sockets())
-            .supports_operation_complete(source.supports_operation_complete())
-            .supports_command_cancel(source.supports_command_cancel())
-            .position_inquiries(source.position_inquiries())
+        let profile = runtime_profile_builder(&source, capabilities)
             .build()
             .expect("runtime temperature profile");
         let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile)
@@ -4366,10 +4427,10 @@ mod tests {
 
     #[test]
     fn source_admission_uses_the_actual_variant_of_a_homogeneous_command() {
-        use crate::command::image::{Sharpness, SharpnessMode};
+        use crate::command::image_wire::{Sharpness, SharpnessMode};
         let fr7 = crate::TargetRegistration::new(
             CameraId::CAMERA_1,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         )
         .expect("target");
         let direct = Sharpness::SetLevel {
@@ -4448,14 +4509,10 @@ mod tests {
             })
             .collect();
         assert_eq!(inventory_rows, ledger_rows);
-        // Set equality alone cannot see a row listed twice, so pin the entry
-        // count against the ledger the set came from rather than against the
-        // inventory's own length.
-        assert_eq!(
-            BUILTIN_TYPED_REQUEST_INVENTORY.len(),
-            ledger_rows.len(),
-            "the typed request inventory repeats a ledger row"
-        );
+        // Several canonical methods may share a packet (for example explicit
+        // and normalized zoom positioning). The surface index checks their
+        // complete gates and lifecycle contracts at compile time.
+        assert!(BUILTIN_TYPED_REQUEST_INVENTORY.len() >= ledger_rows.len());
     }
 
     #[test]
@@ -4584,14 +4641,7 @@ mod tests {
         capabilities.zoom.as_mut().expect("zoom domain").digital_max = Some(0x7000);
         capabilities.typed_support =
             crate::capabilities::TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
-        let profile = ProfileSpec::builder(capabilities)
-            .transports(source.transports())
-            .envelope(source.envelope())
-            .timing(source.timing())
-            .maximum_command_sockets(source.maximum_command_sockets())
-            .supports_operation_complete(source.supports_operation_complete())
-            .supports_command_cancel(source.supports_command_cancel())
-            .position_inquiries(source.position_inquiries())
+        let profile = runtime_profile_builder(&source, capabilities)
             .build()
             .expect("runtime partial profile");
 
@@ -4639,7 +4689,7 @@ mod tests {
 
     #[test]
     fn profile_validation_rejects_unsupported_physical_requests_before_encoding() {
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
         let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
         let nd = NdFilterDirect::new(NdFilterDensity::new(4).unwrap());
 
@@ -4743,45 +4793,72 @@ mod tests {
     }
 
     #[test]
-    fn noise_reduction_readback_and_control_grants_are_independent() {
+    fn noise_reduction_family_grants_admit_or_refuse_both_readback_and_control() {
+        use crate::command::image::{
+            NoiseReduction2dInquiry, NoiseReduction3dInquiry, SetNoiseReduction2d,
+            SetNoiseReduction3d,
+        };
         let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let supported = crate::TargetRegistration::new(CameraId::CAMERA_1, source.clone())
+            .expect("supported target");
+        for validation in [
+            NoiseReduction2dInquiry.validate_for_target(&supported),
+            NoiseReduction3dInquiry.validate_for_target(&supported),
+        ] {
+            validation.expect("a family grant admits readback");
+        }
+        let two_d = SetNoiseReduction2d::new(crate::types::NoiseReduction2D::Off);
+        let three_d = SetNoiseReduction3d::new(crate::types::NoiseReduction3D::Off);
+        for (bytes, expected) in [
+            (
+                prepare_builtin_command(&two_d, &supported, OperationalTuning::new())
+                    .expect("2D control grant")
+                    .admit_with(|request, _| request.wire().as_bytes().to_vec()),
+                [0x81, 1, 4, 0x53, 0, 0xff],
+            ),
+            (
+                prepare_builtin_command(&three_d, &supported, OperationalTuning::new())
+                    .expect("3D control grant")
+                    .admit_with(|request, _| request.wire().as_bytes().to_vec()),
+                [0x81, 1, 4, 0x54, 0, 0xff],
+            ),
+        ] {
+            assert_eq!(bytes, expected);
+        }
         let mut capabilities = source.capabilities().clone();
         capabilities.profile_id = None;
-        capabilities.model_name = "NR inquiry without NR control".into();
+        capabilities.model_name = "NR without family grants".into();
         capabilities.typed_support = capabilities
             .typed_support
-            .without(TypedSupportSurface::NoiseReduction2DControl)
-            .without(TypedSupportSurface::NoiseReduction3DControl);
-        let profile = ProfileSpec::builder(capabilities)
-            .transports(source.transports())
-            .envelope(source.envelope())
-            .timing(source.timing())
-            .maximum_command_sockets(source.maximum_command_sockets())
-            .supports_operation_complete(source.supports_operation_complete())
-            .supports_command_cancel(source.supports_command_cancel())
-            .position_inquiries(source.position_inquiries())
+            .without(TypedSupportSurface::NoiseReduction2D)
+            .without(TypedSupportSurface::NoiseReduction2DMode)
+            .without(TypedSupportSurface::NoiseReduction3D);
+        let profile = runtime_profile_builder(&source, capabilities)
             .build()
-            .expect("readback may be documented independently from control");
-        assert!(profile.capabilities().has_2d_nr());
+            .expect("withheld family grants");
         let registration =
             crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
-        Request::validate_for_target(&crate::command::NoiseReduction2DInquiry, &registration)
-            .expect("readback grant");
+        for validation in [
+            NoiseReduction2dInquiry.validate_for_target(&registration),
+            NoiseReduction3dInquiry.validate_for_target(&registration),
+        ] {
+            assert!(matches!(validation, Err(Error::FeatureNotSupported { .. })));
+        }
         reset_request_write_count();
-        assert!(prepare_builtin_command(
-            &crate::command::NoiseReduction2D::off(),
-            &registration,
-            OperationalTuning::new()
-        )
-        .is_err());
+        for result in [
+            prepare_builtin_command(&two_d, &registration, OperationalTuning::new()),
+            prepare_builtin_command(&three_d, &registration, OperationalTuning::new()),
+        ] {
+            assert!(matches!(result, Err(Error::FeatureNotSupported { .. })));
+        }
         assert_eq!(request_write_count(), 0);
     }
 
     #[test]
     fn profile_validation_limits_typed_iris_to_supported_profiles() {
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
-        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBrcH900>().expect("H900 profile");
         let iris = IrisDirect::new(IrisLevel::new(4).unwrap());
 
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
@@ -4887,8 +4964,8 @@ mod tests {
 
     #[test]
     fn gain_validation_uses_each_profiles_sourced_domain() {
-        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
-        let evi = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBrcH900>().expect("H900 profile");
+        let evi = ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI profile");
         for (profile, value) in [(&h900, 0x19), (&evi, 0x0F)] {
             let gain = crate::command::Gain::SetValue(
                 crate::types::GainLevel::new(value).expect("sourced gain code"),
@@ -4907,7 +4984,7 @@ mod tests {
         );
         let fr7 = crate::TargetRegistration::new(
             CameraId::CAMERA_1,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"),
         )
         .expect("FR7 target");
         let ptz = crate::TargetRegistration::new(
@@ -4950,7 +5027,7 @@ mod tests {
         for profile in [
             ProfileSpec::from_compile_time::<PtzOpticsG2>(),
             ProfileSpec::from_compile_time::<PtzOpticsG3>(),
-            ProfileSpec::from_compile_time::<PtzOptics30X>(),
+            ProfileSpec::from_compile_time::<PtzOptics30x>(),
         ] {
             let profile = profile.expect("sourced PTZOptics profile");
             let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
@@ -4976,14 +5053,7 @@ mod tests {
             let mut capabilities = profile.capabilities().clone();
             capabilities.profile_id = None;
             capabilities.exposure.as_mut().expect("exposure").gain_range = None;
-            let without_gain_levels = ProfileSpec::builder(capabilities)
-                .transports(profile.transports())
-                .envelope(profile.envelope())
-                .timing(profile.timing())
-                .maximum_command_sockets(profile.maximum_command_sockets())
-                .supports_operation_complete(profile.supports_operation_complete())
-                .supports_command_cancel(profile.supports_command_cancel())
-                .position_inquiries(profile.position_inquiries())
+            let without_gain_levels = runtime_profile_builder(&profile, capabilities)
                 .build()
                 .expect("gain-limit support needs no gain-level range");
             let target = crate::TargetRegistration::new(CameraId::CAMERA_1, without_gain_levels)
@@ -5003,11 +5073,11 @@ mod tests {
             crate::types::GainLimit::new(0x0F).expect("full nibble"),
         );
         for profile in [
-            ProfileSpec::from_compile_time::<SonyFR7>(),
-            ProfileSpec::from_compile_time::<SonyBRCH900>(),
-            ProfileSpec::from_compile_time::<SonyEVIH100>(),
-            ProfileSpec::from_compile_time::<SonyBRC300>(),
-            ProfileSpec::from_compile_time::<NearusBRC300>(),
+            ProfileSpec::from_compile_time::<SonyFr7>(),
+            ProfileSpec::from_compile_time::<SonyBrcH900>(),
+            ProfileSpec::from_compile_time::<SonyEviH100>(),
+            ProfileSpec::from_compile_time::<SonyBrc300>(),
+            ProfileSpec::from_compile_time::<NearusBrc300>(),
             ProfileSpec::from_compile_time::<GenericVisca>(),
         ] {
             let target = crate::TargetRegistration::new(
@@ -5026,7 +5096,7 @@ mod tests {
 
     #[test]
     fn fr7_rejects_every_shared_ae_mode_before_encoding() {
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
 
         reset_request_write_count();
         for mode in [
@@ -5065,14 +5135,7 @@ mod tests {
         capabilities.typed_support = capabilities
             .typed_support
             .without(TypedSupportSurface::ExposureMode);
-        let generic = ProfileSpec::builder(capabilities)
-            .transports(source.transports())
-            .envelope(source.envelope())
-            .timing(source.timing())
-            .maximum_command_sockets(source.maximum_command_sockets())
-            .supports_operation_complete(source.supports_operation_complete())
-            .supports_command_cancel(source.supports_command_cancel())
-            .position_inquiries(source.position_inquiries())
+        let generic = runtime_profile_builder(&source, capabilities)
             .build()
             .expect("runtime profile without exposure-mode permission");
         assert!(!generic
@@ -5084,7 +5147,7 @@ mod tests {
             .is_empty());
         assert!(!generic
             .capabilities()
-            .permits_typed(TypedSupportSurface::ExposureMode));
+            .supports(TypedSupportSurface::ExposureMode));
 
         reset_request_write_count();
         let error = prepare_builtin_command(
@@ -5111,9 +5174,9 @@ mod tests {
     #[test]
     fn tally_families_do_not_inherit_each_others_support() {
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
         let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
-        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBrcH900>().expect("H900 profile");
 
         macro_rules! admits {
             ($profile:expr, $command:expr) => {

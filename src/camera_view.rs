@@ -1,27 +1,14 @@
 //! The getter set shared by every public camera view (#805).
 //!
-//! The typed `Camera<P>` of each facade and both runtime-profile views expose
-//! the same target, profile and submission-class accessors over their erased
+//! Each facade's `Camera<P>` exposes the same target, profile and
+//! submission-class accessors for typed and erased profiles over its shared
 //! owner core (a `core` field). [`camera_view_getters!`] writes them, and
 //! their contracts, once.
 
 /// Expands the shared camera-view getters inside a view's `impl` block.
 ///
-/// `camera_view_getters!()` emits the getter set every view has;
-/// `camera_view_getters!(runtime_profile)` adds the
-/// [`supports_typed`](crate::capabilities::Capabilities::supports_typed)
-/// query the runtime-profile views offer in place of compile-time markers.
+/// `camera_view_getters!()` emits the getter set every view has.
 macro_rules! camera_view_getters {
-    (runtime_profile) => {
-        $crate::camera_view::camera_view_getters!();
-
-        /// Returns whether this view's profile permits one optional typed
-        /// surface: the runtime counterpart of the compile-time marker traits.
-        #[must_use]
-        pub fn supports_typed(&self, surface: $crate::capabilities::TypedSupportSurface) -> bool {
-            self.capabilities().supports_typed(surface)
-        }
-    };
     () => {
         /// Returns this view's fixed camera target.
         #[must_use]
@@ -61,7 +48,7 @@ macro_rules! camera_view_getters {
         /// Returns this view's submission-class default, if it carries one.
         ///
         /// `None` — the initial value — means every request uses its intrinsic
-        /// [`ControlClass`](crate::ControlClass). See
+        /// [`crate::request::ControlClass`](crate::request::ControlClass). See
         /// [`set_submission_class`](Self::set_submission_class).
         #[must_use]
         pub const fn submission_class(&self) -> Option<$crate::SubmissionClass> {
@@ -79,7 +66,7 @@ macro_rules! camera_view_getters {
             selected
         }
 
-        /// Sets the ordinary-work [`SubmissionClass`](crate::SubmissionClass)
+        /// Sets the ordinary-work [`crate::request::SubmissionClass`](crate::request::SubmissionClass)
         /// every later submission from *this view* uses, or clears it with
         /// `None`.
         ///
@@ -94,7 +81,7 @@ macro_rules! camera_view_getters {
         /// The default is a property of *this view*, not of the camera or the
         /// session: another view onto the same target keeps its own value, and
         /// a [`clone`](Clone::clone) copies the current value and then
-        /// diverges. A typed view projected out of a runtime-profile view
+        /// diverges. A typed view projected out of an erased profile view
         /// starts from the same value. It applies to every request the view
         /// submits — commands, inquiries, and operations, including the ones
         /// the noun accessors submit — with exactly one exception.
@@ -102,16 +89,16 @@ macro_rules! camera_view_getters {
         /// # Urgent requests are never demoted
         ///
         /// A request the crate classifies
-        /// [`ControlClass::Urgent`](crate::ControlClass::Urgent) — the typed
-        /// stops [`PanTiltStop`](crate::request::builtin::PanTiltStop),
-        /// [`ZoomStop`](crate::request::builtin::ZoomStop),
-        /// [`FocusStop`](crate::request::builtin::FocusStop), and owner-issued
+        /// [`crate::request::ControlClass::Urgent`](crate::request::ControlClass::Urgent) — the typed
+        /// stops [`Stop`](crate::command::pan_tilt::Stop),
+        /// [`Stop`](crate::command::zoom::Stop),
+        /// [`Stop`](crate::command::focus::Stop), and owner-issued
         /// protocol cancellation — ignores this default and stays urgent. A
         /// view demoted to
-        /// [`SubmissionClass::Background`](crate::SubmissionClass::Background)
+        /// [`crate::request::SubmissionClass::Background`](crate::request::SubmissionClass::Background)
         /// for telemetry polling therefore still preempts with an emergency
         /// stop. Per-submission overrides obey the same safety floor, and
-        /// [`SubmissionClass`](crate::SubmissionClass) deliberately has no
+        /// [`crate::request::SubmissionClass`](crate::request::SubmissionClass) deliberately has no
         /// urgent variant for callers to manufacture.
         ///
         /// Owner-internal traffic that no caller submitted — the settlement

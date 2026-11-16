@@ -11,7 +11,7 @@
 //! `--g2-unsupported` with a TCP address to demonstrate a profile without
 //! socket cancellation: on the PTZOptics G2 bench a G2 answers `81 2y FF`
 //! with a syntax error and the command completes, so after a G2 command is
-//! written, `cancel()` refuses with `Error::NotSupported` and the same handle
+//! written, `cancel()` refuses with `Error::CancellationNotSupported` and the same handle
 //! still observes the command. On real G2 hardware a continuous zoom drive
 //! usually reports ACK and completion together about 50 ms after the write
 //! while the lens keeps moving, so `cancel()` typically returns
@@ -28,9 +28,8 @@ mod support;
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    camera::profiles::{PtzOpticsG2, SonyEVIH100},
-    runtime::TokioRuntime,
-    Camera, CancellationOutcome, Connect, Error,
+    operation::CancellationOutcome, profiles::PtzOpticsG2, profiles::SonyEviH100, r#async::Camera,
+    r#async::CameraSession, runtime::TokioRuntime, Error,
 };
 
 use support::finish_session;
@@ -55,21 +54,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let runtime = TokioRuntime::from_current()?;
     if g2_unsupported {
-        let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
+        let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address, runtime).await?;
         let result = cancel_g2_drive(session.camera()).await;
         finish_session(result, session.close().await)?;
     } else {
-        let session = Connect::open_serial::<SonyEVIH100, _>(&address, 9_600, runtime).await?;
-        let result = match session.camera::<SonyEVIH100>() {
-            Ok(camera) => cancel_supported_drive(&camera).await,
-            Err(error) => Err(error),
-        };
+        let session =
+            CameraSession::<SonyEviH100>::connect_serial(&address, 9_600, runtime).await?;
+        let result = cancel_supported_drive(session.camera()).await;
         finish_session(result, session.close().await)?;
     }
     Ok(())
 }
 
-async fn cancel_supported_drive(camera: &Camera<SonyEVIH100>) -> Result<(), Error> {
+async fn cancel_supported_drive(camera: &Camera<SonyEviH100>) -> Result<(), Error> {
     // Start a continuous zoom drive and let its first write reach the camera, so
     // the cancel below exercises the post-send path rather than a local queue
     // removal.
@@ -126,7 +123,7 @@ async fn cancel_g2_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     };
 
     let refused = match cancellation {
-        Err(Error::NotSupported) => {
+        Err(Error::CancellationNotSupported) => {
             println!("G2 cannot cancel a sent command");
             true
         }

@@ -5,14 +5,13 @@ use std::time::Duration;
 use visca_renamed::wire::WireValue;
 
 use visca_renamed::{
-    capabilities::{
-        self, Exposure, Focus, HasImageProcessing, ImageProcessing, MenuCapability,
-        MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
-        ProfileTypedSupport, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
-    },
-    command::{RawInquiryPayload, Response, ResponseParser},
-    request, value, value_enum, AffectedAxes, CameraId, CompileTimeProfile, Inquiry,
-    PositionInquirySupport, ProfileSpec, Request, TransportCompatibility, ViscaInquiry,
+    capabilities::{self, HasImage},
+    profiles::{CompileTimeProfile, ProfileSpec, TransportCompatibility},
+    request::{self, Inquiry, Request},
+    types::{AffectedAxes, CameraId},
+    value, value_enum,
+    wire::{RawInquiryPayload, Response, ResponseParser},
+    ViscaInquiry,
 };
 
 #[value(min = 1, max = 4)]
@@ -422,25 +421,25 @@ struct RenamedRawInquiry;
 struct RenamedResponseInquiry;
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
-#[visca(opcode = 0x00, response = Power, typed_response = ::visca_renamed::PowerStatus, typed_field = status)]
+#[visca(opcode = 0x00, response = Power, typed_response = ::visca_renamed::types::PowerStatus, typed_field = status)]
 struct RenamedTypedInquiry;
 
 fn assert_inquiry_contracts() {
     fn raw<T>()
     where
-        T: Request<Class = request::Inquiry> + Inquiry<Response = RawInquiryPayload>,
+        T: Request<Class = request::InquiryClass> + Inquiry<Response = RawInquiryPayload>,
     {
     }
     fn generic<T>()
     where
-        T: Request<Class = request::Inquiry> + Inquiry<Response = Response>,
+        T: Request<Class = request::InquiryClass> + Inquiry<Response = Response>,
     {
     }
     fn typed<T>()
     where
-        T: Request<Class = request::Inquiry>
-            + Inquiry<Response = visca_renamed::PowerStatus>
-            + ResponseParser<Response = visca_renamed::PowerStatus>,
+        T: Request<Class = request::InquiryClass>
+            + Inquiry<Response = visca_renamed::types::PowerStatus>
+            + ResponseParser<Response = visca_renamed::types::PowerStatus>,
     {
     }
 
@@ -456,147 +455,105 @@ struct DownstreamProfile;
 
 type Base = visca_renamed::profiles::GenericVisca;
 
-impl ProfileMetadata for DownstreamProfile {
-    const INQUIRY_SUPPORT: capabilities::InquirySupport = capabilities::InquirySupport::Full;
-    const SUPPORTS_COMMAND_CANCEL: bool = true;
-
-    const MODEL_NAME: &'static str = "Downstream renamed profile";
-    const DEFAULT_CAMERA_ID: visca_renamed::IndividualCameraId = {
-        let checked = visca_renamed::IndividualCameraId::new(3);
-        match &checked {
-            Ok(id) => {
-                let id = *id;
-                core::mem::forget(checked);
-                id
-            }
-            Err(_) => {
-                core::mem::forget(checked);
-                panic!("individual profile default")
-            }
-        }
-    };
-    type Envelope = visca_renamed::transport::RawVisca;
-    const ACK_TIMEOUT: Duration = Duration::from_millis(120);
-    const COMMAND_TIMEOUTS: visca_renamed::CommandTimeouts = visca_renamed::CommandTimeouts::new(
-        Duration::from_secs(6),
-        Duration::from_secs(30),
-        Duration::from_secs(60),
-        Duration::from_secs(300),
-        Duration::from_secs(6),
-    );
-}
-
-impl PanTilt for DownstreamProfile {
-    const PAN_RANGE: capabilities::CapabilityRange<i32> = <Base as PanTilt>::PAN_RANGE;
-    const TILT_RANGES: visca_renamed::capabilities::TiltRanges =
-        visca_renamed::capabilities::TiltRanges::Single(<Base as PanTilt>::TILT_RANGES.range(None));
-    const MAX_PAN_SPEED: u8 = 9;
-    const MAX_TILT_SPEED: u8 = 7;
-    const PAN_DEGREES_TO_UNITS: f32 = 10.0;
-    const TILT_DEGREES_TO_UNITS: f32 = 15.0;
-}
-
-impl Zoom for DownstreamProfile {
-    const SUPPORTS_VARIABLE_ZOOM: bool = true;
-
-    const OPTICAL_ZOOM_MAX: u16 = <Base as Zoom>::OPTICAL_ZOOM_MAX;
-    const DIGITAL_ZOOM_MAX: Option<u16> = None;
-    const ZOOM_SPEED_RANGE: capabilities::CapabilityRange<u8> = <Base as Zoom>::ZOOM_SPEED_RANGE;
-    const SUPPORTS_DIRECT_ZOOM: bool = false;
-    const OPTICAL_ZOOM_RATIO: Option<f32> = <Base as Zoom>::OPTICAL_ZOOM_RATIO;
-}
-
-impl Focus for DownstreamProfile {
-    const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
-
-    const MAX_FOCUS_SPEED: u8 = 7;
-
-    const FOCUS_RANGE: visca_renamed::capabilities::CapabilityRange<u16> =
-        visca_renamed::capabilities::CapabilityRange::<u16>::new(
-            <Base as Focus>::FOCUS_RANGE.min(),
-            <Base as Focus>::FOCUS_RANGE.max(),
-        );
-    const FOCUS_NEAR_END: visca_renamed::capabilities::FocusNearEnd =
-        visca_renamed::capabilities::FocusNearEnd::Minimum;
-    const SUPPORTS_AUTO_FOCUS: bool = true;
-    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
-}
-
-impl Exposure for DownstreamProfile {
-    const EXPOSURE_MODES: &'static [visca_renamed::ExposureMode] =
-        <Base as Exposure>::EXPOSURE_MODES;
-    const IRIS_RANGE: Option<capabilities::CapabilityDomain<u16>> = <Base as Exposure>::IRIS_RANGE;
-    const SHUTTER_SPEEDS: &'static [capabilities::ShutterSpeedEntry] =
-        <Base as Exposure>::SHUTTER_SPEEDS;
-    const GAIN_RANGE: Option<visca_renamed::capabilities::CapabilityRange<u8>> =
-        <Base as Exposure>::GAIN_RANGE;
-    const BRIGHTNESS_RANGE: Option<capabilities::CapabilityDomain<u8>> =
-        <Base as Exposure>::BRIGHTNESS_RANGE;
-    const SUPPORTS_BACKLIGHT_COMP: bool = true;
-}
-
-impl WhiteBalance for DownstreamProfile {
-    const WB_MODES: &'static [visca_renamed::WhiteBalanceMode] = <Base as WhiteBalance>::WB_MODES;
-    const SUPPORTS_ONE_PUSH_WB: bool = false;
-    const RG_TUNING_RANGE: Option<capabilities::CapabilityRange<i8>> =
-        <Base as WhiteBalance>::RG_TUNING_RANGE;
-    const BG_TUNING_RANGE: Option<capabilities::CapabilityRange<i8>> =
-        <Base as WhiteBalance>::BG_TUNING_RANGE;
-}
-
-impl ImageProcessing for DownstreamProfile {
-    const CONTRAST_RANGE: Option<capabilities::CapabilityRange<u8>> =
-        <Base as ImageProcessing>::CONTRAST_RANGE;
-    const SHARPNESS_RANGE: Option<capabilities::CapabilityRange<u8>> =
-        <Base as ImageProcessing>::SHARPNESS_RANGE;
-    const SATURATION_RANGE: Option<capabilities::CapabilityRange<u8>> =
-        <Base as ImageProcessing>::SATURATION_RANGE;
-    const SUPPORTS_FLIP: bool = true;
-    const SUPPORTS_MIRROR: bool = true;
-    const HUE_RANGE: Option<capabilities::CapabilityRange<u8>> =
-        Some(capabilities::CapabilityRange::<u8>::new(0, 14));
-    const SUPPORTS_IMAGE_PROCESSING: bool = true;
-}
-
-// The downstream profile documents a real image surface above, so it opts in
-// to the matching static noun marker and runtime base permission explicitly.
-// Metadata alone is not typed permission: Generic VISCA intentionally has the
-// same metadata trait but no `HasImageProcessing` implementation.
-impl HasImageProcessing for DownstreamProfile {}
-
-fn assert_image_marker<P: HasImageProcessing>() {}
-
-impl Presets for DownstreamProfile {
-    const HIGHEST_PRESET: u8 = 8;
-    const PRESET_SPEED_RANGE: Option<capabilities::CapabilityRange<u8>> =
-        <Base as Presets>::PRESET_SPEED_RANGE;
-    const SUPPORTS_PRESET_TOUR: bool = false;
-}
-
-impl Power for DownstreamProfile {
-    const POWER_ON_TIME: Duration = Duration::from_millis(4_250);
-    const SUPPORTS_STANDBY: bool = true;
-}
-
-impl MenuCapability for DownstreamProfile {}
-impl Tally for DownstreamProfile {}
-impl MotionSyncMetadata for DownstreamProfile {}
-impl NdFilterMetadata for DownstreamProfile {}
-impl VariableSpeedMetadata for DownstreamProfile {}
-impl ProfileTypedSupport for DownstreamProfile {
-    const TYPED_SUPPORT: capabilities::TypedSupportSet = capabilities::TypedSupportSet::empty();
-}
-
 impl CompileTimeProfile for DownstreamProfile {
-    const TRANSPORTS: TransportCompatibility = TransportCompatibility::new(Some(9876), None, false);
-    const INQUIRY_TIMEOUT: Duration = Duration::from_millis(900);
-    const CANCELLATION_TIMEOUT: Duration = Duration::from_millis(800);
-    const AMBIGUITY_TIMEOUT: Duration = Duration::from_millis(700);
-    const MAXIMUM_COMMAND_SOCKETS: u8 = 1;
-    const PRESET_RECALL_AXES: Option<AffectedAxes> = Some(AffectedAxes::PAN_TILT);
-    const POSITION_INQUIRIES: PositionInquirySupport =
-        PositionInquirySupport::new(true, true, true);
+    const TYPED_SUPPORT: capabilities::TypedSupportSet = capabilities::TypedSupportSet::empty();
+    const ID: Option<visca_renamed::profiles::ProfileId> = None;
+
+    fn spec() -> visca_renamed::Result<ProfileSpec> {
+        use capabilities::{CapabilityRange, ImageCaps, InquirySupport};
+        let base = Base::spec()?;
+        let mut caps = base.capabilities().clone();
+        caps.profile_id = None;
+        caps.model_name = "Downstream renamed profile".into();
+        caps.default_camera_id = visca_renamed::types::IndividualCameraId::new(3)?;
+        caps.typed_support = Self::TYPED_SUPPORT;
+        caps.inquiry_support = InquirySupport::Full;
+        let pan_tilt = caps.pan_tilt.as_mut().expect("base pan/tilt");
+        pan_tilt.pan_speed = CapabilityRange::<u8>::new(1, 9);
+        pan_tilt.tilt_speed = CapabilityRange::<u8>::new(1, 7);
+        pan_tilt.coordinates = visca_renamed::profiles::PanTiltCoordinateConversion::new(
+            capabilities::CoordinateSystem::SignedCentered,
+            capabilities::PanTiltWireCodec::StandardVisca,
+            10.0,
+            15.0,
+        )?;
+        let zoom = caps.zoom.as_mut().expect("base zoom");
+        zoom.digital_max = None;
+        zoom.direct = false;
+        zoom.variable = true;
+        let focus = caps.focus.as_mut().expect("base focus");
+        focus.speed = CapabilityRange::<u8>::new(0, 7);
+        focus.auto_focus = true;
+        focus.one_push = false;
+        focus.near_limit_inquiry = true;
+        caps.exposure
+            .as_mut()
+            .expect("base exposure")
+            .backlight_compensation = true;
+        caps.white_balance
+            .as_mut()
+            .expect("base white balance")
+            .one_push = false;
+        // Image-domain presence is independent of a typed operation grant.
+        let mut image = caps.image.take().unwrap_or(ImageCaps {
+            contrast_range: None,
+            sharpness_range: None,
+            saturation_range: None,
+            hue_range: None,
+            luminance_range: None,
+            gamma_range: None,
+            flip: false,
+            mirror: false,
+            requires_settings_save_for_flip: false,
+            picture_effect: false,
+        });
+        image.flip = true;
+        image.mirror = true;
+        image.hue_range = Some(CapabilityRange::<u8>::new(0, 14));
+        caps.image = Some(image);
+        let presets = caps.presets.as_mut().expect("base presets");
+        presets.highest = 8;
+        presets.recall_axes = AffectedAxes::PAN_TILT;
+        presets.tour = false;
+        let power = caps.power.as_mut().expect("base power");
+        power.on_time = Duration::from_millis(4_250);
+        power.standby = Some(Duration::from_secs(5));
+        ProfileSpec::builder(caps)
+            .transports(TransportCompatibility::new().with_tcp(9876))
+            .envelope(visca_renamed::profiles::ProfileEnvelope::RawVisca)
+            .timing(
+                visca_renamed::profiles::ProfileTiming::builder()
+                    .ack_timeout(Duration::from_millis(120))
+                    .command_timeouts(
+                        visca_renamed::profiles::CommandTimeouts::DEFAULT
+                            .with_quick_timeout(Duration::from_secs(6))
+                            .with_movement_timeout(Duration::from_secs(30))
+                            .with_preset_timeout(Duration::from_secs(60))
+                            .with_long_running_timeout(Duration::from_secs(300))
+                            .with_network_timeout(Duration::from_secs(6)),
+                    )
+                    .inquiry_timeout(Duration::from_millis(900))
+                    .cancellation_timeout(Duration::from_millis(800))
+                    .ambiguity_timeout(Duration::from_millis(700))
+                    .busy_timeout(Duration::ZERO)
+                    .raw_inquiry_reply_skew(Duration::ZERO)
+                    .inquiry_spacing(Duration::ZERO)
+                    .command_spacing(Duration::ZERO)
+                    .build()?,
+            )
+            .maximum_command_sockets(1)
+            .supports_operation_complete(base.supports_operation_complete())
+            .supports_command_cancel(true)
+            .position_inquiries(Some(AffectedAxes::MOVEMENT))
+            .build()
+    }
 }
+
+// A downstream profile opts into its domain explicitly. There is no blanket
+// implementation that turns runtime metadata into a static permission.
+impl HasImage for DownstreamProfile {}
+
+fn assert_image_marker<P: HasImage>() {}
 
 fn renamed_dependency_derive_and_profile_contract() -> visca_renamed::Result<()> {
     assert_inquiry_contracts();
@@ -626,7 +583,7 @@ fn renamed_dependency_derive_and_profile_contract() -> visca_renamed::Result<()>
         profile.capabilities().model_name,
         "Downstream renamed profile"
     );
-    assert!(profile.capabilities().has_image_processing());
+    assert!(profile.capabilities().image.is_some());
     assert_eq!(
         profile
             .capabilities()

@@ -6,15 +6,13 @@
 use grafton_visca::wire::WireValue;
 use grafton_visca::{
     capabilities::TypedSupportSurface,
-    command::{
-        HueCommand, HueInquiry, NoiseReduction2D, NoiseReduction2DInquiry, NoiseReduction2DMode,
-        NoiseReduction2DModeCommand, NoiseReduction2DModeInquiry, PictureEffectCommand,
-        PictureEffectInquiry, PictureEffectMode, SaturationCommand, SaturationInquiry, Sharpness,
-        SharpnessMode, SharpnessModeInquiry, SharpnessPositionInquiry,
+    profiles::{ProfileSpec, SonyEviH100},
+    request::Request,
+    types::{
+        CameraId, HueLevel, NoiseReduction2D, NoiseReduction2DMode, PictureEffectMode,
+        SaturationLevel, SharpnessLevel, SharpnessMode,
     },
-    profiles::SonyEVIH100,
-    types::{HueLevel, SaturationLevel, SharpnessLevel},
-    CameraId, Error, ProfileSpec, Request,
+    Error,
 };
 
 fn wire<R: Request + ?Sized>(request: &R) -> Vec<u8> {
@@ -27,7 +25,7 @@ fn wire<R: Request + ?Sized>(request: &R) -> Vec<u8> {
 }
 
 fn profile() -> ProfileSpec {
-    ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI-H100 profile")
+    ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI-H100 profile")
 }
 
 #[test]
@@ -35,11 +33,13 @@ fn r8_noise_reduction_is_the_2d_level_family() {
     let profile = profile();
     // `CAM_NR` `8x 01 04 53 0p FF`, p = 0 (off) and 1..5.
     for level in 0..=5 {
-        let command = NoiseReduction2D::from_wire(level).expect("level or Off");
+        let command = grafton_visca::command::image::SetNoiseReduction2d::new(
+            NoiseReduction2D::from_wire(level).expect("level or Off"),
+        );
         command
             .validate_for_target(
-                &grafton_visca::TargetRegistration::new(
-                    grafton_visca::CameraId::CAMERA_1,
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -48,35 +48,36 @@ fn r8_noise_reduction_is_the_2d_level_family() {
         assert_eq!(wire(&command), [0x81, 0x01, 0x04, 0x53, level, 0xFF]);
     }
     // `CAM_NRInq` `8x 09 04 53 FF`.
-    NoiseReduction2DInquiry
+    grafton_visca::command::image::NoiseReduction2dInquiry
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 profile.clone(),
             )
             .expect("target registration"),
         )
         .expect("NR level inquiry");
     assert_eq!(
-        wire(&NoiseReduction2DInquiry),
+        wire(&grafton_visca::command::image::NoiseReduction2dInquiry),
         [0x81, 0x09, 0x04, 0x53, 0xFF]
     );
 
     // R8 lists no `04 50` auto/manual mode.
     assert!(matches!(
-        NoiseReduction2DModeCommand::new(NoiseReduction2DMode::Auto).validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
-                profile.clone()
-            )
-            .expect("target registration")
-        ),
+        grafton_visca::command::image::SetNoiseReduction2dMode::new(NoiseReduction2DMode::Auto)
+            .validate_for_target(
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                    profile.clone()
+                )
+                .expect("target registration")
+            ),
         Err(Error::FeatureNotSupported { .. })
     ));
     assert!(matches!(
-        NoiseReduction2DModeInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+        grafton_visca::command::image::NoiseReduction2dModeInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 profile.clone()
             )
             .expect("target registration")
@@ -89,11 +90,13 @@ fn r8_noise_reduction_is_the_2d_level_family() {
 fn r8_color_gain_and_hue_are_the_saturation_and_hue_controls() {
     let profile = profile();
     // `CAM_ColorGain` Direct `8x 01 04 49 00 00 00 0p FF`, 0h..Eh.
-    let saturation = SaturationCommand::new(SaturationLevel::new(0x0E).expect("level"));
+    let saturation = grafton_visca::command::image::SetSaturation::new(
+        SaturationLevel::new(0x0E).expect("level"),
+    );
     saturation
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 profile.clone(),
             )
             .expect("target registration"),
@@ -103,38 +106,47 @@ fn r8_color_gain_and_hue_are_the_saturation_and_hue_controls() {
         wire(&saturation),
         [0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00, 0x0E, 0xFF]
     );
-    SaturationInquiry
+    grafton_visca::command::image::SaturationInquiry
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 profile.clone(),
             )
             .expect("target registration"),
         )
         .expect("color gain inquiry");
-    assert_eq!(wire(&SaturationInquiry), [0x81, 0x09, 0x04, 0x49, 0xFF]);
+    assert_eq!(
+        wire(&grafton_visca::command::image::SaturationInquiry),
+        [0x81, 0x09, 0x04, 0x49, 0xFF]
+    );
 
     // `CAM_ColorHue` Direct `8x 01 04 4F 00 00 00 0p FF`, 0h..Eh.
-    let hue = HueCommand::new(HueLevel::new(0x0E).expect("level"));
+    let hue = grafton_visca::command::image::SetHue::new(HueLevel::new(0x0E).expect("level"));
     hue.validate_for_target(
-        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
-            .expect("target registration"),
+        &grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::CameraId::CAMERA_1,
+            profile.clone(),
+        )
+        .expect("target registration"),
     )
     .expect("color hue");
     assert_eq!(
         wire(&hue),
         [0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00, 0x0E, 0xFF]
     );
-    HueInquiry
+    grafton_visca::command::image::HueInquiry
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 profile.clone(),
             )
             .expect("target registration"),
         )
         .expect("color hue inquiry");
-    assert_eq!(wire(&HueInquiry), [0x81, 0x09, 0x04, 0x4F, 0xFF]);
+    assert_eq!(
+        wire(&grafton_visca::command::image::HueInquiry),
+        [0x81, 0x09, 0x04, 0x4F, 0xFF]
+    );
 }
 
 #[test]
@@ -150,46 +162,59 @@ fn r8_aperture_levels_are_typed_without_a_sharpness_mode_grant() {
             .map(|range| range.as_inclusive()),
         Some(0x00..=0x0F)
     );
-    assert!(capabilities.supports_typed(TypedSupportSurface::SharpnessControl));
-    assert!(!capabilities.supports_typed(TypedSupportSurface::SharpnessMode));
+    assert!(capabilities.supports(TypedSupportSurface::Sharpness));
+    assert!(!capabilities.supports(TypedSupportSurface::SharpnessMode));
 
-    let target = grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
+    let target = grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile)
         .expect("target registration");
     // R8 CAM_Aperture Direct: `8x 01 04 42 00 00 00 0p FF`, 0h..Fh.
     for level in 0..=0x0f {
-        let command = Sharpness::SetLevel {
-            value: SharpnessLevel::new(level).expect("R8 aperture level"),
-        };
+        let command = grafton_visca::command::image::SetSharpness::new(
+            SharpnessLevel::new(level).expect("R8 aperture level"),
+        );
         command
             .validate_for_target(&target)
             .expect("sourced aperture direct");
         assert_eq!(wire(&command), [0x81, 1, 4, 0x42, 0, 0, 0, level, 0xff]);
     }
     assert!(SharpnessLevel::new(0x10).is_err());
-    for (command, operation) in [
-        (Sharpness::Reset, 0),
-        (Sharpness::Up, 2),
-        (Sharpness::Down, 3),
+    for (validation, bytes, operation) in [
+        (
+            grafton_visca::command::image::SharpnessReset.validate_for_target(&target),
+            wire(&grafton_visca::command::image::SharpnessReset),
+            0,
+        ),
+        (
+            grafton_visca::command::image::SharpnessUp.validate_for_target(&target),
+            wire(&grafton_visca::command::image::SharpnessUp),
+            2,
+        ),
+        (
+            grafton_visca::command::image::SharpnessDown.validate_for_target(&target),
+            wire(&grafton_visca::command::image::SharpnessDown),
+            3,
+        ),
     ] {
-        command
-            .validate_for_target(&target)
-            .expect("sourced aperture adjustment");
-        assert_eq!(wire(&command), [0x81, 1, 4, 2, operation, 0xff]);
+        validation.expect("sourced aperture adjustment");
+        assert_eq!(bytes, [0x81, 1, 4, 2, operation, 0xff]);
     }
-    SharpnessPositionInquiry
+    grafton_visca::command::image::SharpnessInquiry
         .validate_for_target(&target)
         .expect("sourced aperture inquiry");
-    assert_eq!(wire(&SharpnessPositionInquiry), [0x81, 9, 4, 0x42, 0xff]);
+    assert_eq!(
+        wire(&grafton_visca::command::image::SharpnessInquiry),
+        [0x81, 9, 4, 0x42, 0xff]
+    );
 
     // R8's aperture level family does not establish `04 05`/`09 04 05` mode.
     for mode in [SharpnessMode::Auto, SharpnessMode::Manual] {
         assert!(matches!(
-            Sharpness::Mode(mode).validate_for_target(&target),
+            grafton_visca::command::image::SetSharpnessMode::new(mode).validate_for_target(&target),
             Err(Error::FeatureNotSupported { .. })
         ));
     }
     assert!(matches!(
-        SharpnessModeInquiry.validate_for_target(&target),
+        grafton_visca::command::image::SharpnessModeInquiry.validate_for_target(&target),
         Err(Error::FeatureNotSupported { .. })
     ));
 }
@@ -197,26 +222,31 @@ fn r8_aperture_levels_are_typed_without_a_sharpness_mode_grant() {
 #[test]
 fn r8_picture_effect_is_metadata_only() {
     let profile = profile();
-    assert!(profile.capabilities().has_picture_effect());
+    assert!(profile
+        .capabilities()
+        .image
+        .as_ref()
+        .is_some_and(|image| image.picture_effect));
     assert!(!profile
         .capabilities()
-        .supports_typed(TypedSupportSurface::PictureEffect));
+        .supports(TypedSupportSurface::PictureEffect));
 
     // The typed picture-effect inquiry reads R8's Neg.Art `02` as Off.
     assert!(matches!(
-        PictureEffectCommand::new(PictureEffectMode::BlackAndWhite).validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
-                profile.clone()
-            )
-            .expect("target registration")
-        ),
+        grafton_visca::command::image::SetPictureEffect::new(PictureEffectMode::BlackAndWhite)
+            .validate_for_target(
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                    profile.clone()
+                )
+                .expect("target registration")
+            ),
         Err(Error::FeatureNotSupported { .. })
     ));
     assert!(matches!(
-        PictureEffectInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+        grafton_visca::command::image::PictureEffectInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 profile.clone()
             )
             .expect("target registration")

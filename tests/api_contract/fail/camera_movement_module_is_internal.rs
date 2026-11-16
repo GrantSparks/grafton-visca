@@ -8,4 +8,4 @@ fn main() {
 }
 
 //~ E0603
-//~ "module `movement` is private"
+//~ "module `camera` is private"

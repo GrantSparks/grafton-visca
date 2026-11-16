@@ -8,7 +8,7 @@ use crate::session_config::ValidatedTuning;
 #[cfg(any(feature = "blocking", feature = "async"))]
 use crate::{AffectedAxes, Result};
 
-/// A closed operation completion kind. Settlement lowering remains private
+/// A closed operation completion kind. SettlementPlan lowering remains private
 /// to the owner implementation.
 pub trait Kind: private::Sealed + Send + Sync + 'static {}
 
@@ -18,7 +18,7 @@ pub(crate) fn lower_settlement<K: Kind>(
     tuning: ValidatedTuning,
     axes: AffectedAxes,
     default_budget: Duration,
-) -> Result<Settlement<K>> {
+) -> Result<SettlementPlan<K>> {
     <K as private::Sealed>::lower(registration, tuning, axes, default_budget)
 }
 
@@ -48,7 +48,7 @@ mod private {
             tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
-        ) -> crate::Result<super::Settlement<Self>>
+        ) -> crate::Result<super::SettlementPlan<Self>>
         where
             Self: super::Kind + Sized;
     }
@@ -63,7 +63,7 @@ mod private {
             tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
-        ) -> crate::Result<super::Settlement<Self>> {
+        ) -> crate::Result<super::SettlementPlan<Self>> {
             super::lowering::targeted(registration, tuning, axes, default_budget)
         }
     }
@@ -78,16 +78,16 @@ mod private {
             tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
-        ) -> crate::Result<super::Settlement<Self>> {
+        ) -> crate::Result<super::SettlementPlan<Self>> {
             super::lowering::applied_only(registration, tuning, axes, default_budget)
         }
     }
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-pub(crate) use lowering::Settlement;
+pub(crate) use lowering::SettlementPlan;
 
-/// Settlement lowering into the owner-private plan; it exists only where an
+/// SettlementPlan lowering into the owner-private plan; it exists only where an
 /// owner does.
 #[cfg(any(feature = "blocking", feature = "async"))]
 mod lowering {
@@ -104,20 +104,20 @@ mod lowering {
     /// prepared settlement plan; applied-only operations retain no plan.
     #[doc(hidden)]
     #[derive(Debug)]
-    pub struct Settlement<K>
+    pub struct SettlementPlan<K>
     where
         K: Kind,
     {
         plan: <K as super::private::Sealed>::Plan,
     }
 
-    impl<K: Kind> Settlement<K> {
+    impl<K: Kind> SettlementPlan<K> {
         fn new(plan: <K as super::private::Sealed>::Plan) -> Self {
             Self { plan }
         }
     }
 
-    impl Settlement<Targeted> {
+    impl SettlementPlan<Targeted> {
         pub(crate) fn default_budget(&self) -> Duration {
             self.plan.inner.default_budget()
         }
@@ -142,9 +142,9 @@ mod lowering {
         tuning: ValidatedTuning,
         axes: AffectedAxes,
         default_budget: Duration,
-    ) -> Result<Settlement<AppliedOnly>> {
+    ) -> Result<SettlementPlan<AppliedOnly>> {
         crate::prepared::lower_applied_only_settlement(registration, tuning, axes, default_budget)?;
-        Ok(Settlement::new(()))
+        Ok(SettlementPlan::new(()))
     }
 
     pub(super) fn targeted(
@@ -152,8 +152,11 @@ mod lowering {
         tuning: ValidatedTuning,
         axes: AffectedAxes,
         default_budget: Duration,
-    ) -> Result<Settlement<Targeted>> {
+    ) -> Result<SettlementPlan<Targeted>> {
         crate::prepared::lower_targeted_settlement(registration, tuning, axes, default_budget)
-            .map(|inner| Settlement::new(TargetedSettlementPlan { inner }))
+            .map(|inner| SettlementPlan::new(TargetedSettlementPlan { inner }))
     }
 }
+
+pub use crate::operation_id::OperationId;
+pub use crate::outcome::{CancellationOutcome, HaltOutcome, HaltReport, Settlement};

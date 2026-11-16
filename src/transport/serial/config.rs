@@ -23,18 +23,37 @@ use crate::transport::{buffer::BufferConfig, builder::TransportConfig};
 ///   camera's command buffers and cancels pending commands, so it is for
 ///   setup or recovery, normally after Address Set.
 ///
-/// When both are selected Address Set is sent first. See
-/// [`crate::transport::serial`] for the timing and failure policy.
+/// When both are selected Address Set is sent first. Opening waits for each
+/// selected bus operation before ordinary session traffic begins.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
-pub struct Startup {
+pub struct SerialStartup {
     /// Broadcast Address Set and wait for its reply.
-    pub address_set: bool,
+    pub(crate) address_set: bool,
     /// Broadcast I/F Clear and wait the settle delay.
-    pub interface_clear: bool,
+    pub(crate) interface_clear: bool,
 }
 
-impl Startup {
+impl SerialStartup {
+    /// Returns whether opening broadcasts Address Set.
+    #[must_use]
+    pub const fn address_set(&self) -> bool {
+        self.address_set
+    }
+
+    /// Returns whether opening broadcasts I/F Clear.
+    #[must_use]
+    pub const fn interface_clear(&self) -> bool {
+        self.interface_clear
+    }
+
     /// Select or deselect Address Set.
     #[must_use]
     pub const fn with_address_set(mut self, enabled: bool) -> Self {
@@ -54,40 +73,92 @@ impl Startup {
 ///
 /// Timeouts and buffer limits default to [`TransportConfig::for_serial`], the
 /// single source of serial transport defaults, and
-/// [`Config::transport_config`] reports them back as the transport's
-/// configuration. The default [`Startup`] writes nothing to the bus.
-#[derive(Debug, Clone)]
+/// [`SerialConfig::transport_config`] reports them back as the transport's
+/// configuration. The default [`SerialStartup`] writes nothing to the bus.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
-pub struct Config {
+pub struct SerialConfig {
     /// Serial port path (e.g., "/dev/ttyUSB0" on Unix, "COM1" on Windows).
-    pub port: String,
+    pub(crate) port: String,
     /// Baud rate (typically 9600 or 38400 for VISCA).
-    pub baud_rate: u32,
+    pub(crate) baud_rate: u32,
     /// Bus writes performed while opening the port.
-    pub startup: Startup,
+    pub(crate) startup: SerialStartup,
     /// Read timeout for serial operations.
-    pub read_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
+    pub(crate) read_timeout: Duration,
     /// Write timeout for serial operations.
-    pub write_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
+    pub(crate) write_timeout: Duration,
     /// Frame and retention limits for received data.
-    pub buffer_config: BufferConfig,
+    pub(crate) buffer_config: BufferConfig,
 }
 
-impl Default for Config {
+impl Default for SerialConfig {
     fn default() -> Self {
         let transport = TransportConfig::for_serial();
         Self {
             port: "/dev/ttyUSB0".to_string(),
             baud_rate: 9600,
-            startup: Startup::default(),
-            read_timeout: transport.read_timeout,
-            write_timeout: transport.write_timeout,
-            buffer_config: transport.buffer_config,
+            startup: SerialStartup::default(),
+            read_timeout: transport.read_timeout(),
+            write_timeout: transport.write_timeout(),
+            buffer_config: transport.buffer_config(),
         }
     }
 }
 
-impl Config {
+impl SerialConfig {
+    /// Returns the serial device path.
+    #[must_use]
+    pub fn port(&self) -> &str {
+        &self.port
+    }
+
+    /// Returns the baud rate.
+    #[must_use]
+    pub const fn baud_rate(&self) -> u32 {
+        self.baud_rate
+    }
+
+    /// Returns the selected startup bus writes.
+    #[must_use]
+    pub const fn startup(&self) -> SerialStartup {
+        self.startup
+    }
+
+    /// Returns the receive timeout.
+    #[must_use]
+    pub const fn read_timeout(&self) -> Duration {
+        self.read_timeout
+    }
+
+    /// Returns the send timeout.
+    #[must_use]
+    pub const fn write_timeout(&self) -> Duration {
+        self.write_timeout
+    }
+
+    /// Returns the receive frame and retention limits.
+    #[must_use]
+    pub const fn buffer_config(&self) -> BufferConfig {
+        self.buffer_config
+    }
+
+    /// Selects the serial device path.
+    #[must_use]
+    pub fn with_port(mut self, port: impl Into<String>) -> Self {
+        self.port = port.into();
+        self
+    }
+
     /// Create a new serial configuration with default settings.
     pub fn new(port: impl Into<String>) -> Self {
         Self {
@@ -97,31 +168,36 @@ impl Config {
     }
 
     /// Set the baud rate.
-    pub fn baud_rate(mut self, baud_rate: u32) -> Self {
+    #[must_use]
+    pub const fn with_baud_rate(mut self, baud_rate: u32) -> Self {
         self.baud_rate = baud_rate;
         self
     }
 
     /// Select the bus writes performed while opening.
-    pub fn startup(mut self, startup: Startup) -> Self {
+    #[must_use]
+    pub const fn with_startup(mut self, startup: SerialStartup) -> Self {
         self.startup = startup;
         self
     }
 
     /// Set the read timeout.
-    pub fn read_timeout(mut self, timeout: Duration) -> Self {
+    #[must_use]
+    pub const fn with_read_timeout(mut self, timeout: Duration) -> Self {
         self.read_timeout = timeout;
         self
     }
 
     /// Set the write timeout.
-    pub fn write_timeout(mut self, timeout: Duration) -> Self {
+    #[must_use]
+    pub const fn with_write_timeout(mut self, timeout: Duration) -> Self {
         self.write_timeout = timeout;
         self
     }
 
     /// Set the buffer configuration.
-    pub fn buffer_config(mut self, config: BufferConfig) -> Self {
+    #[must_use]
+    pub const fn with_buffer_config(mut self, config: BufferConfig) -> Self {
         self.buffer_config = config;
         self
     }
@@ -147,23 +223,49 @@ mod tests {
     /// #828: the serial defaults used to request I/F Clear on every open.
     #[test]
     fn defaults_come_from_the_serial_transport_defaults_and_write_nothing() {
-        let config = Config::new("/dev/test");
-        assert_eq!(config.startup, Startup::default());
-        assert!(!config.startup.address_set && !config.startup.interface_clear);
+        let config = SerialConfig::new("/dev/test");
+        assert_eq!(config.startup(), SerialStartup::default());
+        assert!(!config.startup().address_set() && !config.startup().interface_clear());
         assert_eq!(config.transport_config(), TransportConfig::for_serial());
     }
 
     #[test]
     fn reported_transport_config_is_serial_shaped() {
-        let config = Config::new("/dev/test")
-            .read_timeout(Duration::from_millis(37))
-            .write_timeout(Duration::from_millis(41));
+        let config = SerialConfig::new("/dev/test")
+            .with_read_timeout(Duration::from_millis(37))
+            .with_write_timeout(Duration::from_millis(41));
         let reported = config.transport_config();
 
-        assert_eq!(reported.tcp_nodelay, None);
-        assert_eq!(reported.tcp_keepalive, None);
-        assert_eq!(reported.ttl, None);
-        assert_eq!(reported.read_timeout, Duration::from_millis(37));
-        assert_eq!(reported.write_timeout, Duration::from_millis(41));
+        assert_eq!(reported.tcp_nodelay(), None);
+        assert_eq!(reported.tcp_keepalive(), None);
+        assert_eq!(reported.ttl(), None);
+        assert_eq!(reported.read_timeout(), Duration::from_millis(37));
+        assert_eq!(reported.write_timeout(), Duration::from_millis(41));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_preserves_opt_in_bus_writes_and_rejects_unknown_options(
+    ) -> Result<(), serde_json::Error> {
+        let config = SerialConfig::new("/dev/test")
+            .with_baud_rate(38_400)
+            .with_startup(SerialStartup::default().with_address_set(true))
+            .with_read_timeout(Duration::from_millis(37));
+        let value = serde_json::to_value(&config)?;
+        let restored: SerialConfig = serde_json::from_value(value.clone())?;
+        assert_eq!(restored, config);
+        assert!(restored.startup().address_set());
+        assert!(!restored.startup().interface_clear());
+        for nested in [false, true] {
+            let mut unknown = value.clone();
+            let object = if nested {
+                &mut unknown["startup"]
+            } else {
+                &mut unknown
+            };
+            object["misspelled_option"] = serde_json::json!(true);
+            assert!(serde_json::from_value::<SerialConfig>(unknown).is_err());
+        }
+        Ok(())
     }
 }

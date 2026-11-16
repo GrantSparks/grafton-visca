@@ -1,163 +1,56 @@
-//! Fine-grained capability traits for VISCA camera features.
+//! Evidence-backed profile permissions and runtime capability records.
 //!
-//! This module defines traits for each camera capability (pan/tilt, zoom, focus, etc.)
-//! allowing camera profiles to be composed from only the features they support.
-//! This enables compile-time safety where methods for unsupported features don't exist.
+//! `Has*` markers describe source-backed compile-time guarantees. Runtime
+//! callers inspect [`crate::capabilities::Capabilities::supports`] and the optional domain records;
+//! a permission does not manufacture numeric facts for an absent domain.
 
-pub mod exposure;
-pub mod focus;
-pub mod image_processing;
-pub mod menu_control;
-pub mod motion_sync;
-pub mod nd_filter;
-pub mod pan_tilt;
-pub mod power;
-pub mod presets;
-pub mod tally;
+mod discovery;
+mod domains;
+mod encodings;
+pub(crate) mod exposure;
+pub(crate) mod pan_tilt;
+mod permits;
+mod profile_metadata;
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) use permits::permit_gate;
+pub use permits::{gate, Permits};
 mod typed_support;
 pub(crate) mod typed_support_registry;
-pub mod variable_speed;
-pub mod white_balance;
-pub mod zoom;
+mod types;
+pub(crate) mod zoom;
 
-// Core profile metadata trait
-mod profile_metadata;
-pub use profile_metadata::{
-    HasExposure, HasFocus, HasImageProcessing, HasMenuControl, HasPanTilt, HasPower, HasPresets,
-    HasWhiteBalance, HasZoom, InquirySupport, ProfileMetadata, SupportsSerial, SupportsTcp,
-    SupportsUdp,
+pub use discovery::Capabilities;
+#[cfg(test)]
+pub(crate) use discovery::SurfaceMetadata;
+pub use domains::{
+    EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, MenuCaps, PanTiltCaps,
+    PowerCaps, PresetCaps, RgbGainRanges, RgbTuningRanges, TiltRanges, WhiteBalanceCaps, ZoomCaps,
 };
-
+pub(crate) use encodings::encoding_selection;
+pub use encodings::*;
+pub use exposure::ShutterSpeedEntry;
+pub use pan_tilt::PanTiltWireCodec;
+pub use profile_metadata::{
+    HasExposure, HasFocus, HasImage, HasMenu, HasPanTilt, HasPower, HasPresets, HasWhiteBalance,
+    HasZoom, InquirySupport, SupportsSerial, SupportsTcp, SupportsUdp,
+};
 pub(crate) use typed_support::typed_surface;
-pub use typed_support::{ProfileTypedSupport, TypedSupportSet, TypedSupportSurface};
-
-macro_rules! export_typed_support_marker_entry {
-    (DirectMenu, $marker:ident) => {
-        pub use menu_control::$marker;
-    };
-    ($surface:ident, $marker:ident) => {
-        pub use typed_support::$marker;
-    };
-}
+pub use typed_support::{TypedSupportSet, TypedSupportSurface};
+pub use types::*;
+pub use zoom::ZoomScale;
 
 macro_rules! export_typed_support_markers {
-    (
-        [
-            $(
-                {
-                    surface: $surface:ident,
-                    marker: $marker:ident,
-                    bit: $bit:literal,
-                    wire: $wire:literal,
-                    area: $area:literal,
-                    surface_doc: $surface_doc:literal,
-                    marker_doc: $marker_doc:literal,
-                    diagnostic: $diagnostic:literal,
-                },
-            )*
-        ]
-    ) => {
-        $(export_typed_support_marker_entry!($surface, $marker);)*
+    ([ $( {
+        surface: $surface:ident,
+        marker: $marker:ident,
+                    $(encodings: [$($encoding_variant:ident => $encoding_tag:literal),+ $(,)?],)?
+        area: $area:literal,
+        surface_doc: $surface_doc:literal,
+        marker_doc: $marker_doc:literal,
+        diagnostic: $diagnostic:literal,
+    }, )* ]) => {
+        $(pub use typed_support::$marker;)*
     };
 }
 
 typed_support_registry::typed_support_registry!(export_typed_support_markers);
-
-// Re-export all capability traits
-pub use exposure::Exposure;
-pub use focus::Focus;
-pub use image_processing::ImageProcessing;
-pub use menu_control::MenuCapability;
-pub use motion_sync::MotionSyncMetadata;
-pub use nd_filter::{NdFilterMetadata, NdFilterMetadataExt, NdFilterMode};
-pub use pan_tilt::{PanTilt, PanTiltWireCodec};
-pub use power::Power;
-pub use presets::Presets;
-pub use tally::Tally;
-pub use variable_speed::VariableSpeedMetadata;
-pub use white_balance::WhiteBalance;
-pub use zoom::{Zoom, ZoomScale};
-
-// Supporting types
-mod types;
-pub use types::*;
-
-// Validation utilities
-mod validation;
-pub use validation::ValidationError;
-
-// Structured capabilities response
-mod domains;
-pub use domains::{
-    EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, PanTiltCaps, PowerCaps,
-    PresetCaps, RgbGainRanges, RgbTuningRanges, TiltRanges, WhiteBalanceCaps, ZoomCaps,
-};
-mod discovery;
-pub use discovery::Capabilities;
-#[cfg(test)]
-pub(crate) use discovery::SurfaceMetadata;
-
-/// Super-trait that encompasses all camera capabilities.
-///
-/// This trait allows a single generic bound to ensure a type has all the
-/// necessary camera capabilities. It combines metadata with all baseline
-/// feature traits plus optional-feature metadata for runtime discovery.
-///
-/// # Example
-/// ```rust
-/// use grafton_visca::{capabilities::Profile, profiles::SonyFR7};
-///
-/// fn profile_facts<P: Profile>() {
-///     // All capability traits are available
-///     let _facts = (P::MODEL_NAME, P::ZOOM_SPEED_RANGE, P::INQUIRY_SUPPORT);
-///     let _motion_sync = P::MOTION_SYNC_SPEED_RANGE;
-///     assert!((1..=7).contains(&P::DEFAULT_CAMERA_ID.value()));
-/// }
-/// profile_facts::<SonyFR7>();
-/// ```
-pub trait Profile:
-    ProfileMetadata
-    + PanTilt
-    + Zoom
-    + Focus
-    + Exposure
-    + WhiteBalance
-    + ImageProcessing
-    + Presets
-    + Power
-    + MenuCapability
-    + Tally
-    + MotionSyncMetadata
-    + NdFilterMetadata
-    + VariableSpeedMetadata
-    + ProfileTypedSupport
-    + Sized
-    + Send
-    + Sync
-    + 'static
-{
-}
-
-// Blanket implementation for any type that implements all required traits
-impl<T> Profile for T where
-    T: ProfileMetadata
-        + PanTilt
-        + Zoom
-        + Focus
-        + Exposure
-        + WhiteBalance
-        + ImageProcessing
-        + Presets
-        + Power
-        + MenuCapability
-        + Tally
-        + MotionSyncMetadata
-        + NdFilterMetadata
-        + VariableSpeedMetadata
-        + ProfileTypedSupport
-        + Sized
-        + Send
-        + Sync
-        + 'static
-{
-}

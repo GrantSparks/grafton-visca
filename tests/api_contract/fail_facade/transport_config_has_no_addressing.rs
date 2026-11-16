@@ -1,4 +1,4 @@
-use grafton_visca::transport::{AddressingMode, TransportConfig};
+use grafton_visca::{transport::AddressingMode, transport::TransportConfig};
 
 fn main() {
     let mut config = TransportConfig::default();

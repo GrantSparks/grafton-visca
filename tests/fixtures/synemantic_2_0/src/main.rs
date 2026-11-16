@@ -2,13 +2,12 @@ use grafton_visca::wire::WireValue;
 use std::{future::Future, marker::PhantomData};
 
 use grafton_visca::{
-    camera::{
-        profiles::{GenericVisca, SonyBRC300},
-        Connect,
-    },
-    command::PictureEffectMode,
+    config::SessionConfig,
+    profiles::{CompileTimeProfile, GenericVisca, ProfileSpec, SonyBrc300},
+    r#async::{Camera, CameraSession, Session},
     runtime::TokioRuntime,
-    Camera, CameraSession, CompileTimeProfile, Error, ProfileSpec, Session, SessionConfig,
+    types::PictureEffectMode,
+    Error,
 };
 
 fn typed_camera_surface<P: CompileTimeProfile>() -> PhantomData<Camera<P>> {
@@ -27,40 +26,47 @@ where
 
 fn assert_tokio_serial_connector_future<F>(_future: F)
 where
-    F: Future<Output = Result<Session, Error>> + Send + 'static,
+    F: Future<Output = Result<CameraSession<SonyBrc300>, Error>> + Send + 'static,
 {
 }
 
 fn tokio_connector_surface(runtime: TokioRuntime) {
     // An async constructor is lazy: this creates (but never polls) the
     // opaque future, so the compile contract cannot perform network I/O.
-    assert_tokio_connector_future(Connect::open_tcp::<GenericVisca, _>(
-        "127.0.0.1:5678",
-        runtime.clone(),
-    ));
-    assert_tokio_connector_future(Connect::open_udp::<GenericVisca, _>(
-        "127.0.0.1:52381",
-        runtime,
-    ));
+    assert_tokio_connector_future(
+        grafton_visca::r#async::CameraSession::<GenericVisca>::connect_tcp(
+            "127.0.0.1:5678",
+            runtime.clone(),
+        ),
+    );
+    assert_tokio_connector_future(
+        grafton_visca::r#async::CameraSession::<GenericVisca>::connect_udp(
+            "127.0.0.1:52381",
+            runtime,
+        ),
+    );
 }
 
 fn tokio_serial_connector_surface(runtime: TokioRuntime) {
     // As above, this validates the serial constructor's future type only; no
     // device is opened unless a caller later polls the returned future.
-    assert_tokio_serial_connector_future(Connect::open_serial::<SonyBRC300, _>(
-        "/dev/ttyUSB0",
-        9_600,
-        runtime,
-    ));
+    assert_tokio_serial_connector_future(
+        grafton_visca::r#async::CameraSession::<SonyBrc300>::connect_serial(
+            "/dev/ttyUSB0",
+            9_600,
+            runtime,
+        ),
+    );
 }
 
 /// The BRC-300 is a migration-sensitive profile: its source-backed image
 /// capability must expose the base noun before Synemantic can dispatch image
 /// operations through its profile-specific adapter.
-fn sony_brc300_image_surface(camera: &Camera<SonyBRC300>) {
-    let image = camera.image();
-    let _ = image.backlight();
-    let _ = image.set_backlight(true);
+fn sony_brc300_image_surface(camera: &Camera<SonyBrc300>) {
+    let _ = camera.image();
+    let exposure = camera.exposure();
+    let _ = exposure.backlight_compensation();
+    let _ = exposure.set_backlight_compensation(true);
 }
 
 fn main() {
@@ -77,7 +83,7 @@ fn main() {
     let _: PhantomData<Camera<GenericVisca>> = typed_camera_surface();
     let _ = tokio_connector_surface as fn(TokioRuntime);
     let _ = tokio_serial_connector_surface as fn(TokioRuntime);
-    let _ = sony_brc300_image_surface as fn(&Camera<SonyBRC300>);
+    let _ = sony_brc300_image_surface as fn(&Camera<SonyBrc300>);
     let _ = PictureEffectMode::BlackAndWhite;
 }
 
@@ -87,9 +93,9 @@ mod tests {
 
     #[test]
     fn sony_brc300_declares_the_base_image_surface() {
-        let profile = ProfileSpec::from_compile_time::<SonyBRC300>()
+        let profile = ProfileSpec::from_compile_time::<SonyBrc300>()
             .expect("Sony BRC-300 must lower to a runtime profile");
-        assert!(profile.capabilities().has_image_processing());
+        assert!(profile.capabilities().image.is_some());
     }
 
     #[test]

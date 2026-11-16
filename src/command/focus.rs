@@ -106,7 +106,7 @@ impl WireEncode for Focus {
 ///
 /// The variant set is evidence-driven rather than fixed by one specification:
 /// `Top`, `Center` and `Bottom` are the documented `AF Zone weight select`
-/// values, and [`FocusZone::Zone03`] is a value from the PTZOptics G2 bench
+/// values, and [`crate::types::FocusZone::Zone03`] is a value from the PTZOptics G2 bench
 /// (#795) that no vendor source names yet. The enum is `#[non_exhaustive]` so
 /// further evidenced values can be added without a breaking change; match it
 /// with a wildcard arm.
@@ -132,7 +132,7 @@ pub enum FocusZone {
     /// completion, and read it back afterwards. Which image area it weights is
     /// not documented, so the library makes no claim about it beyond
     /// preserving the value: read it, store it, and set it back. Only the
-    /// `PtzOpticsG2` and `PtzOptics30X` profiles admit it for sending.
+    /// `PtzOpticsG2` and `PtzOptics30x` profiles admit it for sending.
     Zone03 = 0x03,
 }
 
@@ -215,6 +215,7 @@ impl FocusLockCommand {
         Self { enabled }
     }
     /// Returns the requested focus-lock state.
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub const fn enabled(self) -> bool {
         self.enabled
     }
@@ -239,7 +240,6 @@ impl WireEncode for FocusLockCommand {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum PushAF {
     /// Press Push AF button (activate temporary auto focus)
     Press,

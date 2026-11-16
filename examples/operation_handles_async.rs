@@ -19,11 +19,9 @@ mod support;
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, IdleWait},
-    command::PanTiltDirection,
-    runtime::TokioRuntime,
-    types::{PanSpeed, TiltSpeed},
-    AffectedAxes, Camera, Connect, Error,
+    profiles::PtzOpticsG2, r#async::Camera, r#async::CameraSession, runtime::TokioRuntime,
+    types::AffectedAxes, types::IdleWait, types::PanSpeed, types::PanTiltDirection,
+    types::PanTiltSpeed, types::TiltSpeed, Error,
 };
 
 use support::finish_session;
@@ -36,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("camera address required (argument or VISCA_CAMERA_ADDR)")?;
 
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address, runtime).await?;
     let result = movement(session.camera()).await;
     finish_session(result, session.close().await)?;
     Ok(())
@@ -99,7 +97,10 @@ async fn bounded_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
 async fn drive_up(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     let mut drive = camera
         .pan_tilt()
-        .move_direction(PanTiltDirection::Up, PanSpeed::new(6)?, TiltSpeed::new(6)?)
+        .drive(
+            PanTiltDirection::Up,
+            PanTiltSpeed::new(PanSpeed::new(6)?, TiltSpeed::new(6)?),
+        )
         .await?;
     tokio::time::sleep(Duration::from_millis(250)).await;
     drive.applied().await

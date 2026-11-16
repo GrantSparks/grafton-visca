@@ -1,35 +1,42 @@
 #![cfg(feature = "blocking")]
 
 use grafton_visca::{
-    blocking::Camera,
-    profiles::{PtzOpticsG2, SonyBRCH900, SonyFR7},
+    blocking::Camera, profiles::PtzOpticsG2, profiles::SonyBrcH900, profiles::SonyFr7,
 };
 
 fn main() {
     let image: Option<Camera<PtzOpticsG2>> = None;
     let image = image.as_ref().unwrap();
-    let _ = image.image().freeze_on();
-    let _ = image.image().freeze_off();
+    let _ = image.image().set_freeze(true);
+    let _ = image.image().set_freeze(false);
 
-    let tally: Option<Camera<SonyFR7>> = None;
+    let tally: Option<Camera<SonyFr7>> = None;
     let tally = tally.as_ref().unwrap();
-    let _ = tally.tally().bright_lo();
-    let _ = tally.tally().bright_hi();
-    let _ = tally.tally().flash();
-    let _ = tally.tally().on();
-    let _ = tally.tally().off();
+    let _ = tally
+        .tally()
+        .set_brightness(grafton_visca::types::TallyBrightness::Low);
+    let _ = tally
+        .tally()
+        .set_brightness(grafton_visca::types::TallyBrightness::High);
+    let _ = tally
+        .tally()
+        .set_mode(grafton_visca::types::TallyMode::Flash);
+    let _ = tally.tally().set_mode(grafton_visca::types::TallyMode::On);
+    let _ = tally.tally().set_mode(grafton_visca::types::TallyMode::Off);
 
-    let brc_h900: Option<Camera<SonyBRCH900>> = None;
+    let brc_h900: Option<Camera<SonyBrcH900>> = None;
     let brc_h900 = brc_h900.as_ref().unwrap();
-    let _ = brc_h900.tally().red_on();
-    let _ = brc_h900.tally().red_off();
-    let _ = brc_h900.tally().green_on();
-    let _ = brc_h900.tally().green_off();
+    let _ = brc_h900.tally().set_red(true);
+    let _ = brc_h900.tally().set_red(false);
+    let _ = brc_h900.tally().set_green(true);
+    let _ = brc_h900.tally().set_green(false);
 }
 
 //~ E0277
 //~ E0599
-//~ "does not declare validated image-freeze support"
-//~ "does not declare validated tally-brightness support"
-//~ "does not declare validated PTZOptics tally-extension support"
-//~ "profile `SonyBRCH900` does not declare typed tally-light support"
+//~ "camera profile `grafton_visca::profiles::PtzOpticsG2` does not support `grafton_visca::capabilities::gate::ImageFreeze`"
+//~ "camera profile `grafton_visca::profiles::SonyFr7` does not support `grafton_visca::capabilities::gate::TallyBrightness`"
+//~ "camera profile `grafton_visca::profiles::SonyFr7` does not support `grafton_visca::capabilities::gate::TallyMode`"
+//~ "camera profile `grafton_visca::profiles::SonyBrcH900` does not support `grafton_visca::capabilities::gate::Tally`"
+//~ "the method `set_red` exists"
+//~ "the method `set_green` exists"

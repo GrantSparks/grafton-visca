@@ -6,7 +6,7 @@
 use std::env;
 
 use grafton_visca::{
-    blocking::Connect, camera::profiles::PtzOpticsG2, capabilities::Capabilities, Error,
+    blocking::CameraSession, profiles::CompileTimeProfile, profiles::PtzOpticsG2, Error,
 };
 
 #[derive(Clone, Copy)]
@@ -18,10 +18,7 @@ enum Selection {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (address, selection) = parse_args()?;
-    println!(
-        "Profile: {}",
-        Capabilities::from_profile::<PtzOpticsG2>().model_name
-    );
+    println!("Profile: {}", PtzOpticsG2::spec()?.name());
 
     let mut first_error = None;
     if matches!(selection, Selection::Tcp | Selection::Both) {
@@ -59,18 +56,18 @@ fn parse_args() -> Result<(String, Selection), Box<dyn std::error::Error>> {
 }
 
 fn check_tcp(address: &str) -> Result<(), Error> {
-    let session = Connect::open_tcp::<PtzOpticsG2>(address)?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(address)?;
     let camera = session.camera();
-    let state = camera.power().state()?;
+    let state = camera.power().status()?;
     session.close()?;
     println!("  connected; power {state:?}");
     Ok(())
 }
 
 fn check_udp(address: &str) -> Result<(), Error> {
-    let session = Connect::open_udp::<PtzOpticsG2>(address)?;
+    let session = CameraSession::<PtzOpticsG2>::connect_udp(address)?;
     let camera = session.camera();
-    let state = camera.power().state()?;
+    let state = camera.power().status()?;
     session.close()?;
     println!("  connected; power {state:?}");
     Ok(())

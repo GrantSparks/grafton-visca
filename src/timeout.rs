@@ -13,9 +13,9 @@ use crate::{Error, Result};
 #[cfg(any(feature = "async", feature = "blocking", test))]
 pub(crate) fn validate_duration_at(at: Instant, duration: Duration) -> Result<()> {
     if at.checked_add(duration).is_none() {
-        return Err(Error::InvalidRequest(
-            "engine deadline interval is not representable by the owner clock".into(),
-        ));
+        return Err(Error::InvalidRequest {
+            reason: "engine deadline interval is not representable by the owner clock".into(),
+        });
     }
     Ok(())
 }
@@ -50,25 +50,28 @@ pub(crate) fn saturating_deadline(at: Instant, duration: Duration) -> Instant {
     latest
 }
 
-/// Declares [`CommandCategory`] and its [`CommandCategory::ALL`] inventory
+/// Declares [`crate::profiles::CommandTimeoutClass`] and its [`crate::profiles::CommandTimeoutClass::ALL`] inventory
 /// from one variant list, so a category added to the enum is always visited by
 /// every walk over `ALL` (validation, override checks and table projection).
-macro_rules! command_categories {
+macro_rules! command_timeout_classes {
     ($(#[doc = $doc:literal] $variant:ident),+ $(,)?) => {
-        /// The five command completion categories: every [`TimeoutClass`]
-        /// except [`TimeoutClass::Inquiry`], whose deadline is the profile's
+        /// The five command completion categories: every [`crate::request::TimeoutClass`]
+        /// except [`crate::request::TimeoutClass::Inquiry`], whose deadline is the profile's
         /// inquiry timing fact.
         ///
-        /// Every per-category table ([`CommandTimeouts`], the operational
+        /// Every per-category table ([`crate::profiles::CommandTimeouts`], the operational
         /// overrides, and the validation that relates them) is reached through
         /// this one vocabulary, so a new category cannot be added without
         /// supplying each of its values.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub enum CommandCategory {
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(rename_all = "snake_case"))]
+        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+        pub enum CommandTimeoutClass {
             $(#[doc = $doc] $variant,)+
         }
 
-        impl CommandCategory {
+        impl CommandTimeoutClass {
             /// Every command category, in declaration order. Generated from
             /// the same list as the enum, so it cannot omit a category.
             pub(crate) const ALL: [Self; [$(stringify!($variant)),+].len()] =
@@ -77,7 +80,7 @@ macro_rules! command_categories {
     };
 }
 
-command_categories!(
+command_timeout_classes!(
     /// Fast configuration and ordinary control commands.
     Quick,
     /// Physical movement commands.
@@ -90,7 +93,7 @@ command_categories!(
     Network,
 );
 
-impl CommandCategory {
+impl CommandTimeoutClass {
     /// Returns the request timeout class for this command category.
     #[must_use]
     pub const fn timeout_class(self) -> TimeoutClass {
@@ -118,8 +121,8 @@ impl CommandCategory {
     }
 }
 
-impl From<CommandCategory> for TimeoutClass {
-    fn from(category: CommandCategory) -> Self {
+impl From<CommandTimeoutClass> for TimeoutClass {
+    fn from(category: CommandTimeoutClass) -> Self {
         category.timeout_class()
     }
 }
@@ -132,42 +135,70 @@ impl From<CommandCategory> for TimeoutClass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct CommandTimeouts {
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
     quick_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
     movement_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
     preset_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
     long_running_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
     network_timeout: Duration,
 }
 
 impl CommandTimeouts {
     /// The standard category deadlines: Quick 5 s, Movement 30 s, Preset
     /// 60 s, LongRunning 300 s, and Network 5 s.
-    pub const DEFAULT: Self = Self::new(
-        Duration::from_secs(5),
-        Duration::from_secs(30),
-        Duration::from_secs(60),
-        Duration::from_secs(300),
-        Duration::from_secs(5),
-    );
+    pub const DEFAULT: Self = Self {
+        quick_timeout: Duration::from_secs(5),
+        movement_timeout: Duration::from_secs(30),
+        preset_timeout: Duration::from_secs(60),
+        long_running_timeout: Duration::from_secs(300),
+        network_timeout: Duration::from_secs(5),
+    };
 
-    /// Creates exact category values.
+    /// Selects the quick command completion deadline.
+    /// Configuration admission requires every command deadline to be nonzero.
     #[must_use]
-    pub const fn new(
-        quick: Duration,
-        movement: Duration,
-        preset: Duration,
-        long_running: Duration,
-        network: Duration,
-    ) -> Self {
-        Self {
-            quick_timeout: quick,
-            movement_timeout: movement,
-            preset_timeout: preset,
-            long_running_timeout: long_running,
-            network_timeout: network,
-        }
+    pub const fn with_quick_timeout(mut self, timeout: Duration) -> Self {
+        self.quick_timeout = timeout;
+        self
+    }
+
+    /// Selects the movement command completion deadline.
+    /// Configuration admission requires every command deadline to be nonzero.
+    #[must_use]
+    pub const fn with_movement_timeout(mut self, timeout: Duration) -> Self {
+        self.movement_timeout = timeout;
+        self
+    }
+
+    /// Selects the preset command completion deadline.
+    /// Configuration admission requires every command deadline to be nonzero.
+    #[must_use]
+    pub const fn with_preset_timeout(mut self, timeout: Duration) -> Self {
+        self.preset_timeout = timeout;
+        self
+    }
+
+    /// Selects the long running command completion deadline.
+    /// Configuration admission requires every command deadline to be nonzero.
+    #[must_use]
+    pub const fn with_long_running_timeout(mut self, timeout: Duration) -> Self {
+        self.long_running_timeout = timeout;
+        self
+    }
+
+    /// Selects the network command completion deadline.
+    /// Configuration admission requires every command deadline to be nonzero.
+    #[must_use]
+    pub const fn with_network_timeout(mut self, timeout: Duration) -> Self {
+        self.network_timeout = timeout;
+        self
     }
 
     /// Returns the Quick command completion deadline.
@@ -201,25 +232,25 @@ impl CommandTimeouts {
     }
 
     /// Returns one category's completion deadline.
-    pub(crate) const fn get(self, category: CommandCategory) -> Duration {
+    pub(crate) const fn get(self, category: CommandTimeoutClass) -> Duration {
         match category {
-            CommandCategory::Quick => self.quick_timeout,
-            CommandCategory::Movement => self.movement_timeout,
-            CommandCategory::Preset => self.preset_timeout,
-            CommandCategory::LongRunning => self.long_running_timeout,
-            CommandCategory::Network => self.network_timeout,
+            CommandTimeoutClass::Quick => self.quick_timeout,
+            CommandTimeoutClass::Movement => self.movement_timeout,
+            CommandTimeoutClass::Preset => self.preset_timeout,
+            CommandTimeoutClass::LongRunning => self.long_running_timeout,
+            CommandTimeoutClass::Network => self.network_timeout,
         }
     }
 
     /// Validates that every category has a non-zero deadline.
     pub(crate) fn validate(self) -> Result<()> {
-        if CommandCategory::ALL
+        if CommandTimeoutClass::ALL
             .into_iter()
             .any(|category| self.get(category).is_zero())
         {
-            return Err(Error::InvalidRequest(
-                "all command category timeouts must be non-zero".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "all command category timeouts must be non-zero".into(),
+            });
         }
         Ok(())
     }
@@ -349,15 +380,14 @@ mod tests {
 
     #[test]
     fn category_accessor_reads_each_named_deadline() {
-        let timeouts = CommandTimeouts::new(
-            Duration::from_secs(1),
-            Duration::from_secs(2),
-            Duration::from_secs(3),
-            Duration::from_secs(4),
-            Duration::from_secs(5),
-        );
+        let timeouts = CommandTimeouts::DEFAULT
+            .with_quick_timeout(Duration::from_secs(1))
+            .with_movement_timeout(Duration::from_secs(2))
+            .with_preset_timeout(Duration::from_secs(3))
+            .with_long_running_timeout(Duration::from_secs(4))
+            .with_network_timeout(Duration::from_secs(5));
         assert_eq!(
-            CommandCategory::ALL.map(|category| timeouts.get(category)),
+            CommandTimeoutClass::ALL.map(|category| timeouts.get(category)),
             [
                 timeouts.quick_timeout(),
                 timeouts.movement_timeout(),
@@ -366,39 +396,85 @@ mod tests {
                 timeouts.network_timeout(),
             ]
         );
-        assert_eq!(CommandCategory::of(TimeoutClass::Inquiry), None);
+        assert_eq!(CommandTimeoutClass::of(TimeoutClass::Inquiry), None);
         for (class, category) in [
-            (TimeoutClass::Quick, CommandCategory::Quick),
-            (TimeoutClass::Movement, CommandCategory::Movement),
-            (TimeoutClass::Preset, CommandCategory::Preset),
-            (TimeoutClass::LongRunning, CommandCategory::LongRunning),
-            (TimeoutClass::Network, CommandCategory::Network),
+            (TimeoutClass::Quick, CommandTimeoutClass::Quick),
+            (TimeoutClass::Movement, CommandTimeoutClass::Movement),
+            (TimeoutClass::Preset, CommandTimeoutClass::Preset),
+            (TimeoutClass::LongRunning, CommandTimeoutClass::LongRunning),
+            (TimeoutClass::Network, CommandTimeoutClass::Network),
         ] {
-            assert_eq!(CommandCategory::of(class), Some(category));
+            assert_eq!(CommandTimeoutClass::of(class), Some(category));
         }
         assert_eq!(CommandTimeouts::default(), CommandTimeouts::DEFAULT);
     }
 
     #[test]
     fn command_validation_rejects_zero_values() {
-        assert!(CommandTimeouts::new(
-            Duration::ZERO,
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-        )
-        .validate()
-        .is_err());
-        assert!(CommandTimeouts::new(
-            Duration::from_secs(4),
-            Duration::from_secs(30),
-            Duration::from_secs(60),
-            Duration::from_secs(300),
-            Duration::from_secs(5),
-        )
-        .validate()
-        .is_ok());
+        for invalid in [
+            CommandTimeouts::DEFAULT.with_quick_timeout(Duration::ZERO),
+            CommandTimeouts::DEFAULT.with_movement_timeout(Duration::ZERO),
+            CommandTimeouts::DEFAULT.with_preset_timeout(Duration::ZERO),
+            CommandTimeouts::DEFAULT.with_long_running_timeout(Duration::ZERO),
+            CommandTimeouts::DEFAULT.with_network_timeout(Duration::ZERO),
+        ] {
+            assert!(invalid.validate().is_err());
+        }
+        assert!(CommandTimeouts::DEFAULT
+            .with_quick_timeout(Duration::from_secs(4))
+            .validate()
+            .is_ok());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_pins_timeout_class_names_and_rejects_unknown_settings() -> Result<(), serde_json::Error>
+    {
+        for (class, tag) in CommandTimeoutClass::ALL.into_iter().zip([
+            "quick",
+            "movement",
+            "preset",
+            "long_running",
+            "network",
+        ]) {
+            assert_eq!(serde_json::to_value(class)?, tag);
+            assert_eq!(
+                serde_json::from_value::<CommandTimeoutClass>(serde_json::json!(tag))?,
+                class
+            );
+        }
+        let config = CommandTimeouts::DEFAULT
+            .with_quick_timeout(Duration::from_millis(37))
+            .with_network_timeout(Duration::from_secs(9));
+        let value = serde_json::to_value(config)?;
+        assert_eq!(
+            value["quick_timeout"],
+            serde_json::json!({"secs": 0, "nanos": 37_000_000})
+        );
+        assert_eq!(
+            serde_json::from_value::<CommandTimeouts>(value.clone())?,
+            config
+        );
+        let mut unknown = value;
+        unknown["quick"] = serde_json::json!({"secs": 1, "nanos": 0});
+        assert!(serde_json::from_value::<CommandTimeouts>(unknown).is_err());
+        Ok(())
+    }
+
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    #[test]
+    fn timeout_bindings_keep_duration_objects_and_snake_case_classes() {
+        let config_schema = schemars::schema_for!(CommandTimeouts);
+        assert_eq!(
+            config_schema.get("additionalProperties"),
+            Some(&serde_json::json!(false))
+        );
+        let config = <CommandTimeouts as ts_rs::TS>::decl(&ts_rs::Config::default());
+        assert!(config.contains("secs: number"));
+        assert!(config.contains("nanos: number"));
+        let class = <CommandTimeoutClass as ts_rs::TS>::decl(&ts_rs::Config::default());
+        assert!(class.contains("\"long_running\""));
+        assert!(!class.contains("LongRunning"));
     }
 
     #[cfg(any(

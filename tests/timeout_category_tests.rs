@@ -8,9 +8,10 @@
 #[cfg(all(test, feature = "runtime-tokio", feature = "test-utils"))]
 mod timeout_tests {
     use grafton_visca::{
+        profiles::CommandTimeouts,
+        runtime::{Executor, TokioExecutor},
         testing::testkit::{helpers, ScriptedTransport, Step},
         transport::AsyncTransport,
-        CommandTimeouts, Executor, TokioExecutor,
     };
 
     use std::{sync::Arc, time::Duration};

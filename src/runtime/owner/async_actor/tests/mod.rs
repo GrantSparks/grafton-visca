@@ -230,7 +230,6 @@ impl crate::executor::Executor for ManualRuntime {
 impl Runtime for ManualRuntime {
     type TcpTransport = <TokioRuntime as Runtime>::TcpTransport;
     type UdpTransport = <TokioRuntime as Runtime>::UdpTransport;
-    #[cfg(feature = "transport-serial-tokio")]
     type SerialTransport = std::convert::Infallible;
 
     #[allow(clippy::manual_async_fn)]
@@ -239,7 +238,11 @@ impl Runtime for ManualRuntime {
         _addr: &'a str,
         _cfg: crate::transport::builder::TransportConfig,
     ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
-        async { Err(Error::NotSupported) }
+        async {
+            Err(Error::FeatureNotSupported {
+                feature: "network transport for manual runtime",
+            })
+        }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -248,7 +251,11 @@ impl Runtime for ManualRuntime {
         _addr: &'a str,
         _cfg: crate::transport::builder::TransportConfig,
     ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
-        async { Err(Error::NotSupported) }
+        async {
+            Err(Error::FeatureNotSupported {
+                feature: "network transport for manual runtime",
+            })
+        }
     }
 }
 
@@ -824,7 +831,7 @@ async fn typed_async_receipt_matrix<R>(runtime: R)
 where
     R: Runtime,
 {
-    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
     let (handle, actor) = AsyncOwnerActor::new(policy(2), runtime.clone()).unwrap();
     let harness = harness();
     let started = harness.started.clone();
@@ -942,7 +949,7 @@ async fn targeted_settlement_matrix<R>(runtime: R)
 where
     R: Runtime,
 {
-    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
     let (handle, actor) = AsyncOwnerActor::new(policy(3), runtime).unwrap();
     let harness = harness();
     let started = harness.started.clone();
@@ -1729,9 +1736,9 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
     runtime.advance_silently(Duration::from_millis(1));
     harness
         .reads
-        .try_send(ScriptedRawRead::Fault(Error::Io(Arc::new(
-            std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
-        ))))
+        .try_send(ScriptedRawRead::Fault(Error::Io {
+            source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+        }))
         .unwrap();
     harness
         .reads
@@ -1931,9 +1938,9 @@ impl AsyncOwnerDriver for AlwaysFailingReceive {
     ) -> impl Future<Output = OwnerReceive> + Send {
         self.reads.fetch_add(1, Ordering::Relaxed);
         async {
-            OwnerReceive::read_error(Error::Io(Arc::new(std::io::Error::other(
-                "simulated adapter unplugged",
-            ))))
+            OwnerReceive::read_error(Error::Io {
+                source: Arc::new(std::io::Error::other("simulated adapter unplugged")),
+            })
         }
     }
 }

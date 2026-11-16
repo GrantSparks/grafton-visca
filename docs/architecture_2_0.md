@@ -1,30 +1,40 @@
 # 2.0 architecture
 
 This page describes the public 2.0 vocabulary and the ownership rules behind
-it. The implementation has one protocol authority per session. A typed,
-blocking, async, or dynamic camera value is a view onto that authority; it is
+it. The implementation has one protocol authority per session. A compile-time or runtime-selected
+blocking or async camera value is a view onto that authority; it is
 not another connection.
 
 ## Public vocabulary
 
 | Concept | 2.0 meaning |
 | --- | --- |
-| `SessionConfig` | Mode-independent, reusable profile/target registry and operational tuning. |
-| `blocking::Session` | Caller-driven owner for a blocking transport. |
-| `Session` | Owner handle for an async transport and selected executor/runtime. |
-| `Camera<P>` | A statically checked view for one registered target and compile-time profile `P`. |
-| `BlockingDynSessionCamera` | A native blocking runtime-profile view. Its typed request methods return synchronous results and blocking lifecycle handles. |
-| `DynSessionCamera` | An async runtime-profile view. It exposes `DynSessionCameraControl`, the 14 object-safe dynamic noun traits, and `DynMotion`. |
+| `config::SessionConfig` | Mode-independent, reusable profile/target registry and operational tuning. |
+| `blocking::Session` | Owner handle for one native worker and blocking transport. |
+| `r#async::Session` | Owner handle for an async transport and selected executor/runtime. |
+| `Camera<P>` | A view for one registered target: compile-time profile `P`, or runtime `profiles::AnyProfile`. |
 | `StateCache` | A read-only, target-local projection of exact applied write-only state. |
 | `MetricsSnapshot` and `DiagnosticEvent` | Bounded scalar metrics and sanitized owner observations. |
 
-The final noun entry points are `power`, `zoom`, `system`, `pan_tilt`, `focus`,
-`exposure`, `white_balance`, `image`, `presets`, `tally`, `nd_filter`,
-`motion_sync`, `menu`, and `advanced`. Motion safety and observation are a
-separate `motion()` view. Dynamic code uses the corresponding `Dyn*` noun
-traits. Names such as `DynCameraControl`, `DynPanTiltControl`, and
-`IntoDynCamera` belong to the historical 1.x vocabulary and are not 2.0 API
-names.
+<!-- BEGIN NOUN ENTRY POINTS -->
+| Both facades | Accessor | Methods |
+| --- | --- | --- |
+| `power()` | `PowerAccessor` | 3 |
+| `zoom()` | `ZoomAccessor` | 14 |
+| `system()` | `SystemAccessor` | 2 |
+| `pan_tilt()` | `PanTiltAccessor` | 10 |
+| `focus()` | `FocusAccessor` | 22 |
+| `presets()` | `PresetsAccessor` | 13 |
+| `exposure()` | `ExposureAccessor` | 49 |
+| `white_balance()` | `WhiteBalanceAccessor` | 52 |
+| `image()` | `ImageAccessor` | 54 |
+| `tally()` | `TallyAccessor` | 6 |
+| `nd_filter()` | `NdFilterAccessor` | 7 |
+| `motion_sync()` | `MotionSyncAccessor` | 3 |
+| `menu()` | `MenuAccessor` | 7 |
+| `streaming()` | `StreamingAccessor` | 4 |
+| `motion()` | `MotionAccessor` | 3 |
+<!-- END NOUN ENTRY POINTS -->
 
 The async and blocking camera cores expand from one `camera_core!` definition
 (#865). Both retain one owner handle, immutable target registration and
@@ -51,8 +61,8 @@ delivery.
   one runtime at construction.
 * Typed camera views clone or borrow the owner handle and retain only their
   target and validated profile facts.
-* Dynamic views erase profile/request types, not ownership, transport, runtime,
-  timeout, or state-cache policy.
+* `Camera<AnyProfile>` erases only the compile-time profile parameter. Requests,
+  operation kinds, ownership, transport, runtime, timeouts and cache policy stay concrete.
 * `shutdown` is an idempotent, non-joining signal accepted by the one owner.
   It returns once the signal is accepted and does not claim that actor or
   transport teardown has finished.
@@ -144,6 +154,20 @@ raw stream write sampled after its budget still owes its unanswered first
 answer (#837, #860). A frame for an unrelated request keeps that request's own
 deadline.
 
+<!-- BEGIN PROFILE TIMINGS -->
+| Profile | ACK (ms) | Inquiry (ms) | Command spacing (ms) | Inquiry spacing (ms) | Quick / movement / preset / long-running / network (ms) |
+| --- | --- | --- | --- | --- | --- |
+| `PtzOpticsG2` | 500 | 1000 | 100 | 150 | 5000 / 30000 / 60000 / 300000 / 5000 |
+| `PtzOpticsG3` | 500 | 1000 | 100 | 150 | 5000 / 30000 / 60000 / 300000 / 5000 |
+| `PtzOptics30x` | 500 | 1000 | 100 | 150 | 5000 / 30000 / 60000 / 300000 / 5000 |
+| `SonyFr7` | 500 | 1000 | 35 | 35 | 8000 / 30000 / 60000 / 300000 / 8000 |
+| `SonyBrcH900` | 500 | 1000 | 35 | 35 | 6000 / 30000 / 60000 / 300000 / 6000 |
+| `SonyEviH100` | 500 | 1000 | 0 | 0 | 5000 / 30000 / 60000 / 300000 / 5000 |
+| `SonyBrc300` | 500 | 1000 | 0 | 0 | 5000 / 30000 / 60000 / 300000 / 5000 |
+| `NearusBrc300` | 500 | 1000 | 0 | 0 | 5000 / 30000 / 60000 / 300000 / 5000 |
+| `GenericVisca` | 500 | 1000 | 0 | 0 | 10000 / 30000 / 60000 / 300000 / 10000 |
+<!-- END PROFILE TIMINGS -->
+
 ## Target registry and preflight
 
 `SessionConfig` has exactly seven individual target slots, VISCA IDs 1 through
@@ -160,16 +184,14 @@ target; broadcast Address Set and interface-clear maintenance remain explicit
 transport-lifecycle operations outside these tables. The public API continues
 to use `CameraId` (#853).
 
-`camera()` is valid only when exactly one target is registered. A multi-target
-session must use `camera_for(target)`, which also verifies that the requested
-compile-time profile matches every protocol identity fact in the registered
-`ProfileSpec`: capability and reply-domain facts, pan/tilt coordinate codec,
-transports, envelope, timing, maximum command sockets, operation-complete and
-command-cancel support, preset-recall axes, and position-inquiry support. A
-runtime profile that customizes any of those facts must not claim a built-in
-profile ID and cannot project that built-in typed facade. Dynamic views use the
-same sole-target rule and an explicit target selection for multi-target
-sessions.
+`CameraSession<P>::camera()` returns its single bound target. A `Session`
+selects every target explicitly with `camera::<P>(target)`, checking the complete
+registered `ProfileSpec`: capability and reply-domain facts, profile-selected
+encodings, coordinate codec, transports, envelope, timing, command sockets,
+completion and cancellation support, preset axes and position inquiries.
+A custom profile cannot claim a built-in identity after changing any of those
+facts. `camera::<AnyProfile>(target)` retains runtime validation instead of
+making compile-time capability claims.
 
 Multi-target registration is rejected before socket creation on any
 IP-addressed transport, which is every standard TCP and UDP configuration and
@@ -204,7 +226,7 @@ compile-time permission surface. Direct generic `Camera::execute` and
 `Camera::inquire` intentionally carry no request-specific `P` bounds: they are
 the uniform typed/downstream extension boundary. A runtime `ProfileSpec` is
 validated in full before owner admission, and dynamic callers use
-`capabilities()`/`supports_typed(...)` before selecting optional controls.
+`capabilities()`/`supports(...)` before selecting optional controls.
 Metadata is discovery information; it is not a fallback that exposes an
 unsupported typed operation.
 For example, broad `HasExposure` admits the exposure domain, while the shared
@@ -220,8 +242,8 @@ The construction and request path has a fixed order:
    owner policy.
 2. Create the one owner and its fixed target-local state registry. No socket,
    serial device, or protocol frame is opened before step 1 succeeds.
-3. Start the owner (async) or retain the caller-driven owner (blocking).
-4. Project `Camera<P>`, `BlockingDynSessionCamera`, or `DynSessionCamera` views
+3. Start one async owner actor or one native blocking owner worker.
+4. Project `Camera<P>` or `Camera<AnyProfile>` views
    without creating a second owner, runtime, transport, or cache.
 5. Prepare each request against the selected target/profile and admit it to the
    owner. Preparation invokes `Request::validate_for_target` before encoding;
@@ -986,9 +1008,9 @@ resource bound above applies independently to each raw target.
 | `Lifecycle` variant | Phase-local facts | Legal cancellation |
 | --- | --- | --- |
 | `Ready` | On retry, the previous written attempt. | None; cancelling removes the entry. |
-| `Sending` | Transmission, framing expectation, start time, attempt facts, and the closed `SendingReply` family. Its result precedes every unrelated input or due pass. | None; commands refuse cancellation with `NotSupported`. |
+| `Sending` | Transmission, framing expectation, start time, attempt facts, and the closed `SendingReply` family. Its result precedes every unrelated input or due pass. | None; commands refuse cancellation with `CancellationNotSupported`. |
 | `AwaitingAck` | Send time, ACK deadline and attempt facts. | None or requested. |
-| `AwaitingCompletion` | Send time, completion deadline and attempt facts. No socket. | None; cancellation is refused with `NotSupported` (#835). |
+| `AwaitingCompletion` | Send time, completion deadline and attempt facts. No socket. | None; cancellation is refused with `CancellationNotSupported` (#835). |
 | `Executing` | Socket, start time, original completion deadline and attempt facts. | `ExecutingCancellation`: none, requested, sending, or observation-failed. |
 | `AwaitingReply` | Send order, send time, inquiry deadline and attempt facts. | None; inquiries are not cancellable. |
 | `Backoff` | Ready-at time and the previous written attempt retained for exact Sony acceptance. | None. |
@@ -1117,12 +1139,12 @@ terminal verdict. Delivery moves the result into that slot (#903).
 | Retry becomes eligible (`Backoff` → ready) | Return to `Ready` and dispatch through the ordinary capacity and pacing gates. |
 | Owner halt fence over a `Ready` or `Backoff` request, a retry decision for a fenced request, or admission of a fenced submission | `finish` (or reject admission) with `Error::MotionSuperseded`. Its context is `PreAdmission`/`NotAccepted` for a rejected submission; otherwise `Terminal`, with `NotAccepted` when no written attempt can have taken effect (never written, or every written attempt rejected before ACK) and `Unconfirmed` when an earlier attempt lost its ACK, completion, or receive path (#795). |
 | Cancel in `Ready` or `Backoff` | Remove without I/O; emit `CancellationRecorded`, then `finish` with `Cancelled`. |
-| Cancellation decision for a `Sending` command | Refuse with `NotSupported`; this state cannot record intent. A public cancellation arriving during a transport write is processed only after its result, under the resulting lifecycle (#860). |
+| Cancellation decision for a `Sending` command | Refuse with `CancellationNotSupported`; this state cannot record intent. A public cancellation arriving during a transport write is processed only after its result, under the resulting lifecycle (#860). |
 | Cancel in `AwaitingAck` (supported target) | Record requested intent, suppress retries, and wait for socket assignment or the later of the ACK and cancellation ambiguity deadlines (#835). |
-| Cancel in `AwaitingCompletion` | Refuse the cancellation observation with `NotSupported`, record no intent, and preserve the completion-only command's original completion deadline. Its own completion can still apply it; an unconfirmed raw datagram expiry retains `AllResponses` (#835; `cancellation_holds::completion_only_cancel_preserves_window_and_late_completion_cannot_apply_successor`). |
+| Cancel in `AwaitingCompletion` | Refuse the cancellation observation with `CancellationNotSupported`, record no intent, and preserve the completion-only command's original completion deadline. Its own completion can still apply it; an unconfirmed raw datagram expiry retains `AllResponses` (#835; `cancellation_holds::completion_only_cancel_preserves_window_and_late_completion_cannot_apply_successor`). |
 | Cancel after a raw request has terminalized into a keyed hold | Return `Ignored(UnknownRequest)`. The hold is inert correlation state, not a cancellable request, and its deadline is unchanged. |
 | Cancel in `Executing` (supported target) | Record intent, emit one socket cancellation, and retain the original completion correlation through the command's completion deadline; cancellation ambiguity does not shorten exact socket correlation (#724). |
-| Cancel after transmission on a target without socket cancellation | The cancellation observation fails with `Error::NotSupported`; record no intent, send no frame, and leave the original request active. |
+| Cancel after transmission on a target without socket cancellation | The cancellation observation fails with `Error::CancellationNotSupported`; record no intent, send no frame, and leave the original request active. |
 | Cancel of an inquiry | The cancellation observation fails with `Error::InquiryNotCancelable`. |
 | Repeated cancel from the same handle | The owner observes the handle's one existing intent and gives the engine no second input (#777). |
 | Duplicate cancel reaching the engine | `Ignored(DuplicateCancellation)`. |
@@ -1406,6 +1428,10 @@ The coordinator paces only the receive
 source, so boundaries, timers, and control stay selectable during the pause in
 both shells, and an eager custom driver cannot hot-spin either owner (#723).
 
+<!-- BEGIN WRITE-ONLY STATE KEYS -->
+`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`.
+<!-- END WRITE-ONLY STATE KEYS -->
+
 ## Request and motion semantics
 
 Plain commands normally complete when the owner has protocol-applied them; a raw
@@ -1415,9 +1441,9 @@ target state and expose applied completion plus `Settlement` evidence. `settled`
 returns exact profile completion or stable samples with axes, window, and
 tolerance; stable samples do not prove arrival at the endpoint. Applied-only operations represent actuation without a
 meaningful target state and expose
-applied completion only. Dynamic handles preserve this distinction:
-`DynTargetedOperation` has `applied`, `settled`, `cancel`, and `detach`, while
-`DynAppliedOperation` has no settled operation.
+applied completion only. `Operation<operation::Targeted>` has `applied`,
+`settled`, `cancel`, and `detach`; `Operation<operation::AppliedOnly>` has no
+settled operation. Both profile selections use these same concrete handles.
 
 ### Operation observation
 
@@ -1454,7 +1480,7 @@ Cancellation is one intent per handle. The first `cancel` creates the
 cancellation slot and ships it with the request; a later `cancel` — after a
 timeout or a dropped call — finds the owner already holding that intent and
 observes it, so the wire carries at most one cancellation. A refusal
-(`NotSupported`, `InquiryNotCancelable`) installs no intent and leaves the
+(`CancellationNotSupported`, `InquiryNotCancelable`) installs no intent and leaves the
 handle observing. The verdict is terminal-first among outcomes delivered on time: once the
 terminal outcome is known at or before the observer deadline it decides (`Applied` is `Completed`, `Cancelled` is `Cancelled`, a
 failure is that error), whichever order the owner emitted the two slots in;
@@ -1469,12 +1495,12 @@ default `cancel` outlives the owner's own cancellation resolution and reports
 its conclusion rather than a caller-side timeout.
 
 Use the noun view for ordinary controls and `submit` when a caller needs an
-explicit operation lifecycle. `motion().stop_all_motion()`,
+explicit operation lifecycle. `motion().stop_all()`,
 `motion().is_moving(...)`, and `motion().wait_until_idle(...)` are the only
 camera-level motion safety/observation entry points. A dropped handle is not
 an automatic STOP; emergency stopping is an explicit STOP or motion operation.
 
-`stop_all_motion()` is one bounded owner transaction returning `HaltReport`.
+`stop_all()` is one bounded owner transaction returning `HaltReport`.
 Acceptance atomically samples the ingress cutoff and publishes the supported-axis
 fence against settlement establishment. Earlier declared queued motion is
 suppressed, including work still in the ingress lane; already-written lifecycle

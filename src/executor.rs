@@ -25,13 +25,15 @@ pub enum ExecError {
 
 impl From<ExecError> for Error {
     fn from(err: ExecError) -> Self {
-        Error::InvalidState(err.to_string().into())
+        Error::InvalidState {
+            reason: err.to_string().into(),
+        }
     }
 }
 
 /// A timer that can be re-armed without allocating another future.
 ///
-/// Deadlines use the same clock as [`Executor::now`]. Resetting cancels the
+/// Deadlines use the same clock as [`crate::runtime::Executor::now`]. Resetting cancels the
 /// previous deadline, including after completion. The next poll observes the
 /// new deadline; a pending timer wakes its most recently registered task.
 #[cfg(feature = "async")]

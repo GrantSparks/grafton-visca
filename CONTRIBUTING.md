@@ -7,6 +7,7 @@ Thank you for your interest in contributing to grafton-visca! This guide will he
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
 - [Code Style](#code-style)
+- [Public API Conventions](#public-api-conventions)
 - [Safety Guidelines](#safety-guidelines)
 - [Command Development](#command-development)
 - [Camera Profile Support](#camera-profile-support)
@@ -87,25 +88,90 @@ We maintain high code quality standards:
 - **Documentation**: All public APIs must have doc comments with examples
 - **Tests**: Add tests for new functionality
 
+## Public API Conventions
+
+These conventions are normative for public changes. `tests/api_conventions.rs`
+and the public-path, facade-parity, value and compile-contract gates enforce
+this grammar; update the declarations and their reviewed contracts together.
+
+1. **One canonical path per item.** Facade items live in `blocking` or
+   `r#async`. Other items have one topical home. The crate root re-exports only
+   `Error`, `Result`, `value`, `value_enum` and `ViscaInquiry`;
+   `prelude::{blocking, r#async}` are the only additional re-export points.
+2. **Rust API Guidelines naming.** Treat acronyms as words (`SonyFr7`, `Atw`,
+   `PushAutoFocus`), omit `get_`, keep constructors on the type they return and
+   follow C-CONV for conversions.
+3. **Noun grammar.** Read a property with `p() -> T` and write it with
+   `set_p(T)`, using the same type, including booleans. The primary mode is
+   `mode()` / `set_mode(Mode)`; a sub-feature uses `p_mode()` /
+   `set_p_mode(PMode)`. Single steps are `p_up`, `p_down`, `p_reset`; counted
+   steps are `p_up_by(steps)` and `p_down_by(steps)`; toggles are `toggle_p`.
+   Other actions use the closed verb list in `tests/api_conventions.rs`, such
+   as `on`, `standby`, `home`, `stop`, `drive`, `recall`, `store`, `clear`,
+   `one_push`, `navigate`, `enter`, `back` and `stop_all`. Do not introduce
+   `enable_*`, `disable_*`, `*_on`, `*_off`, `increase_*`, `decrease_*`,
+   `*_direct`, `*_status` or `x_set` methods.
+4. **One meaning per name.** A closed verb keeps the same meaning on every
+   noun.
+5. **Round-trip types.** For every readable and writable property,
+   `set_p(p()?)` type-checks. A write-only property's `StateCache` read returns
+   the setter's type.
+6. **Concept names.** Method, value, request, marker and typed-surface names
+   contain no vendor or model tokens. Vendors belong in profile types, ids and
+   encoders. The same capability contract reuses its marker with a
+   profile-selected encoding; a different contract receives a different
+   vendor-neutral concept name.
+7. **One value generator.** Every bounded scalar uses fallible `new`,
+   `value()`, `MIN`/`MAX`, `TryFrom`/`From`, `Debug`, `Clone`, `Copy`,
+   `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash`, and serde, schemars and ts-rs. Construction validates the value's own
+   domain; preparation validates the profile domain. Use `Degrees`, `Kelvin`,
+   `UnitInterval`, `ExposureTime` and `std::time::Duration` for physical
+   quantities. Value enums use the same generator family. Public wire
+   conversion belongs only to `wire::WireValue`.
+8. **Errors.** Every fallible public constructor returns `crate::Result`,
+   never `Option` or another error type. Data-carrying `Error` variants use
+   named fields.
+9. **Two configuration shapes.** A builder has bare setter names and a
+   terminal `build() -> Result<X>`, with no getters. A reusable config value
+   has `with_p(self, value) -> Self` setters, `p(&self)` getters and private
+   fields.
+10. **Serialization.** Every serde-visible name is `snake_case`. Persisted
+    profile ids are explicit and pinned by tests. Data types support serde,
+    schemars and ts-rs; sessions, views and handles do not.
+11. **Complete noun docs.** Every noun method states its behavior, unit and
+    range source, and completion shape. Placeholder text is rejected.
+12. **Complete gates.** A row's static bound and runtime gate list the same
+    markers.
+13. **Evidence and callability.** A `Has*` marker is a source-backed claim,
+    implemented only for profiles with that evidence. Facade methods use the
+    sealed `Permits<gate::X>`, satisfied by evidenced compile-time profiles and
+    `AnyProfile`. Generic code requiring a static guarantee uses
+    `CompileTimeProfile + HasX`; code accepting runtime-checked cameras uses
+    `CameraProfile + Permits<gate::X>`.
+
 ## Safety Guidelines
 
 ### Protocol Safety with VISCA_TERMINATOR
 
 All VISCA commands MUST be properly terminated with the `VISCA_TERMINATOR` byte (0xFF). This is critical for protocol compliance and camera communication safety.
 
-**Important**: Build every frame through the crate's frame writer, which adds the camera address byte and the terminator. Command and inquiry bodies are address-free byte sequences from `command::bytes::constants` (or the built-in inquiry table):
+Built-in encoders use the crate's internal `FrameWriter`, catalogue bodies and
+bounded output storage. Downstream `request::Request` implementations likewise
+write a complete addressed, terminated frame. Check the boundary directly:
 
 ```rust
-use crate::command::bytes::{constants::zoom, FrameWriter, Step};
+use grafton_visca::{
+    command::zoom::Stop,
+    request::Request,
+    types::CameraId,
+    wire::VISCA_TERMINATOR,
+};
 
-// GOOD: the frame writer adds the address byte and the terminator
-FrameWriter::new(camera_id, buffer)
-    .bytes(&zoom::DRIVE)
-    .byte(Step::Up.byte())
-    .finish()
-
-// BAD: Manual byte construction without terminator
-let command = [0x81, 0x01, 0x04, 0x00]; // Missing 0xFF terminator!
+# fn main() -> grafton_visca::Result<()> {
+let mut buffer = [0; Stop::MAX_SIZE];
+let length = Stop.write_into(CameraId::CAMERA_1, &mut buffer)?;
+assert_eq!(buffer[length - 1], VISCA_TERMINATOR);
+# Ok(()) }
 ```
 
 ### Physical Safety Considerations
@@ -128,6 +194,12 @@ Example safety documentation:
 /// - Clear operating area around the camera
 /// - No obstructions in the movement path
 /// - Appropriate speed settings for your environment
+fn absolute_move(
+    camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>,
+    position: grafton_visca::types::PanTiltPosition,
+) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::operation::Targeted>> {
+    camera.pan_tilt().absolute(position, grafton_visca::types::SpeedLevel::Medium)
+}
 ```
 
 ## Command Development
@@ -154,13 +226,13 @@ preparation checks the latter before I/O.
 use grafton_visca::{value, wire::WireValue};
 
 #[value(min = 0, max = 7, display = "Speed {}")]
-pub struct VendorSpeed(u8);
+pub struct AdjustmentLevel(u8);
 
 # fn example() -> grafton_visca::Result<()> {
-let speed = VendorSpeed::new(3)?;
+let speed = AdjustmentLevel::new(3)?;
 assert_eq!(speed.value(), 3);
-assert_eq!(VendorSpeed::MIN.value(), 0);
-assert_eq!(VendorSpeed::from_wire(speed.to_wire())?, speed);
+assert_eq!(AdjustmentLevel::MIN.value(), 0);
+assert_eq!(AdjustmentLevel::from_wire(speed.to_wire())?, speed);
 # Ok(()) }
 ```
 
@@ -176,20 +248,37 @@ invalid serialized input when adding or changing a value.
 Typed `Request` implementations make semantic admission explicit while keeping
 wire encoding bounded and allocation-free:
 
-```rust
-use grafton_visca::{CameraId, Request};
+The following custom extension illustrates encoding and classification only;
+its illustrative vendor payload grants no camera-profile support:
 
-impl Request for MyCommand {
-    type Class = grafton_visca::request::Plain;
-    const MAX_SIZE: usize = 8;
-    const TIMEOUT_CLASS: grafton_visca::TimeoutClass = grafton_visca::TimeoutClass::Quick;
-    const RETRY_CLASS: grafton_visca::RetryClass = grafton_visca::RetryClass::Standard;
-    const CONTROL_CLASS: grafton_visca::ControlClass = grafton_visca::ControlClass::Normal;
+```rust
+use grafton_visca::{
+    request::{ControlClass, PlainClass, Request, RetryClass, TimeoutClass},
+    types::CameraId,
+    Error,
+};
+
+#[grafton_visca::value(min = 0, max = 15)]
+struct AuxiliaryLevel(u8);
+
+struct SetAuxiliaryLevel(AuxiliaryLevel);
+
+impl Request for SetAuxiliaryLevel {
+    type Class = PlainClass;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+    const RETRY_CLASS: RetryClass = RetryClass::Never;
+    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        // Encode the complete terminated VISCA frame into `buffer`.
-        let _ = (camera_id, buffer);
-        todo!("encode MyCommand with the bounded command-byte helpers")
+        let frame = [
+            0x80 | camera_id.value(), 0x01, 0x04, 0x7E, 0x01, self.0.value(), 0xFF,
+        ];
+        if buffer.len() < frame.len() {
+            return Err(Error::buffer_too_small(frame.len(), buffer.len()));
+        }
+        buffer[..frame.len()].copy_from_slice(&frame);
+        Ok(frame.len())
     }
 }
 ```
@@ -202,31 +291,29 @@ length, which may be shorter than that bound.
 
 ### 3. Implement Inquiry Pattern
 
-For inquiry commands, implement `Request<Class = request::Inquiry>` and
-`Inquiry`:
+An inquiry implements `request::Request<Class = request::InquiryClass>` and
+`request::Inquiry`, which returns a public `request::ResponseDecoder<T>`. Its
+`payload_shape` may declare the exact byte/nibble shape needed for correlation.
+Use `ResponseDecoder::from_fn` for allocation-free decoding of data payloads;
+use `wire::Payload` and its checked parsing helpers where appropriate.
+
+The supported inquiry derive supplies this contract as well:
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MyInquiry;
+use grafton_visca::{request::Inquiry, types::ExposureMode, ViscaInquiry};
 
-impl Request for MyInquiry {
-    type Class = request::Inquiry;
-    const MAX_SIZE: usize = 5;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-    const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+#[derive(Debug, Clone, Copy, ViscaInquiry)]
+#[visca(opcode = 0x39, response = ExposureMode, typed_response = ExposureMode, typed_field = mode)]
+struct ModeInquiry;
 
-    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        // Use the bounded command-byte helpers for safe construction
-    }
-}
-
-impl Inquiry for MyInquiry {
-    type Response = MyResponse;
-
-    fn decoder(&self) -> ResponseDecoder<Self::Response> { /* decode response */ }
-}
+# fn main() -> grafton_visca::Result<()> {
+assert_eq!(ModeInquiry.decoder().decode(&[0x00])?, ExposureMode::Auto);
+# Ok(()) }
 ```
+
+An existing profile contribution uses the existing inquiry and noun contracts.
+New concepts and their decoder contracts receive separate review before any
+profile first grants them.
 
 ### 4. Adding a Built-in Command
 
@@ -259,7 +346,7 @@ generated from them:
    `self.ledger_row()`, before per-value validation.
 4. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
    gives the method name, arguments, rustdoc, capability `where` marker and
-   request. The blocking, async and `Dyn*` methods, the static surface entry
+   request. The blocking and async methods, the semantic surface entry
    and the typed-request inventory are all expanded from it.
 
 The compiler rejects a ledger row without a noun row, a noun row whose kind
@@ -295,27 +382,31 @@ Then:
 
 ## Camera Profile Support
 
-Camera profiles are part of the public type-safety contract. Before adding or
-changing a profile capability, follow the
-[Camera Profile Support Guide](docs/camera_profile_support.md) and update the
-[VISCA Protocol Reference](docs/visca_reference.md) when new source evidence is
-needed.
+> A camera contribution adds a profile: one registry row with source-backed
+> grants, its evidence entries, and, only when the camera speaks a different
+> dialect for an existing concept, an encoding variant with golden bytes. It
+> adds no public method, value type, request type, marker or typed surface. A
+> genuinely new concept may add those, under a vendor-neutral name and with a
+> reviewed contract, in a change separate from the profile that first uses it.
 
-The short version:
+Follow the [Camera Profile Support Guide](docs/camera_profile_support.md) for
+facts, grants, encoding families and the worked `acme_cam.json` promotion path.
+Export a complete built-in spec with `examples/profile_spec.rs`, set its identity
+to custom, validate the edited facts and use it immediately through
+`Camera<profiles::AnyProfile>`. The read-only ignored probe produces query/decoder
+observations for review; a successful decode does not grant writable controls.
 
-- `docs/visca_reference.md` is the checked-in source of truth for protocol,
-  model, and firmware evidence.
-- Model-specific capability docs take precedence over generic opcode tables.
-- Runtime metadata traits feed `Capabilities::from_profile::<P>()`.
-- Support marker traits such as `HasNdFilter`, `HasMotionSync`, and
-  `HasVariableSpeed` expose typed APIs and must only be implemented when the
-  source docs establish support.
-- Raw VISCA command APIs remain available for experiments and downstream camera
-  variants, but raw opcode availability does not justify marking a built-in
-  profile as supported.
-- Land capability and registry refactors atomically. Path-dependency consumers
-  should not observe a half-applied tree where profile modules, generated macros,
-  and marker impls disagree.
+Promote the reviewed facts into one registry row with the same fact keys and
+nesting as serialized `ProfileSpec`. The registry emits compile-time markers and
+runtime permissions from the same evidenced grants. Keep source/model/firmware
+limits in [the VISCA reference](docs/visca_reference.md). Update facts and their
+tests, then regenerate support blocks with `GRAFTON_VISCA_BLESS=1`; never
+hand-edit a matrix. The wire golden uses the same variable. Blessing deliberately
+fails after writing and is refused under `CI`: inspect the diff and rerun with
+the variable unset.
+
+The [PR template](.github/pull_request_template.md) holds the general and
+camera-profile checklists.
 
 ## Testing
 
@@ -334,22 +425,18 @@ duplicate production constructors and ignore copies inside tests.
 
 ### Unit Tests
 
-Add unit tests for all new functionality:
+Test the contract a change introduces: checked value boundaries, exact encoded
+bytes, decoder results, profile admission or owner lifecycle as applicable.
+Literal wire expectations must remain independent of the encoder:
 
 ```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
+use grafton_visca::{command::zoom::Stop, request::Request, types::CameraId};
 
-    #[test]
-    fn test_command_encoding() {
-        let cmd = MyCommand::new();
-        let mut buffer = [0u8; MyCommand::MAX_SIZE];
-        let len = cmd.write_into(CameraId::default(), &mut buffer).unwrap();
-
-        // Verify VISCA_TERMINATOR is present
-        assert_eq!(buffer[len - 1], VISCA_TERMINATOR);
-    }
+#[test]
+fn zoom_stop_is_a_complete_visca_frame() {
+    let mut buffer = [0; Stop::MAX_SIZE];
+    let length = Stop.write_into(CameraId::CAMERA_1, &mut buffer).unwrap();
+    assert_eq!(&buffer[..length], &[0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]);
 }
 ```
 
@@ -402,13 +489,11 @@ bash .github/scripts/test-all-features.sh slowest 15 --all-features
 - No single test should need more than a few seconds of wall time; the
   parallel summary lists any test libtest reports as running for over 60 s.
   The known exception is `api_stability_test::canonical_compile_contracts`,
-  which compiles about 96 contract fixtures for the leg's features: about
-  3-15 s on a warm nested target, and over 60 s in a cold, fully loaded
-  parallel run, when it first builds the crate for its fixtures.
+  which compiles the applicable authored fixtures for the leg's features and
+  can exceed 60 s on a cold, fully loaded run.
 - Each parallel job keeps its own target directory, so a full `test`,
-  `clippy` and `doc` run holds about 66 GB under `target/matrix` (91
-  directories, measured on Linux with line-tables-only debug info). Delete it
-  when you need the space; the next run rebuilds it.
+  `clippy` and `doc` run can retain substantial build output under
+  `target/matrix`. Delete it when you need the space; the next run rebuilds it.
 - Wait on deadlines in virtual time where the owner allows it: write the
   scenario as `facade_matrix! { paused: ... }` so its Tokio case runs on paused
   time and its blocking and smol cases use `ManualClock` in `test-utils`
@@ -425,7 +510,7 @@ bash .github/scripts/test-all-features.sh slowest 15 --all-features
 built-in command. After a deliberate encoder change, regenerate it with:
 
 ```bash
-GRAFTON_VISCA_BLESS_WIRE_GOLDEN=1 cargo test --lib wire_ledger_matches_literal_golden_inventory
+GRAFTON_VISCA_BLESS=1 cargo +1.98.0 test --lib wire_ledger_matches_literal_golden_inventory
 ```
 
 The bless run writes the fixture and then fails on purpose ("fixture blessed;
@@ -440,7 +525,7 @@ diff as artifacts; generated listings are never committed. Release tags retain
 the source needed to reproduce each release's API.
 
 Three surfaces are compared: `blocking` includes the bare no-default-features
-surface, `tokio-dyn` includes the async surface, and `all-features` covers the
+surface, `async` includes the async surface, and `all-features` covers the
 serial transports, ecosystem derives and smol adapter. `--simplified` removes
 blanket implementations while retaining auto traits such as `Send` and `Sync`.
 Hidden macro adapters remain covered by downstream compile contracts.
@@ -450,14 +535,16 @@ To reproduce the comparison locally:
 ```bash
 cargo +1.98.0 install cargo-public-api --version 0.52.0 --locked
 base="$(git merge-base HEAD origin/main)"
-for surface in blocking tokio-dyn all-features; do
+for surface in blocking async all-features; do
   bash .github/scripts/check-public-api.sh "$base" "$surface"
 done
 ```
 
 The script writes `base.txt`, `head.txt` and `changes.diff` under
 `target/public-api/<surface>/`. It builds the base from a temporary source
-archive and removes that archive afterward. Both builds use
+archive and removes that archive afterward. Feature arguments are selected from
+each source tree: the async comparison retains `dyn-api` for older bases that
+have it, while current heads use `runtime-tokio` alone. Both builds use
 `nightly-2026-08-26`; when changing that pin, update the workflow and script
 together. API drift without a `CHANGELOG.md` hunk fails the comparison. An
 intended change needs a caller-visible changelog entry and review of the
@@ -562,13 +649,13 @@ framing, cancellation, or physical safety less certain.
 ### Example Documentation
 
 ````rust
-/// Return a camera to its home position and wait for physical settling.
+/// Return a camera to home and wait for profile-selected settlement evidence.
 ///
 /// # Examples
 ///
 /// ```no_run
-/// # use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
-/// let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+/// # use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2};
+/// let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")?;
 /// let camera = session.camera();
 /// camera.pan_tilt().home()?.settled()?;
 /// session.close()?;
@@ -579,6 +666,11 @@ framing, cancellation, or physical safety less certain.
 ///
 /// Returns an error if submission, protocol completion, fallback settling, or
 /// shutdown fails.
+pub fn return_home(
+    camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>,
+) -> grafton_visca::Result<grafton_visca::operation::Settlement> {
+    camera.pan_tilt().home()?.settled()
+}
 ````
 
 ## Pull Request Process
@@ -598,15 +690,9 @@ framing, cancellation, or physical safety less certain.
    - Safety considerations (if applicable)
    - Testing performed
 
-4. **Checklist**: Before submitting:
-   - [ ] Declared cfg-aware matrix passes: `bash .github/scripts/test-all-features.sh`
-   - [ ] No clippy warnings in any supported feature shape: `bash .github/scripts/test-all-features.sh clippy`
-   - [ ] Rustdoc builds without warnings in every supported feature shape: `bash .github/scripts/test-all-features.sh doc`
-   - [ ] Formatted: `cargo +nightly fmt --all -- --check`
-   - [ ] Rustdoc and doctests pass for blocking, Tokio, and all-feature surfaces
-   - [ ] Documentation updated
-   - [ ] CHANGELOG.md updated (if applicable)
-   - [ ] Safety documented for movement commands
+4. **Checklist**: Complete the [pull request template](.github/pull_request_template.md),
+   including its camera-profile section when applicable. It is the single
+   maintained checklist for validation, documentation and source evidence.
 
 5. **Review Process**:
    - Address reviewer feedback promptly

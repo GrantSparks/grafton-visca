@@ -10,8 +10,10 @@ use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
 mod attr;
+mod capability_encodings;
 mod crate_path;
 mod inquiry_command;
+mod noun_signature;
 mod value;
 
 /// Declares a checked scalar with a uniform value and wire-codec contract.
@@ -61,16 +63,34 @@ pub fn __value(input: TokenStream) -> TokenStream {
         .into()
 }
 
+/// Generates internal profile encoding data from the typed-support registry.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __capability_encodings(input: TokenStream) -> TokenStream {
+    capability_encodings::expand(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Generates the closed noun-signature value imports for facade preludes.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __noun_signature_types(input: TokenStream) -> TokenStream {
+    noun_signature::expand(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
 /// Derive macro for generating typed inquiry request implementations with optional
 /// inherent response parsing.
 ///
 /// This macro eliminates boilerplate by automatically generating the typed
-/// [`Request`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Request.html)
-/// and [`Inquiry`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Inquiry.html)
+/// [`Request`](https://docs.rs/grafton-visca/latest/grafton_visca/request/trait.Request.html)
+/// and [`Inquiry`](https://docs.rs/grafton-visca/latest/grafton_visca/request/trait.Inquiry.html)
 /// implementations with exact `MAX_SIZE` and zero-allocation `write_into()`.
 /// When a `parser` attribute is provided for a built-in response, it also
 /// generates a `parse_response()` method. Both that inherent method and
-/// [`Inquiry::decoder`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Inquiry.html#tymethod.decoder)
+/// [`Inquiry::decoder`](https://docs.rs/grafton-visca/latest/grafton_visca/request/trait.Inquiry.html#tymethod.decoder)
 /// use one shared generated decoder. Selectors that identify a built-in table
 /// shape delegate to the canonical decoder for `response`; selectors with an
 /// established transformation, such as `Custom` and `BoolConvention`, retain
@@ -79,7 +99,7 @@ pub fn __value(input: TokenStream) -> TokenStream {
 /// # Basic Usage
 ///
 /// ```rust,ignore
-/// use grafton_visca::{CameraId, Request, ViscaInquiry};
+/// use grafton_visca::{types::CameraId, request::Request, ViscaInquiry};
 ///
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(opcode = 0x00, response = Power)]
@@ -89,7 +109,7 @@ pub fn __value(input: TokenStream) -> TokenStream {
 /// let len = PowerInquiry.write_into(CameraId::CAMERA_1, &mut buffer)?;
 /// assert_eq!(
 ///     &buffer[..len],
-///     &[0x81, 0x09, 0x04, 0x00, grafton_visca::command::VISCA_TERMINATOR]
+///     &[0x81, 0x09, 0x04, 0x00, grafton_visca::wire::VISCA_TERMINATOR]
 /// );
 /// # Ok::<(), grafton_visca::Error>(())
 /// ```

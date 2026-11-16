@@ -5,12 +5,12 @@
 //! encodes them with the same allocation-free `write_into` the built-ins use,
 //! submits them through the generic `execute` / `submit` entry points, and
 //! builds and drives a custom runtime `ProfileSpec` through blocking
-//! `camera_dyn` without implementing `CompileTimeProfile`.
+//! `Camera<AnyProfile>` without implementing `CompileTimeProfile`.
 //!
 //! The encoding and profile parts need no camera and always run. Pass an address
 //! (or set `VISCA_CAMERA_ADDR`) to also submit the custom requests to a camera.
 //! The live TCP address must include its port, for example
-//! `192.168.0.110:5678`. This example requires `--features dyn-api`.
+//! `192.168.0.110:5678`.
 //! The wire payloads below are illustrative; replace them with your firmware's
 //! exact vendor opcodes.
 
@@ -19,20 +19,34 @@ mod support;
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    blocking::Session,
-    capabilities::{
-        Capabilities, CapabilityRange, CoordinateSystem, EndpointQuantization, PanTiltCaps,
-        PanTiltWireCodec, TiltRanges,
-    },
-    completion::AppliedOnly,
-    dynapi::BlockingDynSessionCamera,
-    profile::{
-        PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming, TransportCompatibility,
-    },
-    request::{Operation as OperationClass, Plain as PlainClass},
-    transport::Transport,
-    AffectedAxes, CameraId, CommandTimeouts, ControlClass, Error, OperationCommand, PlainCommand,
-    Request, RetryClass, SessionConfig, TimeoutClass,
+    blocking::Camera,
+    blocking::CameraSession,
+    capabilities::Capabilities,
+    capabilities::CapabilityRange,
+    capabilities::CoordinateSystem,
+    capabilities::EndpointQuantization,
+    capabilities::PanTiltCaps,
+    capabilities::PanTiltWireCodec,
+    capabilities::TiltRanges,
+    config::{CameraConfig, TransportOptions},
+    operation::AppliedOnly,
+    profiles::AnyProfile,
+    profiles::CommandTimeouts,
+    profiles::ProfileEnvelope,
+    profiles::ProfileSpec,
+    profiles::ProfileTiming,
+    profiles::TransportCompatibility,
+    request::ControlClass,
+    request::OperationClass,
+    request::OperationCommand,
+    request::PlainClass,
+    request::PlainCommand,
+    request::Request,
+    request::RetryClass,
+    request::TimeoutClass,
+    types::AffectedAxes,
+    types::CameraId,
+    Error,
 };
 
 use support::finish_session;
@@ -99,7 +113,7 @@ impl OperationCommand<AppliedOnly> for VendorNudge {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Type-level classification and allocation-free encoding: no camera needed.
     demonstrate_encoding()?;
-    // A custom runtime ProfileSpec value, ready to register on a SessionConfig.
+    // A custom runtime ProfileSpec value, ready for a CameraConfig.
     let profile = runtime_profile_spec()?;
     println!("built a custom runtime ProfileSpec");
 
@@ -108,11 +122,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
     {
-        let transport = Transport::tcp().address(address).build_blocking()?;
-        let session = Session::open(transport, SessionConfig::new(profile))?;
-        let result = session
-            .camera_dyn()
-            .and_then(|camera| submit_custom(&camera));
+        let config = CameraConfig::new(profile, TransportOptions::tcp(address));
+        let session = CameraSession::connect(&config)?;
+        let result = submit_custom(session.camera());
         finish_session(result, session.close())?;
     } else {
         println!("no address given; skipped live submission");
@@ -147,8 +159,8 @@ fn runtime_profile_spec() -> Result<ProfileSpec, Error> {
         .ambiguity_timeout(Duration::from_secs(1))
         .busy_timeout(Duration::ZERO)
         .raw_inquiry_reply_skew(Duration::ZERO)
-        .minimum_inquiry_spacing(Duration::ZERO)
-        .minimum_command_spacing(Duration::ZERO)
+        .inquiry_spacing(Duration::ZERO)
+        .command_spacing(Duration::ZERO)
         .build()?;
 
     ProfileSpec::builder(capabilities)
@@ -157,7 +169,7 @@ fn runtime_profile_spec() -> Result<ProfileSpec, Error> {
             tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-500, 500)),
             pan_speed: CapabilityRange::<u8>::new(1, 8),
             tilt_speed: CapabilityRange::<u8>::new(1, 8),
-            coordinates: grafton_visca::PanTiltCoordinateConversion::new(
+            coordinates: grafton_visca::profiles::PanTiltCoordinateConversion::new(
                 CoordinateSystem::SignedCentered,
                 PanTiltWireCodec::StandardVisca,
                 10.0,
@@ -169,17 +181,17 @@ fn runtime_profile_spec() -> Result<ProfileSpec, Error> {
             variable_speed: false,
             motion_sync_speed_range: None,
         })
-        .transports(TransportCompatibility::new(Some(5678), None, false))
+        .transports(TransportCompatibility::new().with_tcp(5678))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(timing)
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .position_inquiries(PositionInquirySupport::new(false, false, false))
+        .position_inquiries(None)
         .build()
 }
 
-fn submit_custom(camera: &BlockingDynSessionCamera) -> Result<(), Error> {
+fn submit_custom(camera: &Camera<AnyProfile>) -> Result<(), Error> {
     // A plain command returns one final `Result`.
     camera.execute(&SetVendorTone(3))?;
     // An applied-only operation returns a handle you wait on with `applied`.

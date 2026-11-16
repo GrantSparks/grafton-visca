@@ -1,9 +1,11 @@
-use grafton_visca::{command::InquiryData, Error, Inquiry, ViscaInquiry};
+use grafton_visca::{__macro_support::InquiryData, request::Inquiry, Error, ViscaInquiry};
 
 #[derive(Debug, PartialEq, Eq)]
 struct LocalLevel(u8);
 impl LocalLevel {
-    fn new(value: u8) -> Result<Self, Error> { Ok(Self(value)) }
+    fn new(value: u8) -> Result<Self, Error> {
+        Ok(Self(value))
+    }
 }
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
@@ -11,7 +13,16 @@ impl LocalLevel {
 struct LocalInquiry;
 
 fn main() {
-    assert_eq!(LocalInquiry.decoder().decode(&[0, 0, 0, 5]).unwrap(), LocalLevel(5));
-    assert!(matches!(LocalInquiry.decoder().decode(&[0, 1, 0, 5]), Err(Error::InvalidResponse { .. })));
-    assert!(matches!(LocalInquiry.parse_response(&[0, 0, 0, 5]), Ok(InquiryData::ZoomPosition { position: 5 })));
+    assert_eq!(
+        LocalInquiry.decoder().decode(&[0, 0, 0, 5]).unwrap(),
+        LocalLevel(5)
+    );
+    assert!(matches!(
+        LocalInquiry.decoder().decode(&[0, 1, 0, 5]),
+        Err(Error::InvalidResponse { .. })
+    ));
+    assert!(matches!(
+        LocalInquiry.parse_response(&[0, 0, 0, 5]),
+        Ok(InquiryData::ZoomPosition { position: 5 })
+    ));
 }

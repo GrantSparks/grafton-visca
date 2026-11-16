@@ -1,7 +1,7 @@
 //! Read-only, target-local projections of write-only camera state.
 //!
-//! A target owns one inline slot per [`StateKey`]. Exact applied effects store
-//! [`KnownState`] values; a write that may have taken effect without confirmation
+//! A target owns one inline slot per [`crate::state_cache::StateKey`]. Exact applied effects store
+//! [`crate::state_cache::KnownState`] values; a write that may have taken effect without confirmation
 //! makes its key unknown. Cloned views share the same fixed table.
 
 #[cfg(any(feature = "blocking", feature = "async"))]
@@ -15,28 +15,46 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-// One row declares the key, its value type and its public typed accessor.
+// One row declares the key, its value type and its noun's typed accessor.
 // Enum values travel directly from the request to the cache; there is no
 // intermediate integer encoding to maintain or decode.
 macro_rules! state_key_ledger {
-    ($(#[doc = $doc:literal] $key:ident($value:ty) => $getter:ident),+ $(,)?) => {
+    ($(#[doc = $doc:literal] $key:ident($value:ty) => $view:ident::$getter:ident),+ $(,)?) => {
         /// Closed keys for write-only state maintained by a session owner.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(rename_all = "snake_case"))]
+        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         #[non_exhaustive]
         pub enum StateKey { $(#[doc = $doc] $key),+ }
 
         impl StateKey {
+            #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+            pub(crate) const fn noun_name(self) -> &'static str {
+                match self { $(Self::$key => <$view as CacheNoun>::NAME),+ }
+            }
+
+            #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+            pub(crate) const fn property_name(self) -> &'static str {
+                match self { $(Self::$key => stringify!($getter)),+ }
+            }
+
+            #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+            pub(crate) const fn value_type_name(self) -> &'static str {
+                match self { $(Self::$key => stringify!($value)),+ }
+            }
+
             /// Every supported write-only key in declaration order.
             pub const ALL: &'static [Self] = &[$(Self::$key),+];
             #[cfg(any(feature = "blocking", feature = "async"))]
             const COUNT: usize = Self::ALL.len();
-            /// Returns every supported write-only key.
-            #[must_use]
-            pub const fn all() -> &'static [Self] { Self::ALL }
         }
 
         /// An exact applied write-only value, with its key implied by its variant.
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(rename_all = "snake_case"))]
+        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         #[non_exhaustive]
         pub enum KnownState { $(#[doc = $doc] $key($value)),+ }
 
@@ -66,51 +84,112 @@ macro_rules! state_key_ledger {
             )+
         }
 
-        #[cfg(any(feature = "blocking", feature = "async"))]
-        impl StateCache {
-            $(#[doc = $doc]
-            #[must_use]
-            pub fn $getter(&self) -> Option<$value> {
-                match self.value(StateKey::$key) {
-                    StateEntry::Set(KnownState::$key(value)) => Some(value),
-                    _ => None,
+        $(
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            impl $view {
+                #[doc = $doc]
+                #[must_use]
+                pub fn $getter(&self) -> Option<$value> {
+                    match self.cache.value(StateKey::$key) {
+                        StateEntry::Set(KnownState::$key(value)) => Some(value),
+                        _ => None,
+                    }
                 }
-            })+
-        }
+            }
+        )+
     };
+}
+
+// This list names views only. Keys, values and getters are declared together
+// in state_key_ledger, so a view cannot invent a second projection for a key.
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+trait CacheNoun {
+    const NAME: &'static str;
+}
+
+macro_rules! state_cache_nouns {
+    ($(#[doc = $doc:literal] $view:ident => $noun:ident),+ $(,)?) => {
+        $(
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            #[doc = $doc]
+            #[derive(Debug, Clone)]
+            pub struct $view {
+                cache: StateCache,
+            }
+
+            #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+            impl CacheNoun for $view {
+                const NAME: &'static str = stringify!($noun);
+            }
+
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            impl StateCache {
+                #[doc = $doc]
+                #[must_use]
+                pub fn $noun(&self) -> $view {
+                    $view { cache: self.clone() }
+                }
+            }
+        )+
+    };
+}
+
+state_cache_nouns! {
+    /// Read-only pan/tilt state for this target.
+    PanTiltState => pan_tilt,
+    /// Read-only preset state for this target.
+    PresetsState => presets,
+    /// Read-only focus state for this target.
+    FocusState => focus,
+    /// Read-only exposure state for this target.
+    ExposureState => exposure,
+    /// Read-only ND-filter state for this target.
+    NdFilterState => nd_filter,
+    /// Read-only image state for this target.
+    ImageState => image,
+    /// Read-only zoom state for this target.
+    ZoomState => zoom,
+    /// Read-only streaming state for this target.
+    StreamingState => streaming,
+    /// Read-only tally state for this target.
+    TallyState => tally,
+    /// Read-only synchronized-motion state for this target.
+    MotionSyncState => motion_sync,
 }
 
 state_key_ledger! {
     /// Returns the most recent corner-local limit update, including known clears.
-    PanTiltLimits(PanTiltLimitUpdate) => pan_tilt_limits,
-    /// Returns the last applied preset recall speed in raw VISCA units.
-    PresetRecallSpeed(u8) => preset_recall_speed,
+    PanTiltLimit(PanTiltLimitUpdate) => PanTiltState::limit,
+    /// Returns the last applied preset recall speed.
+    PresetsRecallSpeed(crate::types::PresetSpeed) => PresetsState::recall_speed,
     /// Returns whether focus lock was last applied as enabled.
-    FocusLockMode(bool) => focus_lock,
+    FocusLock(bool) => FocusState::lock,
     /// Returns whether spotlight compensation was last applied as enabled.
-    Spotlight(bool) => spotlight,
+    ExposureSpotlight(bool) => ExposureState::spotlight,
     /// Returns whether auto slow shutter was last applied as enabled.
-    AutoSlowShutter(bool) => auto_slow_shutter,
+    ExposureAutoSlowShutter(bool) => ExposureState::auto_slow_shutter,
     /// Returns the last applied ND-filter selection mode.
-    NdFilterMode(crate::command::NdFilterMode) => nd_filter_mode,
+    NdFilterMode(crate::types::NdFilterMode) => NdFilterState::mode,
     /// Returns whether automatic ND control was last applied as enabled.
-    AutoNdFilter(bool) => auto_nd_filter,
+    NdFilterAuto(bool) => NdFilterState::auto,
     /// Returns whether image freeze was last applied as enabled.
-    ImageFreeze(bool) => image_freeze,
+    ImageFreeze(bool) => ImageState::freeze,
     /// Returns whether digital zoom was last applied as enabled.
-    DigitalZoomMode(bool) => digital_zoom,
+    ZoomDigitalZoom(bool) => ZoomState::digital_zoom,
     /// Returns whether multicast streaming was last applied as enabled.
-    MulticastStreaming(bool) => multicast_streaming,
+    StreamingMulticast(bool) => StreamingState::multicast,
     /// Returns the last applied NDI streaming quality.
-    NdiQuality(crate::types::NdiQuality) => ndi_quality,
-    /// Returns whether tally brightness was last applied as high.
-    TallyBrightness(bool) => tally_brightness_is_high,
-    /// Returns the last applied pan/tilt variable-speed mode.
-    PanTiltSpeedMode(crate::command::PanTiltSpeedMode) => variable_speed_mode,
-    /// Returns the last applied steady tally mode; a flash leaves it unknown.
-    TallyMode(bool) => tally_mode,
-    /// Returns the last applied combined flip state; a single-axis change leaves it unknown.
-    Flip(crate::command::ImageFlipMode) => flip_state,
+    StreamingNdiQuality(crate::types::NdiQuality) => StreamingState::ndi_quality,
+    /// Returns the last applied tally brightness.
+    TallyBrightness(crate::types::TallyBrightness) => TallyState::brightness,
+    /// Returns the last applied pan/tilt speed mode.
+    PanTiltSpeedMode(crate::types::PanTiltSpeedMode) => PanTiltState::speed_mode,
+    /// Returns the last applied tally mode, including flashing.
+    TallyMode(crate::types::TallyMode) => TallyState::mode,
+    /// Returns the last applied combined flip mode; a single-axis change leaves it unknown.
+    ImageFlipMode(crate::types::ImageFlipMode) => ImageState::flip_mode,
+    /// Returns the last applied synchronized-motion speed.
+    MotionSyncSpeed(crate::types::MotionSyncSpeed) => MotionSyncState::speed,
 }
 
 /// A fixed table with exactly one inline slot per declared state key.
@@ -140,6 +219,13 @@ impl<T> IndexMut<StateKey> for PerStateKey<T> {
 
 /// The owner's current knowledge of one write-only key.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum StateEntry {
     /// No exact applied value is known, or a later uncertain write invalidated it.
@@ -189,9 +275,16 @@ impl StateCache {
 
 /// The most recent pan/tilt movement-limit update recorded for one target.
 ///
-/// The owner's state cache keeps one entry per [`StateKey`], so this describes
+/// The owner's state cache keeps one entry per [`crate::state_cache::StateKey`], so this describes
 /// the last corner that was written, not the full limit rectangle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PanTiltLimitUpdate {
     corner: crate::command::PanTiltLimitCorner,
     position: Option<crate::camera::PanTiltUnits>,
@@ -239,60 +332,64 @@ impl PanTiltLimitUpdate {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::StateKey;
+#[path = "state_cache/tests.rs"]
+mod tests;
 
-    /// The declared order of [`StateKey`], expressed as an exhaustive match.
-    ///
-    /// `#[non_exhaustive]` closes the enum to *downstream* crates only: inside
-    /// the defining crate this match must still be total, so adding a variant
-    /// to [`StateKey`] stops this module compiling until the variant is given
-    /// a successor here. That is the compiler-enforced half of the ledger; the
-    /// test below is the half that then requires the same variant to appear in
-    /// [`StateKey::ALL`], which a bare `ALL.len() == 15` could never see.
-    const fn successor(key: StateKey) -> Option<StateKey> {
-        match key {
-            StateKey::PanTiltLimits => Some(StateKey::PresetRecallSpeed),
-            StateKey::PresetRecallSpeed => Some(StateKey::FocusLockMode),
-            StateKey::FocusLockMode => Some(StateKey::Spotlight),
-            StateKey::Spotlight => Some(StateKey::AutoSlowShutter),
-            StateKey::AutoSlowShutter => Some(StateKey::NdFilterMode),
-            StateKey::NdFilterMode => Some(StateKey::AutoNdFilter),
-            StateKey::AutoNdFilter => Some(StateKey::ImageFreeze),
-            StateKey::ImageFreeze => Some(StateKey::DigitalZoomMode),
-            StateKey::DigitalZoomMode => Some(StateKey::MulticastStreaming),
-            StateKey::MulticastStreaming => Some(StateKey::NdiQuality),
-            StateKey::NdiQuality => Some(StateKey::TallyBrightness),
-            StateKey::TallyBrightness => Some(StateKey::PanTiltSpeedMode),
-            StateKey::PanTiltSpeedMode => Some(StateKey::TallyMode),
-            StateKey::TallyMode => Some(StateKey::Flip),
-            StateKey::Flip => None,
+#[cfg(all(test, feature = "serde"))]
+mod portable_data_tests {
+    use super::*;
+    use crate::types::{PanTiltLimitCorner, PanTiltUnits};
+
+    #[test]
+    fn cached_updates_distinguish_a_position_from_an_explicit_clear(
+    ) -> Result<(), serde_json::Error> {
+        for (update, position) in [
+            (
+                PanTiltLimitUpdate::set(PanTiltLimitCorner::UpRight, PanTiltUnits::new(-12, 34)),
+                serde_json::json!({"pan": -12, "tilt": 34}),
+            ),
+            (
+                PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight),
+                serde_json::Value::Null,
+            ),
+        ] {
+            let entry = StateEntry::Set(KnownState::PanTiltLimit(update));
+            let json = serde_json::json!({
+                "set": {"pan_tilt_limit": {"corner": "up_right", "position": position}}
+            });
+            assert_eq!(serde_json::to_value(entry)?, json);
+            assert_eq!(serde_json::from_value::<StateEntry>(json)?, entry);
         }
+        assert_eq!(
+            serde_json::to_value(StateKey::PanTiltLimit)?,
+            "pan_tilt_limit"
+        );
+        assert_eq!(serde_json::to_value(StateEntry::Unknown)?, "unknown");
+        assert!(serde_json::from_value::<KnownState>(serde_json::json!({
+            "presets_recall_speed": 0
+        }))
+        .is_err());
+        assert!(
+            serde_json::from_value::<PanTiltLimitUpdate>(serde_json::json!({
+                "corner": "up_right", "position": null, "applied": true
+            }))
+            .is_err()
+        );
+        Ok(())
     }
 
     #[test]
-    fn state_key_inventory_is_exact_and_unique() {
-        let mut declared = Vec::new();
-        let mut key = Some(StateKey::PanTiltLimits);
-        while let Some(current) = key {
-            assert!(
-                !declared.contains(&current),
-                "the declaration walk revisits {current:?}"
-            );
-            declared.push(current);
-            key = successor(current);
-        }
-
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    fn snapshot_schema_and_typescript_keep_typed_values() {
+        let schema = schemars::schema_for!(PanTiltLimitUpdate);
+        assert_eq!(schema.as_value()["additionalProperties"], false);
+        let config = ts_rs::Config::default();
         assert_eq!(
-            StateKey::ALL,
-            declared.as_slice(),
-            "StateKey::ALL drifted from the declared variants"
+            <PanTiltLimitUpdate as ts_rs::TS>::decl(&config),
+            "type PanTiltLimitUpdate = { corner: PanTiltLimitCorner, position: PanTiltUnits | null, };"
         );
-        let unique = StateKey::ALL
-            .iter()
-            .copied()
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(unique.len(), StateKey::ALL.len());
-        assert_eq!(StateKey::all(), StateKey::ALL);
+        let declaration = <KnownState as ts_rs::TS>::decl(&config);
+        assert!(declaration.contains("\"tally_mode\": TallyMode"));
+        assert!(declaration.contains("\"pan_tilt_limit\": PanTiltLimitUpdate"));
     }
 }

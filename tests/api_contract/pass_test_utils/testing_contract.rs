@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use grafton_visca::testing::testkit::{helpers, Step};
+use grafton_visca::{testing::testkit::helpers, testing::testkit::Step};
 
 #[cfg(feature = "blocking")]
 use grafton_visca::testing::testkit::ScriptedBlockingTransport;

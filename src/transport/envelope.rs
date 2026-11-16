@@ -27,7 +27,7 @@ use crate::{
 /// envelope. The supported built-in command families need up to seventeen
 /// payload bytes (FR7 positions, R7 p. 18). Preparation enforces each profile's
 /// supported capacity; this shared framing limit is not a vendor-wide claim.
-/// Command, inquiry, and reply payloads end in [`VISCA_TERMINATOR`].
+/// Command, inquiry, and reply payloads end in [`crate::wire::VISCA_TERMINATOR`].
 const MIN_SONY_VISCA_PAYLOAD_LENGTH: usize = 1;
 const MAX_SONY_VISCA_PAYLOAD_LENGTH: usize = 17;
 
@@ -272,9 +272,9 @@ impl Envelope for SonyEncapsulated {
                 framed.slice(SonyHeader::SIZE..),
                 FrameMeta::Sony { sequence },
             )),
-            SonyResponse::Control { .. } => Err(Error::ParseError(Cow::Borrowed(
-                "Sony control reply is not a VISCA response payload",
-            ))),
+            SonyResponse::Control { .. } => Err(Error::ParseError {
+                reason: Cow::Borrowed("Sony control reply is not a VISCA response payload"),
+            }),
         }
     }
 }
@@ -307,8 +307,8 @@ impl SonyEncapsulated {
         if visca_bytes.is_empty() {
             return Err(empty_visca_message());
         }
-        validate_sony_payload_length(visca_bytes.len(), Error::InvalidRequest)?;
-        validate_sony_payload_terminator(visca_bytes, Error::InvalidRequest)?;
+        validate_sony_payload_length(visca_bytes.len(), |reason| Error::InvalidRequest { reason })?;
+        validate_sony_payload_terminator(visca_bytes, |reason| Error::InvalidRequest { reason })?;
 
         // Allocate only for a new logical message. Retries provide their
         // engine-owned sequence explicitly and must not advance this counter.
@@ -434,7 +434,7 @@ impl MalformedFrame {
             #[cfg(any(feature = "blocking", feature = "async"))]
             Self::InvalidSource | Self::UnclassifiedResponse | Self::DatagramFrameLimit { .. } | Self::DatagramTrailingBytes => unreachable!("only Sony extraction projects public envelope errors"),
         };
-        Error::ParseError(message)
+        Error::ParseError { reason: message }
     }
 }
 
@@ -443,7 +443,9 @@ impl MalformedFrame {
 /// An empty message is not a VISCA frame, so both envelopes reject it rather
 /// than treating it as a no-op.
 fn empty_visca_message() -> Error {
-    Error::InvalidRequest("VISCA message must not be empty".into())
+    Error::InvalidRequest {
+        reason: "VISCA message must not be empty".into(),
+    }
 }
 
 /// Normalize the device address byte based on addressing mode.
@@ -621,7 +623,7 @@ mod tests {
                 let result = envelope.frame_into(&[], kind, &mut out);
 
                 assert!(
-                    matches!(&result, Err(Error::InvalidRequest(message)) if message.contains("must not be empty")),
+                    matches!(&result, Err(Error::InvalidRequest { reason: message }) if message.contains("must not be empty")),
                     "expected InvalidRequest for empty input, got {result:?}"
                 );
                 assert_eq!(out.as_ref(), b"old frame");
@@ -775,7 +777,7 @@ mod tests {
 
         assert!(matches!(
             envelope.frame_into(&invalid_payload, CommandKind::Command, &mut out),
-            Err(Error::InvalidRequest(_))
+            Err(Error::InvalidRequest { .. })
         ));
         assert_eq!(out.as_ref(), original_out.as_ref());
 
@@ -839,7 +841,7 @@ mod tests {
                     requested_sequence,
                     &mut out,
                 ),
-                Err(Error::InvalidRequest(_))
+                Err(Error::InvalidRequest { .. })
             ));
             assert_eq!(out.as_ref(), original_out.as_ref());
         }
@@ -865,7 +867,7 @@ mod tests {
 
         let result = envelope.frame_into(&invalid_payload, CommandKind::Command, &mut out);
 
-        assert!(matches!(result, Err(Error::InvalidRequest(_))));
+        assert!(matches!(result, Err(Error::InvalidRequest { .. })));
         assert_eq!(out.as_ref(), original_out.as_ref());
     }
 
@@ -911,7 +913,7 @@ mod tests {
                 let result =
                     envelope.frame_into_with_sequence(&[], kind, requested_sequence, &mut out);
                 assert!(
-                    matches!(&result, Err(Error::InvalidRequest(message)) if message.contains("must not be empty")),
+                    matches!(&result, Err(Error::InvalidRequest { reason: message }) if message.contains("must not be empty")),
                     "expected InvalidRequest for empty input, got {result:?}"
                 );
                 assert_eq!(out.as_ref(), b"old frame");
@@ -919,7 +921,7 @@ mod tests {
         }
 
         let result = envelope.frame_into(&[], CommandKind::Command, &mut out);
-        assert!(matches!(result, Err(Error::InvalidRequest(_))));
+        assert!(matches!(result, Err(Error::InvalidRequest { .. })));
         assert_eq!(out.as_ref(), b"old frame");
 
         // None of the rejections consumed a sequence number.
@@ -1066,11 +1068,11 @@ mod tests {
 
         assert!(matches!(
             envelope.extract_response(&framed),
-            Err(Error::ParseError(_))
+            Err(Error::ParseError { .. })
         ));
         assert!(matches!(
             envelope.extract_with_meta(Bytes::from(framed)),
-            Err(Error::ParseError(_))
+            Err(Error::ParseError { .. })
         ));
     }
 
@@ -1102,7 +1104,7 @@ mod tests {
         let result = envelope.extract_response(&ack);
         assert!(
             matches!(
-                &result, Err(Error::ParseError(message))
+                &result, Err(Error::ParseError { reason: message })
                     if message.contains("not a VISCA response payload")
             ),
             "the public VISCA extractor must not return a control payload, got {result:?}"

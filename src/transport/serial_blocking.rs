@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn transport_handle_preserves_the_serial_addressed_bus_identity() {
-        use crate::transport::{BlockingTransportHandle, TransportIdentity};
+        use crate::transport::{blocking_transport::BlockingTransportHandle, TransportIdentity};
 
         let bus = AddressedBus::new("/dev/test", 3);
         let mut transport = create_test_transport(TestSerialPort::new(Duration::from_secs(1)));
@@ -513,9 +513,9 @@ mod tests {
     /// An Address Set startup whose read timeout matches the fake port's.
     fn address_set(read_timeout: Duration, write_timeout: Duration) -> SerialConfig {
         SerialConfig::new("/dev/test")
-            .startup(Startup::default().with_address_set(true))
-            .read_timeout(read_timeout)
-            .write_timeout(write_timeout)
+            .with_startup(Startup::default().with_address_set(true))
+            .with_read_timeout(read_timeout)
+            .with_write_timeout(write_timeout)
     }
 
     #[test]
@@ -530,7 +530,7 @@ mod tests {
     #[test]
     fn invalid_buffer_bounds_fail_before_serial_device_open() {
         let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
-            .buffer_config(BufferConfig {
+            .with_buffer_config(BufferConfig {
                 recv_buffer_size: 65,
                 max_buffer_size: 64,
             });
@@ -539,7 +539,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(Error::InvalidRequest(actual))
+            Err(Error::InvalidRequest { reason: actual })
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
     }
@@ -558,13 +558,13 @@ mod tests {
             (usize::MAX, usize::MAX),
         ] {
             let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
-                .buffer_config(BufferConfig {
+                .with_buffer_config(BufferConfig {
                     recv_buffer_size,
                     max_buffer_size,
                 });
             assert!(matches!(
                 SerialTransport::new(config),
-                Err(Error::InvalidRequest(_))
+                Err(Error::InvalidRequest { .. })
             ));
         }
     }
@@ -574,18 +574,18 @@ mod tests {
         for (config, message) in [
             (
                 SerialConfig::new("grafton-visca-zero-read-timeout-serial-device")
-                    .read_timeout(Duration::ZERO),
+                    .with_read_timeout(Duration::ZERO),
                 "transport read timeout must be non-zero",
             ),
             (
                 SerialConfig::new("grafton-visca-zero-write-timeout-serial-device")
-                    .write_timeout(Duration::ZERO),
+                    .with_write_timeout(Duration::ZERO),
                 "transport write timeout must be non-zero",
             ),
         ] {
             assert!(matches!(
                 SerialTransport::new(config),
-                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
+                Err(Error::InvalidRequest { reason: actual }) if actual.as_ref() == message
             ));
         }
     }
@@ -738,7 +738,8 @@ mod tests {
             TestSerialPort::new(configured_timeout).with_flush_error(ErrorKind::TimedOut);
         perform_startup(
             &mut clear_port,
-            &SerialConfig::new("/dev/test").startup(Startup::default().with_interface_clear(true)),
+            &SerialConfig::new("/dev/test")
+                .with_startup(Startup::default().with_interface_clear(true)),
             StartupTiming::VISCA,
         )
         .expect("I/F Clear succeeds");
@@ -756,7 +757,7 @@ mod tests {
 
         let mut buf = [0u8; 16];
         let result = transport.recv_into_with_timeout(&mut buf, read_timeout);
-        assert!(matches!(result, Err(Error::Io(_))));
+        assert!(matches!(result, Err(Error::Io { .. })));
     }
 
     /// #798/#800: a zero-byte read is end of stream on every stream transport.
@@ -767,7 +768,7 @@ mod tests {
         assert!(matches!(
             transport.recv_into_with_timeout(&mut buf, Duration::from_millis(10)),
             Err(Error::ConnectionClosed { source: Some(ref source) })
-                if matches!(source.as_ref(), Error::Io(io) if io.kind() == ErrorKind::UnexpectedEof)
+                if matches!(source.as_ref(), Error::Io { source: io } if io.kind() == ErrorKind::UnexpectedEof)
         ));
     }
 
@@ -782,7 +783,7 @@ mod tests {
             .send_with_timeout(&[0x81, 0x01, VISCA_TERMINATOR], Duration::from_millis(100));
         assert!(matches!(
             result,
-            Err(Error::Io(ref error)) if error.kind() == ErrorKind::InvalidData
+            Err(Error::Io { source: ref error }) if error.kind() == ErrorKind::InvalidData
         ));
     }
 
@@ -796,7 +797,7 @@ mod tests {
             .send_with_timeout(&[0x81, 0x01, VISCA_TERMINATOR], Duration::from_millis(100));
         assert!(matches!(
             result,
-            Err(Error::Io(ref error)) if error.kind() == ErrorKind::BrokenPipe
+            Err(Error::Io { source: ref error }) if error.kind() == ErrorKind::BrokenPipe
         ));
     }
 
@@ -868,10 +869,10 @@ mod tests {
                 master
             });
 
-            let result = CameraConfig::<PtzOpticsG2>::serial(path.clone(), 9_600)
-                .camera_id(camera)
-                .serial_startup(Startup::default().with_address_set(true))
-                .open_serial();
+            let config = CameraConfig::<PtzOpticsG2>::serial(path.clone(), 9_600)
+                .with_camera_id(camera)
+                .with_serial_startup(Startup::default().with_address_set(true));
+            let result = crate::blocking::CameraSession::connect(&config);
             let _master = bus.join().expect("bus thread");
             drop(slave);
 

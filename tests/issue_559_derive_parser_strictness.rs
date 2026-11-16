@@ -1,9 +1,6 @@
 use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
-use grafton_visca::{
-    command::{ExposureMode, InquiryData},
-    ViscaInquiry,
-};
+use grafton_visca::{__macro_support::InquiryData, types::ExposureMode, ViscaInquiry};
 
 // Keep generated derive code independent of names supplied by the downstream
 // crate. The canonical parser must be reached through absolute crate paths.
@@ -91,7 +88,7 @@ fn canonical_decoders_require_exact_wire_lengths() {
     assert!(matches!(
         StrictBoolInquiry.parse_response(&[0x02]),
         ::core::result::Result::Ok(InquiryData::Power {
-            status: grafton_visca::PowerStatus::On
+            status: grafton_visca::types::PowerStatus::On
         })
     ));
     assert!(StrictBoolInquiry.parse_response(&[0x02, 0x00]).is_err());

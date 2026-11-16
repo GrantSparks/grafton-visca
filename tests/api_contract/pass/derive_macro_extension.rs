@@ -1,6 +1,5 @@
 use grafton_visca::{
-    command::VISCA_TERMINATOR,
-    CameraId, Inquiry, Request, ViscaInquiry,
+    request::Inquiry, request::Request, types::CameraId, wire::VISCA_TERMINATOR, ViscaInquiry,
 };
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
@@ -18,7 +17,6 @@ fn main() {
         .unwrap();
     assert_eq!(&buffer[..len], &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]);
     assert!(inquiry.decoder().decode(&[0x02]).is_ok());
-
 
     let raw = VendorRawInquiry;
     let mut raw_buffer = [0; VendorRawInquiry::MAX_SIZE];

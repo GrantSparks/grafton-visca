@@ -4,7 +4,11 @@
 //! Both write the same three-byte frame, so a test that compares them varies
 //! the retry class and nothing else.
 
-use grafton_visca::{request, CameraId, ControlClass, Error, Request, RetryClass, TimeoutClass};
+use grafton_visca::{
+    request::{self, ControlClass, Request, RetryClass, TimeoutClass},
+    types::CameraId,
+    Error,
+};
 
 /// A plain command in the standard retry class.
 ///
@@ -15,7 +19,7 @@ use grafton_visca::{request, CameraId, ControlClass, Error, Request, RetryClass,
 pub struct StandardCommand;
 
 impl Request for StandardCommand {
-    type Class = request::Plain;
+    type Class = request::PlainClass;
     const MAX_SIZE: usize = 3;
     const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
     const RETRY_CLASS: RetryClass = RetryClass::Standard;
@@ -36,7 +40,7 @@ impl Request for StandardCommand {
 pub struct MovementCommand;
 
 impl Request for MovementCommand {
-    type Class = request::Plain;
+    type Class = request::PlainClass;
     const MAX_SIZE: usize = 3;
     const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
     const RETRY_CLASS: RetryClass = RetryClass::Movement;

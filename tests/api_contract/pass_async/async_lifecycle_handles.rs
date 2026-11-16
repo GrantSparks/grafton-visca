@@ -3,8 +3,8 @@
 use std::{future::Future, marker::PhantomData, pin::Pin, time::Duration};
 
 use grafton_visca::{
-    completion::{AppliedOnly, Targeted},
-    CancellationOutcome, Error, Operation, OperationId, Settlement,
+    operation::AppliedOnly, operation::CancellationOutcome, operation::OperationId,
+    operation::Settlement, operation::Targeted, r#async::Operation, Error,
 };
 
 fn assert_send_sync<T: Send + Sync>() {}
@@ -100,6 +100,11 @@ fn contract() {}
 fn main() {}
 
 /// Menu navigation starts physical pan/tilt movement if the menu is closed.
-async fn menu_navigation(camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>) -> Result<Operation<AppliedOnly>, Error> {
-    camera.menu().navigate(grafton_visca::command::MenuDirection::Up).await
+async fn menu_navigation(
+    camera: &grafton_visca::r#async::Camera<grafton_visca::profiles::PtzOpticsG2>,
+) -> Result<Operation<AppliedOnly>, Error> {
+    camera
+        .menu()
+        .navigate(grafton_visca::types::MenuDirection::Up)
+        .await
 }

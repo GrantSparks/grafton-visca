@@ -8,9 +8,8 @@
 use std::{env, io, thread::sleep, time::Duration};
 
 use grafton_visca::{
-    blocking::{Camera, Connect},
-    camera::{profiles::PtzOpticsG2, IdleWait},
-    AffectedAxes, Error,
+    blocking::Camera, blocking::CameraSession, profiles::PtzOpticsG2, types::AffectedAxes,
+    types::IdleWait, Error,
 };
 
 /// Sends the typed zoom STOP when it leaves scope, on every exit path.
@@ -34,11 +33,11 @@ impl Drop for StopZoomOnExit<'_> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (address, move_camera) = arguments()?;
-    let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address)?;
 
     let result = {
         let camera = session.camera();
-        let power = camera.power().state()?;
+        let power = camera.power().status()?;
         let zoom = camera.zoom().position()?;
         println!("Power: {power:?}");
         println!("Zoom position: 0x{:04X}", zoom.value());

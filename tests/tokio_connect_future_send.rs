@@ -9,7 +9,7 @@
 
 use std::{future::Future, pin::Pin};
 
-use grafton_visca::{camera::Connect, profiles::PtzOpticsG2, TokioRuntime};
+use grafton_visca::{profiles::PtzOpticsG2, runtime::TokioRuntime};
 
 fn boxed_send<T: Send + 'static>(
     future: impl Future<Output = T> + Send + 'static,
@@ -23,17 +23,23 @@ fn tokio_standard_connect_futures_are_send_before_polling() -> Result<(), Box<dy
     let selected = tokio::runtime::Builder::new_current_thread().build()?;
     let runtime = TokioRuntime::from_handle(selected.handle().clone());
 
-    drop(boxed_send(Connect::open_tcp::<PtzOpticsG2, _>(
+    drop(boxed_send(grafton_visca::r#async::CameraSession::<
+        PtzOpticsG2,
+    >::connect_tcp(
         String::from("127.0.0.1:5678"),
         runtime.clone(),
     )));
-    drop(boxed_send(Connect::open_udp::<PtzOpticsG2, _>(
+    drop(boxed_send(grafton_visca::r#async::CameraSession::<
+        PtzOpticsG2,
+    >::connect_udp(
         String::from("127.0.0.1:1259"),
         runtime.clone(),
     )));
 
     #[cfg(feature = "transport-serial-tokio")]
-    drop(boxed_send(Connect::open_serial::<PtzOpticsG2, _>(
+    drop(boxed_send(grafton_visca::r#async::CameraSession::<
+        PtzOpticsG2,
+    >::connect_serial(
         String::from("grafton-visca-no-poll-serial-device"),
         9_600,
         runtime,

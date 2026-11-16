@@ -21,7 +21,7 @@ impl PowerStatus {
     /// Returns whether the camera reports that it is powered on.
     ///
     /// ```
-    /// use grafton_visca::PowerStatus;
+    /// use grafton_visca::types::PowerStatus;
     /// assert!(PowerStatus::On.is_on());
     /// assert!(!PowerStatus::CircuitError.is_on());
     /// ```

@@ -10,7 +10,9 @@ use std::{
     time::Duration,
 };
 
-use grafton_visca::{profiles::PtzOpticsG2, Executor, Session, SessionConfig};
+use grafton_visca::{
+    config::SessionConfig, profiles::PtzOpticsG2, r#async::Session, runtime::Executor,
+};
 use grafton_visca_test_support::fake_camera::FakeCamera;
 
 #[path = "common/counting_executor.rs"]
@@ -33,12 +35,14 @@ fn local_manual_clock_actor_reuses_four_timer_factories() {
         let fake = FakeCamera::acking(1);
         let session = Session::open(
             fake.async_wire(),
-            SessionConfig::from_compile_time::<PtzOpticsG2>().expect("profile"),
+            &SessionConfig::from_compile_time::<PtzOpticsG2>().expect("profile"),
             executor.clone(),
         )
         .await
         .expect("session on the runtime-free executor");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
         assert_eq!(timer_calls.load(Ordering::SeqCst), 4);
         assert_eq!(spawned.load(Ordering::SeqCst), 1);
         for _ in 0..40 {

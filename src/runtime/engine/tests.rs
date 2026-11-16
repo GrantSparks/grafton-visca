@@ -10,6 +10,7 @@ use std::{
 use smallvec::{smallvec, SmallVec};
 
 use super::*;
+use crate::wire::WireValue;
 use crate::FailureContext;
 
 mod admission_verdict;
@@ -2561,7 +2562,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
         effect,
         Effect::CancellationObservation {
             id,
-            observation: CancellationObservation::Failed(Error::NotSupported)
+            observation: CancellationObservation::Failed(Error::CancellationNotSupported)
         } if *id == active_id
     )));
     assert_eq!(
@@ -2615,9 +2616,9 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let mut request = command(1, CancellationPolicy::Supported);
     if let RuntimeRequest::Command { applied_state, .. } = &mut request {
-        *applied_state = Some(AppliedStateProjection::set(crate::KnownState::Spotlight(
-            true,
-        )));
+        *applied_state = Some(AppliedStateProjection::set(
+            crate::KnownState::ExposureSpotlight(true),
+        ));
     }
     let admitted_effects = engine.handle(
         Input::Admit {
@@ -2708,7 +2709,7 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
         Effect::AppliedState {
             effect: AppliedStateEffect {
                 projection: AppliedStateProjection::Invalidate {
-                    key: crate::StateKey::Spotlight
+                    key: crate::StateKey::ExposureSpotlight
                 },
                 ..
             }
@@ -3467,7 +3468,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
 #[test]
 fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
     let start = Instant::now();
-    let projection = AppliedStateProjection::set(crate::KnownState::PanTiltLimits(
+    let projection = AppliedStateProjection::set(crate::KnownState::PanTiltLimit(
         crate::PanTiltLimitUpdate::set(
             crate::command::PanTiltLimitCorner::UpRight,
             crate::camera::PanTiltUnits::new(1, 2),
@@ -3538,8 +3539,8 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
 
     let start = Instant::now();
     let projections = [
-        AppliedStateProjection::set(crate::KnownState::Spotlight(true)),
-        AppliedStateProjection::set(crate::KnownState::PanTiltLimits(
+        AppliedStateProjection::set(crate::KnownState::ExposureSpotlight(true)),
+        AppliedStateProjection::set(crate::KnownState::PanTiltLimit(
             crate::PanTiltLimitUpdate::clear(crate::command::PanTiltLimitCorner::UpRight),
         )),
         AppliedStateProjection::invalidate(StateKey::TallyMode),
@@ -3607,9 +3608,9 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
                 reply_shape: ReplyShape::AckThenCompletion,
                 wire: wire(0x81),
                 context,
-                applied_state: Some(AppliedStateProjection::set(crate::KnownState::Spotlight(
-                    false,
-                ))),
+                applied_state: Some(AppliedStateProjection::set(
+                    crate::KnownState::ExposureSpotlight(false),
+                )),
             },
             slot: AdmissionSlot::Ordinary,
         },
@@ -3638,7 +3639,7 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
         Effect::AppliedState {
             effect: AppliedStateEffect {
                 projection: AppliedStateProjection::Invalidate {
-                    key: StateKey::Spotlight
+                    key: StateKey::ExposureSpotlight
                 },
                 ..
             }
@@ -4380,8 +4381,7 @@ fn fixture_u32(value: &str) -> u32 {
 }
 
 fn fixture_socket(fields: &BTreeMap<String, String>) -> ViscaSocket {
-    ViscaSocket::from_socket_number(fixture_required(fields, "socket").parse::<u8>().unwrap())
-        .unwrap()
+    ViscaSocket::from_wire(fixture_required(fields, "socket").parse::<u8>().unwrap()).unwrap()
 }
 
 /// Recovers the VISCA error code the engine's terminal error stands for.
@@ -4395,10 +4395,10 @@ fn fixture_error_code(error: &Error) -> String {
         Error::MessageLengthError => 0x01,
         Error::SyntaxError => 0x02,
         Error::CommandBufferFull => 0x03,
-        Error::CommandCanceled => 0x04,
+        Error::CommandCancelled => 0x04,
         Error::NoSocket => 0x05,
         Error::CommandNotExecutable => 0x41,
-        Error::Unknown(code) => *code,
+        Error::Unknown { code } => *code,
         other => panic!("a camera error frame produced a non-camera error: {other:?}"),
     };
     format!("0x{code:02X}")
@@ -4431,7 +4431,7 @@ fn fixture_observation(
             "observer=engine outcome=ack:{}:target={}:socket={}",
             names.get(&id).unwrap(),
             target.camera().value(),
-            socket.as_socket_number()
+            socket.to_wire()
         );
     }
     if let Some((id, outcome)) = effects.iter().find_map(|effect| match effect {
@@ -6181,9 +6181,9 @@ fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
 
     let fault = engine.handle(
         Input::ReceiveFault {
-            error: Error::Io(Arc::new(std::io::Error::from(
-                std::io::ErrorKind::ConnectionRefused,
-            ))),
+            error: Error::Io {
+                source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+            },
         },
         start,
     );
@@ -6348,7 +6348,7 @@ fn stream_write_failure_poisons_with_the_typed_transport_cause() {
             panic!("every request on a poisoned stream reports the session verdict: {outcome:?}");
         };
         assert!(matches!(source.as_ref(), Error::TransportError { source }
-            if matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other)));
+            if matches!(source.as_ref(), Error::Io { source: io } if io.kind() == std::io::ErrorKind::Other)));
         let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = outcome else {
             unreachable!()
         };
@@ -8420,7 +8420,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             };
             assert_eq!(source.to_string(), expected_source.to_string());
             assert!(
-                matches!(source.as_ref(), Error::TransportError { source } if matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other))
+                matches!(source.as_ref(), Error::TransportError { source } if matches!(source.as_ref(), Error::Io { source: io } if io.kind() == std::io::ErrorKind::Other))
             );
         }
         assert!(poisoned.iter().any(|effect| matches!(
@@ -8437,7 +8437,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
         };
         assert_eq!(source.to_string(), expected_source.to_string());
         assert!(
-            matches!(source.as_ref(), Error::TransportError { source } if matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other))
+            matches!(source.as_ref(), Error::TransportError { source } if matches!(source.as_ref(), Error::Io { source: io } if io.kind() == std::io::ErrorKind::Other))
         );
         assert!(terminal.requires_new_session());
         assert_eq!(engine.active_len(), 0);
@@ -9073,9 +9073,9 @@ fn raw_receive_fault_leaves_unacked_command_and_keeps_the_session() {
 
     let fault = engine.handle(
         Input::ReceiveFault {
-            error: Error::Io(Arc::new(std::io::Error::from(
-                std::io::ErrorKind::ConnectionRefused,
-            ))),
+            error: Error::Io {
+                source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+            },
         },
         start,
     );
@@ -9116,9 +9116,9 @@ fn raw_receive_fault_poisons_under_strict_opt_in() {
 
     let fault = engine.handle(
         Input::ReceiveFault {
-            error: Error::Io(Arc::new(std::io::Error::from(
-                std::io::ErrorKind::ConnectionRefused,
-            ))),
+            error: Error::Io {
+                source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+            },
         },
         start,
     );
@@ -9162,9 +9162,9 @@ fn strict_raw_receive_fault_after_cancel_uses_cancellation_resolution() {
 
     let fault = engine.handle(
         Input::ReceiveFault {
-            error: Error::Io(Arc::new(std::io::Error::from(
-                std::io::ErrorKind::ConnectionRefused,
-            ))),
+            error: Error::Io {
+                source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+            },
         },
         cancel_at,
     );
@@ -12011,7 +12011,7 @@ fn completion_only_refused_cancel_does_not_extend_correlation() {
         assert!(requested.iter().any(|effect| matches!(
             effect,
             Effect::CancellationObservation {
-                observation: CancellationObservation::Failed(Error::NotSupported),
+                observation: CancellationObservation::Failed(Error::CancellationNotSupported),
                 ..
             }
         )));
@@ -12204,7 +12204,7 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
             AdmissionSlot::ControlReserve,
             now
         ),
-        Err(Error::InvalidState(_))
+        Err(Error::InvalidState { .. })
     ));
 
     let admission = engine.handle(

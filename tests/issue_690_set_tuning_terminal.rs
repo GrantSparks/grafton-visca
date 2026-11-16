@@ -25,8 +25,10 @@ use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 use std::{sync::Arc, time::Duration};
 
 use grafton_visca::{
-    completion::AppliedOnly, profile::ProfileSpec, request::builtin::ZoomStop, Error,
-    OperationalTuning, SessionConfig,
+    config::{OperationalTuning, SessionConfig},
+    operation::AppliedOnly,
+    profiles::ProfileSpec,
+    Error,
 };
 
 use fake_camera::FakeCamera;
@@ -47,9 +49,9 @@ fn faulting_camera() -> FakeCamera {
     FakeCamera::new(move |_, answer| {
         writes += 1;
         if writes == 1 {
-            answer.fault(Error::Io(Arc::new(std::io::Error::from(
-                std::io::ErrorKind::ConnectionRefused,
-            ))));
+            answer.fault(Error::Io {
+                source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+            });
         }
     })
 }
@@ -58,7 +60,7 @@ facade_matrix! {
     /// A live session still accepts a valid retune.
     fn set_tuning_on_a_live_session_still_succeeds() {
         let session = open!(FakeCamera::acking(1), raw_config()).expect("owner session");
-        let tuning = OperationalTuning::new().command_spacing(Duration::from_millis(40));
+        let tuning = OperationalTuning::new().with_command_spacing(Duration::from_millis(40));
         wait!(session.set_tuning(tuning)).expect("a live session accepts a valid retune");
         assert_eq!(
             session.tuning(),
@@ -70,12 +72,12 @@ facade_matrix! {
 
     fn set_tuning_on_a_live_session_rejects_invalid_tuning_without_changing_it() {
         let session = open!(FakeCamera::acking(1), raw_config()).expect("owner session");
-        let installed = OperationalTuning::new().command_spacing(Duration::from_millis(40));
+        let installed = OperationalTuning::new().with_command_spacing(Duration::from_millis(40));
         wait!(session.set_tuning(installed)).expect("a live session accepts valid tuning");
 
-        let error = wait!(session.set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO)))
+        let error = wait!(session.set_tuning(OperationalTuning::new().with_ack_timeout(Duration::ZERO)))
             .expect_err("a live session still rejects a zero protocol timeout");
-        assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
+        assert!(matches!(error, Error::InvalidRequest { .. }), "got {error:?}");
         assert_eq!(
             session.tuning(),
             installed,
@@ -89,10 +91,10 @@ facade_matrix! {
         let session = open!(faulting_camera(), config).expect("owner session");
         {
             let camera = session
-                .camera::<NonDefaultCompileTimeProfile>()
+                .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
                 .expect("camera view");
             let error = wait!(
-                wait!(camera.submit::<AppliedOnly, _>(&ZoomStop))
+                wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
                     .expect("submission")
                     .applied()
             )
@@ -110,7 +112,7 @@ facade_matrix! {
         );
         assert!(error.requires_new_session());
 
-        let error = wait!(session.set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO)))
+        let error = wait!(session.set_tuning(OperationalTuning::new().with_ack_timeout(Duration::ZERO)))
             .expect_err("profile validation cannot mask an existing poison");
         assert!(
             matches!(error, Error::StreamPoisoned { .. }),
@@ -124,7 +126,7 @@ facade_matrix! {
         session.shutdown().expect("clean shutdown");
         assert_updates_report_shutdown(
             wait!(session.set_tuning(OperationalTuning::new())),
-            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))),
+            wait!(session.set_tuning(OperationalTuning::new().with_ack_timeout(Duration::ZERO))),
         );
     }
 
@@ -135,7 +137,7 @@ facade_matrix! {
         wait!(session.close()).expect("clean owner shutdown");
         assert_updates_report_shutdown(
             wait!(closed_handle.set_tuning(OperationalTuning::new())),
-            wait!(closed_handle.set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))),
+            wait!(closed_handle.set_tuning(OperationalTuning::new().with_ack_timeout(Duration::ZERO))),
         );
     }
 }

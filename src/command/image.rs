@@ -180,11 +180,23 @@ impl NoiseReduction2D {
     }
 }
 
-impl WireEncode for NoiseReduction2D {
+/// Private packet encoder for the canonical 2D noise-reduction setter.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NoiseReduction2DCommand {
+    pub(crate) setting: NoiseReduction2D,
+}
+
+impl NoiseReduction2DCommand {
+    pub(crate) const fn new(setting: NoiseReduction2D) -> Self {
+        Self { setting }
+    }
+}
+
+impl WireEncode for NoiseReduction2DCommand {
     fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&image::NOISE_REDUCTION_2D)
-            .byte(self.to_wire())
+            .byte(self.setting.to_wire())
             .finish()
     }
 }
@@ -215,11 +227,23 @@ impl NoiseReduction3D {
     }
 }
 
-impl WireEncode for NoiseReduction3D {
+/// Private packet encoder for the canonical 3D noise-reduction setter.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NoiseReduction3DCommand {
+    pub(crate) setting: NoiseReduction3D,
+}
+
+impl NoiseReduction3DCommand {
+    pub(crate) const fn new(setting: NoiseReduction3D) -> Self {
+        Self { setting }
+    }
+}
+
+impl WireEncode for NoiseReduction3DCommand {
     fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&image::NOISE_REDUCTION_3D)
-            .byte(self.to_wire())
+            .byte(self.setting.to_wire())
             .finish()
     }
 }
@@ -300,6 +324,35 @@ mod tests {
     use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     #[test]
+    fn noise_reduction_settings_cannot_be_submitted_as_requests() {
+        // An executable value would make each inferred marker ambiguous. Keep
+        // separate checks so either trait being restored fails this proof.
+        trait AmbiguousIfRequest<Marker> {
+            fn check() {}
+        }
+        impl<T: ?Sized> AmbiguousIfRequest<()> for T {}
+        impl<T: crate::Request + ?Sized> AmbiguousIfRequest<u8> for T {}
+        let _ = <NoiseReduction2D as AmbiguousIfRequest<_>>::check;
+        let _ = <NoiseReduction3D as AmbiguousIfRequest<_>>::check;
+
+        trait AmbiguousIfPlainCommand<Marker> {
+            fn check() {}
+        }
+        impl<T: ?Sized> AmbiguousIfPlainCommand<()> for T {}
+        impl<T: crate::request::PlainCommand + ?Sized> AmbiguousIfPlainCommand<u8> for T {}
+        let _ = <NoiseReduction2D as AmbiguousIfPlainCommand<_>>::check;
+        let _ = <NoiseReduction3D as AmbiguousIfPlainCommand<_>>::check;
+
+        fn plain_command<T: crate::request::PlainCommand>(_: T) {}
+        plain_command(crate::command::image::SetNoiseReduction2d::new(
+            NoiseReduction2D::Off,
+        ));
+        plain_command(crate::command::image::SetNoiseReduction3d::new(
+            NoiseReduction3D::Off,
+        ));
+    }
+
+    #[test]
     fn noise_reduction_codes_have_one_spelling_and_ledger_row() {
         use crate::command::semantics::BuiltinCommand;
         for byte in 0..=u8::MAX {
@@ -310,7 +363,7 @@ mod tests {
             if let Ok(value) = two {
                 assert_eq!(value.to_wire(), byte);
                 assert_eq!(
-                    value.ledger_row(),
+                    NoiseReduction2DCommand::new(value).ledger_row(),
                     if byte == 0 {
                         BuiltinCommand::NoiseReduction2dOff
                     } else {
@@ -321,7 +374,7 @@ mod tests {
             if let Ok(value) = three {
                 assert_eq!(value.to_wire(), byte);
                 assert_eq!(
-                    value.ledger_row(),
+                    NoiseReduction3DCommand::new(value).ledger_row(),
                     if byte == 0 {
                         BuiltinCommand::NoiseReduction3dOff
                     } else {

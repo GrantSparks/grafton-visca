@@ -1,8 +1,11 @@
 #![cfg(all(feature = "blocking", feature = "runtime-tokio"))]
-//! Hardware motion and recovery tests for PTZOptics G2 cameras.
+//! Hardware motion and recovery tests using runtime-selected camera profiles.
 //!
 //! **WARNING: the motion tests physically move the camera.** They are ignored
 //! by default and are meant to be run by an operator who can see the camera.
+//!
+//! `VISCA_PROFILE` selects a built-in `snake_case` id (default `ptzoptics_g2`).
+//! Every session uses `Camera<AnyProfile>` and the selected profile's grants.
 //!
 //! Gating, in order, for every test:
 //! 1. `#[ignore]`: the test runs only with `--ignored`.
@@ -61,13 +64,13 @@ use std::{
 };
 
 use grafton_visca::{
-    blocking::{Camera, Connect},
-    camera::{profiles::PtzOpticsG2, IdleWait},
-    command::PanTiltDirection,
+    blocking::Camera,
+    operation::{HaltOutcome, HaltReport},
+    profiles::AnyProfile,
+    r#async::Camera as AsyncCamera,
     runtime::TokioRuntime,
-    types::{PanSpeed, TiltSpeed},
-    AffectedAxes, Camera as AsyncCamera, Connect as AsyncConnect, Error, HaltOutcome, HaltReport,
-    PresetNumber,
+    types::{AffectedAxes, IdleWait, PanSpeed, PanTiltDirection, PresetNumber, TiltSpeed},
+    Error,
 };
 
 use hardware::{
@@ -119,7 +122,7 @@ fn print_halt_report(hw: &Hw, report: &HaltReport) {
 /// A generous sanity bound for the halt call: the profile's movement timeout
 /// plus slack. The halt's own deadline is an internal function of the profile
 /// timeouts; exceeding this bound means the call is hung, not merely slow.
-fn halt_bound(camera: &Camera<PtzOpticsG2>) -> Duration {
+fn halt_bound(camera: &Camera<AnyProfile>) -> Duration {
     camera.profile().command_timeouts().movement_timeout() + Duration::from_secs(5)
 }
 
@@ -136,13 +139,16 @@ fn hw01_udp_zoom_drive_and_stop() {
     };
     let address = format!("{ip}:{UDP_PORT}");
     hw!(hw, "connect.udp={address}");
-    let session = Connect::open_udp::<PtzOpticsG2>(address).expect("open UDP session");
+    let session = grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+        &hardware::camera_config(grafton_visca::config::TransportOptions::udp(address)),
+    )
+    .expect("open UDP session");
     let outcome = zoom_drive_and_stop(session.camera(), &hw);
     close_session(&hw, session);
     outcome.expect("zoom drive and stop").assert_all();
 }
 
-fn zoom_drive_and_stop(camera: &Camera<PtzOpticsG2>, hw: &Hw) -> Result<Checks, Error> {
+fn zoom_drive_and_stop(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let recall_attempted = Cell::new(false);
 
@@ -196,13 +202,16 @@ fn hw01_tcp_pan_tilt_drive_and_stop() {
     };
     let address = format!("{ip}:{TCP_PORT}");
     hw!(hw, "connect.tcp={address}");
-    let session = Connect::open_tcp::<PtzOpticsG2>(address).expect("open TCP session");
+    let session = grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+        &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(address)),
+    )
+    .expect("open TCP session");
     let outcome = pan_tilt_drive_and_stop(session.camera(), &hw);
     close_session(&hw, session);
     outcome.expect("pan/tilt drive and stop").assert_all();
 }
 
-fn pan_tilt_drive_and_stop(camera: &Camera<PtzOpticsG2>, hw: &Hw) -> Result<Checks, Error> {
+fn pan_tilt_drive_and_stop(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let recall_attempted = Cell::new(false);
 
@@ -219,10 +228,13 @@ fn pan_tilt_drive_and_stop(camera: &Camera<PtzOpticsG2>, hw: &Hw) -> Result<Chec
     };
 
     let drive_started = Instant::now();
-    let mut drive =
-        camera
-            .pan_tilt()
-            .move_direction(PanTiltDirection::Right, pan_speed, tilt_speed)?;
+    let mut drive = camera.pan_tilt().drive(
+        PanTiltDirection::Right,
+        grafton_visca::types::PanTiltSpeed {
+            pan: pan_speed,
+            tilt: tilt_speed,
+        },
+    )?;
     hw!(hw, "pan_tilt.right.submitted id={:?}", drive.id());
     sleep(DRIVE);
     let mut stop = camera.pan_tilt().stop()?;
@@ -268,12 +280,15 @@ fn hw04_halt_idle_report() {
     };
     let address = format!("{ip}:{TCP_PORT}");
     hw!(hw, "connect.tcp={address}");
-    let session = Connect::open_tcp::<PtzOpticsG2>(address).expect("open TCP session");
+    let session = grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+        &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(address)),
+    )
+    .expect("open TCP session");
     let camera = session.camera();
 
     let bound = halt_bound(camera);
     let halt_started = Instant::now();
-    let report = camera.motion().stop_all_motion();
+    let report = camera.motion().stop_all();
     let halt_elapsed = halt_started.elapsed();
     hw!(hw, "halt.elapsed_ms={}", halt_elapsed.as_millis());
     hw!(hw, "halt.bound_ms={}", bound.as_millis());
@@ -285,7 +300,7 @@ fn hw04_halt_idle_report() {
     // The session must still serve an inquiry afterwards. Documented raw
     // holds may delay it, so only its timing and result are recorded.
     let inquiry_started = Instant::now();
-    let power = camera.power().state();
+    let power = camera.power().status();
     hw!(
         hw,
         "inquiry.power.elapsed_ms={}",
@@ -327,7 +342,10 @@ fn hw04_halt_fences_queued_motion() {
     };
     let address = format!("{ip}:{TCP_PORT}");
     hw!(hw, "connect.tcp={address}");
-    let session = Connect::open_tcp::<PtzOpticsG2>(address).expect("open TCP session");
+    let session = grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+        &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(address)),
+    )
+    .expect("open TCP session");
     let outcome = halt_fences_queued_motion(session.camera(), &hw);
     close_session(&hw, session);
     outcome.expect("halt fence test").assert_all();
@@ -343,7 +361,7 @@ fn classify(hw: &Hw, label: &str, result: &Result<(), Error>) {
     hw!(hw, "{label}.class={class}");
 }
 
-fn halt_fences_queued_motion(camera: &Camera<PtzOpticsG2>, hw: &Hw) -> Result<Checks, Error> {
+fn halt_fences_queued_motion(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let recall_attempted = Cell::new(false);
     let pan_speed = PanSpeed::new(1)?;
@@ -360,17 +378,20 @@ fn halt_fences_queued_motion(camera: &Camera<PtzOpticsG2>, hw: &Hw) -> Result<Ch
     let drive_started = Instant::now();
     let mut tele = camera.zoom().tele()?;
     hw!(hw, "op.zoom_tele.submitted id={:?}", tele.id());
-    let mut left =
-        camera
-            .pan_tilt()
-            .move_direction(PanTiltDirection::Left, pan_speed, tilt_speed)?;
+    let mut left = camera.pan_tilt().drive(
+        PanTiltDirection::Left,
+        grafton_visca::types::PanTiltSpeed {
+            pan: pan_speed,
+            tilt: tilt_speed,
+        },
+    )?;
     hw!(hw, "op.pan_tilt_left.submitted id={:?}", left.id());
     let mut wide = camera.zoom().wide()?;
     hw!(hw, "op.zoom_wide.submitted id={:?}", wide.id());
 
     // Halt immediately.
     let halt_started = Instant::now();
-    let report = camera.motion().stop_all_motion();
+    let report = camera.motion().stop_all();
     let halt_elapsed = halt_started.elapsed();
     hw!(
         hw,
@@ -440,7 +461,7 @@ fn halt_fences_queued_motion(camera: &Camera<PtzOpticsG2>, hw: &Hw) -> Result<Ch
 /// scoped helper thread. The runtime's workers keep the owner progressing
 /// while this thread waits, and the whole guard is bounded by a timeout.
 struct AsyncMotionGuard {
-    camera: AsyncCamera<PtzOpticsG2>,
+    camera: AsyncCamera<AnyProfile>,
     hw: Hw,
     handle: tokio::runtime::Handle,
     recall_attempted: Arc<AtomicBool>,
@@ -495,7 +516,7 @@ impl Drop for AsyncMotionGuard {
     }
 }
 
-async fn async_restore_preset_one(camera: &AsyncCamera<PtzOpticsG2>, hw: &Hw, label: &str) {
+async fn async_restore_preset_one(camera: &AsyncCamera<AnyProfile>, hw: &Hw, label: &str) {
     let result = match PresetNumber::new(1) {
         Ok(preset) => match camera.presets().recall(preset).await {
             Ok(mut operation) => operation.settled().await,
@@ -506,7 +527,7 @@ async fn async_restore_preset_one(camera: &AsyncCamera<PtzOpticsG2>, hw: &Hw, la
     observe(hw, &format!("{label}.settled"), &result);
 }
 
-async fn async_report_restored(camera: &AsyncCamera<PtzOpticsG2>, hw: &Hw) {
+async fn async_report_restored(camera: &AsyncCamera<AnyProfile>, hw: &Hw) {
     let pan_tilt = camera.pan_tilt().position().await;
     let zoom = camera.zoom().position().await;
     observe(hw, "restored.pan_tilt", &pan_tilt);
@@ -529,7 +550,7 @@ async fn async_report_restored(camera: &AsyncCamera<PtzOpticsG2>, hw: &Hw) {
 /// Deviation from the example: the cancel wait is bounded to 100 ms
 /// (`cancel_with_timeout`) so the drive stays within the 300 ms safety limit
 /// even if the refusal were slow. A G2 refuses a post-send cancel
-/// immediately with `Error::NotSupported`.
+/// immediately with `Error::CancellationNotSupported`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore]
 async fn hw04_async_g2_cancel_refused_then_stop() {
@@ -540,9 +561,12 @@ async fn hw04_async_g2_cancel_refused_then_stop() {
     let address = format!("{ip}:{TCP_PORT}");
     hw!(hw, "connect.tcp={address}");
     let runtime = TokioRuntime::from_current().expect("tokio runtime");
-    let session = AsyncConnect::open_tcp::<PtzOpticsG2, _>(address, runtime)
-        .await
-        .expect("open async TCP session");
+    let session = grafton_visca::r#async::CameraSession::<AnyProfile>::connect(
+        &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(address)),
+        runtime,
+    )
+    .await
+    .expect("open async TCP session");
 
     let outcome = async_cancel_refused_then_stop(session.camera(), &hw).await;
     let close = session.close().await;
@@ -551,7 +575,7 @@ async fn hw04_async_g2_cancel_refused_then_stop() {
 }
 
 async fn async_cancel_refused_then_stop(
-    camera: &AsyncCamera<PtzOpticsG2>,
+    camera: &AsyncCamera<AnyProfile>,
     hw: &Hw,
 ) -> Result<Checks, Error> {
     let mut checks = Checks::default();
@@ -569,7 +593,7 @@ async fn async_cancel_refused_then_stop(
     hw!(hw, "zoom.tele.submitted id={:?}", drive.id());
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // On a G2 a post-send cancel is refused with `Error::NotSupported` and the
+    // On a G2 a post-send cancel is refused with `Error::CancellationNotSupported` and the
     // drive keeps running; a drive that already concluded returns Ok. Either
     // way the STOP below is sent.
     let cancel = drive.cancel_with_timeout(Duration::from_millis(100)).await;
@@ -579,7 +603,7 @@ async fn async_cancel_refused_then_stop(
         "zoom.tele.cancel.class={}",
         match &cancel {
             Ok(_) => "CONCLUDED",
-            Err(Error::NotSupported) => "REFUSED_NOT_SUPPORTED",
+            Err(Error::CancellationNotSupported) => "REFUSED_NOT_SUPPORTED",
             Err(_) => "OTHER_ERROR",
         }
     );
@@ -648,8 +672,12 @@ fn hw04_recover_after_disconnect() {
     let address = format!("{ip}:{TCP_PORT}");
     hw!(hw, "connect.tcp={address}");
 
-    let session = Connect::open_tcp::<PtzOpticsG2>(address.clone()).expect("open TCP session");
-    let first = session.camera().power().state();
+    let session =
+        grafton_visca::blocking::CameraSession::<AnyProfile>::connect(&hardware::camera_config(
+            grafton_visca::config::TransportOptions::tcp(address.clone()),
+        ))
+        .expect("open TCP session");
+    let first = session.camera().power().status();
     observe(&hw, "inquiry.before_fault", &first);
     if first.is_err() {
         close_session(&hw, session);
@@ -672,7 +700,7 @@ fn hw04_recover_after_disconnect() {
     let mut trigger = "window_elapsed";
     let mut index = 0usize;
     while observe_started.elapsed() < FAULT_OBSERVE_WINDOW {
-        let result = session.camera().power().state();
+        let result = session.camera().power().status();
         observe(&hw, &format!("inquiry.during_fault[{index}]"), &result);
         index += 1;
         if let Err(error) = &result {
@@ -700,9 +728,13 @@ fn hw04_recover_after_disconnect() {
     let mut attempt = 0usize;
     let mut recovered = false;
     while recovery_started.elapsed() < RECOVERY_WINDOW {
-        match Connect::open_tcp::<PtzOpticsG2>(address.clone()) {
+        match grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+            &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(
+                address.clone(),
+            )),
+        ) {
             Ok(fresh) => {
-                let result = fresh.camera().power().state();
+                let result = fresh.camera().power().status();
                 observe(&hw, &format!("recovery.inquiry[{attempt}]"), &result);
                 recovered = result.is_ok();
                 let close = fresh.close();

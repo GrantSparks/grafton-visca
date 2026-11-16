@@ -6,7 +6,7 @@ use grafton_visca::camera::profiles::G2Gain;
 use grafton_visca::camera::profiles::G2PresetId;
 use grafton_visca::capabilities::ShutterSpeed;
 use grafton_visca::command::FocusSpeed;
-use grafton_visca::command::IrisControl;
+use grafton_visca::command::Iris;
 use grafton_visca::command::NightDayMode;
 use grafton_visca::command::TallyStatus;
 use grafton_visca::command::Version;
@@ -16,11 +16,13 @@ use grafton_visca::ZoomPositionExt;
 fn main() {}
 
 //~ E0432
+//~ E0603
 //~ "no `G2Gain` in `camera::profiles`"
 //~ "no `G2PresetId` in `camera::profiles`"
 //~ "no `ShutterSpeed` in `capabilities`"
 //~ "no `FocusSpeed` in `command`"
-//~ "no `IrisControl` in `command`"
+//~ "enum `Iris` is private"
+//~ "module `camera` is private"
 //~ "no `NightDayMode` in `command`"
 //~ "no `TallyStatus` in `command`"
 //~ "no `Version` in `command`"

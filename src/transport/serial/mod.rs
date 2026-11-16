@@ -49,10 +49,11 @@
 //! beyond every timeout. The camera's reply and the settle delay are the
 //! protocol-level confirmation that the queued bytes left.
 
-mod config;
 pub(crate) mod handshake;
 
-pub use config::{Config, Startup};
+pub(crate) use super::serial_config::SerialConfig as Config;
+#[cfg(test)]
+pub(crate) use super::serial_config::SerialStartup as Startup;
 
 use crate::Error;
 

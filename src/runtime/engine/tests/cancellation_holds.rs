@@ -12,7 +12,7 @@ fn completion_only() -> RuntimeRequest {
 fn refused(effects: &[Effect], id: RequestId) -> bool {
     effects.iter().any(|effect| {
         matches!(effect, Effect::CancellationObservation {
-        id: observed, observation: CancellationObservation::Failed(Error::NotSupported)
+        id: observed, observation: CancellationObservation::Failed(Error::CancellationNotSupported)
     } if *observed == id)
     })
 }
@@ -85,7 +85,7 @@ fn sending_command_cannot_record_cancellation_intent() {
         let mut effects = Decision::new();
         assert!(matches!(
             engine.cancel(id, now, &mut effects),
-            Err(Error::NotSupported)
+            Err(Error::CancellationNotSupported)
         ));
         assert!(!effects
             .as_slice()

@@ -1,6 +1,6 @@
 //! Integration test to verify camera ID functionality
 
-use grafton_visca::CameraId;
+use grafton_visca::types::CameraId;
 
 #[test]
 fn test_camera_id_produces_correct_address_bytes() {

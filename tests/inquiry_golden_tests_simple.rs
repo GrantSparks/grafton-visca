@@ -3,26 +3,41 @@
 //! This module provides comprehensive testing for inquiry command types
 //! using real-world response patterns (golden replies) from PTZ cameras.
 
-use grafton_visca::command::{InquiryData, InquiryKind, Response, VersionInfo};
+use grafton_visca::{
+    command::{exposure, focus, image, pan_tilt, power, system, zoom},
+    request::Inquiry,
+    types::VersionInfo,
+    wire::{Nibbles, Payload, Response},
+    Error,
+};
+
+fn inquiry_payload(frame: &[u8]) -> Result<&[u8], Error> {
+    Response::parse(frame)?;
+    if frame.get(1) != Some(&0x50) {
+        return Err(Error::UnexpectedResponseType);
+    }
+    frame
+        .get(2..frame.len().saturating_sub(1))
+        .ok_or(Error::InvalidResponseFormat)
+}
+
+fn decode<I: Inquiry>(query: I, frame: &[u8]) -> Result<I::Response, Error> {
+    query.decoder().decode(inquiry_payload(frame)?)
+}
 
 #[test]
 fn test_power_inquiry_on() {
     // Test power inquiry response parsing - Power On
     let payload = vec![0x90, 0x50, 0x02, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::Power);
+    let result = decode(power::StatusInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse power response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Power { status }) => {
-            assert!(status.is_on(), "Power should be on");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    assert!(result.unwrap().is_on(), "Power should be on");
 }
 
 #[test]
@@ -30,19 +45,14 @@ fn test_power_inquiry_off() {
     // Test power inquiry response parsing - Power Off
     let payload = vec![0x90, 0x50, 0x03, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::Power);
+    let result = decode(power::StatusInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse power response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Power { status }) => {
-            assert!(!status.is_on(), "Power should be off");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    assert!(!result.unwrap().is_on(), "Power should be off");
 }
 
 #[test]
@@ -52,20 +62,16 @@ fn test_pan_tilt_position_inquiry() {
         0x90, 0x50, 0x00, 0x01, 0x02, 0x03, 0x00, 0x04, 0x05, 0x06, 0xFF,
     ];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::PanTiltPosition);
+    let result = decode(pan_tilt::PositionInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse pan/tilt response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
-            assert_eq!(pan, 0x0123, "Pan position mismatch");
-            assert_eq!(tilt, 0x0456, "Tilt position mismatch");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    let position = result.unwrap();
+    assert_eq!(position.pan, 0x0123, "Pan position mismatch");
+    assert_eq!(position.tilt, 0x0456, "Tilt position mismatch");
 }
 
 #[test]
@@ -73,19 +79,14 @@ fn test_zoom_position_inquiry() {
     // Test zoom position inquiry response parsing
     let payload = vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::ZoomPosition);
+    let result = decode(zoom::PositionInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse zoom response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::ZoomPosition { position }) => {
-            assert_eq!(position, 0x1234, "Zoom position mismatch");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    assert_eq!(result.unwrap().value(), 0x1234, "Zoom position mismatch");
 }
 
 #[test]
@@ -93,19 +94,14 @@ fn test_focus_position_inquiry() {
     // Test focus position inquiry response parsing
     let payload = vec![0x90, 0x50, 0x05, 0x06, 0x07, 0x08, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::FocusPosition);
+    let result = decode(focus::PositionInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse focus response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::FocusPosition { position }) => {
-            assert_eq!(position, 0x5678, "Focus position mismatch");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    assert_eq!(result.unwrap().value(), 0x5678, "Focus position mismatch");
 }
 
 #[test]
@@ -113,19 +109,14 @@ fn test_backlight_inquiry() {
     // Test backlight compensation inquiry response parsing
     let payload = vec![0x90, 0x50, 0x02, 0xFF]; // On
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::Backlight);
+    let result = decode(exposure::BacklightCompensationInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse backlight response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Backlight { status }) => {
-            assert!(status, "Backlight should be on");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    assert!(result.unwrap(), "Backlight should be on");
 }
 
 #[test]
@@ -133,34 +124,30 @@ fn test_image_flip_inquiry() {
     // Test image flip inquiry response parsing
     let payload = vec![0x90, 0x50, 0x03, 0xFF]; // Both vertical and horizontal
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::FlipState);
+    let result = decode(image::FlipModeInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse image flip response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::FlipState { state }) => {
-            assert!(
-                matches!(
-                    state,
-                    grafton_visca::command::ImageFlipMode::Vertical
-                        | grafton_visca::command::ImageFlipMode::Both
-                ),
-                "Vertical flip should be on"
-            );
-            assert!(
-                matches!(
-                    state,
-                    grafton_visca::command::ImageFlipMode::Horizontal
-                        | grafton_visca::command::ImageFlipMode::Both
-                ),
-                "Horizontal flip should be on"
-            );
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    let state = result.unwrap();
+    assert!(
+        matches!(
+            state,
+            grafton_visca::types::ImageFlipMode::Vertical
+                | grafton_visca::types::ImageFlipMode::Both
+        ),
+        "Vertical flip should be on"
+    );
+    assert!(
+        matches!(
+            state,
+            grafton_visca::types::ImageFlipMode::Horizontal
+                | grafton_visca::types::ImageFlipMode::Both
+        ),
+        "Horizontal flip should be on"
+    );
 }
 
 #[test]
@@ -169,19 +156,18 @@ fn test_brightness_inquiry() {
     // Brightness uses 4 nibbles to encode position (0x0008 = 8)
     let payload = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::Brightness);
+    let result = decode(exposure::BrightnessInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse brightness response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Brightness { position }) => {
-            assert_eq!(position, 0x0008, "Brightness position mismatch");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    assert_eq!(
+        result.unwrap().value(),
+        0x0008,
+        "Brightness position mismatch"
+    );
 }
 
 #[test]
@@ -190,19 +176,14 @@ fn test_gain_inquiry() {
     // Gain uses 4 bytes with the gain value in the last byte
     let payload = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x05, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::Gain);
+    let result = decode(exposure::GainInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse gain response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Gain { gain }) => {
-            assert_eq!(gain, 0x05, "Gain value mismatch");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    assert_eq!(result.unwrap().value(), 0x05, "Gain value mismatch");
 }
 
 #[test]
@@ -218,30 +199,23 @@ fn test_version_inquiry() {
         0xFF,
     ];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::Version);
+    let result = decode(system::VersionInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse version response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Version {
-            info:
-                VersionInfo {
-                    vendor,
-                    model,
-                    rom_version,
-                    max_socket,
-                },
-        }) => {
-            assert_eq!(vendor, 0x0014, "Vendor ID mismatch");
-            assert_eq!(model, 0x0010, "Model code mismatch");
-            assert_eq!(rom_version, 0x0205, "ROM version mismatch");
-            assert_eq!(max_socket, 0x00, "Socket number mismatch");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    let VersionInfo {
+        vendor,
+        model,
+        rom_version,
+        max_socket,
+    } = result.unwrap();
+    assert_eq!(vendor, 0x0014, "Vendor ID mismatch");
+    assert_eq!(model, 0x0010, "Model code mismatch");
+    assert_eq!(rom_version, 0x0205, "ROM version mismatch");
+    assert_eq!(max_socket, 0x00, "Socket number mismatch");
 }
 
 #[test]
@@ -250,19 +224,14 @@ fn test_contrast_inquiry() {
     // Response format: y0 50 00 00 0p 0q FF where pq = position
     let payload = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0C, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::Contrast);
+    let result = decode(image::ContrastInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse contrast response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Contrast { level }) => {
-            assert_eq!(level, 0x0C, "Contrast value mismatch");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    assert_eq!(result.unwrap().value(), 0x0C, "Contrast value mismatch");
 }
 
 #[test]
@@ -271,19 +240,14 @@ fn test_luminance_inquiry() {
     // Response format: y0 50 00 00 0p 0q FF where pq = position
     let payload = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::Luminance);
+    let result = decode(image::LuminanceInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse luminance response: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Luminance { level }) => {
-            assert_eq!(level, 0x07, "Luminance value mismatch");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    assert_eq!(result.unwrap().value(), 0x07, "Luminance value mismatch");
 }
 
 #[test]
@@ -293,30 +257,26 @@ fn test_negative_pan_tilt_values() {
         0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0E, 0x0D, 0xFF,
     ];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::PanTiltPosition);
+    let result = decode(pan_tilt::PositionInquiry, &payload);
     assert!(
         result.is_ok(),
         "Failed to parse negative pan/tilt: {:?}",
         result
     );
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
-            assert_eq!(pan, -1, "Pan should be -1");
-            assert_eq!(tilt, -19, "Tilt should be -19");
-        }
-        _ => panic!("ViscaResponse type mismatch"),
-    }
+    let position = result.unwrap();
+    assert_eq!(position.pan, -1, "Pan should be -1");
+    assert_eq!(position.tilt, -19, "Tilt should be -19");
 }
 
 #[test]
 fn test_unknown_inquiry_response() {
     // Test handling of an unknown response format - this will likely error
-    // since parse_response requires a specific InquiryKind
+    // since a typed inquiry decoder requires a valid value
     let payload = vec![0x90, 0x50, 0xFF, 0xFF, 0xFF, 0xFF];
 
     // Try parsing with a known type to see if it handles invalid data gracefully
-    let result = Response::parse_with_type(&payload, &InquiryKind::Power);
+    let result = decode(power::StatusInquiry, &payload);
     // We expect this to error since 0xFF is not a valid power state
     assert!(result.is_err(), "Should error on invalid power state");
 }
@@ -328,13 +288,13 @@ fn test_inquiry_response_length_validation() {
     // Power response should be 4 bytes total
     let payload = vec![0x90, 0x50, 0x02]; // Missing terminator
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::Power);
+    let result = decode(power::StatusInquiry, &payload);
     assert!(result.is_err(), "Should fail without terminator");
 
     // Pan/Tilt response should be 11 bytes total
     let payload = vec![0x90, 0x50, 0x00, 0x01, 0xFF]; // Too short for pan/tilt
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::PanTiltPosition);
+    let result = decode(pan_tilt::PositionInquiry, &payload);
     assert!(result.is_err(), "Should fail with insufficient data");
 }
 
@@ -345,13 +305,15 @@ fn test_inquiry_nibble_parsing() {
     // Zoom position with max nibbles
     let payload = vec![0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &InquiryKind::ZoomPosition);
+    let result = Nibbles::<4>::try_from(Payload::new(inquiry_payload(&payload).unwrap()));
     assert!(result.is_ok(), "Should parse nibbles");
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::ZoomPosition { position }) => {
-            assert_eq!(position, 0xFFFF, "Should be max value");
-        }
-        _ => panic!("Wrong response type"),
-    }
+    assert_eq!(
+        result.unwrap().u16_quad(0),
+        Some(0xFFFF),
+        "Should be max value"
+    );
+    assert!(
+        decode(zoom::PositionInquiry, &payload).is_err(),
+        "The raw 16-bit maximum exceeds the checked zoom position domain"
+    );
 }

@@ -1,27 +1,35 @@
 #![cfg(feature = "blocking")]
-//! Hardware integration test: validates VISCA inquiry commands against a real PTZOptics G2 camera.
+//! Hardware integration test: validates granted inquiries with a runtime profile.
 //!
-//! This test requires a real PTZOptics G2 camera on the network.
+//! `VISCA_PROFILE` selects any built-in `snake_case` id (default `ptzoptics_g2`).
+//! Every session uses `Camera<AnyProfile>` with the selected registered network
+//! transport and envelope. This test requires a real camera on the network.
 //! It is **ignored by default** and only runs when the `VISCA_CAMERA_IP` environment
 //! variable is set (e.g., `VISCA_CAMERA_IP=192.168.0.110`).
 //!
-//! This test validates that PTZOptics G2 cameras respond to the standard VISCA inquiry
-//! command set and that every reply decodes. The Sony-format version inquiry is not
-//! issued: the G2 profile does not implement `HasVersionInquiry`.
+//! Every granted inquiry must return a value that decodes. Methods withheld by
+//! the selected profile report `FeatureNotSupported` before an inquiry is sent
+//! and are printed as unsupported, including the G2 Sony-format version query.
 //!
 //! Run with:
 //! ```sh
 //! VISCA_CAMERA_IP=192.168.0.110 cargo test --test hardware_inquiry_test -- --ignored --nocapture --test-threads=1
 //! ```
 
-use grafton_visca::blocking::{CameraSession, Connect};
-use grafton_visca::profiles::PtzOpticsG2;
+use grafton_visca::blocking::CameraSession;
+use grafton_visca::profiles::AnyProfile;
+use grafton_visca::Error;
+use grafton_visca_test_support::hardware;
 
-fn connect() -> Option<CameraSession<PtzOpticsG2>> {
+fn connect() -> Option<CameraSession<AnyProfile>> {
     let ip = std::env::var("VISCA_CAMERA_IP").ok()?;
-    let addr = format!("{ip}:5678");
+    let config = hardware::network_config(ip);
+    let addr = format!("{:?}", config.transport());
     eprintln!("Connecting to camera at {addr}...");
-    Some(Connect::open_tcp::<PtzOpticsG2>(addr).expect("Failed to connect to camera"))
+    Some(
+        grafton_visca::blocking::CameraSession::<AnyProfile>::connect(&config)
+            .expect("Failed to connect to camera"),
+    )
 }
 
 macro_rules! inquiry_test {
@@ -35,6 +43,10 @@ macro_rules! inquiry_test {
             };
             let camera = session.camera();
             let result = camera.$noun().$method();
+            if let Err(Error::FeatureNotSupported { feature, .. }) = &result {
+                eprintln!("  UNSUPPORTED {}: {feature}", stringify!($method));
+                return;
+            }
             assert!(
                 result.is_ok(),
                 "Inquiry {} failed: {:?}",
@@ -66,12 +78,8 @@ inquiry_test!(
     exposure,
     compensation_enabled
 );
-inquiry_test!(
-    test_exposure_compensation_position,
-    exposure,
-    compensation_position
-);
-inquiry_test!(test_backlight_enabled, image, backlight);
+inquiry_test!(test_exposure_compensation_position, exposure, compensation);
+inquiry_test!(test_backlight_enabled, exposure, backlight_compensation);
 
 // === White balance inquiries ===
 inquiry_test!(test_white_balance_mode, white_balance, mode);
@@ -89,13 +97,15 @@ inquiry_test!(test_contrast, image, contrast);
 inquiry_test!(test_luminance, image, luminance);
 
 // === System inquiries ===
-inquiry_test!(test_power_state, power, state);
-inquiry_test!(test_menu_status, menu, status);
+inquiry_test!(test_power_state, power, status);
+inquiry_test!(test_menu_status, menu, visible);
+inquiry_test!(test_version, system, version);
 
 // === Comprehensive test that runs all inquiries in sequence ===
 //
-// Categorizes results into two buckets:
-// - OK: command sent, response parsed successfully
+// Categorizes results into three buckets:
+// - OK: inquiry sent, response parsed successfully
+// - UNSUPPORTED: the runtime profile withheld the inquiry before I/O
 // - FAIL: unexpected failure
 #[test]
 #[ignore]
@@ -108,6 +118,7 @@ fn test_all_inquiries_succeed() {
 
     let mut passed = 0u32;
     let mut unexpected_failures = 0u32;
+    let mut unsupported = 0u32;
 
     macro_rules! check {
         ($label:expr, $expr:expr) => {
@@ -115,6 +126,10 @@ fn test_all_inquiries_succeed() {
                 Ok(val) => {
                     eprintln!("  OK             {:<40} = {:?}", $label, val);
                     passed += 1;
+                }
+                Err(Error::FeatureNotSupported { feature, .. }) => {
+                    eprintln!("  UNSUPPORTED    {:<40} = {feature}", $label);
+                    unsupported += 1;
                 }
                 Err(e) => {
                     eprintln!("  FAIL           {:<40} = {}", $label, e);
@@ -124,7 +139,10 @@ fn test_all_inquiries_succeed() {
         };
     }
 
-    eprintln!("\n=== PTZOptics G2 Full Inquiry Validation ===\n");
+    eprintln!(
+        "\n=== {} Full Inquiry Validation ===\n",
+        camera.profile().name()
+    );
 
     // Position
     check!("pan_tilt_position", camera.pan_tilt().position());
@@ -149,9 +167,12 @@ fn test_all_inquiries_succeed() {
     );
     check!(
         "exposure_compensation_position",
-        camera.exposure().compensation_position()
+        camera.exposure().compensation()
     );
-    check!("backlight_enabled", camera.image().backlight());
+    check!(
+        "backlight_enabled",
+        camera.exposure().backlight_compensation()
+    );
 
     // White balance
     check!("white_balance_mode", camera.white_balance().mode());
@@ -183,14 +204,13 @@ fn test_all_inquiries_succeed() {
     check!("flip_mode", camera.image().flip_mode());
 
     // System
-    check!("power_state", camera.power().state());
-    // `system().version()` is not issued: PTZOptics G2 replies to
-    // `81 09 00 02 FF` with an unsourced 2-byte payload (`00 52`), so the
-    // profile does not implement `HasVersionInquiry` and the typed Sony-format
-    // version inquiry does not compile for it.
-    check!("menu_status", camera.menu().status());
+    check!("power_state", camera.power().status());
+    // The runtime profile permits the sourced version layout or refuses it
+    // before I/O, including PTZOptics G2's unsourced two-byte bench reply.
+    check!("version", camera.system().version());
+    check!("menu_status", camera.menu().visible());
 
-    eprintln!("\n=== Results: {passed} passed, {unexpected_failures} unexpected failures ===\n");
+    eprintln!("\n=== Results: {passed} passed, {unsupported} unsupported, {unexpected_failures} unexpected failures ===\n");
 
     assert_eq!(
         unexpected_failures, 0,

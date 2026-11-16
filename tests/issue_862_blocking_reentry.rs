@@ -13,11 +13,11 @@ use std::{
 
 use grafton_visca::{
     blocking::Session,
-    completion::AppliedOnly,
+    config::SessionConfig,
+    operation::AppliedOnly,
     profiles::GenericVisca,
-    request::builtin::ZoomStop,
     transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
-    Error, SessionConfig,
+    Error,
 };
 
 type Callback = Box<dyn FnOnce() + Send>;
@@ -84,7 +84,7 @@ fn callback_metrics(during_write: bool) {
             during_write,
             dropped: Arc::clone(&dropped),
         },
-        SessionConfig::from_compile_time::<GenericVisca>().expect("raw profile"),
+        &SessionConfig::from_compile_time::<GenericVisca>().expect("raw profile"),
     )
     .expect("blocking session");
     let callback_session = session.clone();
@@ -97,10 +97,12 @@ fn callback_metrics(during_write: bool) {
         }) as Callback)
         .expect("install callback");
     if during_write {
-        let camera = session.camera::<GenericVisca>().expect("typed camera");
+        let camera = session
+            .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("typed camera");
         drop(
             camera
-                .submit::<AppliedOnly, _>(&ZoomStop)
+                .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
                 .expect("admit STOP"),
         );
     }
@@ -108,7 +110,7 @@ fn callback_metrics(during_write: bool) {
         result
             .recv_timeout(Duration::from_secs(2))
             .expect("worker callback must return promptly"),
-        Err(Error::InvalidState(_))
+        Err(Error::InvalidState { .. })
     ));
     session
         .metrics()

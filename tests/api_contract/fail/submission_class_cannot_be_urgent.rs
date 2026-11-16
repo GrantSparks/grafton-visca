@@ -1,4 +1,4 @@
-use grafton_visca::SubmissionClass;
+use grafton_visca::request::SubmissionClass;
 
 fn main() {
     let _ = SubmissionClass::Urgent;

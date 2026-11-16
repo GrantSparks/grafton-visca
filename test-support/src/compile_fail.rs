@@ -120,9 +120,6 @@ macro_rules! active_grafton_visca_features {
         if cfg!(feature = "transport-serial-tokio") {
             features.push("transport-serial-tokio");
         }
-        if cfg!(feature = "dyn-api") {
-            features.push("dyn-api");
-        }
         if cfg!(feature = "test-utils") {
             features.push("test-utils");
         }
@@ -1051,7 +1048,6 @@ runtime-tokio = []
 runtime-smol = []
 transport-serial = []
 transport-serial-tokio = []
-dyn-api = []
 test-utils = []
 serde = []
 schemars = []

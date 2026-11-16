@@ -2,7 +2,7 @@
 //!
 //! This module is the source of truth for built-in profile facts. The macro at
 //! the bottom expands those facts into the public zero-sized profile types,
-//! profile ID/group methods, runtime metadata impls, typed support markers, and
+//! profile ID/group methods, validated runtime profile facts, typed support markers, and
 //! invariant tests.
 
 #[cfg(test)]
@@ -27,7 +27,7 @@ pub(crate) struct BuiltinProfileFacts {
     pub(crate) serial: bool,
     pub(crate) default_camera_id: u8,
     pub(crate) inquiry_support: crate::capabilities::InquirySupport,
-    pub(crate) position_inquiries: crate::profile::PositionInquirySupport,
+    pub(crate) position_inquiries: Option<crate::AffectedAxes>,
     pub(crate) image_base_support: bool,
     pub(crate) focus_zone_inquiry: bool,
     pub(crate) usb_audio: bool,
@@ -62,8 +62,27 @@ pub(crate) const INTERIM_ACK_TIMEOUT_MS: u64 = 500;
 /// never shorten it.
 pub(crate) const INTERIM_INQUIRY_TIMEOUT_MS: u64 = 1000;
 
+/// Projects only the transport block's facts into the public config value.
+pub(crate) const fn transport_compatibility(
+    tcp: Option<u16>,
+    udp: Option<u16>,
+    serial: bool,
+) -> crate::profiles::TransportCompatibility {
+    let mut transports = crate::profiles::TransportCompatibility::new();
+    if let Some(port) = tcp {
+        transports = transports.with_tcp(port);
+    }
+    if let Some(port) = udp {
+        transports = transports.with_udp(port);
+    }
+    if serial {
+        transports = transports.with_serial();
+    }
+    transports
+}
+
 /// A command-category deadline table written in milliseconds, for the rows
-/// whose table differs from [`crate::CommandTimeouts::DEFAULT`].
+/// whose table differs from [`crate::profiles::CommandTimeouts::DEFAULT`].
 pub(crate) const fn command_timeouts_ms(
     quick: u64,
     movement: u64,
@@ -73,13 +92,12 @@ pub(crate) const fn command_timeouts_ms(
 ) -> crate::CommandTimeouts {
     use std::time::Duration;
 
-    crate::CommandTimeouts::new(
-        Duration::from_millis(quick),
-        Duration::from_millis(movement),
-        Duration::from_millis(preset),
-        Duration::from_millis(long_running),
-        Duration::from_millis(network),
-    )
+    crate::CommandTimeouts::DEFAULT
+        .with_quick_timeout(Duration::from_millis(quick))
+        .with_movement_timeout(Duration::from_millis(movement))
+        .with_preset_timeout(Duration::from_millis(preset))
+        .with_long_running_timeout(Duration::from_millis(long_running))
+        .with_network_timeout(Duration::from_millis(network))
 }
 
 /// A per-profile fact a profile group reports for every member.
@@ -105,30 +123,25 @@ pub(crate) const fn weaker_inquiry_support(
     }
 }
 
-macro_rules! __transport_is_supported {
-    (none) => {
-        false
-    };
-    (supported) => {
-        true
-    };
-    ({ default_port: $default_port:expr $(,)? }) => {
-        true
-    };
-}
-
-/// Expands an omitted optional registry fact to the conservative `false`.
-///
-/// The registry grammar makes new source-backed facts opt-in so downstream
-/// rows cannot accidentally gain a capability while the per-profile evidence
-/// is being collected.
-macro_rules! __optional_support_bool {
-    () => {
-        false
-    };
-    ($supported:expr) => {
-        $supported
-    };
+macro_rules! __individual_camera_id {
+    ($value:expr) => {{
+        #[allow(clippy::panic)]
+        const ID: $crate::IndividualCameraId = {
+            let checked = $crate::IndividualCameraId::new($value);
+            match &checked {
+                Ok(id) => {
+                    let id = *id;
+                    ::core::mem::forget(checked);
+                    id
+                }
+                Err(_) => {
+                    ::core::mem::forget(checked);
+                    panic!("profile default must be an individual camera ID")
+                }
+            }
+        };
+        ID
+    }};
 }
 
 macro_rules! range {
@@ -148,56 +161,124 @@ macro_rules! domain {
     };
 }
 
-macro_rules! __transport_default_port {
-    (none) => {
-        None
-    };
-    ({ default_port: $default_port:expr $(,)? }) => {
-        Some($default_port)
-    };
-}
-
 macro_rules! __impl_supports_tcp {
-    ($profile:ty, none) => {};
-    ($profile:ty, { default_port: $default_port:expr $(,)? }) => {
+    ($profile:ty, None) => {};
+    ($profile:ty, Some($port:expr)) => {
         impl $crate::capabilities::SupportsTcp for $profile {}
     };
 }
-
 macro_rules! __impl_supports_udp {
-    ($profile:ty, none) => {};
-    ($profile:ty, { default_port: $default_port:expr $(,)? }) => {
+    ($profile:ty, None) => {};
+    ($profile:ty, Some($port:expr)) => {
         impl $crate::capabilities::SupportsUdp for $profile {}
     };
 }
-
 macro_rules! __impl_supports_serial {
-    ($profile:ty, none) => {};
-    ($profile:ty, supported) => {
+    ($profile:ty, false) => {};
+    ($profile:ty, true) => {
         impl $crate::capabilities::SupportsSerial for $profile {}
     };
 }
 
-/// Emits the base image-noun marker from the same registry fact that supplies
-/// `ImageProcessing::SUPPORTS_IMAGE_PROCESSING` for a built-in profile.
-///
-/// `ImageProcessing` itself is metadata required by every `Profile`, so a
-/// blanket marker would turn an all-`None` metadata implementation into typed
-/// permission. Keep the positive and negative cases declarative in each
-/// profile row instead.
-macro_rules! __impl_image_processing_marker {
-    (true for $profile:ty) => {
-        impl $crate::capabilities::HasImageProcessing for $profile {}
+/// Optional record presence is the sole domain-marker authority.
+macro_rules! __impl_domain_marker {
+    (None for $profile:ty, $marker:ident) => {};
+    ({$($facts:tt)*} for $profile:ty, $marker:ident) => {
+        impl $crate::capabilities::$marker for $profile {}
     };
-    (false for $profile:ty) => {};
 }
-
 #[cfg(test)]
-macro_rules! __assert_image_processing_marker {
-    (true for $profile:ty, $assert_marker:ident) => {
+macro_rules! __assert_domain_marker {
+    (None for $profile:ty, $assert_marker:ident) => {};
+    ({$($facts:tt)*} for $profile:ty, $assert_marker:ident) => {
         $assert_marker::<$profile>();
     };
-    (false for $profile:ty, $assert_marker:ident) => {};
+}
+#[cfg(test)]
+macro_rules! __domain_present {
+    (None) => {
+        false
+    };
+    ({$($facts:tt)*}) => {
+        true
+    };
+}
+#[cfg(test)]
+macro_rules! __focus_zone_fact {
+    (None) => { false };
+    ({ zone_inquiry: $value:expr, $($rest:tt)* }) => { $value };
+    ({ $key:ident: $value:expr, $($rest:tt)* }) => { __focus_zone_fact!({$($rest)*}) };
+}
+
+/// Leaves are typed Rust expressions; the record keys are direct serde keys.
+/// Struct literal exhaustiveness catches a new missing or unknown record fact.
+macro_rules! __optional_record {
+    ($record:ident, None) => { None };
+    ($record:ident, {$( $key:ident: $value:expr, )*}) => {
+        Some($record { $( $key: $value, )* })
+    };
+}
+macro_rules! __pan_tilt_facts {
+    (None) => {
+        None
+    };
+    ({
+        pan_range: $pan_range:expr,
+        tilt_ranges: $tilt_ranges:expr,
+        pan_speed: $pan_speed:expr,
+        tilt_speed: $tilt_speed:expr,
+        coordinates: {
+            coordinate_system: $system:expr,
+            wire_codec: $codec:expr,
+            pan_degrees_to_units: $pan_scale:expr,
+            tilt_degrees_to_units: $tilt_scale:expr,
+        },
+        endpoint_quantization: $quantization:expr,
+        simultaneous: $simultaneous:expr,
+        preset_recovery_time: $recovery:expr,
+        variable_speed: $variable:expr,
+        motion_sync_speed_range: $motion_sync:expr,
+    }) => {
+        Some($crate::capabilities::PanTiltCaps {
+            pan_range: $pan_range,
+            tilt_ranges: $tilt_ranges,
+            pan_speed: $pan_speed,
+            tilt_speed: $tilt_speed,
+            coordinates: $crate::profiles::PanTiltCoordinateConversion::from_registry(
+                $system,
+                $codec,
+                $pan_scale,
+                $tilt_scale,
+            ),
+            endpoint_quantization: $quantization,
+            simultaneous: $simultaneous,
+            preset_recovery_time: $recovery,
+            variable_speed: $variable,
+            motion_sync_speed_range: $motion_sync,
+        })
+    };
+}
+macro_rules! __white_balance_facts {
+    (None) => {
+        None
+    };
+    ({
+        modes: $modes:expr,
+        one_push: $one_push:expr,
+        color_temp_range: $range:expr,
+        color_temperature_steps: $steps:expr,
+        rgb_gain: $gain:tt,
+        rgb_tuning: $tuning:tt,
+    }) => {
+        Some($crate::capabilities::WhiteBalanceCaps {
+            modes: $modes,
+            one_push: $one_push,
+            color_temp_range: $range,
+            color_temperature_steps: $steps,
+            rgb_gain: __optional_record!(RgbGainRanges, $gain),
+            rgb_tuning: __optional_record!(RgbTuningRanges, $tuning),
+        })
+    };
 }
 
 macro_rules! define_typed_support_marker_impls {
@@ -208,8 +289,7 @@ macro_rules! define_typed_support_marker_impls {
                 {
                     surface: $surface:ident,
                     marker: $marker:ident,
-                    bit: $bit:literal,
-                    wire: $wire:literal,
+                    $(encodings: [$($encoding_variant:ident => $encoding_tag:literal),+ $(,)?],)?
                     area: $area:literal,
                     surface_doc: $surface_doc:literal,
                     marker_doc: $marker_doc:literal,
@@ -232,164 +312,135 @@ crate::capabilities::typed_support_registry::typed_support_registry!(
     define_typed_support_marker_impls,
     $
 );
+/// A row's record keys, read from its authored fact tokens rather than a
+/// separate inventory. Braced records are structural nodes; typed Rust value
+/// expressions (ranges, durations, arrays, checked scalars) are opaque leaves.
+#[cfg(all(test, feature = "serde"))]
+macro_rules! __row_fact_keys {
+    (@fields $keys:ident,) => {};
+    (@fields $keys:ident, $key:ident: { $($nested:tt)* }, $($rest:tt)*) => {
+        $keys.insert(stringify!($key).into(), __row_fact_keys!({$($nested)*}));
+        __row_fact_keys!(@fields $keys, $($rest)*);
+    };
+    (@fields $keys:ident, $key:ident: $value:expr, $($rest:tt)*) => {
+        $keys.insert(stringify!($key).into(), serde_json::Value::Null);
+        __row_fact_keys!(@fields $keys, $($rest)*);
+    };
+    ({$($fields:tt)*}) => {{
+        #[allow(unused_mut)]
+        let mut keys = serde_json::Map::new();
+        __row_fact_keys!(@fields keys, $($fields)*);
+        serde_json::Value::Object(keys)
+    }};
+}
+
+/// Compare only fact-record keys. A declared typed leaf retains its own serde
+/// contract instead of requiring a second DSL for Duration, ranges or tables.
+#[cfg(all(test, feature = "serde"))]
+pub(crate) fn check_fact_keys(
+    row: &serde_json::Value,
+    exported: &serde_json::Value,
+    path: &str,
+) -> Result<(), String> {
+    let Some(expected) = row.as_object() else {
+        return Ok(());
+    };
+    let actual = exported
+        .as_object()
+        .ok_or_else(|| format!("{path}: expected a fact record"))?;
+    for key in actual.keys() {
+        if !expected.contains_key(key) {
+            return Err(format!(
+                "{path}/{key}: serialized fact has no registry-row key"
+            ));
+        }
+    }
+    for (key, child) in expected {
+        let actual_child = actual
+            .get(key)
+            .ok_or_else(|| format!("{path}/{key}: registry-row key has no serialized fact"))?;
+        check_fact_keys(child, actual_child, &format!("{path}/{key}"))?;
+    }
+    Ok(())
+}
+
 macro_rules! __define_builtin_profiles {
     (
+        groups $groups:tt
+        profiles {$(profile $profile:ident {
+            doc: $doc:literal,
+            id: $id:literal,
+            id_doc: $id_doc:literal,
+            vendor: $vendor:literal,
+            description: $description:literal,
+            facts: $facts:tt,
+            withheld: $withheld:tt,
+            evidence: $evidence:tt,
+        })*}
+    ) => {
+        __define_builtin_profiles!(@emit groups $groups profiles {$(profile $profile {
+            doc: $doc, id: $id, id_doc: $id_doc, vendor: $vendor, description: $description,
+            facts: $facts, withheld: $withheld, evidence: $evidence,
+        })*});
+        #[cfg(all(test, feature = "serde"))]
+        impl ProfileId {
+            fn row_fact_keys(self) -> serde_json::Value {
+                let mut keys = match self {$(Self::$profile => __row_fact_keys!($facts),)*};
+                keys["encodings"] = self.row_encoding_keys();
+                keys
+            }
+        }
+    };
+    (
+        @emit
         groups {
-            $(
-                group $group:ident {
-                    doc: $group_doc:literal,
-                    display: $group_display:literal,
-                    profiles: [$( $group_profile:ident ),* $(,)?],
-                }
-            )*
+            $(group $group:ident {
+                doc: $group_doc:literal,
+                display: $group_display:literal,
+                id: $group_id:literal,
+                profiles: [$( $group_profile:ident ),* $(,)?],
+            })*
         }
         profiles {
-            $(
-                profile $profile:ident {
-                    doc: $profile_doc:literal,
-                    id: $id:ident,
-                    id_doc: $id_doc:literal,
-                    id_attrs: [$(#[$id_attr:meta])*],
-                    vendor: $vendor:literal,
-                    description: $description:literal,
-                    envelope: $envelope:ty,
-                    transport: {
-                        tcp: $tcp:tt,
-                        udp: $udp:tt,
-                        serial: $serial:tt $(,)?
-                    },
-                    metadata: {
+            $(profile $profile:ident {
+                doc: $profile_doc:literal,
+                id: $profile_id:literal,
+                id_doc: $id_doc:literal,
+                vendor: $vendor:literal,
+                description: $description:literal,
+                facts: {
+                    capabilities: {
+                        profile_id: from_id,
                         model_name: $model_name:literal,
                         default_camera_id: $default_camera_id:expr,
-                        // Every built-in profile names the shared interim
-                        // deadlines below until per-profile values are measured.
-                        ack_timeout_ms: $ack_timeout_ms:expr,
-                        command_timeouts: $command_timeouts:expr,
-                        inquiry_timeout_ms: $inquiry_timeout_ms:expr,
-                        cancellation_timeout_ms: $cancellation_timeout_ms:expr,
-                        ambiguity_timeout_ms: $ambiguity_timeout_ms:expr,
-                        busy_timeout_ms: $busy_timeout_ms:expr,
+                        pan_tilt: $pan_tilt_facts:tt,
+                        zoom: $zoom_facts:tt,
+                        focus: $focus_facts:tt,
+                        exposure: $exposure_facts:tt,
+                        white_balance: $white_balance_facts:tt,
+                        image: $image_facts:tt,
+                        presets: $preset_facts:tt,
+                        power: $power_facts:tt,
+                        menu: $menu_facts:tt,
                         inquiry_support: $inquiry_support:expr,
-                        supports_operation_complete: $supports_operation_complete:expr,
-                        supports_command_cancel: $supports_command_cancel:expr,
-                        maximum_command_sockets: $maximum_command_sockets:expr,
-                        position_inquiries: {
-                            pan_tilt: $pan_tilt_position_inquiry:expr,
-                            zoom: $zoom_position_inquiry:expr,
-                            focus: $focus_position_inquiry:expr,
-                            iris: $iris_position_inquiry:expr,
-                            nd_filter: $nd_filter_position_inquiry:expr $(,)?
-                        },
-                        preset_recall_axes: $preset_recall_axes:expr,
-                        min_inquiry_spacing_ms: $min_inquiry_spacing_ms:expr,
-                        min_command_spacing_ms: $min_command_spacing_ms:expr,
+                        typed_support: grants([$(($support:ident $(($support_encoding:ident))?, $support_source:expr)),* $(,)?]),
                     },
-                    pan_tilt: {
-                        pan_range: $pan_range:expr,
-                        tilt_ranges: $tilt_ranges:expr,
-                        max_pan_speed: $max_pan_speed:expr,
-                        max_tilt_speed: $max_tilt_speed:expr,
-                        simultaneous: $pan_tilt_simultaneous:expr,
-                        preset_recovery_ms: $preset_recovery_ms:expr,
-                        pan_degrees_to_units: $pan_degrees_to_units:expr,
-                        tilt_degrees_to_units: $tilt_degrees_to_units:expr,
-                        coordinate_system: $coordinate_system:expr,
-                        wire_codec: $pan_tilt_wire_codec:expr,
-                        $(endpoint_quantization: $endpoint_quantization:expr,)?
+                    encodings: from_grants,
+                    transports: {
+                        tcp_port: $tcp:ident $(($tcp_port:expr))?,
+                        udp_port: $udp:ident $(($udp_port:expr))?,
+                        serial: $serial:tt,
                     },
-                    zoom: {
-                        optical_max: $optical_zoom_max:expr,
-                        digital_max: $digital_zoom_max:expr,
-                        speed_range: $zoom_speed_range:expr,
-                        supports_direct: $supports_direct_zoom:expr,
-                        supports_variable: $supports_variable_zoom:expr,
-                        optical_zoom_ratio: $optical_zoom_ratio:expr,
-                    },
-                    focus: {
-                        range: $focus_range:expr,
-                        near_end: $focus_near_end:expr,
-                        auto_focus: $supports_auto_focus:expr,
-                        one_push: $supports_one_push_focus:expr,
-                        focus_zone_inquiry: $supports_focus_zone_inquiry:expr,
-                        zones: $focus_zones:expr,
-                        max_speed: $max_focus_speed:expr,
-                        af_sensitivity: $supports_af_sensitivity:expr,
-                        near_limit_inquiry: $supports_focus_near_limit_inquiry:expr,
-                    },
-                    exposure: {
-                        modes: $exposure_modes:expr,
-                        iris_range: $iris_range:expr,
-                        shutter_speeds: $shutter_speeds:expr,
-                        gain_range: $gain_range:expr,
-                        brightness_range: $brightness_range:expr,
-                        backlight_comp: $supports_backlight_comp:expr,
-                        exposure_comp_range: $exposure_comp_range:expr,
-                        wdr: $supports_wdr:expr,
-                    },
-                    white_balance: {
-                        modes: $wb_modes:expr,
-                        one_push: $supports_one_push_wb:expr,
-                        rg_tuning_range: $rg_tuning_range:expr,
-                        bg_tuning_range: $bg_tuning_range:expr,
-                        color_temp_range: $color_temp_range:expr,
-                        red_gain_range: $red_gain_range:expr,
-                        blue_gain_range: $blue_gain_range:expr,
-                    },
-                    image: {
-                        // Source-backed permission for the base `image()` noun.
-                        // This is distinct from the metadata facts below: every
-                        // profile implements `ImageProcessing` for discovery.
-                        base_support: $supports_image_processing:tt,
-                        contrast_range: $contrast_range:expr,
-                        sharpness_range: $sharpness_range:expr,
-                        saturation_range: $saturation_range:expr,
-                        flip: $supports_flip:expr,
-                        mirror: $supports_mirror:expr,
-                        hue_range: $hue_range:expr,
-                        picture_effect: $supports_picture_effect:expr,
-                        luminance_range: $luminance_range:expr,
-                        save_after_flip: $requires_settings_save_for_flip:expr,
-                        gamma_range: $gamma_range:expr,
-                    },
-                    presets: {
-                        highest: $highest_preset:expr,
-                        speed_range: $preset_speed_range:expr,
-                        tour: $supports_preset_tour:expr,
-                        recall_delay_ms: $preset_recall_delay_ms:expr,
-                        thumbnail: $supports_preset_thumbnail:expr,
-                        max_name_len: $max_preset_name_length:expr,
-                    },
-                    power: {
-                        on_secs: $power_on_secs:expr,
-                        standby: $supports_standby:expr,
-                        standby_secs: $standby_secs:expr,
-                        wake_on_lan: $supports_wake_on_lan:expr,
-                        retains_settings: $retains_settings_on_power_off:expr,
-                        home_on_power_up: $home_on_power_up:expr,
-                    },
-                    menu: {
-                        direct: $supports_direct_menu:expr $(,)?
-                    },
-                    tally: {
-                        supported: $supports_tally:expr $(,)?
-                    },
-                    motion_sync: {
-                        speed_range: $motion_sync_speed_range:expr $(,)?
-                    },
-                    nd_filter: {
-                        mode: $nd_mode:expr $(,)?
-                    },
-                    variable_speed: {
-                        supported: $supports_variable_speed:expr $(,)?
-                    },
-                    $(usb_audio: {
-                        supported: $supports_usb_audio:expr $(,)?
-                    },)?
-                    typed_support: [$(($support:ident, $support_source:expr)),* $(,)?],
-                    withheld: [$( $withheld:ident ),* $(,)?],
-                    evidence: [$(($evidence_key:literal, $evidence_text:literal)),* $(,)?],
-                }
-            )*
+                    envelope: $envelope:expr,
+                    timing: {$( $timing_key:ident: $timing_value:expr, )*},
+                    maximum_command_sockets: $maximum_command_sockets:expr,
+                    supports_operation_complete: $supports_operation_complete:expr,
+                    supports_command_cancel: $supports_command_cancel:expr,
+                    position_inquiries: $position_inquiries:expr,
+                },
+                withheld: [$( $withheld:ident ),* $(,)?],
+                evidence: [$(($evidence_key:literal, $evidence_text:literal)),* $(,)?],
+            })*
         }
     ) => {
         $(
@@ -397,199 +448,32 @@ macro_rules! __define_builtin_profiles {
             #[derive(Debug, Default, Clone, Copy)]
             pub struct $profile;
 
-            impl $crate::capabilities::ProfileMetadata for $profile {
-                const PROFILE_ID: Option<$crate::camera::profiles::ProfileId> =
-                    Some($crate::camera::profiles::ProfileId::$id);
-                const MODEL_NAME: &'static str = $model_name;
-                #[allow(clippy::panic)]
-                const DEFAULT_CAMERA_ID: $crate::IndividualCameraId = {
-                    // Borrow the checked result, then consume it whole: the
-                    // owning Error cannot be dropped during const evaluation.
-                    let checked = $crate::IndividualCameraId::new($default_camera_id);
-                    match &checked {
-                        Ok(id) => {
-                            let id = *id;
-                            ::core::mem::forget(checked);
-                            id
-                        }
-                        Err(_) => {
-                            ::core::mem::forget(checked);
-                            panic!("profile default must be an individual camera ID")
-                        }
-                    }
-                };
-                type Envelope = $envelope;
-                const ACK_TIMEOUT: std::time::Duration =
-                    std::time::Duration::from_millis($ack_timeout_ms);
-                const COMMAND_TIMEOUTS: $crate::CommandTimeouts = $command_timeouts;
-                const BUSY_TIMEOUT: std::time::Duration =
-                    std::time::Duration::from_millis($busy_timeout_ms);
-                const INQUIRY_SUPPORT: $crate::capabilities::InquirySupport = $inquiry_support;
-                const SUPPORTS_OPERATION_COMPLETE: bool = $supports_operation_complete;
-                const SUPPORTS_COMMAND_CANCEL: bool = $supports_command_cancel;
-                const MIN_INQUIRY_SPACING: std::time::Duration =
-                    std::time::Duration::from_millis($min_inquiry_spacing_ms);
-                const MIN_COMMAND_SPACING: std::time::Duration =
-                    std::time::Duration::from_millis($min_command_spacing_ms);
-                const SUPPORTS_USB_AUDIO: bool =
-                    __optional_support_bool!($($supports_usb_audio)?);
-            }
-
-            impl $crate::capabilities::PanTilt for $profile {
-                const PAN_RANGE: $crate::capabilities::CapabilityRange<i32> = $pan_range;
-                const TILT_RANGES: $crate::capabilities::TiltRanges = $tilt_ranges;
-                $(const ENDPOINT_QUANTIZATION: $crate::capabilities::EndpointQuantization = $endpoint_quantization;)?
-                const MAX_PAN_SPEED: u8 = $max_pan_speed;
-                const MAX_TILT_SPEED: u8 = $max_tilt_speed;
-                const PAN_TILT_SIMULTANEOUS: bool = $pan_tilt_simultaneous;
-                const PRESET_RECOVERY_TIME: std::time::Duration =
-                    std::time::Duration::from_millis($preset_recovery_ms);
-                const PAN_DEGREES_TO_UNITS: f32 = $pan_degrees_to_units;
-                const TILT_DEGREES_TO_UNITS: f32 = $tilt_degrees_to_units;
-                const COORDINATE_SYSTEM: $crate::capabilities::CoordinateSystem = $coordinate_system;
-                const PAN_TILT_WIRE_CODEC: $crate::capabilities::PanTiltWireCodec =
-                    $pan_tilt_wire_codec;
-            }
-
-            impl $crate::capabilities::Zoom for $profile {
-                const OPTICAL_ZOOM_MAX: u16 = $optical_zoom_max;
-                const DIGITAL_ZOOM_MAX: Option<u16> = $digital_zoom_max;
-                const ZOOM_SPEED_RANGE: $crate::capabilities::CapabilityRange<u8> = $zoom_speed_range;
-                const SUPPORTS_DIRECT_ZOOM: bool = $supports_direct_zoom;
-                const SUPPORTS_VARIABLE_ZOOM: bool = $supports_variable_zoom;
-                const OPTICAL_ZOOM_RATIO: Option<f32> = $optical_zoom_ratio;
-            }
-
-            impl $crate::capabilities::Focus for $profile {
-                const FOCUS_RANGE: $crate::capabilities::CapabilityRange<u16> = $focus_range;
-                const FOCUS_NEAR_END: $crate::capabilities::FocusNearEnd = $focus_near_end;
-                const SUPPORTS_AUTO_FOCUS: bool = $supports_auto_focus;
-                const SUPPORTS_ONE_PUSH_FOCUS: bool = $supports_one_push_focus;
-                const SUPPORTS_FOCUS_ZONE_INQUIRY: bool = $supports_focus_zone_inquiry;
-                const FOCUS_ZONES: &'static [$crate::command::FocusZone] = $focus_zones;
-                const MAX_FOCUS_SPEED: u8 = $max_focus_speed;
-                const SUPPORTS_AF_SENSITIVITY: bool = $supports_af_sensitivity;
-                const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool =
-                    $supports_focus_near_limit_inquiry;
-            }
-
-            impl $crate::capabilities::Exposure for $profile {
-                const EXPOSURE_MODES: &'static [$crate::command::exposure::ExposureMode] =
-                    $exposure_modes;
-                const IRIS_RANGE: Option<$crate::capabilities::CapabilityDomain<u16>> = $iris_range;
-                const SHUTTER_SPEEDS: &'static [$crate::capabilities::ShutterSpeedEntry] =
-                    $shutter_speeds;
-                const GAIN_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $gain_range;
-                const BRIGHTNESS_RANGE: Option<$crate::capabilities::CapabilityDomain<u8>> = $brightness_range;
-                const SUPPORTS_BACKLIGHT_COMP: bool = $supports_backlight_comp;
-                const EXPOSURE_COMP_RANGE: Option<$crate::capabilities::CapabilityRange<i8>> = $exposure_comp_range;
-                const SUPPORTS_WDR: bool = $supports_wdr;
-            }
-
-            impl $crate::capabilities::WhiteBalance for $profile {
-                const WB_MODES: &'static [$crate::WhiteBalanceMode] = $wb_modes;
-                const SUPPORTS_ONE_PUSH_WB: bool = $supports_one_push_wb;
-                const RG_TUNING_RANGE: Option<$crate::capabilities::CapabilityRange<i8>> = $rg_tuning_range;
-                const BG_TUNING_RANGE: Option<$crate::capabilities::CapabilityRange<i8>> = $bg_tuning_range;
-                const COLOR_TEMP_RANGE: Option<$crate::capabilities::CapabilityRange<u16>> = $color_temp_range;
-                const RED_GAIN_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $red_gain_range;
-                const BLUE_GAIN_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $blue_gain_range;
-            }
-
-            impl $crate::capabilities::ImageProcessing for $profile {
-                const CONTRAST_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $contrast_range;
-                const SHARPNESS_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $sharpness_range;
-                const SATURATION_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $saturation_range;
-                const SUPPORTS_FLIP: bool = $supports_flip;
-                const SUPPORTS_MIRROR: bool = $supports_mirror;
-                const HUE_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $hue_range;
-                const SUPPORTS_PICTURE_EFFECT: bool = $supports_picture_effect;
-                const LUMINANCE_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $luminance_range;
-                const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = $requires_settings_save_for_flip;
-                const GAMMA_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $gamma_range;
-                const SUPPORTS_IMAGE_PROCESSING: bool = $supports_image_processing;
-            }
-
-            impl $crate::capabilities::Presets for $profile {
-                const HIGHEST_PRESET: u8 = $highest_preset;
-                const PRESET_SPEED_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $preset_speed_range;
-                const SUPPORTS_PRESET_TOUR: bool = $supports_preset_tour;
-                const PRESET_RECALL_DELAY: std::time::Duration =
-                    std::time::Duration::from_millis($preset_recall_delay_ms);
-                const SUPPORTS_PRESET_THUMBNAIL: bool = $supports_preset_thumbnail;
-                const MAX_PRESET_NAME_LENGTH: usize = $max_preset_name_length;
-            }
-
-            impl $crate::capabilities::Power for $profile {
-                const POWER_ON_TIME: std::time::Duration =
-                    std::time::Duration::from_secs($power_on_secs);
-                const SUPPORTS_STANDBY: bool = $supports_standby;
-                const STANDBY_TIME: std::time::Duration =
-                    std::time::Duration::from_secs($standby_secs);
-                const SUPPORTS_WAKE_ON_LAN: bool = $supports_wake_on_lan;
-                const RETAINS_SETTINGS_ON_POWER_OFF: bool = $retains_settings_on_power_off;
-                const HOME_ON_POWER_UP: bool = $home_on_power_up;
-            }
-
-            impl $crate::capabilities::MenuCapability for $profile {
-                const SUPPORTS_DIRECT_CONTROL: bool = $supports_direct_menu;
-            }
-
-            impl $crate::capabilities::Tally for $profile {
-                const SUPPORTS_TALLY: bool = $supports_tally;
-            }
-
-            impl $crate::capabilities::MotionSyncMetadata for $profile {
-                const MOTION_SYNC_SPEED_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> =
-                    $motion_sync_speed_range;
-            }
-
-            impl $crate::capabilities::NdFilterMetadata for $profile {
-                const ND_MODE: $crate::capabilities::NdFilterMode = $nd_mode;
-            }
-
-            impl $crate::capabilities::VariableSpeedMetadata for $profile {
-                const SUPPORTS_VARIABLE_SPEED: bool = $supports_variable_speed;
-            }
-
-            impl $crate::capabilities::ProfileTypedSupport for $profile {
+            impl $crate::profiles::CompileTimeProfile for $profile {
                 const TYPED_SUPPORT: $crate::capabilities::TypedSupportSet =
                     $crate::capabilities::TypedSupportSet::from_surfaces(&[
                         $($crate::capabilities::TypedSupportSurface::$support,)*
                     ]);
+                const ID: Option<ProfileId> = Some(ProfileId::$profile);
+
+                fn spec() -> $crate::Result<$crate::ProfileSpec> {
+                    ProfileId::$profile.spec()
+                }
             }
 
-            impl $crate::profile::CompileTimeProfile for $profile {
-                const TRANSPORTS: $crate::profile::TransportCompatibility =
-                    $crate::profile::TransportCompatibility::new(
-                        __transport_default_port!($tcp),
-                        __transport_default_port!($udp),
-                        __transport_is_supported!($serial),
-                    );
-                const INQUIRY_TIMEOUT: std::time::Duration =
-                    std::time::Duration::from_millis($inquiry_timeout_ms);
-                const CANCELLATION_TIMEOUT: std::time::Duration =
-                    std::time::Duration::from_millis($cancellation_timeout_ms);
-                const AMBIGUITY_TIMEOUT: std::time::Duration =
-                    std::time::Duration::from_millis($ambiguity_timeout_ms);
-                const MAXIMUM_COMMAND_SOCKETS: u8 = $maximum_command_sockets;
-                const PRESET_RECALL_AXES: Option<$crate::AffectedAxes> = Some($preset_recall_axes);
-                const POSITION_INQUIRIES: $crate::profile::PositionInquirySupport =
-                    $crate::profile::PositionInquirySupport::new_with_iris_nd(
-                        $pan_tilt_position_inquiry,
-                        $zoom_position_inquiry,
-                        $focus_position_inquiry,
-                        $iris_position_inquiry,
-                        $nd_filter_position_inquiry,
-                    );
-            }
-
-            __impl_supports_tcp!($profile, $tcp);
-            __impl_supports_udp!($profile, $udp);
+            __impl_domain_marker!($power_facts for $profile, HasPower);
+            __impl_domain_marker!($zoom_facts for $profile, HasZoom);
+            __impl_domain_marker!($focus_facts for $profile, HasFocus);
+            __impl_domain_marker!($pan_tilt_facts for $profile, HasPanTilt);
+            __impl_domain_marker!($preset_facts for $profile, HasPresets);
+            __impl_domain_marker!($exposure_facts for $profile, HasExposure);
+            __impl_domain_marker!($white_balance_facts for $profile, HasWhiteBalance);
+            __impl_domain_marker!($menu_facts for $profile, HasMenu);
+            __impl_domain_marker!($image_facts for $profile, HasImage);
+            __impl_supports_tcp!($profile, $tcp $(($tcp_port))?);
+            __impl_supports_udp!($profile, $udp $(($udp_port))?);
             __impl_supports_serial!($profile, $serial);
-            __impl_image_processing_marker!($supports_image_processing for $profile);
             $(
-                const _: () = assert!($support_source.covers_model(Some(ProfileId::$id)), "typed grant requires positive evidence for this model");
+                const _: () = assert!($support_source.covers_model(Some(ProfileId::$profile)), "typed grant requires positive evidence for this model");
                 __impl_typed_support_marker!($support for $profile);
             )*
         )*
@@ -599,27 +483,28 @@ macro_rules! __define_builtin_profiles {
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
         #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-        #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+        #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
         #[non_exhaustive]
         pub enum ProfileGroup {
             $(
                 #[doc = $group_doc]
+                #[cfg_attr(feature = "serde", serde(rename = $group_id))]
                 $group,
             )*
         }
 
         /// Serializable camera profile identifier.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
         #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-        #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+        #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
         #[non_exhaustive]
         pub enum ProfileId {
             $(
                 #[doc = $id_doc]
-                $(#[$id_attr])*
-                $id,
+                #[cfg_attr(feature = "serde", serde(rename = $profile_id))]
+                $profile,
             )*
         }
 
@@ -627,27 +512,27 @@ macro_rules! __define_builtin_profiles {
         pub(crate) const BUILTIN_PROFILE_FACTS: &[profile_registry::BuiltinProfileFacts] = &[
             $(
                 profile_registry::BuiltinProfileFacts {
-                    id: ProfileId::$id,
-                    group: ProfileId::$id.profile_group(),
+                    id: ProfileId::$profile,
+                    group: ProfileId::$profile.profile_group(),
                     type_name: stringify!($profile),
                     display_name: $model_name,
                     vendor: $vendor,
                     description: $description,
-                    envelope: if ProfileId::$id.uses_sony_encapsulation() {
+                    envelope: if ProfileId::$profile.uses_sony_encapsulation() {
                         $crate::ProfileEnvelope::SonyEncapsulated
                     } else {
                         $crate::ProfileEnvelope::RawVisca
                     },
-                    tcp: __transport_default_port!($tcp),
-                    udp: __transport_default_port!($udp),
-                    serial: __transport_is_supported!($serial),
+                    tcp: $tcp $(($tcp_port))?,
+                    udp: $udp $(($udp_port))?,
+                    serial: $serial,
                     default_camera_id: $default_camera_id,
                     inquiry_support: $inquiry_support,
-                    position_inquiries: <$profile as $crate::profile::CompileTimeProfile>::POSITION_INQUIRIES,
-                    image_base_support: $supports_image_processing,
-                    focus_zone_inquiry: $supports_focus_zone_inquiry,
-                    usb_audio: __optional_support_bool!($($supports_usb_audio)?),
-                    typed_support: <$profile as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT,
+                    position_inquiries: $position_inquiries,
+                    image_base_support: __domain_present!($image_facts),
+                    focus_zone_inquiry: __focus_zone_fact!($focus_facts),
+                    usb_audio: <$profile as $crate::profiles::CompileTimeProfile>::TYPED_SUPPORT.contains($crate::capabilities::TypedSupportSurface::UsbAudio),
+                    typed_support: <$profile as $crate::profiles::CompileTimeProfile>::TYPED_SUPPORT,
                     typed_sources: &[$(($crate::capabilities::TypedSupportSurface::$support, $support_source),)*],
                     withheld: $crate::capabilities::TypedSupportSet::from_surfaces(&[
                         $($crate::capabilities::TypedSupportSurface::$withheld,)*
@@ -663,75 +548,103 @@ macro_rules! __define_builtin_profiles {
         ];
 
         impl ProfileId {
-            /// Returns whether the runtime profile carries this built-in
-            /// profile's complete protocol identity.
-            ///
-            /// `profile_id` is public so downstream callers can mutate a
-            /// discovered inventory.  It is therefore an identity claim,
-            /// not an authority token; vendor-specific request validation
-            /// must only rely on it after every protocol identity fact has
-            /// been checked against the generated profile row.
-            pub(crate) fn matches_profile_facts(
-                &self,
-                facts: &$crate::profile::ProfileFacts,
-            ) -> bool {
-                match self {
-                    $(ProfileId::$id => facts.matches_compile_time::<$profile>(),)*
-                }
+            /// Resolves this built-in profile through strict profile validation.
+            pub fn spec(self) -> $crate::Result<$crate::ProfileSpec> {
+                $crate::ProfileSpec::from_facts(self.raw_facts())
+            }
+
+            /// Returns the pinned snake_case identifier used in configurations.
+            pub const fn as_str(&self) -> &'static str {
+                match self { $(Self::$profile => $profile_id,)* }
+            }
+
+            /// Direct unvalidated source facts for construction and identity
+            /// comparison. This path never calls `spec`, so validation cannot
+            /// recurse when checking a persisted built-in identity.
+            pub(crate) fn raw_facts(self) -> $crate::profiles::ProfileFacts {
+                use $crate::capabilities::{
+                    Capabilities, ExposureCaps, FocusCaps, ImageCaps, MenuCaps, PowerCaps,
+                    PresetCaps, RgbGainRanges, RgbTuningRanges, ZoomCaps,
+                };
+                match self {$(Self::$profile => $crate::profiles::ProfileFacts {
+                    capabilities: Capabilities {
+                        profile_id: Some(Self::$profile),
+                        model_name: $model_name.into(),
+                        default_camera_id: self.default_camera_id(),
+                        pan_tilt: __pan_tilt_facts!($pan_tilt_facts),
+                        zoom: __optional_record!(ZoomCaps, $zoom_facts),
+                        focus: __optional_record!(FocusCaps, $focus_facts),
+                        exposure: __optional_record!(ExposureCaps, $exposure_facts),
+                        white_balance: __white_balance_facts!($white_balance_facts),
+                        image: __optional_record!(ImageCaps, $image_facts),
+                        presets: __optional_record!(PresetCaps, $preset_facts),
+                        power: __optional_record!(PowerCaps, $power_facts),
+                        menu: __optional_record!(MenuCaps, $menu_facts),
+                        inquiry_support: $inquiry_support,
+                        typed_support: <$profile as $crate::profiles::CompileTimeProfile>::TYPED_SUPPORT,
+                    },
+                    encodings: $crate::capabilities::ProfileEncodings::EMPTY
+                        $($( .with_encoding($crate::capabilities::encoding_selection!($support($support_encoding))) )?)*,
+                    transports: profile_registry::transport_compatibility(
+                        $tcp $(($tcp_port))?, $udp $(($udp_port))?, $serial,
+                    ),
+                    envelope: $envelope,
+                    timing: $crate::profiles::ProfileTiming {$( $timing_key: $timing_value, )*},
+                    maximum_command_sockets: $maximum_command_sockets,
+                    supports_operation_complete: $supports_operation_complete,
+                    supports_command_cancel: $supports_command_cancel,
+                    position_inquiries: $position_inquiries,
+                },)*}
+            }
+
+            #[cfg(all(test, feature = "serde"))]
+            #[allow(clippy::expect_used)]
+            fn row_encoding_keys(self) -> serde_json::Value {
+                match self {$(Self::$profile => {
+                    #[allow(unused_mut)]
+                    let mut keys = serde_json::Map::new();
+                    $($( {
+                        let selection = $crate::capabilities::encoding_selection!($support($support_encoding));
+                        let value = serde_json::to_value(selection).expect("grant encoding serializes");
+                        let object = value.as_object().expect("encoding is surface-keyed");
+                        for key in object.keys() { keys.insert(key.clone(), serde_json::Value::Null); }
+                    } )?)*
+                    serde_json::Value::Object(keys)
+                },)*}
             }
 
             /// Returns the public compile-time type name for this profile.
             pub(crate) const fn compile_time_type_name(&self) -> &'static str {
                 match self {
-                    $(ProfileId::$id => stringify!($profile),)*
-                }
-            }
-
-            /// Returns the typed-support set the current registry grants.
-            pub(crate) const fn registry_typed_support(
-                &self,
-            ) -> $crate::capabilities::TypedSupportSet {
-                match self {
-                    $(ProfileId::$id => {
-                        <$profile as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
-                    })*
-                }
-            }
-
-            /// Returns the focus-zone values this built-in profile admits, for
-            /// the generated documentation table check.
-            #[cfg(test)]
-            pub(crate) fn focus_zones(&self) -> &'static [$crate::command::FocusZone] {
-                match self {
-                    $(ProfileId::$id => <$profile as $crate::capabilities::Focus>::FOCUS_ZONES,)*
+                    $(ProfileId::$profile => stringify!($profile),)*
                 }
             }
 
             /// Returns the human-readable display name for this profile.
             pub const fn display_name(&self) -> &'static str {
                 match self {
-                    $(ProfileId::$id => $model_name,)*
+                    $(ProfileId::$profile => $model_name,)*
                 }
             }
 
             /// Returns the default TCP port for this profile when TCP is supported.
             pub const fn default_tcp_port(&self) -> Option<u16> {
                 match self {
-                    $(ProfileId::$id => __transport_default_port!($tcp),)*
+                    $(ProfileId::$profile => $tcp $(($tcp_port))?,)*
                 }
             }
 
             /// Returns the default UDP port for this profile when UDP is supported.
             pub const fn default_udp_port(&self) -> Option<u16> {
                 match self {
-                    $(ProfileId::$id => __transport_default_port!($udp),)*
+                    $(ProfileId::$profile => $udp $(($udp_port))?,)*
                 }
             }
 
             /// Returns the default camera ID for this profile.
             pub const fn default_camera_id(&self) -> $crate::IndividualCameraId {
                 match self {
-                    $(ProfileId::$id => <$profile as $crate::capabilities::ProfileMetadata>::DEFAULT_CAMERA_ID,)*
+                    $(ProfileId::$profile => __individual_camera_id!($default_camera_id),)*
                 }
             }
 
@@ -741,8 +654,8 @@ macro_rules! __define_builtin_profiles {
             /// carries sequence correlation.
             pub const fn uses_sony_encapsulation(&self) -> bool {
                 match self {
-                    $(ProfileId::$id => {
-                        matches!(<$envelope as $crate::transport::Envelope>::KIND, $crate::ProfileEnvelope::SonyEncapsulated)
+                    $(ProfileId::$profile => {
+                        matches!($envelope, $crate::profiles::ProfileEnvelope::SonyEncapsulated)
                     })*
                 }
             }
@@ -756,61 +669,27 @@ macro_rules! __define_builtin_profiles {
 
             /// Returns all available profile IDs.
             pub const fn all() -> &'static [ProfileId] {
-                &[$(ProfileId::$id,)*]
-            }
-
-            /// Returns whether this profile supports TCP transport.
-            pub const fn supports_tcp(&self) -> bool {
-                match self {
-                    $(ProfileId::$id => __transport_is_supported!($tcp),)*
-                }
-            }
-
-            /// Returns whether this profile supports UDP transport.
-            pub const fn supports_udp(&self) -> bool {
-                match self {
-                    $(ProfileId::$id => __transport_is_supported!($udp),)*
-                }
-            }
-
-            /// Returns whether this profile supports serial (RS-232/RS-422) transport.
-            pub const fn supports_serial(&self) -> bool {
-                match self {
-                    $(ProfileId::$id => __transport_is_supported!($serial),)*
-                }
-            }
-
-            /// Returns whether this profile supports the selected standard transport.
-            pub const fn supports_transport(
-                &self,
-                transport: $crate::camera::TransportKind,
-            ) -> bool {
-                match transport {
-                    $crate::camera::TransportKind::Tcp => self.supports_tcp(),
-                    $crate::camera::TransportKind::Udp => self.supports_udp(),
-                    $crate::camera::TransportKind::Serial => self.supports_serial(),
-                    $crate::camera::TransportKind::Custom => true,
-                }
+                &[$(ProfileId::$profile,)*]
             }
 
             /// Returns a vendor identifier for this profile.
             pub const fn vendor(&self) -> &'static str {
                 match self {
-                    $(ProfileId::$id => $vendor,)*
+                    $(ProfileId::$profile => $vendor,)*
                 }
             }
 
             /// Returns the level of VISCA inquiry command support for this profile.
             pub const fn inquiry_support(&self) -> $crate::capabilities::InquirySupport {
                 match self {
-                    $(ProfileId::$id => $inquiry_support,)*
+                    $(ProfileId::$profile => $inquiry_support,)*
                 }
             }
 
             /// Returns a brief description of this profile's capabilities.
             pub const fn description(&self) -> &'static str {
                 match self {
-                    $(ProfileId::$id => $description,)*
+                    $(ProfileId::$profile => $description,)*
                 }
             }
 
@@ -840,25 +719,25 @@ macro_rules! __define_builtin_profiles {
 
             /// Returns whether every profile in this group uses Sony
             /// encapsulation.
-            pub const fn uses_sony_encapsulation(&self) -> bool {
+            pub fn uses_sony_encapsulation(&self) -> bool {
                 self.every_member(profile_registry::MemberFact::SonyEncapsulation)
             }
 
             /// Returns whether every profile in this group supports TCP
             /// transport.
-            pub const fn supports_tcp(&self) -> bool {
+            pub fn supports_tcp(&self) -> bool {
                 self.every_member(profile_registry::MemberFact::Tcp)
             }
 
             /// Returns whether every profile in this group supports UDP
             /// transport.
-            pub const fn supports_udp(&self) -> bool {
+            pub fn supports_udp(&self) -> bool {
                 self.every_member(profile_registry::MemberFact::Udp)
             }
 
             /// Returns whether every profile in this group supports serial
             /// transport.
-            pub const fn supports_serial(&self) -> bool {
+            pub fn supports_serial(&self) -> bool {
                 self.every_member(profile_registry::MemberFact::Serial)
             }
 
@@ -880,7 +759,7 @@ macro_rules! __define_builtin_profiles {
 
             /// Group facts are derived from the member rows, so they cannot
             /// disagree with them.
-            const fn every_member(&self, fact: profile_registry::MemberFact) -> bool {
+            fn every_member(&self, fact: profile_registry::MemberFact) -> bool {
                 let members = self.profiles();
                 let mut index = 0;
                 while index < members.len() {
@@ -889,9 +768,9 @@ macro_rules! __define_builtin_profiles {
                         profile_registry::MemberFact::SonyEncapsulation => {
                             member.uses_sony_encapsulation()
                         }
-                        profile_registry::MemberFact::Tcp => member.supports_tcp(),
-                        profile_registry::MemberFact::Udp => member.supports_udp(),
-                        profile_registry::MemberFact::Serial => member.supports_serial(),
+                        profile_registry::MemberFact::Tcp => member.raw_facts().transports.tcp_port().is_some(),
+                        profile_registry::MemberFact::Udp => member.raw_facts().transports.udp_port().is_some(),
+                        profile_registry::MemberFact::Serial => member.raw_facts().transports.supports_serial(),
                     };
                     if !holds {
                         return false;
@@ -900,6 +779,24 @@ macro_rules! __define_builtin_profiles {
                 }
                 true
             }
+        }
+
+        impl std::str::FromStr for ProfileId {
+            type Err = $crate::Error;
+
+            fn from_str(value: &str) -> $crate::Result<Self> {
+                match value {
+                    $($profile_id => Ok(Self::$profile),)*
+                    _ => Err($crate::Error::invalid_parameter(
+                        "profile_id", value.to_owned(),
+                        format!("expected one of: {}", Self::all().iter().map(Self::as_str).collect::<Vec<_>>().join(", ")),
+                    )),
+                }
+            }
+        }
+
+        impl Default for ProfileId {
+            fn default() -> Self { Self::GenericVisca }
         }
 
         impl std::fmt::Display for ProfileGroup {
@@ -927,12 +824,7 @@ macro_rules! __define_builtin_profiles {
         }
 
         #[cfg(test)]
-        fn typed_support_marker_trait_name(
-            surface: $crate::capabilities::TypedSupportSurface,
-        ) -> &'static str {
-            surface.marker_trait_name()
-        }
-        #[cfg(test)]
+        #[allow(clippy::expect_used)]
         mod registry_tests {
             use super::*;
 
@@ -941,329 +833,56 @@ macro_rules! __define_builtin_profiles {
                 id: ProfileId,
             )
             where
-                P: $crate::profile::CompileTimeProfile + Default,
+                P: $crate::profiles::CompileTimeProfile,
             {
-                let caps = $crate::capabilities::Capabilities::from_profile::<P>();
-                assert_eq!(caps.profile_id, P::PROFILE_ID);
-                let spec = $crate::ProfileSpec::from_compile_time::<P>()
-                    .unwrap_or_else(|error| panic!("{id:?} ProfileSpec failed: {error}"));
-
-                assert_eq!(spec.capabilities(), &caps);
-                assert_eq!(
-                    spec.pan_tilt_coordinates().map(|conversion| (
-                        conversion.coordinate_system(),
-                        conversion.wire_codec(),
-                        conversion.pan_degrees_to_units(),
-                        conversion.tilt_degrees_to_units(),
-                    )),
-                    Some((
-                        P::COORDINATE_SYSTEM,
-                        P::PAN_TILT_WIRE_CODEC,
-                        P::PAN_DEGREES_TO_UNITS,
-                        P::TILT_DEGREES_TO_UNITS,
-                    ))
-                );
-                assert_eq!(spec.transports(), P::TRANSPORTS);
-                assert_eq!(spec.preset_recall_axes(), P::PRESET_RECALL_AXES);
-                assert_eq!(
-                    spec.envelope(),
-                    <P::Envelope as $crate::transport::Envelope>::KIND
-                );
-
+                let spec = P::spec().unwrap_or_else(|error| panic!("{id:?}: {error}"));
+                let caps = spec.capabilities();
+                assert_eq!(P::ID, Some(id));
+                assert_eq!(spec, id.spec().expect("runtime built-in resolution"));
+                assert_eq!(caps.profile_id, Some(id));
+                assert_eq!(caps.typed_support, P::TYPED_SUPPORT);
+                assert_eq!(facts.typed_support, P::TYPED_SUPPORT);
                 assert_eq!(facts.id, id);
                 assert_eq!(facts.group, id.profile_group());
-                assert_eq!(facts.display_name, P::MODEL_NAME);
+                assert_eq!(facts.display_name, caps.model_name);
                 assert_eq!(facts.display_name, id.display_name());
                 assert_eq!(facts.vendor, id.vendor());
                 assert_eq!(facts.description, id.description());
-                assert_eq!(facts.tcp, id.default_tcp_port());
-                assert_eq!(facts.udp, id.default_udp_port());
                 assert_eq!(facts.tcp, spec.transports().tcp_port());
                 assert_eq!(facts.udp, spec.transports().udp_port());
                 assert_eq!(facts.serial, spec.transports().supports_serial());
-                assert_eq!(facts.tcp.is_some(), id.supports_tcp());
-                assert_eq!(facts.udp.is_some(), id.supports_udp());
-                assert_eq!(facts.serial, id.supports_serial());
-                assert_eq!(facts.default_camera_id, P::DEFAULT_CAMERA_ID.value());
+                assert_eq!(facts.default_camera_id, caps.default_camera_id.value());
                 assert_eq!(facts.default_camera_id, id.default_camera_id().value());
-                assert_eq!(facts.inquiry_support, P::INQUIRY_SUPPORT);
-                assert_eq!(facts.inquiry_support, id.inquiry_support());
-                assert_eq!(facts.position_inquiries, P::POSITION_INQUIRIES);
-                assert_eq!(spec.position_inquiries(), P::POSITION_INQUIRIES);
+                assert_eq!(facts.inquiry_support, caps.inquiry_support);
+                assert_eq!(facts.position_inquiries, spec.position_inquiries());
+                assert_eq!(facts.envelope, spec.envelope());
+                assert_eq!(caps.image.is_some(), facts.image_base_support);
+                assert_eq!(caps.focus.as_ref().expect("focus").zone_inquiry, facts.focus_zone_inquiry);
+                assert_eq!(caps.supports($crate::capabilities::TypedSupportSurface::UsbAudio), facts.usb_audio);
                 assert_eq!(
-                    facts.image_base_support,
-                    P::SUPPORTS_IMAGE_PROCESSING,
-                    "{id:?} image base-support registry fact and metadata must match"
+                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::ExposureMode),
+                    !caps.exposure.as_ref().expect("exposure").modes.is_empty(),
                 );
-                assert_eq!(
-                    caps.has_image_processing(),
-                    facts.image_base_support,
-                    "{id:?} runtime image permission must come from the registry fact"
-                );
-                // These are the optional marker surfaces whose canonical rows
-                // live under `camera.image()`. A row marker without the base
-                // accessor would be publicly advertised but unreachable.
+                // A row may not advertise a typed image method without an image record.
                 for surface in [
-                    $crate::capabilities::TypedSupportSurface::BacklightCompensation,
                     $crate::capabilities::TypedSupportSurface::ImageFlip,
                     $crate::capabilities::TypedSupportSurface::ImageMirror,
                     $crate::capabilities::TypedSupportSurface::CombinedImageFlip,
-                    $crate::capabilities::TypedSupportSurface::ContrastControl,
-                    $crate::capabilities::TypedSupportSurface::SharpnessControl,
-                    $crate::capabilities::TypedSupportSurface::SaturationControl,
-                    $crate::capabilities::TypedSupportSurface::HueControl,
-                    $crate::capabilities::TypedSupportSurface::LuminanceControl,
-                    $crate::capabilities::TypedSupportSurface::GammaControl,
+                    $crate::capabilities::TypedSupportSurface::Contrast,
+                    $crate::capabilities::TypedSupportSurface::Sharpness,
+                    $crate::capabilities::TypedSupportSurface::Saturation,
+                    $crate::capabilities::TypedSupportSurface::Hue,
+                    $crate::capabilities::TypedSupportSurface::Luminance,
+                    $crate::capabilities::TypedSupportSurface::Gamma,
                     $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
                     $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
                     $crate::capabilities::TypedSupportSurface::PictureEffect,
                     $crate::capabilities::TypedSupportSurface::ImageFreeze,
                 ] {
-                    assert!(
-                        facts.image_base_support || !facts.has_typed_support(surface),
-                        "{id:?} exposes {surface:?} under image() without base image-noun support"
-                    );
+                    assert!(facts.image_base_support || !caps.supports(surface), "{id:?} {surface:?}");
                 }
-                assert_eq!(
-                    facts.focus_zone_inquiry,
-                    P::SUPPORTS_FOCUS_ZONE_INQUIRY,
-                    "{id:?} focus-zone inquiry registry fact and metadata must match"
-                );
-                assert_eq!(
-                    caps.has_focus_zone_inquiry(),
-                    facts.focus_zone_inquiry,
-                    "{id:?} runtime focus-zone inquiry fact must come from the registry"
-                );
-                assert_eq!(
-                    facts.has_typed_support(
-                        $crate::capabilities::TypedSupportSurface::FocusZoneInquiry
-                    ),
-                    facts.focus_zone_inquiry,
-                    "{id:?} focus-zone inquiry marker must follow its registry fact"
-                );
-                assert_eq!(
-                    facts.usb_audio,
-                    P::SUPPORTS_USB_AUDIO,
-                    "{id:?} USB-audio registry fact and metadata must match"
-                );
-                assert_eq!(
-                    caps.has_usb_audio(),
-                    facts.usb_audio,
-                    "{id:?} runtime USB-audio fact must come from the registry"
-                );
-                assert_eq!(
-                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::UsbAudio),
-                    facts.usb_audio,
-                    "{id:?} USB-audio marker must follow its registry fact"
-                );
-                assert!(
-                    !facts.position_inquiries.iris()
-                        || facts.has_typed_support(
-                            $crate::capabilities::TypedSupportSurface::IrisControl
-                        ),
-                    "{id:?} iris inquiry facts must be backed by typed-support evidence"
-                );
-                assert!(
-                    !facts.position_inquiries.nd_filter()
-                        || facts.has_typed_support(
-                            $crate::capabilities::TypedSupportSurface::NdFilter
-                        ),
-                    "{id:?} ND inquiry facts must be backed by typed-support evidence"
-                );
-                assert_eq!(
-                    facts.typed_support,
-                    <P as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
-                );
-                assert_eq!(
-                    facts.has_typed_support(
-                        $crate::capabilities::TypedSupportSurface::ExposureMode
-                    ),
-                    !P::EXPOSURE_MODES.is_empty(),
-                    "{id:?} shared exposure-mode typed support and its source-backed mode inventory must agree"
-                );
-                // #822: the row states its envelope once, as a type. The
-                // public flag and the lowered spec both derive from it.
-                assert_eq!(facts.envelope, spec.envelope());
-                assert_eq!(
-                    id.uses_sony_encapsulation(),
-                    spec.envelope() == $crate::ProfileEnvelope::SonyEncapsulated
-                );
-                assert!(P::PAN_RANGE.min() <= P::PAN_RANGE.max(), "{id:?} pan metadata must be non-empty");
-                assert!(
-                    P::TILT_RANGES.range(None).min() <= P::TILT_RANGES.range(None).max(),
-                    "{id:?} tilt metadata must be non-empty"
-                );
-                assert!(
-                    P::ZOOM_SPEED_RANGE.min() <= P::ZOOM_SPEED_RANGE.max(),
-                    "{id:?} zoom-speed metadata must be non-empty"
-                );
-                if let Some(range) = P::IRIS_RANGE {
-                    assert!(range.min() <= range.max(), "{id:?} iris metadata must be non-empty");
-                }
-                if let Some(range) = P::GAIN_RANGE { assert!(range.min() <= range.max(), "{id:?} gain metadata"); }
-                if let Some(range) = P::BRIGHTNESS_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} exposure brightness metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::EXPOSURE_COMP_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} exposure-compensation metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::RG_TUNING_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} red tuning metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::BG_TUNING_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} blue tuning metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::COLOR_TEMP_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} color-temperature metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::RED_GAIN_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} red gain metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::BLUE_GAIN_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} blue gain metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::CONTRAST_RANGE {
-                    assert!(range.min() <= range.max(), "{id:?} contrast metadata must be non-empty");
-                }
-                if let Some(range) = P::SHARPNESS_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} sharpness metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::SATURATION_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} saturation metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::HUE_RANGE {
-                    assert!(range.min() <= range.max(), "{id:?} hue metadata must be non-empty");
-                }
-                if let Some(range) = P::LUMINANCE_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} luminance metadata must be non-empty"
-                    );
-                }
-                if let Some(range) = P::GAMMA_RANGE {
-                    assert!(range.min() <= range.max(), "{id:?} gamma metadata must be non-empty");
-                }
-                if let Some(range) = P::PRESET_SPEED_RANGE {
-                    assert!(
-                        range.min() <= range.max(),
-                        "{id:?} preset-speed metadata must be non-empty"
-                    );
-                }
-                // Marker-versus-metadata agreement for every surface is the
-                // single rule in `typed_support_markers_match_dedicated_metadata`.
-
-                assert_eq!(caps.model_name, P::MODEL_NAME);
-                assert_eq!(caps.default_camera_id, P::DEFAULT_CAMERA_ID);
-                let pan = caps.pan_tilt.as_ref().expect("pan/tilt domain");
-                assert_eq!(pan.pan_range, P::PAN_RANGE);
-                assert_eq!(pan.tilt_ranges, P::TILT_RANGES);
-                assert_eq!(pan.pan_speed, $crate::capabilities::CapabilityRange::<u8>::new(1, P::MAX_PAN_SPEED));
-                assert_eq!(pan.tilt_speed, $crate::capabilities::CapabilityRange::<u8>::new(1, P::MAX_TILT_SPEED));
-                assert_eq!(pan.endpoint_quantization, P::ENDPOINT_QUANTIZATION);
-                assert_eq!(pan.simultaneous, P::PAN_TILT_SIMULTANEOUS);
-                assert_eq!(pan.preset_recovery_time, P::PRESET_RECOVERY_TIME);
-                assert_eq!(pan.motion_sync_speed_range, P::MOTION_SYNC_SPEED_RANGE);
-                assert_eq!(pan.variable_speed, P::SUPPORTS_VARIABLE_SPEED);
-                let zoom = caps.zoom.as_ref().expect("zoom domain");
-                assert_eq!(zoom.optical_max, P::OPTICAL_ZOOM_MAX);
-                assert_eq!(zoom.digital_max, P::DIGITAL_ZOOM_MAX);
-                assert_eq!(zoom.speed, P::ZOOM_SPEED_RANGE);
-                assert_eq!(zoom.direct, P::SUPPORTS_DIRECT_ZOOM);
-                assert_eq!(zoom.variable, P::SUPPORTS_VARIABLE_ZOOM);
-                assert_eq!(zoom.optical_ratio, P::OPTICAL_ZOOM_RATIO);
-                let focus = caps.focus.as_ref().expect("focus domain");
-                assert_eq!(focus.range, P::FOCUS_RANGE);
-                assert_eq!(focus.near_end, P::FOCUS_NEAR_END);
-                assert_eq!(focus.speed, $crate::capabilities::CapabilityRange::<u8>::new(0, P::MAX_FOCUS_SPEED));
-                assert_eq!(focus.auto_focus, P::SUPPORTS_AUTO_FOCUS);
-                assert_eq!(focus.one_push, P::SUPPORTS_ONE_PUSH_FOCUS);
-                assert_eq!(focus.zones, P::FOCUS_ZONES);
-                assert_eq!(focus.zone_inquiry, P::SUPPORTS_FOCUS_ZONE_INQUIRY);
-                assert_eq!(focus.af_sensitivity, P::SUPPORTS_AF_SENSITIVITY);
-                assert_eq!(focus.near_limit_inquiry, P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY);
-                let exposure = caps.exposure.as_ref().expect("exposure domain");
-                assert_eq!(exposure.modes, P::EXPOSURE_MODES);
-                assert_eq!(exposure.iris_range, P::IRIS_RANGE);
-                assert_eq!(exposure.gain_range, P::GAIN_RANGE);
-                assert_eq!(exposure.shutter_speeds, P::SHUTTER_SPEEDS);
-                assert_eq!(exposure.brightness_range, P::BRIGHTNESS_RANGE);
-                assert_eq!(exposure.compensation_range, P::EXPOSURE_COMP_RANGE);
-                assert_eq!(exposure.backlight, P::SUPPORTS_BACKLIGHT_COMP);
-                assert_eq!(exposure.wdr, P::SUPPORTS_WDR);
-                let wb = caps.white_balance.as_ref().expect("white-balance domain");
-                assert_eq!(wb.modes, P::WB_MODES);
-                assert_eq!(wb.one_push, P::SUPPORTS_ONE_PUSH_WB);
-                assert_eq!(wb.color_temp_range, P::COLOR_TEMP_RANGE);
-                assert_eq!(wb.rgb_gain.as_ref().map(|gain| gain.red), P::RED_GAIN_RANGE);
-                assert_eq!(wb.rgb_gain.as_ref().map(|gain| gain.blue), P::BLUE_GAIN_RANGE);
-                assert_eq!(wb.rgb_tuning.as_ref().map(|gain| gain.red), P::RG_TUNING_RANGE);
-                assert_eq!(wb.rgb_tuning.as_ref().map(|gain| gain.blue), P::BG_TUNING_RANGE);
-                if let Some(image) = &caps.image {
-                    assert_eq!(image.contrast_range, P::CONTRAST_RANGE);
-                    assert_eq!(image.sharpness_range, P::SHARPNESS_RANGE);
-                    assert_eq!(image.saturation_range, P::SATURATION_RANGE);
-                    assert_eq!(image.hue_range, P::HUE_RANGE);
-                    assert_eq!(image.luminance_range, P::LUMINANCE_RANGE);
-                    assert_eq!(image.gamma_range, P::GAMMA_RANGE);
-                    assert_eq!(image.flip, P::SUPPORTS_FLIP);
-                    assert_eq!(image.mirror, P::SUPPORTS_MIRROR);
-                    assert_eq!(image.picture_effect, P::SUPPORTS_PICTURE_EFFECT);
-                    assert_eq!(image.requires_settings_save_for_flip, P::REQUIRES_SETTINGS_SAVE_FOR_FLIP);
-                }
-                assert_eq!(caps.image.is_some(), P::SUPPORTS_IMAGE_PROCESSING);
-                if let Some(presets) = &caps.presets {
-                    assert_eq!(Some(presets.recall_axes), P::PRESET_RECALL_AXES);
-                    assert_eq!(presets.highest, P::HIGHEST_PRESET);
-                    assert_eq!(presets.recall_speed_range, P::PRESET_SPEED_RANGE);
-                    assert_eq!(presets.tour, P::SUPPORTS_PRESET_TOUR);
-                    assert_eq!(presets.thumbnail, P::SUPPORTS_PRESET_THUMBNAIL);
-                    assert_eq!(presets.recall_delay, P::PRESET_RECALL_DELAY);
-                    assert_eq!(presets.names.map_or(0, std::num::NonZeroUsize::get), P::MAX_PRESET_NAME_LENGTH);
-                }
-                assert_eq!(caps.presets.is_some(), P::PRESET_RECALL_AXES.is_some());
-                let power = caps.power.as_ref().expect("power domain");
-                assert_eq!(power.on_time, P::POWER_ON_TIME);
-                assert_eq!(power.standby, P::SUPPORTS_STANDBY.then_some(P::STANDBY_TIME));
-                assert_eq!(power.wake_on_lan, P::SUPPORTS_WAKE_ON_LAN);
-                assert_eq!(power.retains_settings, P::RETAINS_SETTINGS_ON_POWER_OFF);
-                assert_eq!(power.home_on_up, P::HOME_ON_POWER_UP);
-                assert_eq!(caps.nd_filter_mode, P::ND_MODE);
-                assert_eq!(caps.tally, P::SUPPORTS_TALLY);
-                assert_eq!(caps.direct_menu, P::SUPPORTS_DIRECT_CONTROL);
-                assert_eq!(caps.usb_audio, P::SUPPORTS_USB_AUDIO);
-                assert_eq!(caps.inquiry_support, P::INQUIRY_SUPPORT);
-                assert_eq!(spec.supports_operation_complete(), P::SUPPORTS_OPERATION_COMPLETE);
-                assert_eq!(caps.typed_support, P::TYPED_SUPPORT);
-
+                assert!(!facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::IRIS)) || caps.supports($crate::capabilities::TypedSupportSurface::Iris));
+                assert!(!facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::ND_FILTER)) || caps.supports($crate::capabilities::TypedSupportSurface::NdFilter));
             }
 
             #[test]
@@ -1285,8 +904,8 @@ macro_rules! __define_builtin_profiles {
             fn builtin_profile_capabilities_match_registry() {
                 $(
                     assert_profile_registry::<$profile>(
-                        ProfileId::$id.registry_facts(),
-                        ProfileId::$id,
+                        ProfileId::$profile.registry_facts(),
+                        ProfileId::$profile,
                     );
                 )*
             }
@@ -1305,7 +924,7 @@ macro_rules! __define_builtin_profiles {
 
                     let facts = id.registry_facts();
                     for surface in $crate::capabilities::TypedSupportSurface::ALL {
-                        let marker = caps.supports_typed(surface);
+                        let marker = caps.supports(surface);
                         let metadata = caps.surface_metadata(surface);
                         assert!(
                             !marker || metadata.permits(),
@@ -1342,7 +961,7 @@ macro_rules! __define_builtin_profiles {
 
                 $(
                     assert_row(
-                        ProfileId::$id,
+                        ProfileId::$profile,
                         $crate::ProfileSpec::from_compile_time::<$profile>()
                             .unwrap_or_else(|error| panic!("{} ProfileSpec failed: {error}", stringify!($profile)))
                             .capabilities(),
@@ -1358,11 +977,10 @@ macro_rules! __define_builtin_profiles {
             #[test]
             fn stop_wait_bound_is_below_every_halt_budget() {
                 $(
-                    let ack = <$profile as $crate::capabilities::ProfileMetadata>::ACK_TIMEOUT;
-                    let ambiguity =
-                        <$profile as $crate::profile::CompileTimeProfile>::AMBIGUITY_TIMEOUT;
-                    let movement = <$profile as $crate::capabilities::ProfileMetadata>::COMMAND_TIMEOUTS
-                        .movement_timeout();
+                    let timing = ProfileId::$profile.spec().expect("profile").timing();
+                    let ack = timing.ack_timeout();
+                    let ambiguity = timing.ambiguity_timeout();
+                    let movement = timing.command_timeouts().movement_timeout();
                     assert!(
                         (ack + ambiguity) * 2 <= movement,
                         "{}: STOP wait bound {:?} against halt budget {movement:?}",
@@ -1381,7 +999,7 @@ macro_rules! __define_builtin_profiles {
             /// round-trips.
             #[test]
             fn builtin_unit_conversions_agree_with_profile_tables() {
-                use $crate::capabilities::pan_tilt::PanTiltExt;
+
 
                 fn sweep(range: &std::ops::RangeInclusive<f32>) -> impl Iterator<Item = f32> + '_ {
                     let steps = ((range.end() - range.start()) / 0.05).floor() as i32;
@@ -1402,9 +1020,8 @@ macro_rules! __define_builtin_profiles {
 
                 fn assert_profile<P>(id: ProfileId)
                 where
-                    P: $crate::profile::CompileTimeProfile + Default,
+                    P: $crate::profiles::CompileTimeProfile + Default,
                 {
-                    let camera = P::default();
                     let spec = $crate::ProfileSpec::from_compile_time::<P>()
                         .unwrap_or_else(|error| panic!("{id:?} ProfileSpec failed: {error}"));
                     let caps = spec.capabilities();
@@ -1416,9 +1033,8 @@ macro_rules! __define_builtin_profiles {
                     let pan_degrees = conversion.pan_degree_range(&pan_range);
                     let tilt_degrees = conversion.tilt_degree_range(&tilt_range);
                     for pan in sweep(&pan_degrees) {
-                        let expected = camera
-                            .degrees_to_pan_units(pan)
-                            .zip(camera.degrees_to_tilt_units(0.0))
+                        let expected = conversion.pan_units(pan)
+                            .zip(conversion.tilt_units(0.0))
                             .filter(|(pan, tilt)| {
                                 pan_range.contains(pan) && tilt_range.contains(tilt)
                             });
@@ -1429,9 +1045,8 @@ macro_rules! __define_builtin_profiles {
                         );
                     }
                     for tilt in sweep(&tilt_degrees) {
-                        let expected = camera
-                            .degrees_to_pan_units(0.0)
-                            .zip(camera.degrees_to_tilt_units(tilt))
+                        let expected = conversion.pan_units(0.0)
+                            .zip(conversion.tilt_units(tilt))
                             .filter(|(pan, tilt)| {
                                 pan_range.contains(pan) && tilt_range.contains(tilt)
                             });
@@ -1456,13 +1071,12 @@ macro_rules! __define_builtin_profiles {
                         );
                     }
 
-                    assert_eq!(caps.zoom.as_ref().expect("zoom").optical_ratio, P::OPTICAL_ZOOM_RATIO, "{id:?}");
-                    match (P::OPTICAL_ZOOM_RATIO, caps.zoom_scale()) {
+                    match (caps.zoom.as_ref().expect("zoom").optical_ratio, caps.zoom_scale()) {
                         (Some(ratio), Ok(scale)) => {
                             assert_eq!(scale.optical_ratio(), ratio, "{id:?}");
                             assert_reachable(id, scale);
                         }
-                        (None, Err($crate::Error::InvalidRequest(message))) => assert!(
+                        (None, Err($crate::Error::InvalidRequest { reason: message })) => assert!(
                             message.contains("zoom_scale_for_lens"),
                             "{id:?}: {message}"
                         ),
@@ -1491,12 +1105,12 @@ macro_rules! __define_builtin_profiles {
                 }
 
                 $(
-                    assert_profile::<$profile>(ProfileId::$id);
+                    assert_profile::<$profile>(ProfileId::$profile);
                 )*
 
                 // The PTZOptics G2 family's lens is a camera fact: each bench
                 // lens (PT12X/PT20X/PT30X-NDI G2, §4.1) reaches its optical end.
-                let g2 = $crate::capabilities::Capabilities::from_profile::<PtzOpticsG2>();
+                let g2 = $crate::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in profile").capabilities().clone();
                 assert_eq!(g2.zoom.as_ref().expect("zoom").optical_ratio, None);
                 for ratio in [12.0, 20.0, 30.0] {
                     let scale = g2.zoom_scale_for_lens(ratio).expect("G2 lens");
@@ -1504,17 +1118,17 @@ macro_rules! __define_builtin_profiles {
                 }
             }
 
-            /// The built-in registry's `image.base_support` fact emits both the
-            /// runtime permission and the static `HasImageProcessing` marker.
+            /// Optional image-record presence emits both the runtime domain
+            /// and the static `HasImage` marker.
             /// Negative marker assertions live in public compile-contract
             /// fixtures, because Rust has no stable negative-trait assertion.
             #[test]
             fn image_processing_markers_follow_base_support() {
-                fn assert_image_processing_marker<P: $crate::capabilities::HasImageProcessing>() {}
+                fn assert_image_processing_marker<P: $crate::capabilities::HasImage>() {}
 
                 $(
-                    __assert_image_processing_marker!(
-                        $supports_image_processing for $profile,
+                    __assert_domain_marker!(
+                        $image_facts for $profile,
                         assert_image_processing_marker
                     );
                 )*
@@ -1541,20 +1155,20 @@ macro_rules! __define_builtin_profiles {
             }
 
             /// A scalar settlement inquiry exists exactly where its typed
-            /// surface is granted: iris with `IrisControl`, ND with `NdFilter`.
+            /// surface is granted: iris with `Iris`, ND with `NdFilter`.
             #[test]
             fn scalar_position_inquiries_follow_their_typed_surfaces() {
                 for facts in BUILTIN_PROFILE_FACTS {
                     assert_eq!(
-                        facts.position_inquiries.iris(),
+                        facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::IRIS)),
                         facts.has_typed_support(
-                            $crate::capabilities::TypedSupportSurface::IrisControl
+                            $crate::capabilities::TypedSupportSurface::Iris
                         ),
                         "{:?} iris inquiry",
                         facts.id
                     );
                     assert_eq!(
-                        facts.position_inquiries.nd_filter(),
+                        facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::ND_FILTER)),
                         facts.has_typed_support($crate::capabilities::TypedSupportSurface::NdFilter),
                         "{:?} ND-filter inquiry",
                         facts.id
@@ -1564,22 +1178,22 @@ macro_rules! __define_builtin_profiles {
 
             #[test]
             fn sony_fr7_has_no_shared_ae_mode_inventory() {
-                let profile = $crate::ProfileSpec::from_compile_time::<$crate::profiles::SonyFR7>()
+                let profile = $crate::ProfileSpec::from_compile_time::<$crate::profiles::SonyFr7>()
                     .expect("Sony FR7 profile");
                 let capabilities = profile.capabilities();
-                assert!(capabilities.has_exposure());
+                assert!(capabilities.exposure.is_some());
                 assert!(capabilities.exposure.as_ref().expect("exposure").modes.is_empty());
-                assert!(!capabilities.supports_typed(
+                assert!(!capabilities.supports(
                     $crate::capabilities::TypedSupportSurface::ExposureMode
                 ));
                 for mode in [
-                    $crate::command::exposure::ExposureMode::Auto,
-                    $crate::command::exposure::ExposureMode::Manual,
-                    $crate::command::exposure::ExposureMode::Shutter,
-                    $crate::command::exposure::ExposureMode::Iris,
-                    $crate::command::exposure::ExposureMode::Bright,
+                    $crate::command::exposure_wire::ExposureMode::Auto,
+                    $crate::command::exposure_wire::ExposureMode::Manual,
+                    $crate::command::exposure_wire::ExposureMode::Shutter,
+                    $crate::command::exposure_wire::ExposureMode::Iris,
+                    $crate::command::exposure_wire::ExposureMode::Bright,
                 ] {
-                    assert!(!capabilities.supports_exposure_mode(mode));
+                    assert!(!capabilities.exposure.as_ref().expect("exposure").modes.contains(&mode));
                 }
             }
 
@@ -1618,10 +1232,10 @@ macro_rules! __define_builtin_profiles {
             fn typed_support_registry_has_evidence_for_surprising_gaps() {
                 for facts in BUILTIN_PROFILE_FACTS {
                     if !facts.has_typed_support(
-                        $crate::capabilities::TypedSupportSurface::IrisControl,
+                        $crate::capabilities::TypedSupportSurface::Iris,
                     ) {
                         assert!(
-                            !facts.position_inquiries.iris(),
+                            !facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::IRIS)),
                             "{} must not expose a typed iris settlement inquiry without typed iris support",
                             facts.type_name
                         );
@@ -1635,7 +1249,7 @@ macro_rules! __define_builtin_profiles {
                         $crate::capabilities::TypedSupportSurface::NdFilter,
                     ) {
                         assert!(
-                            !facts.position_inquiries.nd_filter(),
+                            !facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::ND_FILTER)),
                             "{} must not expose an ND settlement inquiry without typed ND support",
                             facts.type_name
                         );
@@ -1645,7 +1259,7 @@ macro_rules! __define_builtin_profiles {
                 for id in [
                     ProfileId::PtzOpticsG2,
                     ProfileId::PtzOpticsG3,
-                    ProfileId::PtzOptics30X,
+                    ProfileId::PtzOptics30x,
                 ] {
                     let facts = id.registry_facts();
                     assert!(
@@ -1659,55 +1273,56 @@ macro_rules! __define_builtin_profiles {
             fn ptzoptics_profiles_follow_consolidated_reference_boundaries() {
                 fn assert_ptzoptics_raw_profile<P>()
                 where
-                    P: $crate::profile::CompileTimeProfile
+                    P: $crate::profiles::CompileTimeProfile
                         + $crate::capabilities::SupportsTcp
                         + $crate::capabilities::SupportsUdp
                         + $crate::capabilities::SupportsSerial
                         + Default,
                 {
-                    assert_eq!(
-                        P::TRANSPORTS,
-                        $crate::profile::TransportCompatibility::new(Some(5678), Some(1259), true)
-                    );
-                    assert_eq!(P::PAN_RANGE, range!(i32, -2448, 2448));
-                    assert_eq!(P::TILT_RANGES.range(None), range!(i32, -432, 1296));
-                    assert_eq!(P::MAX_PAN_SPEED, 24);
-                    assert_eq!(P::MAX_TILT_SPEED, 20);
-                    assert_eq!(P::OPTICAL_ZOOM_MAX, 0x4000);
-                    assert_eq!(P::DIGITAL_ZOOM_MAX, None);
-                    assert!(P::SUPPORTS_DIRECT_ZOOM);
-                    assert!(P::IRIS_RANGE.is_some());
-                    assert!(
-                        P::EXPOSURE_MODES
-                            .contains(&$crate::command::exposure::ExposureMode::Iris)
-                    );
-                    assert!(!P::FOCUS_ZONES.is_empty());
-                    assert!(!P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY);
-                    assert_eq!(P::HIGHEST_PRESET, 127);
-                    assert!(P::SUPPORTS_PICTURE_EFFECT);
-                    assert!(!P::SUPPORTS_PRESET_TOUR);
+                    let spec = P::spec().expect("PTZOptics profile");
+                    let caps = spec.capabilities();
+                    let pan = caps.pan_tilt.as_ref().expect("pan/tilt");
+                    let zoom = caps.zoom.as_ref().expect("zoom");
+                    let exposure = caps.exposure.as_ref().expect("exposure");
+                    let focus = caps.focus.as_ref().expect("focus");
+                    let presets = caps.presets.as_ref().expect("presets");
+                    assert_eq!(spec.transports(), $crate::profiles::TransportCompatibility::new().with_tcp(5678).with_udp(1259).with_serial());
+                    assert_eq!(pan.pan_range, range!(i32, -2448, 2448));
+                    assert_eq!(pan.tilt_ranges.range(None), range!(i32, -432, 1296));
+                    assert_eq!(pan.pan_speed.max(), 24);
+                    assert_eq!(pan.tilt_speed.max(), 20);
+                    assert_eq!(zoom.optical_max, 0x4000);
+                    assert_eq!(zoom.digital_max, None);
+                    assert!(zoom.direct);
+                    assert!(exposure.iris_range.is_some());
+                    assert!(exposure.modes.contains(&$crate::command::exposure_wire::ExposureMode::Iris));
+                    assert!(!focus.zones.is_empty());
+                    assert!(!focus.near_limit_inquiry);
+                    assert_eq!(presets.highest, 127);
+                    assert!(caps.image.as_ref().expect("image").picture_effect);
+                    assert!(!presets.tour);
                 }
 
                 assert_ptzoptics_raw_profile::<PtzOpticsG2>();
                 assert_ptzoptics_raw_profile::<PtzOpticsG3>();
-                assert_ptzoptics_raw_profile::<PtzOptics30X>();
+                assert_ptzoptics_raw_profile::<PtzOptics30x>();
 
                 // #828 L7: no PTZOptics source documents socket cancel for any
                 // of the three profiles, so each records that and keeps it
                 // unavailable.
                 assert!(
-                    !<PtzOpticsG2 as $crate::capabilities::ProfileMetadata>::SUPPORTS_COMMAND_CANCEL
+                    !ProfileId::PtzOpticsG2.spec().expect("profile").supports_command_cancel()
                 );
                 assert!(
-                    !<PtzOpticsG3 as $crate::capabilities::ProfileMetadata>::SUPPORTS_COMMAND_CANCEL
+                    !ProfileId::PtzOpticsG3.spec().expect("profile").supports_command_cancel()
                 );
                 assert!(
-                    !<PtzOptics30X as $crate::capabilities::ProfileMetadata>::SUPPORTS_COMMAND_CANCEL
+                    !ProfileId::PtzOptics30x.spec().expect("profile").supports_command_cancel()
                 );
                 for id in [
                     ProfileId::PtzOpticsG2,
                     ProfileId::PtzOpticsG3,
-                    ProfileId::PtzOptics30X,
+                    ProfileId::PtzOptics30x,
                 ] {
                     assert!(
                         id.registry_facts()
@@ -1721,25 +1336,25 @@ macro_rules! __define_builtin_profiles {
                 for id in [
                     ProfileId::PtzOpticsG2,
                     ProfileId::PtzOpticsG3,
-                    ProfileId::PtzOptics30X,
+                    ProfileId::PtzOptics30x,
                 ] {
                     let facts = id.registry_facts();
                     assert!(facts.has_typed_support($crate::capabilities::TypedSupportSurface::FocusZone));
                     assert!(facts
-                        .has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl));
+                        .has_typed_support($crate::capabilities::TypedSupportSurface::Iris));
                     assert!(facts.has_typed_support(
                         $crate::capabilities::TypedSupportSurface::ExposureMode
                     ));
                     assert!(facts
                         .has_typed_support($crate::capabilities::TypedSupportSurface::PictureEffect));
                     assert!(!facts.has_typed_support(
-                        $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry
+                        $crate::capabilities::TypedSupportSurface::FocusNearLimit
                     ));
                     for surface in [
                         $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
                         $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
-                        $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
-                        $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
                     ] {
                         assert!(facts.has_typed_support(surface), "{id:?} {surface:?}");
                     }
@@ -1755,7 +1370,7 @@ macro_rules! __define_builtin_profiles {
                         .expect("G2 and G3 must record the R14 NR evidence");
                     assert_eq!(evidence.rationale, R14_NR_EVIDENCE, "{id:?}");
                 }
-                let legacy_30x_evidence = ProfileId::PtzOptics30X
+                let legacy_30x_evidence = ProfileId::PtzOptics30x
                     .registry_facts()
                     .evidence
                     .iter()
@@ -1767,14 +1382,14 @@ macro_rules! __define_builtin_profiles {
                 );
                 // R8 documents only the EVI-H100 `04 53` 2D level control and
                 // inquiry; the `04 50` mode and the 3D level stay PTZOptics.
-                let ptzoptics = "`PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`";
-                let with_evi = "`PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100`";
+                let ptzoptics = "`PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`";
+                let with_evi = "`PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`";
                 for (surface, profiles) in [
                     ($crate::capabilities::TypedSupportSurface::NoiseReduction2D, with_evi),
-                    ($crate::capabilities::TypedSupportSurface::NoiseReduction2DControl, with_evi),
+                    ($crate::capabilities::TypedSupportSurface::NoiseReduction2D, with_evi),
                     ($crate::capabilities::TypedSupportSurface::NoiseReduction2DMode, ptzoptics),
                     ($crate::capabilities::TypedSupportSurface::NoiseReduction3D, ptzoptics),
-                    ($crate::capabilities::TypedSupportSurface::NoiseReduction3DControl, ptzoptics),
+                    ($crate::capabilities::TypedSupportSurface::NoiseReduction3D, ptzoptics),
                 ] {
                     assert_eq!(registry_profile_type_names_for(surface), profiles, "{surface:?}");
                 }
@@ -1782,7 +1397,7 @@ macro_rules! __define_builtin_profiles {
                 for (id, focus_zone_inquiry, usb_audio) in [
                     (ProfileId::PtzOpticsG2, true, true),
                     (ProfileId::PtzOpticsG3, false, false),
-                    (ProfileId::PtzOptics30X, true, true),
+                    (ProfileId::PtzOptics30x, true, true),
                 ] {
                     let facts = id.registry_facts();
                     assert_eq!(facts.focus_zone_inquiry, focus_zone_inquiry, "{id:?}");
@@ -1817,12 +1432,12 @@ macro_rules! __define_builtin_profiles {
                     let profiles = registry_profile_type_names_for(surface);
                     if matches!(
                         surface,
-                        $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus
+                        $crate::capabilities::TypedSupportSurface::SnapFocus
                             | $crate::capabilities::TypedSupportSurface::MotionSync
                             | $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity
                             | $crate::capabilities::TypedSupportSurface::ImageFreeze
                             | $crate::capabilities::TypedSupportSurface::TallyBrightness
-                            | $crate::capabilities::TypedSupportSurface::PtzOpticsTally
+                            | $crate::capabilities::TypedSupportSurface::TallyMode
                     ) {
                         assert!(
                             profiles.is_empty(),
@@ -1837,418 +1452,62 @@ macro_rules! __define_builtin_profiles {
                 }
             }
 
+            #[cfg(feature = "serde")]
             #[test]
-            fn readme_profile_support_matrix_matches_registry() {
-                let readme = include_str!("../../README.md");
-
-                fn assert_row(
-                    readme: &str,
-                    label: &str,
-                    surface: $crate::capabilities::TypedSupportSurface,
-                ) {
-                    let profiles = registry_profile_type_names_for(surface);
-                    let row = format!("| {label} | {profiles} |");
-                    assert!(readme.contains(&row), "missing README row: {row}");
+            fn authored_row_fact_keys_match_every_exported_profile() {
+                for id in ProfileId::all() {
+                    let exported = serde_json::to_value(id.spec().expect("profile")).expect("serialize profile");
+                    profile_registry::check_fact_keys(&id.row_fact_keys(), &exported, "")
+                        .unwrap_or_else(|error| panic!("{id:?}: {error}"));
                 }
-
-                fn assert_literal_row(readme: &str, label: &str, value: &str) {
-                    let row = format!("| {label} | {value} |");
-                    assert!(readme.contains(&row), "missing README row: {row}");
-                }
-
-                assert_row(
-                    readme,
-                    "ND filter controls and inquiries",
-                    $crate::capabilities::TypedSupportSurface::NdFilter,
-                );
-                assert_row(
-                    readme,
-                    "Variable speed mode controls",
-                    $crate::capabilities::TypedSupportSurface::VariableSpeed,
-                );
-                assert_row(
-                    readme,
-                    "Tally controls and inquiries",
-                    $crate::capabilities::TypedSupportSurface::Tally,
-                );
-                assert_row(
-                    readme,
-                    "Direct menu controls",
-                    $crate::capabilities::TypedSupportSurface::DirectMenu,
-                );
-                assert_row(
-                    readme,
-                    "PTZOptics anti-flicker control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::PtzOpticsAntiFlicker,
-                );
-                assert_row(
-                    readme,
-                    "PTZOptics settings-save command",
-                    $crate::capabilities::TypedSupportSurface::PtzOpticsSettingsSave,
-                );
-                assert_row(
-                    readme,
-                    "PTZOptics preset-recall speed control",
-                    $crate::capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed,
-                );
-                assert_row(
-                    readme,
-                    "Sony spotlight controls",
-                    $crate::capabilities::TypedSupportSurface::SonySpotlight,
-                );
-                assert_row(
-                    readme,
-                    "Sony automatic slow-shutter controls",
-                    $crate::capabilities::TypedSupportSurface::SonyAutoSlowShutter,
-                );
-                assert_row(
-                    readme,
-                    "PTZOptics multicast-streaming controls",
-                    $crate::capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming,
-                );
-                assert_row(
-                    readme,
-                    "PTZOptics NDI-quality control",
-                    $crate::capabilities::TypedSupportSurface::PtzOpticsNdiQuality,
-                );
-                assert_literal_row(
-                    readme,
-                    "Motion Sync controls and inquiries",
-                    "Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs",
-                );
-
-                assert_row(
-                    readme,
-                    "Direct absolute zoom positioning",
-                    $crate::capabilities::TypedSupportSurface::DirectZoom,
-                );
-                assert_eq!(
-                    registry_profile_type_names_for(
-                        $crate::capabilities::TypedSupportSurface::DigitalZoomToggle
-                    ),
-                    registry_profile_type_names_for(
-                        $crate::capabilities::TypedSupportSurface::DigitalZoomRange
-                    )
-                );
-                assert_row(
-                    readme,
-                    "VISCA digital zoom toggle and optical-plus-digital positioning",
-                    $crate::capabilities::TypedSupportSurface::DigitalZoomToggle,
-                );
-                assert_row(
-                    readme,
-                    "Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry",
-                    $crate::capabilities::TypedSupportSurface::IrisControl,
-                );
-                assert_row(
-                    readme,
-                    "Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`)",
-                    $crate::capabilities::TypedSupportSurface::ExposureMode,
-                );
-                assert_row(
-                    readme,
-                    "Standard one-push focus",
-                    $crate::capabilities::TypedSupportSurface::OnePushFocus,
-                );
-                assert_literal_row(
-                    readme,
-                    "PTZOptics snap focus",
-                    "No built-in profile currently marks this typed capability",
-                );
-                assert_row(
-                    readme,
-                    "Focus lock",
-                    $crate::capabilities::TypedSupportSurface::FocusLock,
-                );
-                assert_row(
-                    readme,
-                    "Push auto focus",
-                    $crate::capabilities::TypedSupportSurface::PushAutoFocus,
-                );
-                assert_row(
-                    readme,
-                    "Focus zone control",
-                    $crate::capabilities::TypedSupportSurface::FocusZone,
-                );
-                assert_row(
-                    readme,
-                    "Focus zone inquiry",
-                    $crate::capabilities::TypedSupportSurface::FocusZoneInquiry,
-                );
-                assert_literal_row(
-                    readme,
-                    "Auto focus sensitivity",
-                    "No built-in profile currently marks this typed capability",
-                );
-                assert_row(
-                    readme,
-                    "Focus near-limit inquiry",
-                    $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry,
-                );
-                assert_row(
-                    readme,
-                    "Backlight compensation",
-                    $crate::capabilities::TypedSupportSurface::BacklightCompensation,
-                );
-                assert_row(
-                    readme,
-                    "Wide dynamic range",
-                    $crate::capabilities::TypedSupportSurface::WideDynamicRange,
-                );
-                assert_row(
-                    readme,
-                    "Exposure compensation",
-                    $crate::capabilities::TypedSupportSurface::ExposureCompensation,
-                );
-                assert_row(
-                    readme,
-                    "Exposure brightness control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::BrightnessControl,
-                );
-                assert_row(
-                    readme,
-                    "One-push white balance",
-                    $crate::capabilities::TypedSupportSurface::OnePushWhiteBalance,
-                );
-                assert_row(
-                    readme,
-                    "Auto-tracking white balance",
-                    $crate::capabilities::TypedSupportSurface::AutoTrackingWhiteBalance,
-                );
-                assert_row(
-                    readme,
-                    "Auto white-balance sensitivity",
-                    $crate::capabilities::TypedSupportSurface::AutoWhiteBalanceSensitivity,
-                );
-                assert_row(
-                    readme,
-                    "Color temperature controls",
-                    $crate::capabilities::TypedSupportSurface::ColorTemperature,
-                );
-                assert_row(
-                    readme,
-                    "Color temperature inquiry (sourced one-byte `pq` reply)",
-                    $crate::capabilities::TypedSupportSurface::ColorTemperatureInquiry,
-                );
-                assert_row(
-                    readme,
-                    "RGB gain controls and inquiries",
-                    $crate::capabilities::TypedSupportSurface::RgbGain,
-                );
-                assert_row(
-                    readme,
-                    "RGB tuning controls and inquiries",
-                    $crate::capabilities::TypedSupportSurface::RgbTuning,
-                );
-                assert_row(
-                    readme,
-                    "Vertical image flip control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::ImageFlip,
-                );
-                assert_row(
-                    readme,
-                    "Horizontal image mirror control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::ImageMirror,
-                );
-                assert_row(
-                    readme,
-                    "Combined image flip mode",
-                    $crate::capabilities::TypedSupportSurface::CombinedImageFlip,
-                );
-                assert_row(
-                    readme,
-                    "Contrast control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::ContrastControl,
-                );
-                assert_row(
-                    readme,
-                    "Sharpness control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::SharpnessControl,
-                );
-                assert_row(
-                    readme,
-                    "Sharpness auto/manual mode and inquiry",
-                    $crate::capabilities::TypedSupportSurface::SharpnessMode,
-                );
-                assert_row(
-                    readme,
-                    "Saturation control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::SaturationControl,
-                );
-                assert_row(
-                    readme,
-                    "Hue control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::HueControl,
-                );
-                assert_row(
-                    readme,
-                    "Luminance control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::LuminanceControl,
-                );
-                assert_row(
-                    readme,
-                    "Gamma control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::GammaControl,
-                );
-                assert_row(
-                    readme,
-                    "2D noise-reduction level inquiry",
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
-                );
-                assert_row(
-                    readme,
-                    "2D noise-reduction level control",
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
-                );
-                assert_row(
-                    readme,
-                    "2D noise-reduction auto/manual mode control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction2DMode,
-                );
-                assert_row(
-                    readme,
-                    "3D noise-reduction level inquiry",
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
-                );
-                assert_row(
-                    readme,
-                    "3D noise-reduction level control",
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
-                );
-                assert_row(
-                    readme,
-                    "Picture effects",
-                    $crate::capabilities::TypedSupportSurface::PictureEffect,
-                );
-                assert_row(
-                    readme,
-                    "USB audio control and inquiry",
-                    $crate::capabilities::TypedSupportSurface::UsbAudio,
-                );
             }
 
+            #[cfg(feature = "serde")]
             #[test]
-            fn camera_profile_support_vocabulary_table_is_generated_from_the_registry() {
-                const BEGIN: &str = "<!-- BEGIN GENERATED TYPED SUPPORT VOCABULARY -->";
-                const END: &str = "<!-- END GENERATED TYPED SUPPORT VOCABULARY -->";
-
-                let guide = include_str!("../../docs/camera_profile_support.md");
-                let mut expected = String::from(BEGIN);
-                expected.push_str(
-                    "\n| Area | Marker | Typed surface |\n| ---- | ------ | ------------- |",
-                );
-                for surface in $crate::capabilities::TypedSupportSurface::ALL {
-                    expected.push_str(&format!(
-                        "\n| {} | `{}` | {} |",
-                        surface.documentation_area(),
-                        surface.marker_trait_name(),
-                        surface.documentation_api(),
-                    ));
+            fn row_key_alignment_detects_new_missing_and_renamed_record_facts() {
+                let id = ProfileId::PtzOpticsG2;
+                let exported = serde_json::to_value(id.spec().expect("profile")).expect("serialize profile");
+                let keys = id.row_fact_keys();
+                for path in ["", "/capabilities", "/timing", "/transports", "/capabilities/pan_tilt/coordinates", "/capabilities/white_balance/rgb_gain"] {
+                    let mut changed = exported.clone();
+                    changed.pointer_mut(path).expect("fact node").as_object_mut().expect("fact record")
+                        .insert("future_fact".into(), serde_json::Value::Bool(false));
+                    let error = profile_registry::check_fact_keys(&keys, &changed, "").expect_err("new fact must have a row counterpart");
+                    assert!(error.contains("future_fact"), "{error}");
                 }
-                expected.push('\n');
-                expected.push_str(END);
-
-                let start = guide
-                    .find(BEGIN)
-                    .expect("typed-support vocabulary table start marker");
-                let relative_end = guide[start..]
-                    .find(END)
-                    .expect("typed-support vocabulary table end marker");
-                let end = start + relative_end + END.len();
-                let actual = guide[start..end].replace("\r\n", "\n");
-                assert_eq!(
-                    actual,
-                    expected,
-                    "regenerate the typed-support contributor table from the declarative registry"
-                );
+                let mut missing = exported.clone();
+                missing["timing"].as_object_mut().expect("timing record").remove("inquiry_spacing");
+                assert!(profile_registry::check_fact_keys(&keys, &missing, "").expect_err("missing fact").contains("inquiry_spacing"));
+                let mut renamed = keys.clone();
+                let value = renamed["capabilities"].as_object_mut().expect("capabilities record").remove("model_name").expect("model key");
+                renamed["capabilities"].as_object_mut().expect("capabilities record").insert("model_label".into(), value);
+                assert!(profile_registry::check_fact_keys(&renamed, &exported, "").expect_err("renamed fact").contains("model_name"));
             }
 
-            #[test]
-            fn camera_profile_support_focus_zone_table_matches_registry() {
-                const BEGIN: &str = "<!-- BEGIN GENERATED FOCUS ZONES -->";
-                const END: &str = "<!-- END GENERATED FOCUS ZONES -->";
-
-                let guide = include_str!("../../docs/camera_profile_support.md");
-                let mut expected = String::from(BEGIN);
-                expected.push_str("\n| Profile | `focus_zones` |\n| ------- | ------------- |");
-                for facts in BUILTIN_PROFILE_FACTS {
-                    let zones = facts.id.focus_zones();
-                    let zones = if zones.is_empty() {
-                        "none".to_owned()
-                    } else {
-                        zones
-                            .iter()
-                            .map(|zone| format!("`{zone:?}`"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    };
-                    expected.push_str(&format!("\n| `{}` | {zones} |", facts.type_name));
-                }
-                expected.push('\n');
-                expected.push_str(END);
-
-                let start = guide.find(BEGIN).expect("focus-zone table start marker");
-                let relative_end = guide[start..].find(END).expect("focus-zone table end marker");
-                let end = start + relative_end + END.len();
-                let actual = guide[start..end].replace("\r\n", "\n");
-                assert_eq!(
-                    actual, expected,
-                    "regenerate the focus-zone table from the profile registry"
-                );
-            }
 
             #[test]
-            fn camera_profile_support_marker_matrix_matches_registry() {
-                let guide = include_str!("../../docs/camera_profile_support.md");
-
-                for facts in BUILTIN_PROFILE_FACTS {
-                    let prefix = format!("| `{}` | ", facts.type_name);
-                    let row = guide
-                        .lines()
-                        .find(|line| line.starts_with(&prefix) && line.contains("Has"));
-                    assert!(
-                        row.is_some(),
-                        "missing profile marker row for {}",
-                        facts.type_name
-                    );
-                    let row = row.unwrap_or("");
-                    for surface in $crate::capabilities::TypedSupportSurface::ALL {
-                        let marker = format!("`{}`", typed_support_marker_trait_name(surface));
-                        assert_eq!(
-                            row.contains(&marker),
-                            facts.has_typed_support(surface),
-                            "{:?} marker matrix mismatch for {}",
-                            facts.id,
-                            typed_support_marker_trait_name(surface)
-                        );
-                    }
-
-                    let tcp = facts
-                        .tcp
-                        .map(|port| port.to_string())
-                        .unwrap_or_else(|| "n/a".to_string());
-                    let udp = facts
-                        .udp
-                        .map(|port| port.to_string())
-                        .unwrap_or_else(|| "n/a".to_string());
-                    let serial = if facts.serial { "yes" } else { "no" };
-                    let envelope = if facts.envelope == $crate::ProfileEnvelope::SonyEncapsulated {
-                        "Sony encapsulated UDP"
-                    } else {
-                        "Raw VISCA"
-                    };
-                    let row = format!(
-                        "| `{}` | {tcp} | {udp} | {serial} | {envelope} |",
-                        facts.type_name
-                    );
-                    assert!(guide.contains(&row), "missing profile transport row: {row}");
+            fn profile_ids_parse_their_pinned_strings_without_serde() {
+                for id in ProfileId::all() {
+                    assert_eq!(id.as_str().parse::<ProfileId>().expect("canonical id"), *id);
+                }
+                for invalid in ["", "PtzOpticsG2", "unknown_camera", " ptzoptics_g2"] {
+                    let error = invalid.parse::<ProfileId>().expect_err("only pinned ids are accepted").to_string();
+                    for id in ProfileId::all() { assert!(error.contains(id.as_str()), "{error}"); }
                 }
             }
+
+
         }
     };
 }
 
 /// The built-in profile registry: one row per profile, passed to `$callback`.
+///
+/// `facts` uses ProfileSpec's serialized field keys and nesting. Leaves are
+/// typed Rust expressions. `profile_id: from_id` uses the one pinned row id;
+/// `typed_support: grants(...)` adds evidence to each permission; and
+/// `encodings: from_grants` derives each selected family from that same grant.
+/// These sentinels avoid copying identity, grants or encodings into parallel data.
 ///
 /// `camera::profiles` expands it with `__define_builtin_profiles` into the
 /// profile types and everything derived from them, and the crate's public
@@ -2261,194 +1520,197 @@ macro_rules! builtin_profile_registry {
                 group GenericVisca {
                     doc: "Generic VISCA-compatible cameras with basic features.",
                     display: "Generic VISCA",
+                    id: "generic_visca",
                     profiles: [GenericVisca, SonyBrc300, SonyEviH100, NearusBrc300],
                 }
-                group PtzOpticsG2 {
+                group PtzOptics {
                     doc: "PtzOptics G2/G3/30X cameras using raw VISCA with PTZOptics timing limits.",
                     display: "PtzOptics Series",
-                    profiles: [PtzOpticsG2, PtzOpticsG3, PtzOptics30X],
+                    id: "ptzoptics",
+                    profiles: [PtzOpticsG2, PtzOpticsG3, PtzOptics30x],
                 }
                 group SonyProfessional {
                     doc: "Sony professional cameras using Sony encapsulated VISCA.",
                     display: "Sony Professional",
+                    id: "sony_professional",
                     profiles: [SonyFr7, SonyBrcH900],
                 }
             }
             profiles {
                 profile PtzOpticsG2 {
                     doc: "PtzOptics G2-series camera profile.",
-                    id: PtzOpticsG2,
+                    id: "ptzoptics_g2",
                     id_doc: "PtzOptics G2 series cameras",
-                    id_attrs: [],
                     vendor: "PtzOptics",
                     description: "G2-series PTZ camera with 12x, 20x, and 30x optical variants and 128 presets",
-                    envelope: $crate::transport::RawVisca,
-                    transport: {
-                        tcp: { default_port: 5678 },
-                        udp: { default_port: 1259 },
-                        serial: supported,
-                    },
-                    metadata: {
-                        model_name: "PtzOptics G2",
-                        default_camera_id: 1,
-                        ack_timeout_ms: profile_registry::INTERIM_ACK_TIMEOUT_MS,
-                        command_timeouts: $crate::CommandTimeouts::DEFAULT,
-                        inquiry_timeout_ms: profile_registry::INTERIM_INQUIRY_TIMEOUT_MS,
-                        cancellation_timeout_ms: 1000,
-                        ambiguity_timeout_ms: 1000,
-                        busy_timeout_ms: 0,
-                        inquiry_support: $crate::capabilities::InquirySupport::Full,
+                    facts: {
+                        capabilities: {
+                            profile_id: from_id,
+                            model_name: "PtzOptics G2",
+                            default_camera_id: 1,
+                            pan_tilt: {
+                                pan_range: range!(i32, -2448, 2448),
+                                tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -432, 1296)),
+                                pan_speed: range!(u8, 1, 24),
+                                tilt_speed: range!(u8, 1, 20),
+                                coordinates: {
+                                    coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                                    wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
+                                    pan_degrees_to_units: 14.4,
+                                    tilt_degrees_to_units: 14.4,
+                                },
+                                endpoint_quantization: $crate::capabilities::EndpointQuantization::Exact,
+                                simultaneous: true,
+                                preset_recovery_time: std::time::Duration::from_millis(0),
+                                variable_speed: false,
+                                motion_sync_speed_range: None,
+                            },
+                            zoom: {
+                                optical_max: 0x4000,
+                                digital_max: None,
+                                speed: range!(u8, 0, 7),
+                                direct: true,
+                                variable: true,
+                                optical_ratio: None,
+                            },
+                            focus: {
+                                range: range!(u16, 0x0000, 0xFFFF),
+                                near_end: $crate::capabilities::FocusNearEnd::Unknown,
+                                auto_focus: true,
+                                one_push: false,
+                                zone_inquiry: true,
+                                zones: (profile_constants::PTZ_OPTICS_G2_FOCUS_ZONES).to_vec(),
+                                speed: range!(u8, 0, 7),
+                                af_sensitivity: false,
+                                near_limit_inquiry: false,
+                            },
+                            exposure: {
+                                modes: (profile_constants::STANDARD_EXPOSURE_MODES).to_vec(),
+                                iris_range: Some(domain!(u16, 0x00, 0x0C)),
+                                shutter_speeds: (profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS).to_vec(),
+                                gain_range: Some(range!(u8, 0, 7)),
+                                brightness_range: Some(domain!(u8, 0, 17)),
+                                backlight_compensation: true,
+                                compensation_range: Some(range!(i8, -7, 7)),
+                                wide_dynamic_range: true,
+                            },
+                            white_balance: {
+                                modes: (profile_constants::COLOR_TEMP_WB_MODES).to_vec(),
+                                one_push: true,
+                                color_temp_range: Some(range!(u16, 2500, 8000)),
+                                color_temperature_steps: std::sync::Arc::from(profile_constants::PTZ_COLOR_TEMPERATURE_STEPS),
+                                rgb_gain: {
+                                    red: range!(u8, 0x00, 0xFF),
+                                    blue: range!(u8, 0x00, 0xFF),
+                                },
+                                rgb_tuning: {
+                                    red: range!(i8, -10, 10),
+                                    blue: range!(i8, -10, 10),
+                                },
+                            },
+                            image: {
+                                contrast_range: Some(range!(u8, 0, 14)),
+                                sharpness_range: Some(range!(u8, 0, 15)),
+                                saturation_range: Some(range!(u8, 0, 14)),
+                                flip: true,
+                                mirror: true,
+                                hue_range: Some(range!(u8, 0, 14)),
+                                picture_effect: true,
+                                luminance_range: Some(range!(u8, 0, 14)),
+                                requires_settings_save_for_flip: true,
+                                gamma_range: Some(range!(u8, 0, 4)),
+                            },
+                            presets: {
+                                highest: 127,
+                                recall_axes: $crate::AffectedAxes::PAN_TILT
+                                    .union($crate::AffectedAxes::ZOOM)
+                                    .union($crate::AffectedAxes::FOCUS),
+                                recall_speed_range: Some(range!(u8, 1, 24)),
+                                tour: false,
+                                thumbnail: false,
+                                recall_delay: std::time::Duration::from_millis(0),
+                                names: std::num::NonZeroUsize::new(0),
+                            },
+                            power: {
+                                on_time: std::time::Duration::from_secs(10),
+                                standby: Some(std::time::Duration::from_secs(1)),
+                                wake_on_lan: false,
+                                retains_settings: true,
+                                home_on_up: false,
+                            },
+                            menu: {
+                            },
+                            inquiry_support: $crate::capabilities::InquirySupport::Full,
+                            typed_support: grants([
+                                (PowerStandby, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-powerstandby-grant")])),
+                                (DirectShutter, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-shutterdirect-grant")])),
+                                (PresetMemory, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-presetmemory-grant")])),
+                                (Shutter, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-shuttercontrol-grant")])),
+                                (Gain, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gaincontrol-grant")])),
+                                (GainLimit, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gainlimit-grant")])),
+                                (MenuEnterReturn, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-menuenterreturn-grant")])),
+                                (MenuDisplayInquiry, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-menustatusinquiry-grant")])),
+                                (AntiFlicker, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticsantiflicker-grant")])),
+                                (SettingsSave, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticssettingssave-grant")])),
+                                (PresetRecallSpeed(PtzOptics), $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticspresetrecallspeed-grant")])),
+                                (MulticastStreaming, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticsmulticaststreaming-grant")])),
+                                (NdiQuality, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticsndiquality-grant")])),
+                                (ExposureMode, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposuremode-grant")])),
+                                (ExposureCompensation, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensation-grant")])),
+                                (Brightness, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-brightnesscontrol-grant")])),
+                                (FocusLock, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-focuslock-grant")])),
+                                (DirectZoom, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-directzoom-grant")])),
+                                (Iris, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-iriscontrol-grant")])),
+                                (FocusZone, $crate::source_evidence::source!([(B1, [PtzOpticsG2], "b1-ptzopticsg2-focuszone-grant")])),
+                                (FocusZoneInquiry, $crate::source_evidence::source!([(B1, [PtzOpticsG2], "b1-ptzopticsg2-focuszoneinquiry-grant")])),
+                                (UsbAudio, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-usbaudio-grant")])),
+                                (BacklightCompensation, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-backlightcompensation-grant")])),
+                                (WideDynamicRange, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-widedynamicrange-grant")])),
+                                (ColorTemperature, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperature-grant")])),
+                                (ColorTemperatureInquiry, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperatureinquiry-grant")])),
+                                (RgbGain, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-rgbgain-grant")])),
+                                (RgbTuning, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-rgbtuning-grant")])),
+                                (OnePushWhiteBalance(Standard), $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-onepushwhitebalance-grant")])),
+                                (AutoWhiteBalanceSensitivity, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-autowhitebalancesensitivity-grant")])),
+                                (ImageFlip, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-imageflip-grant")])),
+                                (ImageMirror, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-imagemirror-grant")])),
+                                (CombinedImageFlip, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-combinedimageflip-grant")])),
+                                (Contrast, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-contrastcontrol-grant")])),
+                                (Sharpness, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-sharpnesscontrol-grant")])),
+                                (SharpnessMode, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-sharpnessmode-grant")])),
+                                (Saturation, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-saturationcontrol-grant")])),
+                                (Hue, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-huecontrol-grant")])),
+                                (Luminance, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-luminancecontrol-grant")])),
+                                (Gamma, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gammacontrol-grant")])),
+                                (NoiseReduction2D, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction2d-grant"), (R14, [PtzOpticsG2], "r14-ptzopticsg2-noisereduction2dcontrol-grant")])),
+                                (NoiseReduction2DMode, $crate::source_evidence::source!([(R14, [PtzOpticsG2], "r14-ptzopticsg2-noisereduction2dmode-grant")])),
+                                (NoiseReduction3D, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction3d-grant"), (R14, [PtzOpticsG2], "r14-ptzopticsg2-noisereduction3dcontrol-grant")])),
+                                (PictureEffect, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-pictureeffect-grant")])),
+                                ]),
+                        },
+                        encodings: from_grants,
+                        transports: {
+                            tcp_port: Some(5678),
+                            udp_port: Some(1259),
+                            serial: true,
+                        },
+                        envelope: $crate::profiles::ProfileEnvelope::RawVisca,
+                        timing: {
+                            ack_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_ACK_TIMEOUT_MS),
+                            inquiry_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_INQUIRY_TIMEOUT_MS),
+                            cancellation_timeout: std::time::Duration::from_millis(1000),
+                            ambiguity_timeout: std::time::Duration::from_millis(1000),
+                            busy_timeout: std::time::Duration::from_millis(0),
+                            command_timeouts: $crate::CommandTimeouts::DEFAULT,
+                            raw_inquiry_reply_skew: std::time::Duration::from_millis(150),
+                            inquiry_spacing: std::time::Duration::from_millis(150),
+                            command_spacing: std::time::Duration::from_millis(100),
+                        },
+                        maximum_command_sockets: 2,
                         supports_operation_complete: true,
                         supports_command_cancel: false,
-                        maximum_command_sockets: 2,
-                        position_inquiries: {
-                            pan_tilt: true,
-                            zoom: true,
-                            focus: true,
-                            iris: true,
-                            nd_filter: false,
-                        },
-                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
-                            .union($crate::AffectedAxes::ZOOM)
-                            .union($crate::AffectedAxes::FOCUS),
-                        min_inquiry_spacing_ms: 150,
-                        min_command_spacing_ms: 100,
+                        position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::IRIS)))),
                     },
-                    pan_tilt: {
-                        pan_range: range!(i32, -2448, 2448),
-                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -432, 1296)),
-                        max_pan_speed: 24,
-                        max_tilt_speed: 20,
-                        simultaneous: true,
-                        preset_recovery_ms: 0,
-                        pan_degrees_to_units: 14.4,
-                        tilt_degrees_to_units: 14.4,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
-                    },
-                    zoom: {
-                        optical_max: 0x4000,
-                        digital_max: None,
-                        speed_range: range!(u8, 0, 7),
-                        supports_direct: true,
-                        supports_variable: true,
-                        // 12x, 20x and 30x lenses share this profile (§4.1): a lens fact.
-                        optical_zoom_ratio: None,
-                    },
-                    focus: {
-                        range: range!(u16, 0x0000, 0xFFFF),
-                        near_end: $crate::capabilities::FocusNearEnd::Unknown,
-                        auto_focus: true,
-                        one_push: false,
-                        focus_zone_inquiry: true,
-                        zones: profile_constants::PTZ_OPTICS_G2_FOCUS_ZONES,
-                        max_speed: 7,
-                        af_sensitivity: false,
-                        near_limit_inquiry: false,
-                    },
-                    exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(domain!(u16, 0x00, 0x0C)),
-                        shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: Some(range!(u8, 0, 7)),
-                        brightness_range: Some(domain!(u8, 0, 17)),
-                        backlight_comp: true,
-                        exposure_comp_range: Some(range!(i8, -7, 7)),
-                        wdr: true,
-                    },
-                    white_balance: {
-                        modes: profile_constants::COLOR_TEMP_WB_MODES,
-                        one_push: true,
-                        rg_tuning_range: Some(range!(i8, -10, 10)),
-                        bg_tuning_range: Some(range!(i8, -10, 10)),
-                        color_temp_range: Some(range!(u16, 2500, 8000)),
-                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                    },
-                    image: {
-                        base_support: true,
-                        contrast_range: Some(range!(u8, 0, 14)),
-                        sharpness_range: Some(range!(u8, 0, 15)),
-                        saturation_range: Some(range!(u8, 0, 14)),
-                        flip: true,
-                        mirror: true,
-                        hue_range: Some(range!(u8, 0, 14)),
-                        picture_effect: true,
-                        luminance_range: Some(range!(u8, 0, 14)),
-                        save_after_flip: true,
-                        gamma_range: Some(range!(u8, 0, 4)),
-                    },
-                    presets: {
-                        highest: 127,
-                        speed_range: Some(range!(u8, 1, 24)),
-                        tour: false,
-                        recall_delay_ms: 0,
-                        thumbnail: false,
-                        max_name_len: 0,
-                    },
-                    power: {
-                        on_secs: 10,
-                        standby: true,
-                        standby_secs: 1,
-                        wake_on_lan: false,
-                        retains_settings: true,
-                        home_on_power_up: false,
-                    },
-                    menu: { direct: false },
-                    tally: { supported: false },
-                    motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
-                    variable_speed: { supported: false },
-                    usb_audio: { supported: true },
-                    typed_support: [
-                        (PowerStandby, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-powerstandby-grant")])),
-                        (ShutterDirect, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-shutterdirect-grant")])),
-                        (PresetMemory, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-presetmemory-grant")])),
-                        (ShutterControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-shuttercontrol-grant")])),
-                        (GainControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gaincontrol-grant")])),
-                        (GainLimit, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gainlimit-grant")])),
-                        (StandardWhiteBalanceModes, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-standardwhitebalancemodes-grant")])),
-                        (MenuEnterReturn, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-menuenterreturn-grant")])),
-                        (MenuStatusInquiry, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-menustatusinquiry-grant")])),
-                        (PtzOpticsAntiFlicker, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticsantiflicker-grant")])),
-                        (PtzOpticsSettingsSave, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticssettingssave-grant")])),
-                        (PtzOpticsPresetRecallSpeed, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticspresetrecallspeed-grant")])),
-                        (PtzOpticsMulticastStreaming, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticsmulticaststreaming-grant")])),
-                        (PtzOpticsNdiQuality, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-ptzopticsndiquality-grant")])),
-                        (ExposureMode, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposuremode-grant")])),
-                        (ExposureCompensation, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensation-grant")])),
-                        (BrightnessControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-brightnesscontrol-grant")])),
-                        (FocusLock, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-focuslock-grant")])),
-                        (DirectZoom, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-directzoom-grant")])),
-                        (IrisControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-iriscontrol-grant")])),
-                        (FocusZone, $crate::source_evidence::source!([(B1, [PtzOpticsG2], "b1-ptzopticsg2-focuszone-grant")])),
-                        (FocusZoneInquiry, $crate::source_evidence::source!([(B1, [PtzOpticsG2], "b1-ptzopticsg2-focuszoneinquiry-grant")])),
-                        (UsbAudio, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-usbaudio-grant")])),
-                        (BacklightCompensation, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-backlightcompensation-grant")])),
-                        (WideDynamicRange, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-widedynamicrange-grant")])),
-                        (ColorTemperature, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperature-grant")])),
-                        (ColorTemperatureInquiry, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperatureinquiry-grant")])),
-                        (RgbGain, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-rgbgain-grant")])),
-                        (RgbTuning, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-rgbtuning-grant")])),
-                        (OnePushWhiteBalance, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-onepushwhitebalance-grant")])),
-                        (AutoWhiteBalanceSensitivity, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-autowhitebalancesensitivity-grant")])),
-                        (ImageFlip, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-imageflip-grant")])),
-                        (ImageMirror, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-imagemirror-grant")])),
-                        (CombinedImageFlip, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-combinedimageflip-grant")])),
-                        (ContrastControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-contrastcontrol-grant")])),
-                        (SharpnessControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-sharpnesscontrol-grant")])),
-                        (SharpnessMode, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-sharpnessmode-grant")])),
-                        (SaturationControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-saturationcontrol-grant")])),
-                        (HueControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-huecontrol-grant")])),
-                        (LuminanceControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-luminancecontrol-grant")])),
-                        (GammaControl, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gammacontrol-grant")])),
-                        (NoiseReduction2D, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction2d-grant")])),
-                        (NoiseReduction2DMode, $crate::source_evidence::source!([(R14, [PtzOpticsG2], "r14-ptzopticsg2-noisereduction2dmode-grant")])),
-                        (NoiseReduction3D, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction3d-grant")])),
-                        (NoiseReduction2DControl, $crate::source_evidence::source!([(R14, [PtzOpticsG2], "r14-ptzopticsg2-noisereduction2dcontrol-grant")])),
-                        (NoiseReduction3DControl, $crate::source_evidence::source!([(R14, [PtzOpticsG2], "r14-ptzopticsg2-noisereduction3dcontrol-grant")])),
-                        (PictureEffect, $crate::source_evidence::source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-pictureeffect-grant")])),
-                    ],
                     withheld: [],
                     evidence: [
                         ("command_cancel", "On the PTZOptics G2 bench (PT30X-NDI G2 firmware ARM 6.3.51THI and PT12X-NDI G2 firmware ARM 6.4.18SHI; 2026-10-05), a socket cancel `81 2y FF` sent while a slow absolute pan/tilt move ran on socket y (ACK `90 4y`) was answered `90 60 02 FF` (syntax error) and the move continued to its target and completed (`90 5y`): the G2 family does not implement socket cancel."),
@@ -2460,180 +1722,180 @@ macro_rules! builtin_profile_registry {
                         ("focus_zones", "R14/R20 document `CAM_AFZone` Top `00`, Center `01` and Bottom `02`. On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, firmware ARM 6.3.51THI, 6.3.76THI, 6.4.18SHI; 2026-10-04; #795) the cameras also report `03`, accept `81 01 04 AA 03 FF` with ACK and completion, and read `03` back, so `FocusZone::Zone03` is admitted for this family."),
                         ("usb_audio", "The PTZOptics Gen-2 UAC table documents the 81 2A 02 A0 04 USB-audio command and matching inquiry for G2 models."),
                         ("noise_reduction", "R14 documents G2/G3 04 50 Auto/Manual control plus 04 53 0/off and 1..5 and 04 54 0/off and 1..8 controls; its separate query page lists 09 04 50 and 09 04 53/54 replies. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by the query output domain."),
-                    ],
+                        ],
                 }
 
                 profile PtzOpticsG3 {
                     doc: "PtzOptics G3 camera profile.",
-                    id: PtzOpticsG3,
+                    id: "ptzoptics_g3",
                     id_doc: "PtzOptics G3 series cameras",
-                    id_attrs: [],
                     vendor: "PtzOptics",
                     description: "Latest generation PTZ camera using the conservative raw VISCA preset range",
-                    envelope: $crate::transport::RawVisca,
-                    transport: {
-                        tcp: { default_port: 5678 },
-                        udp: { default_port: 1259 },
-                        serial: supported,
-                    },
-                    metadata: {
-                        model_name: "PtzOptics G3",
-                        default_camera_id: 1,
-                        ack_timeout_ms: profile_registry::INTERIM_ACK_TIMEOUT_MS,
-                        command_timeouts: $crate::CommandTimeouts::DEFAULT,
-                        inquiry_timeout_ms: profile_registry::INTERIM_INQUIRY_TIMEOUT_MS,
-                        cancellation_timeout_ms: 1000,
-                        ambiguity_timeout_ms: 1000,
-                        busy_timeout_ms: 0,
-                        inquiry_support: $crate::capabilities::InquirySupport::Full,
+                    facts: {
+                        capabilities: {
+                            profile_id: from_id,
+                            model_name: "PtzOptics G3",
+                            default_camera_id: 1,
+                            pan_tilt: {
+                                pan_range: range!(i32, -2448, 2448),
+                                tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -432, 1296)),
+                                pan_speed: range!(u8, 1, 24),
+                                tilt_speed: range!(u8, 1, 20),
+                                coordinates: {
+                                    coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                                    wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
+                                    pan_degrees_to_units: 14.4,
+                                    tilt_degrees_to_units: 14.4,
+                                },
+                                endpoint_quantization: $crate::capabilities::EndpointQuantization::Exact,
+                                simultaneous: true,
+                                preset_recovery_time: std::time::Duration::from_millis(0),
+                                variable_speed: false,
+                                motion_sync_speed_range: None,
+                            },
+                            zoom: {
+                                optical_max: 0x4000,
+                                digital_max: None,
+                                speed: range!(u8, 0, 7),
+                                direct: true,
+                                variable: true,
+                                optical_ratio: None,
+                            },
+                            focus: {
+                                range: range!(u16, 0x0000, 0xFFFF),
+                                near_end: $crate::capabilities::FocusNearEnd::Unknown,
+                                auto_focus: true,
+                                one_push: false,
+                                zone_inquiry: false,
+                                zones: (profile_constants::DOCUMENTED_FOCUS_ZONES).to_vec(),
+                                speed: range!(u8, 0, 7),
+                                af_sensitivity: false,
+                                near_limit_inquiry: false,
+                            },
+                            exposure: {
+                                modes: (profile_constants::STANDARD_EXPOSURE_MODES).to_vec(),
+                                iris_range: Some(domain!(u16, 0x00, 0x0C)),
+                                shutter_speeds: (profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS).to_vec(),
+                                gain_range: Some(range!(u8, 0, 7)),
+                                brightness_range: Some(domain!(u8, 0, 17)),
+                                backlight_compensation: true,
+                                compensation_range: Some(range!(i8, -7, 7)),
+                                wide_dynamic_range: true,
+                            },
+                            white_balance: {
+                                modes: (profile_constants::COLOR_TEMP_WB_MODES).to_vec(),
+                                one_push: true,
+                                color_temp_range: Some(range!(u16, 2500, 8000)),
+                                color_temperature_steps: std::sync::Arc::from(profile_constants::PTZ_COLOR_TEMPERATURE_STEPS),
+                                rgb_gain: {
+                                    red: range!(u8, 0x00, 0xFF),
+                                    blue: range!(u8, 0x00, 0xFF),
+                                },
+                                rgb_tuning: {
+                                    red: range!(i8, -10, 10),
+                                    blue: range!(i8, -10, 10),
+                                },
+                            },
+                            image: {
+                                contrast_range: Some(range!(u8, 0, 14)),
+                                sharpness_range: Some(range!(u8, 0, 15)),
+                                saturation_range: Some(range!(u8, 0, 14)),
+                                flip: true,
+                                mirror: true,
+                                hue_range: Some(range!(u8, 0, 14)),
+                                picture_effect: true,
+                                luminance_range: Some(range!(u8, 0, 14)),
+                                requires_settings_save_for_flip: true,
+                                gamma_range: Some(range!(u8, 0, 4)),
+                            },
+                            presets: {
+                                highest: 127,
+                                recall_axes: $crate::AffectedAxes::PAN_TILT
+                                    .union($crate::AffectedAxes::ZOOM)
+                                    .union($crate::AffectedAxes::FOCUS),
+                                recall_speed_range: Some(range!(u8, 1, 24)),
+                                tour: false,
+                                thumbnail: false,
+                                recall_delay: std::time::Duration::from_millis(0),
+                                names: std::num::NonZeroUsize::new(0),
+                            },
+                            power: {
+                                on_time: std::time::Duration::from_secs(10),
+                                standby: Some(std::time::Duration::from_secs(1)),
+                                wake_on_lan: false,
+                                retains_settings: true,
+                                home_on_up: false,
+                            },
+                            menu: {
+                            },
+                            inquiry_support: $crate::capabilities::InquirySupport::Full,
+                            typed_support: grants([
+                                (PowerStandby, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-powerstandby-grant")])),
+                                (DirectShutter, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-shutterdirect-grant")])),
+                                (PresetMemory, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-presetmemory-grant")])),
+                                (Shutter, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-shuttercontrol-grant")])),
+                                (Gain, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-gaincontrol-grant")])),
+                                (GainLimit, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-gainlimit-grant")])),
+                                (MenuEnterReturn, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-menuenterreturn-grant")])),
+                                (MenuDisplayInquiry, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-menustatusinquiry-grant")])),
+                                (AntiFlicker, $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticsantiflicker-grant")])),
+                                (SettingsSave, $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticssettingssave-grant")])),
+                                (PresetRecallSpeed(PtzOptics), $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticspresetrecallspeed-grant")])),
+                                (MulticastStreaming, $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticsmulticaststreaming-grant")])),
+                                (NdiQuality, $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticsndiquality-grant")])),
+                                (ExposureMode, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-exposuremode-grant")])),
+                                (ExposureCompensation, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensation-grant")])),
+                                (Brightness, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-brightnesscontrol-grant")])),
+                                (FocusLock, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-focuslock-grant")])),
+                                (DirectZoom, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-directzoom-grant")])),
+                                (Iris, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-iriscontrol-grant")])),
+                                (FocusZone, $crate::source_evidence::source!([(R20, [PtzOpticsG3], "r20-ptzopticsg3-focuszone-grant")])),
+                                (BacklightCompensation, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-backlightcompensation-grant")])),
+                                (WideDynamicRange, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-widedynamicrange-grant")])),
+                                (ColorTemperature, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-colortemperature-grant")])),
+                                (RgbGain, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-rgbgain-grant")])),
+                                (RgbTuning, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-rgbtuning-grant")])),
+                                (OnePushWhiteBalance(Standard), $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-onepushwhitebalance-grant")])),
+                                (AutoWhiteBalanceSensitivity, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-autowhitebalancesensitivity-grant")])),
+                                (ImageFlip, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-imageflip-grant")])),
+                                (ImageMirror, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-imagemirror-grant")])),
+                                (CombinedImageFlip, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-combinedimageflip-grant")])),
+                                (Contrast, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-contrastcontrol-grant")])),
+                                (Sharpness, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-sharpnesscontrol-grant")])),
+                                (SharpnessMode, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-sharpnessmode-grant")])),
+                                (Saturation, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-saturationcontrol-grant")])),
+                                (Hue, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-huecontrol-grant")])),
+                                (Luminance, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-luminancecontrol-grant")])),
+                                (Gamma, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-gammacontrol-grant")])),
+                                (NoiseReduction2D, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2d-grant"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2dcontrol-grant")])),
+                                (NoiseReduction2DMode, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2dmode-grant")])),
+                                (NoiseReduction3D, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction3d-grant"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction3dcontrol-grant")])),
+                                (PictureEffect, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-pictureeffect-grant")])),
+                                ]),
+                        },
+                        encodings: from_grants,
+                        transports: {
+                            tcp_port: Some(5678),
+                            udp_port: Some(1259),
+                            serial: true,
+                        },
+                        envelope: $crate::profiles::ProfileEnvelope::RawVisca,
+                        timing: {
+                            ack_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_ACK_TIMEOUT_MS),
+                            inquiry_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_INQUIRY_TIMEOUT_MS),
+                            cancellation_timeout: std::time::Duration::from_millis(1000),
+                            ambiguity_timeout: std::time::Duration::from_millis(1000),
+                            busy_timeout: std::time::Duration::from_millis(0),
+                            command_timeouts: $crate::CommandTimeouts::DEFAULT,
+                            raw_inquiry_reply_skew: std::time::Duration::from_millis(150),
+                            inquiry_spacing: std::time::Duration::from_millis(150),
+                            command_spacing: std::time::Duration::from_millis(100),
+                        },
+                        maximum_command_sockets: 2,
                         supports_operation_complete: true,
                         supports_command_cancel: false,
-                        maximum_command_sockets: 2,
-                        position_inquiries: {
-                            pan_tilt: true,
-                            zoom: true,
-                            focus: true,
-                            iris: true,
-                            nd_filter: false,
-                        },
-                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
-                            .union($crate::AffectedAxes::ZOOM)
-                            .union($crate::AffectedAxes::FOCUS),
-                        min_inquiry_spacing_ms: 150,
-                        min_command_spacing_ms: 100,
+                        position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::IRIS)))),
                     },
-                    pan_tilt: {
-                        pan_range: range!(i32, -2448, 2448),
-                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -432, 1296)),
-                        max_pan_speed: 24,
-                        max_tilt_speed: 20,
-                        simultaneous: true,
-                        preset_recovery_ms: 0,
-                        pan_degrees_to_units: 14.4,
-                        tilt_degrees_to_units: 14.4,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
-                    },
-                    zoom: {
-                        optical_max: 0x4000,
-                        digital_max: None,
-                        speed_range: range!(u8, 0, 7),
-                        supports_direct: true,
-                        supports_variable: true,
-                        // No cited source states this model's optical ratio.
-                        optical_zoom_ratio: None,
-                    },
-                    focus: {
-                        range: range!(u16, 0x0000, 0xFFFF),
-                        near_end: $crate::capabilities::FocusNearEnd::Unknown,
-                        auto_focus: true,
-                        one_push: false,
-                        focus_zone_inquiry: false,
-                        zones: profile_constants::DOCUMENTED_FOCUS_ZONES,
-                        max_speed: 7,
-                        af_sensitivity: false,
-                        near_limit_inquiry: false,
-                    },
-                    exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(domain!(u16, 0x00, 0x0C)),
-                        shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: Some(range!(u8, 0, 7)),
-                        brightness_range: Some(domain!(u8, 0, 17)),
-                        backlight_comp: true,
-                        exposure_comp_range: Some(range!(i8, -7, 7)),
-                        wdr: true,
-                    },
-                    white_balance: {
-                        modes: profile_constants::COLOR_TEMP_WB_MODES,
-                        one_push: true,
-                        rg_tuning_range: Some(range!(i8, -10, 10)),
-                        bg_tuning_range: Some(range!(i8, -10, 10)),
-                        color_temp_range: Some(range!(u16, 2500, 8000)),
-                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                    },
-                    image: {
-                        base_support: true,
-                        contrast_range: Some(range!(u8, 0, 14)),
-                        sharpness_range: Some(range!(u8, 0, 15)),
-                        saturation_range: Some(range!(u8, 0, 14)),
-                        flip: true,
-                        mirror: true,
-                        hue_range: Some(range!(u8, 0, 14)),
-                        picture_effect: true,
-                        luminance_range: Some(range!(u8, 0, 14)),
-                        save_after_flip: true,
-                        gamma_range: Some(range!(u8, 0, 4)),
-                    },
-                    presets: {
-                        highest: 127,
-                        speed_range: Some(range!(u8, 1, 24)),
-                        tour: false,
-                        recall_delay_ms: 0,
-                        thumbnail: false,
-                        max_name_len: 0,
-                    },
-                    power: {
-                        on_secs: 10,
-                        standby: true,
-                        standby_secs: 1,
-                        wake_on_lan: false,
-                        retains_settings: true,
-                        home_on_power_up: false,
-                    },
-                    menu: { direct: false },
-                    tally: { supported: false },
-                    motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
-                    variable_speed: { supported: false },
-                    usb_audio: { supported: false },
-                    typed_support: [
-                        (PowerStandby, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-powerstandby-grant")])),
-                        (ShutterDirect, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-shutterdirect-grant")])),
-                        (PresetMemory, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-presetmemory-grant")])),
-                        (ShutterControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-shuttercontrol-grant")])),
-                        (GainControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-gaincontrol-grant")])),
-                        (GainLimit, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-gainlimit-grant")])),
-                        (StandardWhiteBalanceModes, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-standardwhitebalancemodes-grant")])),
-                        (MenuEnterReturn, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-menuenterreturn-grant")])),
-                        (MenuStatusInquiry, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-menustatusinquiry-grant")])),
-                        (PtzOpticsAntiFlicker, $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticsantiflicker-grant")])),
-                        (PtzOpticsSettingsSave, $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticssettingssave-grant")])),
-                        (PtzOpticsPresetRecallSpeed, $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticspresetrecallspeed-grant")])),
-                        (PtzOpticsMulticastStreaming, $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticsmulticaststreaming-grant")])),
-                        (PtzOpticsNdiQuality, $crate::source_evidence::source!([(R10, [PtzOpticsG3], "r10-ptzopticsg3-ptzopticsndiquality-grant")])),
-                        (ExposureMode, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-exposuremode-grant")])),
-                        (ExposureCompensation, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensation-grant")])),
-                        (BrightnessControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-brightnesscontrol-grant")])),
-                        (FocusLock, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-focuslock-grant")])),
-                        (DirectZoom, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-directzoom-grant")])),
-                        (IrisControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-iriscontrol-grant")])),
-                        (FocusZone, $crate::source_evidence::source!([(R20, [PtzOpticsG3], "r20-ptzopticsg3-focuszone-grant")])),
-                        (BacklightCompensation, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-backlightcompensation-grant")])),
-                        (WideDynamicRange, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-widedynamicrange-grant")])),
-                        (ColorTemperature, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-colortemperature-grant")])),
-                        (RgbGain, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-rgbgain-grant")])),
-                        (RgbTuning, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-rgbtuning-grant")])),
-                        (OnePushWhiteBalance, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-onepushwhitebalance-grant")])),
-                        (AutoWhiteBalanceSensitivity, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-autowhitebalancesensitivity-grant")])),
-                        (ImageFlip, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-imageflip-grant")])),
-                        (ImageMirror, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-imagemirror-grant")])),
-                        (CombinedImageFlip, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-combinedimageflip-grant")])),
-                        (ContrastControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-contrastcontrol-grant")])),
-                        (SharpnessControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-sharpnesscontrol-grant")])),
-                        (SharpnessMode, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-sharpnessmode-grant")])),
-                        (SaturationControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-saturationcontrol-grant")])),
-                        (HueControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-huecontrol-grant")])),
-                        (LuminanceControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-luminancecontrol-grant")])),
-                        (GammaControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-gammacontrol-grant")])),
-                        (NoiseReduction2D, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2d-grant")])),
-                        (NoiseReduction2DMode, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2dmode-grant")])),
-                        (NoiseReduction3D, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction3d-grant")])),
-                        (NoiseReduction2DControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2dcontrol-grant")])),
-                        (NoiseReduction3DControl, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction3dcontrol-grant")])),
-                        (PictureEffect, $crate::source_evidence::source!([(R14, [PtzOpticsG3], "r14-ptzopticsg3-pictureeffect-grant")])),
-                    ],
                     withheld: [],
                     evidence: [
                         ("command_cancel", "No PTZOptics source (R1, R10, R14) documents the standard `8x 2p FF` socket-cancel command and G3 was not on the bench, so it stays unavailable under the source rule. The G2 family, which shares this command set, rejects it on the bench."),
@@ -2648,183 +1910,183 @@ macro_rules! builtin_profile_registry {
                         ("usb_audio", "The UAC command/query table is source-backed for the Gen-2 entries, not G3; keep USB audio conservative pending a G3-specific source."),
                         ("picture_effect", "PTZOptics' official Developer Portal identifies its current VISCA list for G2 and G3 and documents the 04 63 picture-effect command and inquiry there."),
                         ("noise_reduction", "R14 documents G2/G3 04 50 Auto/Manual control plus 04 53 0/off and 1..5 and 04 54 0/off and 1..8 controls; its separate query page lists 09 04 50 and 09 04 53/54 replies. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by the query output domain."),
-                    ],
+                        ],
                 }
 
-                profile PtzOptics30X {
+                profile PtzOptics30x {
                     doc: "PtzOptics legacy PT30X SDI/NDI G2 raw-VISCA camera profile.",
-                    id: PtzOptics30X,
+                    id: "ptzoptics_30x",
                     id_doc: "PTZOptics legacy PT30X SDI/NDI G2 (Gen-2 raw-VISCA) camera",
-                    id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "ptzoptics-30x"))]],
                     vendor: "PtzOptics",
                     description: "Legacy PT30X SDI/NDI G2 raw-VISCA profile with 30x optical zoom",
-                    envelope: $crate::transport::RawVisca,
-                    transport: {
-                        tcp: { default_port: 5678 },
-                        udp: { default_port: 1259 },
-                        serial: supported,
-                    },
-                    metadata: {
-                        model_name: "PtzOptics 30X",
-                        default_camera_id: 1,
-                        ack_timeout_ms: profile_registry::INTERIM_ACK_TIMEOUT_MS,
-                        command_timeouts: $crate::CommandTimeouts::DEFAULT,
-                        inquiry_timeout_ms: profile_registry::INTERIM_INQUIRY_TIMEOUT_MS,
-                        cancellation_timeout_ms: 1000,
-                        ambiguity_timeout_ms: 1000,
-                        busy_timeout_ms: 0,
-                        inquiry_support: $crate::capabilities::InquirySupport::Full,
+                    facts: {
+                        capabilities: {
+                            profile_id: from_id,
+                            model_name: "PtzOptics 30X",
+                            default_camera_id: 1,
+                            pan_tilt: {
+                                pan_range: range!(i32, -2448, 2448),
+                                tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -432, 1296)),
+                                pan_speed: range!(u8, 1, 24),
+                                tilt_speed: range!(u8, 1, 20),
+                                coordinates: {
+                                    coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                                    wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
+                                    pan_degrees_to_units: 14.4,
+                                    tilt_degrees_to_units: 14.4,
+                                },
+                                endpoint_quantization: $crate::capabilities::EndpointQuantization::Exact,
+                                simultaneous: true,
+                                preset_recovery_time: std::time::Duration::from_millis(0),
+                                variable_speed: false,
+                                motion_sync_speed_range: None,
+                            },
+                            zoom: {
+                                optical_max: 0x4000,
+                                digital_max: None,
+                                speed: range!(u8, 0, 7),
+                                direct: true,
+                                variable: true,
+                                optical_ratio: Some(30.0),
+                            },
+                            focus: {
+                                range: range!(u16, 0x0000, 0xFFFF),
+                                near_end: $crate::capabilities::FocusNearEnd::Unknown,
+                                auto_focus: true,
+                                one_push: false,
+                                zone_inquiry: true,
+                                zones: (profile_constants::PTZ_OPTICS_G2_FOCUS_ZONES).to_vec(),
+                                speed: range!(u8, 0, 7),
+                                af_sensitivity: false,
+                                near_limit_inquiry: false,
+                            },
+                            exposure: {
+                                modes: (profile_constants::STANDARD_EXPOSURE_MODES).to_vec(),
+                                iris_range: Some(domain!(u16, 0x00, 0x0C)),
+                                shutter_speeds: (profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS).to_vec(),
+                                gain_range: Some(range!(u8, 0, 7)),
+                                brightness_range: Some(domain!(u8, 0, 17)),
+                                backlight_compensation: true,
+                                compensation_range: Some(range!(i8, -7, 7)),
+                                wide_dynamic_range: true,
+                            },
+                            white_balance: {
+                                modes: (profile_constants::COLOR_TEMP_WB_MODES).to_vec(),
+                                one_push: true,
+                                color_temp_range: Some(range!(u16, 2500, 8000)),
+                                color_temperature_steps: std::sync::Arc::from(profile_constants::PTZ_COLOR_TEMPERATURE_STEPS),
+                                rgb_gain: {
+                                    red: range!(u8, 0x00, 0xFF),
+                                    blue: range!(u8, 0x00, 0xFF),
+                                },
+                                rgb_tuning: {
+                                    red: range!(i8, -10, 10),
+                                    blue: range!(i8, -10, 10),
+                                },
+                            },
+                            image: {
+                                contrast_range: Some(range!(u8, 0, 14)),
+                                sharpness_range: Some(range!(u8, 0, 15)),
+                                saturation_range: Some(range!(u8, 0, 14)),
+                                flip: true,
+                                mirror: true,
+                                hue_range: Some(range!(u8, 0, 14)),
+                                picture_effect: true,
+                                luminance_range: Some(range!(u8, 0, 14)),
+                                requires_settings_save_for_flip: true,
+                                gamma_range: Some(range!(u8, 0, 4)),
+                            },
+                            presets: {
+                                highest: 127,
+                                recall_axes: $crate::AffectedAxes::PAN_TILT
+                                    .union($crate::AffectedAxes::ZOOM)
+                                    .union($crate::AffectedAxes::FOCUS),
+                                recall_speed_range: Some(range!(u8, 1, 24)),
+                                tour: false,
+                                thumbnail: false,
+                                recall_delay: std::time::Duration::from_millis(0),
+                                names: std::num::NonZeroUsize::new(0),
+                            },
+                            power: {
+                                on_time: std::time::Duration::from_secs(10),
+                                standby: Some(std::time::Duration::from_secs(1)),
+                                wake_on_lan: false,
+                                retains_settings: true,
+                                home_on_up: false,
+                            },
+                            menu: {
+                            },
+                            inquiry_support: $crate::capabilities::InquirySupport::Full,
+                            typed_support: grants([
+                                (PowerStandby, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-powerstandby-grant")])),
+                                (DirectShutter, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-shutterdirect-grant")])),
+                                (PresetMemory, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-presetmemory-grant")])),
+                                (Shutter, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-shuttercontrol-grant")])),
+                                (Gain, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-gaincontrol-grant")])),
+                                (GainLimit, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-gainlimit-grant")])),
+                                (MenuEnterReturn, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-menuenterreturn-grant")])),
+                                (MenuDisplayInquiry, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-menustatusinquiry-grant")])),
+                                (AntiFlicker, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-ptzopticsantiflicker-grant")])),
+                                (SettingsSave, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-ptzopticssettingssave-grant")])),
+                                (PresetRecallSpeed(PtzOptics), $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-ptzopticspresetrecallspeed-grant")])),
+                                (MulticastStreaming, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-ptzopticsmulticaststreaming-grant")])),
+                                (NdiQuality, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-ptzopticsndiquality-grant")])),
+                                (ExposureMode, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-exposuremode-grant")])),
+                                (ExposureCompensation, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-exposurecompensation-grant")])),
+                                (Brightness, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-brightnesscontrol-grant")])),
+                                (FocusLock, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-focuslock-grant")])),
+                                (DirectZoom, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-directzoom-grant")])),
+                                (Iris, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-iriscontrol-grant")])),
+                                (FocusZone, $crate::source_evidence::source!([(B1, [PtzOptics30x], "b1-ptzoptics30x-focuszone-grant")])),
+                                (FocusZoneInquiry, $crate::source_evidence::source!([(B1, [PtzOptics30x], "b1-ptzoptics30x-focuszoneinquiry-grant")])),
+                                (UsbAudio, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-usbaudio-grant")])),
+                                (BacklightCompensation, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-backlightcompensation-grant")])),
+                                (WideDynamicRange, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-widedynamicrange-grant")])),
+                                (ColorTemperature, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-colortemperature-grant")])),
+                                (ColorTemperatureInquiry, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-colortemperatureinquiry-grant")])),
+                                (RgbGain, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-rgbgain-grant")])),
+                                (RgbTuning, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-rgbtuning-grant")])),
+                                (OnePushWhiteBalance(Standard), $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-onepushwhitebalance-grant")])),
+                                (AutoWhiteBalanceSensitivity, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-autowhitebalancesensitivity-grant")])),
+                                (ImageFlip, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-imageflip-grant")])),
+                                (ImageMirror, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-imagemirror-grant")])),
+                                (CombinedImageFlip, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-combinedimageflip-grant")])),
+                                (Contrast, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-contrastcontrol-grant")])),
+                                (Sharpness, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-sharpnesscontrol-grant")])),
+                                (SharpnessMode, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-sharpnessmode-grant")])),
+                                (Saturation, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-saturationcontrol-grant")])),
+                                (Hue, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-huecontrol-grant")])),
+                                (Luminance, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-luminancecontrol-grant")])),
+                                (Gamma, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-gammacontrol-grant")])),
+                                (NoiseReduction2D, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-noisereduction2d-grant"), (R14, [PtzOptics30x], "r14-ptzoptics30x-noisereduction2dcontrol-grant")])),
+                                (NoiseReduction2DMode, $crate::source_evidence::source!([(R14, [PtzOptics30x], "r14-ptzoptics30x-noisereduction2dmode-grant")])),
+                                (NoiseReduction3D, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-noisereduction3d-grant"), (R14, [PtzOptics30x], "r14-ptzoptics30x-noisereduction3dcontrol-grant")])),
+                                (PictureEffect, $crate::source_evidence::source!([(R1, [PtzOptics30x], "r1-ptzoptics30x-pictureeffect-grant")])),
+                                ]),
+                        },
+                        encodings: from_grants,
+                        transports: {
+                            tcp_port: Some(5678),
+                            udp_port: Some(1259),
+                            serial: true,
+                        },
+                        envelope: $crate::profiles::ProfileEnvelope::RawVisca,
+                        timing: {
+                            ack_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_ACK_TIMEOUT_MS),
+                            inquiry_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_INQUIRY_TIMEOUT_MS),
+                            cancellation_timeout: std::time::Duration::from_millis(1000),
+                            ambiguity_timeout: std::time::Duration::from_millis(1000),
+                            busy_timeout: std::time::Duration::from_millis(0),
+                            command_timeouts: $crate::CommandTimeouts::DEFAULT,
+                            raw_inquiry_reply_skew: std::time::Duration::from_millis(150),
+                            inquiry_spacing: std::time::Duration::from_millis(150),
+                            command_spacing: std::time::Duration::from_millis(100),
+                        },
+                        maximum_command_sockets: 2,
                         supports_operation_complete: true,
                         supports_command_cancel: false,
-                        maximum_command_sockets: 2,
-                        position_inquiries: {
-                            pan_tilt: true,
-                            zoom: true,
-                            focus: true,
-                            iris: true,
-                            nd_filter: false,
-                        },
-                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
-                            .union($crate::AffectedAxes::ZOOM)
-                            .union($crate::AffectedAxes::FOCUS),
-                        min_inquiry_spacing_ms: 150,
-                        min_command_spacing_ms: 100,
+                        position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::IRIS)))),
                     },
-                    pan_tilt: {
-                        pan_range: range!(i32, -2448, 2448),
-                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -432, 1296)),
-                        max_pan_speed: 24,
-                        max_tilt_speed: 20,
-                        simultaneous: true,
-                        preset_recovery_ms: 0,
-                        pan_degrees_to_units: 14.4,
-                        tilt_degrees_to_units: 14.4,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
-                    },
-                    zoom: {
-                        optical_max: 0x4000,
-                        digital_max: None,
-                        speed_range: range!(u8, 0, 7),
-                        supports_direct: true,
-                        supports_variable: true,
-                        // PT30X-NDI: 30x optical, f4.42–132.6 mm (R3; docs/visca_reference.md §4.1).
-                        optical_zoom_ratio: Some(30.0),
-                    },
-                    focus: {
-                        range: range!(u16, 0x0000, 0xFFFF),
-                        near_end: $crate::capabilities::FocusNearEnd::Unknown,
-                        auto_focus: true,
-                        one_push: false,
-                        focus_zone_inquiry: true,
-                        zones: profile_constants::PTZ_OPTICS_G2_FOCUS_ZONES,
-                        max_speed: 7,
-                        af_sensitivity: false,
-                        near_limit_inquiry: false,
-                    },
-                    exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(domain!(u16, 0x00, 0x0C)),
-                        shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: Some(range!(u8, 0, 7)),
-                        brightness_range: Some(domain!(u8, 0, 17)),
-                        backlight_comp: true,
-                        exposure_comp_range: Some(range!(i8, -7, 7)),
-                        wdr: true,
-                    },
-                    white_balance: {
-                        modes: profile_constants::COLOR_TEMP_WB_MODES,
-                        one_push: true,
-                        rg_tuning_range: Some(range!(i8, -10, 10)),
-                        bg_tuning_range: Some(range!(i8, -10, 10)),
-                        color_temp_range: Some(range!(u16, 2500, 8000)),
-                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                    },
-                    image: {
-                        base_support: true,
-                        contrast_range: Some(range!(u8, 0, 14)),
-                        sharpness_range: Some(range!(u8, 0, 15)),
-                        saturation_range: Some(range!(u8, 0, 14)),
-                        flip: true,
-                        mirror: true,
-                        hue_range: Some(range!(u8, 0, 14)),
-                        picture_effect: true,
-                        luminance_range: Some(range!(u8, 0, 14)),
-                        save_after_flip: true,
-                        gamma_range: Some(range!(u8, 0, 4)),
-                    },
-                    presets: {
-                        highest: 127,
-                        speed_range: Some(range!(u8, 1, 24)),
-                        tour: false,
-                        recall_delay_ms: 0,
-                        thumbnail: false,
-                        max_name_len: 0,
-                    },
-                    power: {
-                        on_secs: 10,
-                        standby: true,
-                        standby_secs: 1,
-                        wake_on_lan: false,
-                        retains_settings: true,
-                        home_on_power_up: false,
-                    },
-                    menu: { direct: false },
-                    tally: { supported: false },
-                    motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
-                    variable_speed: { supported: false },
-                    usb_audio: { supported: true },
-                    typed_support: [
-                        (PowerStandby, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-powerstandby-grant")])),
-                        (ShutterDirect, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-shutterdirect-grant")])),
-                        (PresetMemory, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-presetmemory-grant")])),
-                        (ShutterControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-shuttercontrol-grant")])),
-                        (GainControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-gaincontrol-grant")])),
-                        (GainLimit, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-gainlimit-grant")])),
-                        (StandardWhiteBalanceModes, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-standardwhitebalancemodes-grant")])),
-                        (MenuEnterReturn, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-menuenterreturn-grant")])),
-                        (MenuStatusInquiry, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-menustatusinquiry-grant")])),
-                        (PtzOpticsAntiFlicker, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-ptzopticsantiflicker-grant")])),
-                        (PtzOpticsSettingsSave, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-ptzopticssettingssave-grant")])),
-                        (PtzOpticsPresetRecallSpeed, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-ptzopticspresetrecallspeed-grant")])),
-                        (PtzOpticsMulticastStreaming, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-ptzopticsmulticaststreaming-grant")])),
-                        (PtzOpticsNdiQuality, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-ptzopticsndiquality-grant")])),
-                        (ExposureMode, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-exposuremode-grant")])),
-                        (ExposureCompensation, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-exposurecompensation-grant")])),
-                        (BrightnessControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-brightnesscontrol-grant")])),
-                        (FocusLock, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-focuslock-grant")])),
-                        (DirectZoom, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-directzoom-grant")])),
-                        (IrisControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-iriscontrol-grant")])),
-                        (FocusZone, $crate::source_evidence::source!([(B1, [PtzOptics30X], "b1-ptzoptics30x-focuszone-grant")])),
-                        (FocusZoneInquiry, $crate::source_evidence::source!([(B1, [PtzOptics30X], "b1-ptzoptics30x-focuszoneinquiry-grant")])),
-                        (UsbAudio, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-usbaudio-grant")])),
-                        (BacklightCompensation, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-backlightcompensation-grant")])),
-                        (WideDynamicRange, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-widedynamicrange-grant")])),
-                        (ColorTemperature, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-colortemperature-grant")])),
-                        (ColorTemperatureInquiry, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-colortemperatureinquiry-grant")])),
-                        (RgbGain, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-rgbgain-grant")])),
-                        (RgbTuning, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-rgbtuning-grant")])),
-                        (OnePushWhiteBalance, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-onepushwhitebalance-grant")])),
-                        (AutoWhiteBalanceSensitivity, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-autowhitebalancesensitivity-grant")])),
-                        (ImageFlip, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-imageflip-grant")])),
-                        (ImageMirror, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-imagemirror-grant")])),
-                        (CombinedImageFlip, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-combinedimageflip-grant")])),
-                        (ContrastControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-contrastcontrol-grant")])),
-                        (SharpnessControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-sharpnesscontrol-grant")])),
-                        (SharpnessMode, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-sharpnessmode-grant")])),
-                        (SaturationControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-saturationcontrol-grant")])),
-                        (HueControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-huecontrol-grant")])),
-                        (LuminanceControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-luminancecontrol-grant")])),
-                        (GammaControl, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-gammacontrol-grant")])),
-                        (NoiseReduction2D, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-noisereduction2d-grant")])),
-                        (NoiseReduction2DMode, $crate::source_evidence::source!([(R14, [PtzOptics30X], "r14-ptzoptics30x-noisereduction2dmode-grant")])),
-                        (NoiseReduction3D, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-noisereduction3d-grant")])),
-                        (NoiseReduction2DControl, $crate::source_evidence::source!([(R14, [PtzOptics30X], "r14-ptzoptics30x-noisereduction2dcontrol-grant")])),
-                        (NoiseReduction3DControl, $crate::source_evidence::source!([(R14, [PtzOptics30X], "r14-ptzoptics30x-noisereduction3dcontrol-grant")])),
-                        (PictureEffect, $crate::source_evidence::source!([(R1, [PtzOptics30X], "r1-ptzoptics30x-pictureeffect-grant")])),
-                    ],
                     withheld: [],
                     evidence: [
                         ("command_cancel", "On the PTZOptics G2 bench (PT30X-NDI G2 firmware ARM 6.3.51THI and PT12X-NDI G2 firmware ARM 6.4.18SHI; 2026-10-05), a socket cancel `81 2y FF` sent while a slow absolute pan/tilt move ran on socket y (ACK `90 4y`) was answered `90 60 02 FF` (syntax error) and the move continued to its target and completed (`90 5y`): the G2 family does not implement socket cancel."),
@@ -2837,170 +2099,169 @@ macro_rules! builtin_profile_registry {
                         ("focus_zones", "R14/R20 document `CAM_AFZone` Top `00`, Center `01` and Bottom `02`. On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, firmware ARM 6.3.51THI, 6.3.76THI, 6.4.18SHI; 2026-10-04; #795) the cameras also report `03`, accept `81 01 04 AA 03 FF` with ACK and completion, and read `03` back, so `FocusZone::Zone03` is admitted for this family."),
                         ("usb_audio", "The PTZOptics Gen-2 UAC table documents the USB-audio command and matching inquiry for the raw 30X model."),
                         ("noise_reduction", "R1 supplies legacy PT30X SDI/NDI G2 09 04 50/53/54 inquiries, including 3D 0..8, but no setters. R14 supplies 04 50/53/54 controls only because R15 explicitly narrows this profile to that legacy PT30X SDI/NDI G2 raw-VISCA family. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by query output domains; do not generalize this evidence to newer 30X products."),
-                    ],
+                        ],
                 }
 
-                profile SonyFR7 {
+                profile SonyFr7 {
                     doc: "Sony FR7 camera profile.",
-                    id: SonyFr7,
+                    id: "sony_fr7",
                     id_doc: "Sony FR7 camera",
-                    id_attrs: [],
                     vendor: "Sony",
                     description: "Professional cinema camera with variable ND filter and model-specific exposure controls",
-                    envelope: $crate::transport::SonyEncapsulated,
-                    transport: {
-                        tcp: none,
-                        udp: { default_port: 52381 },
-                        serial: none,
-                    },
-                    metadata: {
-                        model_name: "Sony FR7",
-                        default_camera_id: 1,
-                        ack_timeout_ms: profile_registry::INTERIM_ACK_TIMEOUT_MS,
-                        command_timeouts: profile_registry::command_timeouts_ms(8000, 30000, 60000, 300000, 8000),
-                        inquiry_timeout_ms: profile_registry::INTERIM_INQUIRY_TIMEOUT_MS,
-                        cancellation_timeout_ms: 1000,
-                        ambiguity_timeout_ms: 1000,
-                        busy_timeout_ms: 0,
-                        inquiry_support: $crate::capabilities::InquirySupport::Full,
+                    facts: {
+                        capabilities: {
+                            profile_id: from_id,
+                            model_name: "Sony FR7",
+                            default_camera_id: 1,
+                            pan_tilt: {
+                                pan_range: range!(i32, -0x09CA7, 0x09CA7),
+                                tilt_ranges: $crate::capabilities::TiltRanges::MountDependent {
+                                    desktop: range!(i32, -0x1BA5, 0xB3B0), ceiling: range!(i32, -0xC183, 0xDD2),
+                                    },
+                                pan_speed: range!(u8, 1, 50),
+                                tilt_speed: range!(u8, 1, 50),
+                                coordinates: {
+                                    coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                                    wire_codec: $crate::capabilities::PanTiltWireCodec::SonyFr7,
+                                    pan_degrees_to_units: -235.9,
+                                    tilt_degrees_to_units: 235.9,
+                                },
+                                endpoint_quantization: $crate::capabilities::EndpointQuantization::WholeDegrees,
+                                simultaneous: true,
+                                preset_recovery_time: std::time::Duration::from_millis(0),
+                                variable_speed: true,
+                                motion_sync_speed_range: None,
+                            },
+                            zoom: {
+                                optical_max: 0x4000,
+                                digital_max: None,
+                                speed: range!(u8, 0, 7),
+                                direct: true,
+                                variable: true,
+                                optical_ratio: None,
+                            },
+                            focus: {
+                                range: range!(u16, 0x0000, 0xFFFF),
+                                near_end: $crate::capabilities::FocusNearEnd::Maximum,
+                                auto_focus: true,
+                                one_push: false,
+                                zone_inquiry: false,
+                                zones: (profile_constants::NO_FOCUS_ZONES).to_vec(),
+                                speed: range!(u8, 0, 7),
+                                af_sensitivity: false,
+                                near_limit_inquiry: false,
+                            },
+                            exposure: {
+                                modes: (profile_constants::NO_SHARED_EXPOSURE_MODES).to_vec(),
+                                iris_range: None,
+                                shutter_speeds: (profile_constants::NO_SHUTTER_SPEEDS).to_vec(),
+                                gain_range: None,
+                                brightness_range: None,
+                                backlight_compensation: true,
+                                compensation_range: None,
+                                wide_dynamic_range: false,
+                            },
+                            white_balance: {
+                                modes: (&[$crate::WhiteBalanceMode::Atw, $crate::WhiteBalanceMode::Manual, $crate::WhiteBalanceMode::Preset]).to_vec(),
+                                one_push: true,
+                                color_temp_range: None,
+                                color_temperature_steps: std::sync::Arc::from([]),
+                                rgb_gain: None,
+                                rgb_tuning: None,
+                            },
+                            image: {
+                                contrast_range: None,
+                                sharpness_range: Some(range!(u8, 0, 14)),
+                                saturation_range: None,
+                                flip: false,
+                                mirror: false,
+                                hue_range: None,
+                                picture_effect: false,
+                                luminance_range: None,
+                                requires_settings_save_for_flip: false,
+                                gamma_range: None,
+                            },
+                            presets: {
+                                highest: 0x63,
+                                recall_axes: $crate::AffectedAxes::PAN_TILT
+                                    .union($crate::AffectedAxes::ZOOM)
+                                    .union($crate::AffectedAxes::FOCUS),
+                                recall_speed_range: Some(range!(u8, 1, 50)),
+                                tour: false,
+                                thumbnail: false,
+                                recall_delay: std::time::Duration::from_millis(0),
+                                names: std::num::NonZeroUsize::new(0),
+                            },
+                            power: {
+                                on_time: std::time::Duration::from_secs(15),
+                                standby: Some(std::time::Duration::from_secs(1)),
+                                wake_on_lan: true,
+                                retains_settings: true,
+                                home_on_up: false,
+                            },
+                            menu: {
+                            },
+                            inquiry_support: $crate::capabilities::InquirySupport::Full,
+                            typed_support: grants([
+                                (PowerStandby, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-powerstandby-grant")])),
+                                (PresetMemory, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-presetmemory-grant")])),
+                                (MenuDisplay, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-menudisplay-grant")])),
+                                (MenuDisplayInquiry, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-menustatusinquiry-grant")])),
+                                (VersionInquiry, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-versioninquiry-grant")])),
+                                (Spotlight, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-sonyspotlight-grant")])),
+                                (PushAutoFocus, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-pushautofocus-grant")])),
+                                (DirectZoom, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-directzoom-grant")])),
+                                (BacklightCompensation, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-backlightcompensation-grant")])),
+                                (Sharpness, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-sharpnesscontrol-grant")])),
+                                (Tally, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-tally-grant")])),
+                                (DirectMenu, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-directmenu-grant")])),
+                                (NdFilter, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-ndfilter-grant")])),
+                                (PanTiltSpeedMode, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-variablespeed-grant")])),
+                                (AeLevel, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7aelevel")),
+                                (AutoGain, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7autogain")),
+                                (AutoShutter, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7autoshutter")),
+                                (IrisSteps, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-irissteps")),
+                                (AutoIris, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-autoiris")),
+                                (OnePushWhiteBalance(SonyFr7), crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-onepushwhitebalance")),
+                                (PresetWhite, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7presetwhite")),
+                                (MemoryColorTemperature, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7memorycolortemperature")),
+                                (MemoryGain, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7memorygain")),
+                                (MemoryTint, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7memorytint")),
+                                (AtwOffsets, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7atwoffsets")),
+                                (BlackLevels, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7black")),
+                                (Detail, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7detail")),
+                                (Knee, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7knee")),
+                                (HighResolutionZoom, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7highresolutionzoom")),
+                                (ClearImageZoom, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7clearimagezoom")),
+                                (SeparatePresetSpeed, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-separatepresetspeed")),
+                                (PresetRecallSpeed(SonyFr7), crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-presetrecallspeed")),
+                                (PresetRecallSpeedInquiry, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-presetrecallspeedinquiry")),
+                                (SeparatePresetDuration, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7presetduration")),
+                                ]),
+                        },
+                        encodings: from_grants,
+                        transports: {
+                            tcp_port: None,
+                            udp_port: Some(52381),
+                            serial: false,
+                        },
+                        envelope: $crate::profiles::ProfileEnvelope::SonyEncapsulated,
+                        timing: {
+                            ack_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_ACK_TIMEOUT_MS),
+                            inquiry_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_INQUIRY_TIMEOUT_MS),
+                            cancellation_timeout: std::time::Duration::from_millis(1000),
+                            ambiguity_timeout: std::time::Duration::from_millis(1000),
+                            busy_timeout: std::time::Duration::from_millis(0),
+                            command_timeouts: profile_registry::command_timeouts_ms(8000, 30000, 60000, 300000, 8000),
+                            raw_inquiry_reply_skew: std::time::Duration::from_millis(35),
+                            inquiry_spacing: std::time::Duration::from_millis(35),
+                            command_spacing: std::time::Duration::from_millis(35),
+                        },
+                        maximum_command_sockets: 2,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
-                        maximum_command_sockets: 2,
-                        position_inquiries: {
-                            pan_tilt: true,
-                            zoom: true,
-                            focus: true,
-                            iris: false,
-                            nd_filter: true,
-                        },
-                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
-                            .union($crate::AffectedAxes::ZOOM)
-                            .union($crate::AffectedAxes::FOCUS),
-                        min_inquiry_spacing_ms: 35,
-                        min_command_spacing_ms: 35,
+                        position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::ND_FILTER)))),
                     },
-                    pan_tilt: {
-                        pan_range: range!(i32, -0x09CA7, 0x09CA7),
-                        tilt_ranges: $crate::capabilities::TiltRanges::MountDependent {
-                            desktop: range!(i32, -0x1BA5, 0xB3B0), ceiling: range!(i32, -0xC183, 0xDD2),
-                        },
-                        max_pan_speed: 50,
-                        max_tilt_speed: 50,
-                        simultaneous: true,
-                        preset_recovery_ms: 0,
-                        pan_degrees_to_units: -235.9,
-                        tilt_degrees_to_units: 235.9,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::SonyFr7,
-                        endpoint_quantization: $crate::capabilities::EndpointQuantization::WholeDegrees,
-                    },
-                    zoom: {
-                        optical_max: 0x4000,
-                        digital_max: None,
-                        speed_range: range!(u8, 0, 7),
-                        supports_direct: true,
-                        supports_variable: true,
-                        // Interchangeable-lens body: the ratio belongs to the mounted lens.
-                        optical_zoom_ratio: None,
-                    },
-                    focus: {
-                        range: range!(u16, 0x0000, 0xFFFF),
-                        near_end: $crate::capabilities::FocusNearEnd::Maximum,
-                        auto_focus: true,
-                        one_push: false,
-                        focus_zone_inquiry: false,
-                        zones: profile_constants::NO_FOCUS_ZONES,
-                        max_speed: 7,
-                        af_sensitivity: false,
-                        near_limit_inquiry: false,
-                    },
-                    exposure: {
-                        modes: profile_constants::NO_SHARED_EXPOSURE_MODES,
-                        iris_range: None,
-                        shutter_speeds: profile_constants::NO_SHUTTER_SPEEDS,
-                        gain_range: None,
-                        brightness_range: None,
-                        backlight_comp: true,
-                        exposure_comp_range: None,
-                        wdr: false,
-                    },
-                    white_balance: {
-                        modes: &[$crate::WhiteBalanceMode::Atw, $crate::WhiteBalanceMode::Manual, $crate::WhiteBalanceMode::Preset],
-                        one_push: false,
-                        rg_tuning_range: None,
-                        bg_tuning_range: None,
-                        color_temp_range: None,
-                        red_gain_range: None,
-                        blue_gain_range: None,
-                    },
-                    image: {
-                        base_support: true,
-                        contrast_range: None,
-                        sharpness_range: Some(range!(u8, 0, 14)),
-                        saturation_range: None,
-                        flip: false,
-                        mirror: false,
-                        hue_range: None,
-                        picture_effect: false,
-                        luminance_range: None,
-                        save_after_flip: false,
-                        gamma_range: None,
-                    },
-                    presets: {
-                        highest: 0x63,
-                        speed_range: None,
-                        tour: false,
-                        recall_delay_ms: 0,
-                        thumbnail: false,
-                        max_name_len: 0,
-                    },
-                    power: {
-                        on_secs: 15,
-                        standby: true,
-                        standby_secs: 1,
-                        wake_on_lan: true,
-                        retains_settings: true,
-                        home_on_power_up: false,
-                    },
-                    menu: { direct: true },
-                    tally: { supported: true },
-                    motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::Variable },
-                    variable_speed: { supported: true },
-                    typed_support: [
-                        (PowerStandby, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-powerstandby-grant")])),
-                        (PresetMemory, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-presetmemory-grant")])),
-                        (MenuDisplay, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-menudisplay-grant")])),
-                        (MenuStatusInquiry, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-menustatusinquiry-grant")])),
-                        (VersionInquiry, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-versioninquiry-grant")])),
-                        (SonySpotlight, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-sonyspotlight-grant")])),
-                        (PushAutoFocus, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-pushautofocus-grant")])),
-                        (DirectZoom, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-directzoom-grant")])),
-                        (BacklightCompensation, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-backlightcompensation-grant")])),
-                        (AutoTrackingWhiteBalance, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-autotrackingwhitebalance-grant")])),
-                        (SharpnessControl, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-sharpnesscontrol-grant")])),
-                        (Tally, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-tally-grant")])),
-                        (DirectMenu, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-directmenu-grant")])),
-                        (NdFilter, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-ndfilter-grant")])),
-                        (VariableSpeed, $crate::source_evidence::source!([(R7, [SonyFr7], "r7-sonyfr7-variablespeed-grant")])),
-                        (SonyFr7AeLevel, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7aelevel")),
-                        (SonyFr7AutoGain, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7autogain")),
-                        (SonyFr7AutoShutter, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7autoshutter")),
-                        (SonyFr7Iris, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7iris")),
-                        (SonyFr7WhiteBalance, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7whitebalance")),
-                        (SonyFr7PresetWhite, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7presetwhite")),
-                        (SonyFr7MemoryColorTemperature, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7memorycolortemperature")),
-                        (SonyFr7MemoryGain, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7memorygain")),
-                        (SonyFr7MemoryTint, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7memorytint")),
-                        (SonyFr7AtwOffsets, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7atwoffsets")),
-                        (SonyFr7Black, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7black")),
-                        (SonyFr7Detail, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7detail")),
-                        (SonyFr7Knee, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7knee")),
-                        (SonyFr7HighResolutionZoom, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7highresolutionzoom")),
-                        (SonyFr7ClearImageZoom, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7clearimagezoom")),
-                        (SonyFr7PresetSpeed, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7presetspeed")),
-                        (SonyFr7PresetDuration, crate::source_evidence::source!(R7, [SonyFr7], "r7-grant-sonyfr7presetduration")),
-                    ],
                     withheld: [],
                     evidence: [
                         ("shutter", "No model-specific shutter-code inventory has been lowered from R7 into this profile. It advertises no shared shutter codes, so typed shutter positions are refused rather than sent with another model's codes. Use the raw command path."),
@@ -3017,144 +2278,141 @@ macro_rules! builtin_profile_registry {
                         ("variable_speed", "The FR7 command list R7 documents the `06 45` normal/extended pan/tilt speed-step range. Its separate `7E 04 1B` family selects preset-speed behavior and is not used by this typed surface."),
                         ("noise_reduction", "The FR7 command list R7 does not establish the shared `04 50`/`04 53`/`04 54` noise-reduction family; keep the shared metadata and typed surfaces absent."),
                         ("picture_effect", "The FR7 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
-                    ],
+                        ],
                 }
 
-                profile SonyBRCH900 {
+                profile SonyBrcH900 {
                     doc: "Sony BRC-H900 camera profile.",
-                    id: SonyBrcH900,
+                    id: "sony_brc_h900",
                     id_doc: "Sony BRC-H900 camera",
-                    id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "sony-brch900"))]],
                     vendor: "Sony",
                     description: "Professional PTZ camera with advanced image processing and 100 presets",
-                    envelope: $crate::transport::SonyEncapsulated,
-                    transport: {
-                        tcp: none,
-                        udp: { default_port: 52381 },
-                        serial: none,
-                    },
-                    metadata: {
-                        model_name: "Sony BRC-H900",
-                        default_camera_id: 1,
-                        ack_timeout_ms: profile_registry::INTERIM_ACK_TIMEOUT_MS,
-                        command_timeouts: profile_registry::command_timeouts_ms(6000, 30000, 60000, 300000, 6000),
-                        inquiry_timeout_ms: profile_registry::INTERIM_INQUIRY_TIMEOUT_MS,
-                        cancellation_timeout_ms: 1000,
-                        ambiguity_timeout_ms: 1000,
-                        busy_timeout_ms: 0,
-                        inquiry_support: $crate::capabilities::InquirySupport::Full,
+                    facts: {
+                        capabilities: {
+                            profile_id: from_id,
+                            model_name: "Sony BRC-H900",
+                            default_camera_id: 1,
+                            pan_tilt: {
+                                pan_range: range!(i32, -0x09BDE, 0x09BDE),
+                                tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x1BA8, 0x52F8)),
+                                pan_speed: range!(u8, 1, 24),
+                                tilt_speed: range!(u8, 1, 24),
+                                coordinates: {
+                                    coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                                    wire_codec: $crate::capabilities::PanTiltWireCodec::SonyBrc300,
+                                    pan_degrees_to_units: -236.0,
+                                    tilt_degrees_to_units: 236.0,
+                                },
+                                endpoint_quantization: $crate::capabilities::EndpointQuantization::Exact,
+                                simultaneous: true,
+                                preset_recovery_time: std::time::Duration::from_millis(0),
+                                variable_speed: false,
+                                motion_sync_speed_range: None,
+                            },
+                            zoom: {
+                                optical_max: 0x4000,
+                                digital_max: None,
+                                speed: range!(u8, 0, 7),
+                                direct: false,
+                                variable: true,
+                                optical_ratio: Some(14.0),
+                            },
+                            focus: {
+                                range: range!(u16, 0x1000, 0xC000),
+                                near_end: $crate::capabilities::FocusNearEnd::Maximum,
+                                auto_focus: true,
+                                one_push: false,
+                                zone_inquiry: false,
+                                zones: (profile_constants::NO_FOCUS_ZONES).to_vec(),
+                                speed: range!(u8, 0, 7),
+                                af_sensitivity: false,
+                                near_limit_inquiry: false,
+                            },
+                            exposure: {
+                                modes: (profile_constants::BRC_H900_EXPOSURE_MODES).to_vec(),
+                                iris_range: Some(domain!(u16, 0x00, 0x19)),
+                                shutter_speeds: (profile_constants::NO_SHUTTER_SPEEDS).to_vec(),
+                                gain_range: Some(range!(u8, 0, 0x19)),
+                                brightness_range: None,
+                                backlight_compensation: false,
+                                compensation_range: None,
+                                wide_dynamic_range: false,
+                            },
+                            white_balance: {
+                                modes: (profile_constants::STANDARD_WB_MODES).to_vec(),
+                                one_push: false,
+                                color_temp_range: None,
+                                color_temperature_steps: std::sync::Arc::from([]),
+                                rgb_gain: None,
+                                rgb_tuning: None,
+                            },
+                            image: {
+                                contrast_range: None,
+                                sharpness_range: None,
+                                saturation_range: None,
+                                flip: false,
+                                mirror: false,
+                                hue_range: None,
+                                picture_effect: false,
+                                luminance_range: None,
+                                requires_settings_save_for_flip: false,
+                                gamma_range: None,
+                            },
+                            presets: {
+                                highest: 0x0F,
+                                recall_axes: $crate::AffectedAxes::PAN_TILT
+                                    .union($crate::AffectedAxes::ZOOM)
+                                    .union($crate::AffectedAxes::FOCUS),
+                                recall_speed_range: None,
+                                tour: false,
+                                thumbnail: false,
+                                recall_delay: std::time::Duration::from_millis(0),
+                                names: std::num::NonZeroUsize::new(0),
+                            },
+                            power: {
+                                on_time: std::time::Duration::from_secs(12),
+                                standby: Some(std::time::Duration::from_secs(1)),
+                                wake_on_lan: false,
+                                retains_settings: true,
+                                home_on_up: false,
+                            },
+                            menu: {
+                            },
+                            inquiry_support: $crate::capabilities::InquirySupport::Full,
+                            typed_support: grants([
+                                (PowerStandby, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-powerstandby-grant")])),
+                                (FocusInfinity, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-focusinfinity-grant")])),
+                                (Shutter, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-shuttercontrol-grant")])),
+                                (Gain, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-gaincontrol-grant")])),
+                                (MenuDisplayInquiry, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-menustatusinquiry-grant")])),
+                                (VersionInquiry, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-versioninquiry-grant")])),
+                                (ExposureMode, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-exposuremode-grant")])),
+                                (Iris, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-iriscontrol-grant")])),
+                                ]),
+                        },
+                        encodings: from_grants,
+                        transports: {
+                            tcp_port: None,
+                            udp_port: Some(52381),
+                            serial: false,
+                        },
+                        envelope: $crate::profiles::ProfileEnvelope::SonyEncapsulated,
+                        timing: {
+                            ack_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_ACK_TIMEOUT_MS),
+                            inquiry_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_INQUIRY_TIMEOUT_MS),
+                            cancellation_timeout: std::time::Duration::from_millis(1000),
+                            ambiguity_timeout: std::time::Duration::from_millis(1000),
+                            busy_timeout: std::time::Duration::from_millis(0),
+                            command_timeouts: profile_registry::command_timeouts_ms(6000, 30000, 60000, 300000, 6000),
+                            raw_inquiry_reply_skew: std::time::Duration::from_millis(35),
+                            inquiry_spacing: std::time::Duration::from_millis(35),
+                            command_spacing: std::time::Duration::from_millis(35),
+                        },
+                        maximum_command_sockets: 2,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
-                        maximum_command_sockets: 2,
-                        position_inquiries: {
-                            pan_tilt: true,
-                            zoom: true,
-                            focus: true,
-                            iris: true,
-                            nd_filter: false,
-                        },
-                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
-                            .union($crate::AffectedAxes::ZOOM)
-                            .union($crate::AffectedAxes::FOCUS),
-                        min_inquiry_spacing_ms: 35,
-                        min_command_spacing_ms: 35,
+                        position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::IRIS)))),
                     },
-                    pan_tilt: {
-                        pan_range: range!(i32, -0x09BDE, 0x09BDE),
-                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x1BA8, 0x52F8)),
-                        max_pan_speed: 24,
-                        max_tilt_speed: 24,
-                        simultaneous: true,
-                        preset_recovery_ms: 0,
-                        pan_degrees_to_units: -236.0,
-                        tilt_degrees_to_units: 236.0,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::SonyBrc300,
-                    },
-                    zoom: {
-                        optical_max: 0x4000,
-                        digital_max: None,
-                        speed_range: range!(u8, 0, 7),
-                        supports_direct: false,
-                        supports_variable: true,
-                        // No cited source states this model's optical ratio.
-                        optical_zoom_ratio: Some(14.0),
-                    },
-                    focus: {
-                        range: range!(u16, 0x1000, 0xC000),
-                        near_end: $crate::capabilities::FocusNearEnd::Maximum,
-                        auto_focus: true,
-                        one_push: false,
-                        focus_zone_inquiry: false,
-                        zones: profile_constants::NO_FOCUS_ZONES,
-                        max_speed: 7,
-                        af_sensitivity: false,
-                        near_limit_inquiry: false,
-                    },
-                    exposure: {
-                        modes: profile_constants::BRC_H900_EXPOSURE_MODES,
-                        iris_range: Some(domain!(u16, 0x00, 0x19)),
-                        shutter_speeds: profile_constants::NO_SHUTTER_SPEEDS,
-                        gain_range: Some(range!(u8, 0, 0x19)),
-                        brightness_range: None,
-                        backlight_comp: false,
-                        exposure_comp_range: None,
-                        wdr: false,
-                    },
-                    white_balance: {
-                        modes: profile_constants::STANDARD_WB_MODES,
-                        one_push: false,
-                        rg_tuning_range: None,
-                        bg_tuning_range: None,
-                        color_temp_range: None,
-                        red_gain_range: None,
-                        blue_gain_range: None,
-                    },
-                    image: {
-                        base_support: true,
-                        contrast_range: None,
-                        sharpness_range: None,
-                        saturation_range: None,
-                        flip: false,
-                        mirror: false,
-                        hue_range: None,
-                        picture_effect: false,
-                        luminance_range: None,
-                        save_after_flip: false,
-                        gamma_range: None,
-                    },
-                    presets: {
-                        highest: 0x0F,
-                        speed_range: None,
-                        tour: false,
-                        recall_delay_ms: 0,
-                        thumbnail: false,
-                        max_name_len: 0,
-                    },
-                    power: {
-                        on_secs: 12,
-                        standby: true,
-                        standby_secs: 1,
-                        wake_on_lan: false,
-                        retains_settings: true,
-                        home_on_power_up: false,
-                    },
-                    menu: { direct: false },
-                    tally: { supported: false },
-                    motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
-                    variable_speed: { supported: false },
-                    typed_support: [
-                        (PowerStandby, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-powerstandby-grant")])),
-                        (FocusInfinity, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-focusinfinity-grant")])),
-                        (ShutterControl, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-shuttercontrol-grant")])),
-                        (GainControl, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-gaincontrol-grant")])),
-                        (StandardWhiteBalanceModes, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-standardwhitebalancemodes-grant")])),
-                        (MenuStatusInquiry, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-menustatusinquiry-grant")])),
-                        (VersionInquiry, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-versioninquiry-grant")])),
-                        (ExposureMode, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-exposuremode-grant")])),
-                        (IrisControl, $crate::source_evidence::source!([(R11, [SonyBrcH900], "r11-sonybrch900-iriscontrol-grant")])),
-                    ],
                     withheld: [],
                     evidence: [
                         ("shutter", "No model-specific shutter-code inventory has been lowered from R11 into this profile. It advertises no shared shutter codes, so typed shutter positions are refused rather than sent with another model's codes. Use the raw command path."),
@@ -3167,164 +2425,161 @@ macro_rules! builtin_profile_registry {
                         ("brightness", "The BRC-H900 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
                         ("noise_reduction", "The BRC-H900 model command list R11 does not establish the shared `04 50`/`04 53`/`04 54` noise-reduction family, so both discovery metadata and typed surfaces remain unavailable."),
                         ("picture_effect", "The BRC-H900 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
-                    ],
+                        ],
                 }
 
-                profile SonyEVIH100 {
+                profile SonyEviH100 {
                     doc: "Sony EVI-H100 camera profile.",
-                    id: SonyEviH100,
+                    id: "sony_evi_h100",
                     id_doc: "Sony EVI-H100 camera",
-                    id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "sony-evih100"))]],
                     vendor: "Sony",
                     description: "Compact HD PTZ camera with basic feature set",
-                    envelope: $crate::transport::RawVisca,
-                    transport: {
-                        tcp: none,
-                        udp: none,
-                        serial: supported,
-                    },
-                    metadata: {
-                        model_name: "Sony EVI-H100",
-                        default_camera_id: 1,
-                        ack_timeout_ms: profile_registry::INTERIM_ACK_TIMEOUT_MS,
-                        command_timeouts: $crate::CommandTimeouts::DEFAULT,
-                        inquiry_timeout_ms: profile_registry::INTERIM_INQUIRY_TIMEOUT_MS,
-                        cancellation_timeout_ms: 1000,
-                        ambiguity_timeout_ms: 1000,
-                        busy_timeout_ms: 240,
-                        inquiry_support: $crate::capabilities::InquirySupport::Partial,
+                    facts: {
+                        capabilities: {
+                            profile_id: from_id,
+                            model_name: "Sony EVI-H100",
+                            default_camera_id: 1,
+                            pan_tilt: {
+                                pan_range: range!(i32, -0x1E1B, 0x1E1B),
+                                tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x038B, 0x0FF0)),
+                                pan_speed: range!(u8, 1, 0x18),
+                                tilt_speed: range!(u8, 1, 0x17),
+                                coordinates: {
+                                    coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                                    wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
+                                    pan_degrees_to_units: 7707.0 / 170.0,
+                                    tilt_degrees_to_units: 7707.0 / 170.0,
+                                },
+                                endpoint_quantization: $crate::capabilities::EndpointQuantization::Exact,
+                                simultaneous: true,
+                                preset_recovery_time: std::time::Duration::from_millis(0),
+                                variable_speed: false,
+                                motion_sync_speed_range: None,
+                            },
+                            zoom: {
+                                optical_max: 0x4000,
+                                digital_max: Some(0x7AC0),
+                                speed: range!(u8, 0, 7),
+                                direct: true,
+                                variable: true,
+                                optical_ratio: None,
+                            },
+                            focus: {
+                                range: range!(u16, 0x1000, 0xF000),
+                                near_end: $crate::capabilities::FocusNearEnd::Maximum,
+                                auto_focus: true,
+                                one_push: true,
+                                zone_inquiry: false,
+                                zones: (profile_constants::NO_FOCUS_ZONES).to_vec(),
+                                speed: range!(u8, 0, 7),
+                                af_sensitivity: false,
+                                near_limit_inquiry: true,
+                            },
+                            exposure: {
+                                modes: (profile_constants::STANDARD_EXPOSURE_MODES).to_vec(),
+                                iris_range: Some(domain!(u16, 0x00, 0x11, gaps: [0x01, 0x02, 0x03, 0x04])),
+                                shutter_speeds: (profile_constants::SONY_EVI_H100_SHUTTER_SPEEDS).to_vec(),
+                                gain_range: Some(range!(u8, 0x00, 0x0F)),
+                                brightness_range: Some(domain!(u8, 0x00, 0x1F, gaps: [0x01, 0x02, 0x03, 0x04])),
+                                backlight_compensation: true,
+                                compensation_range: Some(range!(i8, -7, 7)),
+                                wide_dynamic_range: true,
+                            },
+                            white_balance: {
+                                modes: (profile_constants::STANDARD_WB_MODES).to_vec(),
+                                one_push: true,
+                                color_temp_range: None,
+                                color_temperature_steps: std::sync::Arc::from([]),
+                                rgb_gain: {
+                                    red: range!(u8, 0x00, 0xFF),
+                                    blue: range!(u8, 0x00, 0xFF),
+                                },
+                                rgb_tuning: None,
+                            },
+                            image: {
+                                contrast_range: None,
+                                sharpness_range: Some(range!(u8, 0x00, 0x0F)),
+                                saturation_range: Some(range!(u8, 0x00, 0x0E)),
+                                flip: false,
+                                mirror: false,
+                                hue_range: Some(range!(u8, 0x00, 0x0E)),
+                                picture_effect: true,
+                                luminance_range: None,
+                                requires_settings_save_for_flip: false,
+                                gamma_range: Some(range!(u8, 0, 4)),
+                            },
+                            presets: {
+                                highest: 5,
+                                recall_axes: $crate::AffectedAxes::PAN_TILT
+                                    .union($crate::AffectedAxes::ZOOM)
+                                    .union($crate::AffectedAxes::FOCUS),
+                                recall_speed_range: None,
+                                tour: false,
+                                thumbnail: false,
+                                recall_delay: std::time::Duration::from_millis(0),
+                                names: std::num::NonZeroUsize::new(0),
+                            },
+                            power: {
+                                on_time: std::time::Duration::from_secs(8),
+                                standby: Some(std::time::Duration::from_secs(1)),
+                                wake_on_lan: false,
+                                retains_settings: true,
+                                home_on_up: false,
+                            },
+                            menu: {
+                            },
+                            inquiry_support: $crate::capabilities::InquirySupport::Partial,
+                            typed_support: grants([
+                                (PowerStandby, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-powerstandby-grant")])),
+                                (DirectShutter, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-shutterdirect-grant")])),
+                                (FocusInfinity, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-focusinfinity-grant")])),
+                                (PresetMemory, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-presetmemory-grant")])),
+                                (Shutter, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-shuttercontrol-grant")])),
+                                (Gain, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-gaincontrol-grant")])),
+                                (Sharpness, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-sharpnesscontrol-grant")])),
+                                (VersionInquiry, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-versioninquiry-grant")])),
+                                (AutoSlowShutter, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-sonyautoslowshutter-grant")])),
+                                (ExposureMode, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-exposuremode-grant")])),
+                                (DirectZoom, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-directzoom-grant")])),
+                                (DigitalZoomToggle, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-digitalzoomtoggle-grant")])),
+                                (DigitalZoomRange, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-digitalzoomrange-grant")])),
+                                (OnePushFocus, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-onepushfocus-grant")])),
+                                (Iris, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-iriscontrol-grant")])),
+                                (FocusNearLimit, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-focusnearlimitinquiry-grant")])),
+                                (Brightness, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-brightnesscontrol-grant")])),
+                                (ExposureCompensation, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-exposurecompensation-grant")])),
+                                (BacklightCompensation, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-backlightcompensation-grant")])),
+                                (RgbGain, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-rgbgain-grant")])),
+                                (OnePushWhiteBalance(Standard), $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-onepushwhitebalance-grant")])),
+                                (Saturation, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-saturationcontrol-grant")])),
+                                (Hue, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-huecontrol-grant")])),
+                                (Gamma, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-gammacontrol-grant")])),
+                                (NoiseReduction2D, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-noisereduction2d-grant"), (R8, [SonyEviH100], "r8-sonyevih100-noisereduction2dcontrol-grant")])),
+                                ]),
+                        },
+                        encodings: from_grants,
+                        transports: {
+                            tcp_port: None,
+                            udp_port: None,
+                            serial: true,
+                        },
+                        envelope: $crate::profiles::ProfileEnvelope::RawVisca,
+                        timing: {
+                            ack_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_ACK_TIMEOUT_MS),
+                            inquiry_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_INQUIRY_TIMEOUT_MS),
+                            cancellation_timeout: std::time::Duration::from_millis(1000),
+                            ambiguity_timeout: std::time::Duration::from_millis(1000),
+                            busy_timeout: std::time::Duration::from_millis(240),
+                            command_timeouts: $crate::CommandTimeouts::DEFAULT,
+                            raw_inquiry_reply_skew: std::time::Duration::from_millis(0),
+                            inquiry_spacing: std::time::Duration::from_millis(0),
+                            command_spacing: std::time::Duration::from_millis(0),
+                        },
+                        maximum_command_sockets: 2,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
-                        maximum_command_sockets: 2,
-                        position_inquiries: {
-                            pan_tilt: true,
-                            zoom: true,
-                            focus: true,
-                            iris: true,
-                            nd_filter: false,
-                        },
-                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
-                            .union($crate::AffectedAxes::ZOOM)
-                            .union($crate::AffectedAxes::FOCUS),
-                        min_inquiry_spacing_ms: 0,
-                        min_command_spacing_ms: 0,
+                        position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::IRIS)))),
                     },
-                    pan_tilt: {
-                        pan_range: range!(i32, -0x1E1B, 0x1E1B),
-                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x038B, 0x0FF0)),
-                        max_pan_speed: 0x18,
-                        max_tilt_speed: 0x17,
-                        simultaneous: true,
-                        preset_recovery_ms: 0,
-                        pan_degrees_to_units: 7707.0 / 170.0,
-                        tilt_degrees_to_units: 7707.0 / 170.0,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
-                    },
-                    zoom: {
-                        optical_max: 0x4000,
-                        digital_max: Some(0x7AC0),
-                        speed_range: range!(u8, 0, 7),
-                        supports_direct: true,
-                        supports_variable: true,
-                        // No cited source states this model's optical ratio.
-                        optical_zoom_ratio: None,
-                    },
-                    focus: {
-                        range: range!(u16, 0x1000, 0xF000),
-                        near_end: $crate::capabilities::FocusNearEnd::Maximum,
-                        auto_focus: true,
-                        one_push: true,
-                        focus_zone_inquiry: false,
-                        zones: profile_constants::NO_FOCUS_ZONES,
-                        max_speed: 7,
-                        af_sensitivity: false,
-                        near_limit_inquiry: true,
-                    },
-                    exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(domain!(u16, 0x00, 0x11, gaps: [0x01, 0x02, 0x03, 0x04])),
-                        shutter_speeds: profile_constants::SONY_EVI_H100_SHUTTER_SPEEDS,
-                        gain_range: Some(range!(u8, 0x00, 0x0F)),
-                        brightness_range: Some(domain!(u8, 0x00, 0x1F, gaps: [0x01, 0x02, 0x03, 0x04])),
-                        backlight_comp: true,
-                        exposure_comp_range: Some(range!(i8, -7, 7)),
-                        wdr: true,
-                    },
-                    white_balance: {
-                        modes: profile_constants::STANDARD_WB_MODES,
-                        one_push: true,
-                        rg_tuning_range: None,
-                        bg_tuning_range: None,
-                        color_temp_range: None,
-                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                    },
-                    image: {
-                        base_support: true,
-                        contrast_range: None,
-                        // R8 Aperture Level `00`..`0F` and Color Gain/Hue
-                        // `0h`..`Eh`.
-                        sharpness_range: Some(range!(u8, 0x00, 0x0F)),
-                        saturation_range: Some(range!(u8, 0x00, 0x0E)),
-                        flip: false,
-                        mirror: false,
-                        hue_range: Some(range!(u8, 0x00, 0x0E)),
-                        picture_effect: true,
-                        luminance_range: None,
-                        save_after_flip: false,
-                        gamma_range: Some(range!(u8, 0, 4)),
-                    },
-                    presets: {
-                        highest: 5,
-                        speed_range: None,
-                        tour: false,
-                        recall_delay_ms: 0,
-                        thumbnail: false,
-                        max_name_len: 0,
-                    },
-                    power: {
-                        on_secs: 8,
-                        standby: true,
-                        standby_secs: 1,
-                        wake_on_lan: false,
-                        retains_settings: true,
-                        home_on_power_up: false,
-                    },
-                    menu: { direct: false },
-                    tally: { supported: false },
-                    motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
-                    variable_speed: { supported: false },
-                    typed_support: [
-                        (PowerStandby, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-powerstandby-grant")])),
-                        (ShutterDirect, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-shutterdirect-grant")])),
-                        (FocusInfinity, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-focusinfinity-grant")])),
-                        (PresetMemory, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-presetmemory-grant")])),
-                        (ShutterControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-shuttercontrol-grant")])),
-                        (GainControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-gaincontrol-grant")])),
-                        (StandardWhiteBalanceModes, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-standardwhitebalancemodes-grant")])),
-                        (SharpnessControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-sharpnesscontrol-grant")])),
-                        (VersionInquiry, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-versioninquiry-grant")])),
-                        (SonyAutoSlowShutter, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-sonyautoslowshutter-grant")])),
-                        (ExposureMode, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-exposuremode-grant")])),
-                        (DirectZoom, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-directzoom-grant")])),
-                        (DigitalZoomToggle, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-digitalzoomtoggle-grant")])),
-                        (DigitalZoomRange, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-digitalzoomrange-grant")])),
-                        (OnePushFocus, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-onepushfocus-grant")])),
-                        (IrisControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-iriscontrol-grant")])),
-                        (FocusNearLimitInquiry, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-focusnearlimitinquiry-grant")])),
-                        (BrightnessControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-brightnesscontrol-grant")])),
-                        (ExposureCompensation, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-exposurecompensation-grant")])),
-                        (BacklightCompensation, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-backlightcompensation-grant")])),
-                        (RgbGain, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-rgbgain-grant")])),
-                        (OnePushWhiteBalance, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-onepushwhitebalance-grant")])),
-                        (SaturationControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-saturationcontrol-grant")])),
-                        (HueControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-huecontrol-grant")])),
-                        (GammaControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-gammacontrol-grant")])),
-                        (NoiseReduction2D, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-noisereduction2d-grant")])),
-                        (NoiseReduction2DControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-noisereduction2dcontrol-grant")])),
-                    ],
                     withheld: [WideDynamicRange, PictureEffect],
                     evidence: [
                         ("transport", "The EVI-H100S/H100V technical manual (R8) documents VISCA over RS-232C and RS-422 at 9,600 or 38,400 bps; it documents no IP transport, so the profile is serial-only."),
@@ -3351,175 +2606,155 @@ macro_rules! builtin_profile_registry {
                         ("hue_control", "The EVI-H100S/H100V technical manual (R8) `CAM_ColorHue` Direct `8x 01 04 4F 00 00 00 0p FF` and `CAM_ColorHueInq` `8x 09 04 4F FF` -> `y0 50 00 00 00 0p FF`, p `0h` (-14 degrees) to `Eh` (+14 degrees): the hue control and inquiry byte for byte."),
                         ("sharpness_control", "The EVI-H100S/H100V technical manual (R8) `CAM_Aperture` reset/up/down `8x 01 04 02 00/02/03 FF`, direct `8x 01 04 42 00 00 0p 0q FF` and `CAM_ApertureInq` `09 04 42`, with Aperture Level `00`..`0F`, so level/step control and its typed inquiry are enabled. R8 does not list the independent `04 05` sharpness auto/manual mode or `09 04 05` inquiry; SharpnessMode remains withheld."),
                         ("picture_effect", "The EVI-H100S/H100V technical manual (R8) `CAM_PictureEffect` Off/Neg.Art/B&W `8x 01 04 63 00/02/04 FF`, so the discovery metadata reports it. Its `CAM_PictureEffectModeInq` reports Off as `00` and Neg.Art as `02`, while the typed inquiry decodes `02` as Off (the PTZOptics layout) and has no Neg.Art mode, so the typed surface is withheld."),
-                    ],
+                        ],
                 }
 
-                profile SonyBRC300 {
+                profile SonyBrc300 {
                     doc: "Sony BRC-300 camera profile.",
-                    id: SonyBrc300,
+                    id: "sony_brc_300",
                     id_doc: "Sony BRC-300 camera",
-                    id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "sony-brc300"))]],
                     vendor: "Sony",
                     description: "Legacy PTZ camera with signed-centered 20-bit pan and 16-bit tilt coordinates",
-                    envelope: $crate::transport::RawVisca,
-                    transport: {
-                        tcp: none,
-                        udp: none,
-                        serial: supported,
-                    },
-                    metadata: {
-                        model_name: "Sony BRC-300",
-                        default_camera_id: 1,
-                        ack_timeout_ms: profile_registry::INTERIM_ACK_TIMEOUT_MS,
-                        command_timeouts: $crate::CommandTimeouts::DEFAULT,
-                        inquiry_timeout_ms: profile_registry::INTERIM_INQUIRY_TIMEOUT_MS,
-                        cancellation_timeout_ms: 1000,
-                        ambiguity_timeout_ms: 1000,
-                        busy_timeout_ms: 0,
-                        inquiry_support: $crate::capabilities::InquirySupport::Partial,
+                    facts: {
+                        capabilities: {
+                            profile_id: from_id,
+                            model_name: "Sony BRC-300",
+                            default_camera_id: 1,
+                            pan_tilt: {
+                                pan_range: range!(i32, -0x08A58, 0x08A58),
+                                tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x186A, 0x493D)),
+                                pan_speed: range!(u8, 1, 0x18),
+                                tilt_speed: range!(u8, 1, 0x18),
+                                coordinates: {
+                                    coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                                    wire_codec: $crate::capabilities::PanTiltWireCodec::SonyBrc300,
+                                    pan_degrees_to_units: -208.0,
+                                    tilt_degrees_to_units: 208.0,
+                                },
+                                endpoint_quantization: $crate::capabilities::EndpointQuantization::Exact,
+                                simultaneous: true,
+                                preset_recovery_time: std::time::Duration::from_millis(0),
+                                variable_speed: false,
+                                motion_sync_speed_range: None,
+                            },
+                            zoom: {
+                                optical_max: 0x4000,
+                                digital_max: Some(0x7F00),
+                                speed: range!(u8, 0, 7),
+                                direct: true,
+                                variable: true,
+                                optical_ratio: None,
+                            },
+                            focus: {
+                                range: range!(u16, 0x1000, 0xC000),
+                                near_end: $crate::capabilities::FocusNearEnd::Maximum,
+                                auto_focus: true,
+                                one_push: true,
+                                zone_inquiry: false,
+                                zones: (profile_constants::NO_FOCUS_ZONES).to_vec(),
+                                speed: range!(u8, 0, 7),
+                                af_sensitivity: false,
+                                near_limit_inquiry: false,
+                            },
+                            exposure: {
+                                modes: (profile_constants::STANDARD_EXPOSURE_MODES).to_vec(),
+                                iris_range: Some(domain!(u16, 0x00, 0x11)),
+                                shutter_speeds: (profile_constants::SONY_BRC300_SHUTTER_SPEEDS).to_vec(),
+                                gain_range: Some(range!(u8, 0x00, 0x07)),
+                                brightness_range: Some(domain!(u8, 0x00, 0x17)),
+                                backlight_compensation: true,
+                                compensation_range: Some(range!(i8, -7, 7)),
+                                wide_dynamic_range: false,
+                            },
+                            white_balance: {
+                                modes: (profile_constants::STANDARD_WB_MODES).to_vec(),
+                                one_push: true,
+                                color_temp_range: None,
+                                color_temperature_steps: std::sync::Arc::from([]),
+                                rgb_gain: {
+                                    red: range!(u8, 0x00, 0xFF),
+                                    blue: range!(u8, 0x00, 0xFF),
+                                },
+                                rgb_tuning: None,
+                            },
+                            image: {
+                                contrast_range: None,
+                                sharpness_range: None,
+                                saturation_range: None,
+                                flip: true,
+                                mirror: false,
+                                hue_range: None,
+                                picture_effect: false,
+                                luminance_range: None,
+                                requires_settings_save_for_flip: false,
+                                gamma_range: None,
+                            },
+                            presets: {
+                                highest: 5,
+                                recall_axes: $crate::AffectedAxes::PAN_TILT
+                                    .union($crate::AffectedAxes::ZOOM)
+                                    .union($crate::AffectedAxes::FOCUS),
+                                recall_speed_range: Some(range!(u8, 1, 24)),
+                                tour: false,
+                                thumbnail: false,
+                                recall_delay: std::time::Duration::from_millis(0),
+                                names: std::num::NonZeroUsize::new(0),
+                            },
+                            power: {
+                                on_time: std::time::Duration::from_secs(10),
+                                standby: None,
+                                wake_on_lan: false,
+                                retains_settings: true,
+                                home_on_up: false,
+                            },
+                            menu: {
+                            },
+                            inquiry_support: $crate::capabilities::InquirySupport::Partial,
+                            typed_support: grants([
+                                (DirectShutter, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-shutterdirect-grant")])),
+                                (FocusInfinity, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-focusinfinity-grant")])),
+                                (PresetMemory, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-presetmemory-grant")])),
+                                (Shutter, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-shuttercontrol-grant")])),
+                                (Gain, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-gaincontrol-grant")])),
+                                (VersionInquiry, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-versioninquiry-grant")])),
+                                (AutoSlowShutter, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-sonyautoslowshutter-grant")])),
+                                (ExposureMode, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-exposuremode-grant")])),
+                                (DirectZoom, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-directzoom-grant")])),
+                                (DigitalZoomToggle, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-digitalzoomtoggle-grant")])),
+                                (DigitalZoomRange, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-digitalzoomrange-grant")])),
+                                (OnePushFocus, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-onepushfocus-grant")])),
+                                (Iris, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-iriscontrol-grant")])),
+                                (Brightness, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-brightnesscontrol-grant")])),
+                                (ExposureCompensation, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-exposurecompensation-grant")])),
+                                (BacklightCompensation, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-backlightcompensation-grant")])),
+                                (RgbGain, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-rgbgain-grant")])),
+                                (ImageFlip, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-imageflip-grant")])),
+                                (OnePushWhiteBalance(Standard), $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-onepushwhitebalance-grant")])),
+                                ]),
+                        },
+                        encodings: from_grants,
+                        transports: {
+                            tcp_port: None,
+                            udp_port: None,
+                            serial: true,
+                        },
+                        envelope: $crate::profiles::ProfileEnvelope::RawVisca,
+                        timing: {
+                            ack_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_ACK_TIMEOUT_MS),
+                            inquiry_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_INQUIRY_TIMEOUT_MS),
+                            cancellation_timeout: std::time::Duration::from_millis(1000),
+                            ambiguity_timeout: std::time::Duration::from_millis(1000),
+                            busy_timeout: std::time::Duration::from_millis(0),
+                            command_timeouts: $crate::CommandTimeouts::DEFAULT,
+                            raw_inquiry_reply_skew: std::time::Duration::from_millis(0),
+                            inquiry_spacing: std::time::Duration::from_millis(0),
+                            command_spacing: std::time::Duration::from_millis(0),
+                        },
+                        maximum_command_sockets: 2,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
-                        maximum_command_sockets: 2,
-                        position_inquiries: {
-                            pan_tilt: true,
-                            zoom: true,
-                            focus: true,
-                            iris: true,
-                            nd_filter: false,
-                        },
-                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
-                            .union($crate::AffectedAxes::ZOOM)
-                            .union($crate::AffectedAxes::FOCUS),
-                        min_inquiry_spacing_ms: 0,
-                        min_command_spacing_ms: 0,
+                        position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::IRIS)))),
                     },
-                    pan_tilt: {
-                        // Sony BRC-300 technical manual, pp. 12 and 22:
-                        // signed 20-bit pan (`08A58` left / `F75A8` right)
-                        // and signed 16-bit tilt (`493D` up / `E796` down).
-                        // The library's degree convention is positive pan right
-                        // and positive tilt up, so pan is opposite the raw
-                        // axis and tilt follows it.
-                        pan_range: range!(i32, -0x08A58, 0x08A58),
-                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x186A, 0x493D)),
-                        max_pan_speed: 0x18,
-                        // BRC-300 position frames have one speed byte. The
-                        // profile-aware coarse-speed lowering mirrors it into
-                        // both public wrappers; explicit paired speeds must
-                        // agree and use this same documented maximum.
-                        max_tilt_speed: 0x18,
-                        simultaneous: true,
-                        preset_recovery_ms: 0,
-                        // The manual approximates one degree as `0xD0`; the
-                        // signs follow the documented raw-axis polarity.
-                        pan_degrees_to_units: -208.0,
-                        tilt_degrees_to_units: 208.0,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::SonyBrc300,
-                    },
-                    zoom: {
-                        optical_max: 0x4000,
-                        digital_max: Some(0x7F00),
-                        speed_range: range!(u8, 0, 7),
-                        supports_direct: true,
-                        supports_variable: true,
-                        // No cited source states this model's optical ratio.
-                        optical_zoom_ratio: None,
-                    },
-                    focus: {
-                        range: range!(u16, 0x1000, 0xC000),
-                        near_end: $crate::capabilities::FocusNearEnd::Maximum,
-                        auto_focus: true,
-                        one_push: true,
-                        focus_zone_inquiry: false,
-                        zones: profile_constants::NO_FOCUS_ZONES,
-                        max_speed: 7,
-                        af_sensitivity: false,
-                        near_limit_inquiry: false,
-                    },
-                    exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(domain!(u16, 0x00, 0x11)),
-                        shutter_speeds: profile_constants::SONY_BRC300_SHUTTER_SPEEDS,
-                        gain_range: Some(range!(u8, 0x00, 0x07)),
-                        brightness_range: Some(domain!(u8, 0x00, 0x17)),
-                        backlight_comp: true,
-                        exposure_comp_range: Some(range!(i8, -7, 7)),
-                        wdr: false,
-                    },
-                    white_balance: {
-                        modes: profile_constants::STANDARD_WB_MODES,
-                        one_push: true,
-                        rg_tuning_range: None,
-                        bg_tuning_range: None,
-                        color_temp_range: None,
-                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                    },
-                    image: {
-                        // Backlight inquiry/control is part of the canonical
-                        // `image()` noun, so its source-backed typed marker
-                        // requires the base accessor as well.
-                        base_support: true,
-                        contrast_range: None,
-                        sharpness_range: None,
-                        saturation_range: None,
-                        flip: true,
-                        mirror: false,
-                        hue_range: None,
-                        picture_effect: false,
-                        luminance_range: None,
-                        save_after_flip: false,
-                        gamma_range: None,
-                    },
-                    presets: {
-                        // Sony BRC-300 technical manual, pp. 11–14:
-                        // CAM_Memory accepts p = 0..=5, and Cmd_PT_M_Speed
-                        // documents q = 1..=24. These discovery facts do not
-                        // establish compatibility with the PTZOptics typed
-                        // preset-recall-speed command family.
-                        highest: 5,
-                        speed_range: Some(range!(u8, 1, 24)),
-                        tour: false,
-                        recall_delay_ms: 0,
-                        thumbnail: false,
-                        max_name_len: 0,
-                    },
-                    power: {
-                        on_secs: 10,
-                        standby: false,
-                        standby_secs: 1,
-                        wake_on_lan: false,
-                        retains_settings: true,
-                        home_on_power_up: false,
-                    },
-                    menu: { direct: false },
-                    tally: { supported: false },
-                    motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
-                    variable_speed: { supported: false },
-                    typed_support: [
-                        (ShutterDirect, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-shutterdirect-grant")])),
-                        (FocusInfinity, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-focusinfinity-grant")])),
-                        (PresetMemory, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-presetmemory-grant")])),
-                        (ShutterControl, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-shuttercontrol-grant")])),
-                        (GainControl, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-gaincontrol-grant")])),
-                        (StandardWhiteBalanceModes, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-standardwhitebalancemodes-grant")])),
-                        (VersionInquiry, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-versioninquiry-grant")])),
-                        (SonyAutoSlowShutter, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-sonyautoslowshutter-grant")])),
-                        (ExposureMode, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-exposuremode-grant")])),
-                        (DirectZoom, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-directzoom-grant")])),
-                        (DigitalZoomToggle, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-digitalzoomtoggle-grant")])),
-                        (DigitalZoomRange, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-digitalzoomrange-grant")])),
-                        (OnePushFocus, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-onepushfocus-grant")])),
-                        (IrisControl, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-iriscontrol-grant")])),
-                        (BrightnessControl, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-brightnesscontrol-grant")])),
-                        (ExposureCompensation, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-exposurecompensation-grant")])),
-                        (BacklightCompensation, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-backlightcompensation-grant")])),
-                        (RgbGain, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-rgbgain-grant")])),
-                        (ImageFlip, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-imageflip-grant")])),
-                        (OnePushWhiteBalance, $crate::source_evidence::source!([(R12, [SonyBrc300], "r12-sonybrc300-onepushwhitebalance-grant")])),
-                    ],
                     withheld: [],
                     evidence: [
                         ("zoom", "The BRC-300 technical manual (R12) `CAM_Zoom` Direct `8x 01 04 47 0p 0q 0r 0s FF` and its zoom position table (x12 lens): optical `0000` (x1) through `4000` (x12), digital `4000` (x1) through `7F00` (x4)."),
@@ -3539,167 +2774,155 @@ macro_rules! builtin_profile_registry {
                         ("exposure_mode", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri/Bright commands and `09 04 39` inquiry."),
                         ("iris", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document standard iris reset/up/down, direct `04 4B`, and the `09 04 4B` position inquiry, and its iris table (exposure control 1/2) lists `00` CLOSE through `11` F1.6. The distinct `09 04 2B` status inquiry remains unavailable."),
                         ("backlight", "The BRC-300 technical manual R12 pp. 11 and 14 (text rows 404-405 and 539-540 in docs/visca_reference.md's linked source) documents `CAM_BackLight` on/off as `8x 01 04 33 02/03 FF` and `CAM_BackLightModeInq` as `8x 09 04 33 FF` with `y0 50 02/03 FF` replies. Those paired rows support the `image()` backlight surface, not a broad image-processing grant."),
-                    ],
+                        ],
                 }
 
-                profile NearusBRC300 {
+                profile NearusBrc300 {
                     doc: "Nearus BRC-300 camera profile.",
-                    id: NearusBrc300,
+                    id: "nearus_brc_300",
                     id_doc: "Nearus BRC-300 camera",
-                    id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "nearus-brc300"))]],
                     vendor: "Nearus",
                     description: "Nearus BRC-300 PTZ camera with the BRC-300 signed-centered 20-bit pan and 16-bit tilt framing",
-                    envelope: $crate::transport::RawVisca,
-                    transport: {
-                        tcp: none,
-                        udp: none,
-                        serial: supported,
-                    },
-                    metadata: {
-                        model_name: "Nearus BRC-300",
-                        default_camera_id: 1,
-                        ack_timeout_ms: profile_registry::INTERIM_ACK_TIMEOUT_MS,
-                        command_timeouts: $crate::CommandTimeouts::DEFAULT,
-                        inquiry_timeout_ms: profile_registry::INTERIM_INQUIRY_TIMEOUT_MS,
-                        cancellation_timeout_ms: 1000,
-                        ambiguity_timeout_ms: 1000,
-                        busy_timeout_ms: 0,
-                        inquiry_support: $crate::capabilities::InquirySupport::Partial,
+                    facts: {
+                        capabilities: {
+                            profile_id: from_id,
+                            model_name: "Nearus BRC-300",
+                            default_camera_id: 1,
+                            pan_tilt: {
+                                pan_range: range!(i32, -0x08A58, 0x08A58),
+                                tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x186A, 0x493D)),
+                                pan_speed: range!(u8, 1, 0x18),
+                                tilt_speed: range!(u8, 1, 0x18),
+                                coordinates: {
+                                    coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                                    wire_codec: $crate::capabilities::PanTiltWireCodec::SonyBrc300,
+                                    pan_degrees_to_units: -208.0,
+                                    tilt_degrees_to_units: 208.0,
+                                },
+                                endpoint_quantization: $crate::capabilities::EndpointQuantization::Exact,
+                                simultaneous: true,
+                                preset_recovery_time: std::time::Duration::from_millis(0),
+                                variable_speed: false,
+                                motion_sync_speed_range: None,
+                            },
+                            zoom: {
+                                optical_max: 0x4000,
+                                digital_max: Some(0x7F00),
+                                speed: range!(u8, 0, 7),
+                                direct: true,
+                                variable: true,
+                                optical_ratio: None,
+                            },
+                            focus: {
+                                range: range!(u16, 0x1000, 0xC000),
+                                near_end: $crate::capabilities::FocusNearEnd::Maximum,
+                                auto_focus: true,
+                                one_push: true,
+                                zone_inquiry: false,
+                                zones: (profile_constants::NO_FOCUS_ZONES).to_vec(),
+                                speed: range!(u8, 0, 7),
+                                af_sensitivity: false,
+                                near_limit_inquiry: false,
+                            },
+                            exposure: {
+                                modes: (profile_constants::STANDARD_EXPOSURE_MODES).to_vec(),
+                                iris_range: Some(domain!(u16, 0x00, 0x11)),
+                                shutter_speeds: (profile_constants::SONY_BRC300_SHUTTER_SPEEDS).to_vec(),
+                                gain_range: Some(range!(u8, 0x00, 0x07)),
+                                brightness_range: Some(domain!(u8, 0x00, 0x17)),
+                                backlight_compensation: true,
+                                compensation_range: Some(range!(i8, -7, 7)),
+                                wide_dynamic_range: false,
+                            },
+                            white_balance: {
+                                modes: (profile_constants::STANDARD_WB_MODES).to_vec(),
+                                one_push: true,
+                                color_temp_range: None,
+                                color_temperature_steps: std::sync::Arc::from([]),
+                                rgb_gain: {
+                                    red: range!(u8, 0x00, 0xFF),
+                                    blue: range!(u8, 0x00, 0xFF),
+                                },
+                                rgb_tuning: None,
+                            },
+                            image: {
+                                contrast_range: None,
+                                sharpness_range: None,
+                                saturation_range: None,
+                                flip: true,
+                                mirror: false,
+                                hue_range: None,
+                                picture_effect: false,
+                                luminance_range: None,
+                                requires_settings_save_for_flip: false,
+                                gamma_range: None,
+                            },
+                            presets: {
+                                highest: 5,
+                                recall_axes: $crate::AffectedAxes::PAN_TILT
+                                    .union($crate::AffectedAxes::ZOOM)
+                                    .union($crate::AffectedAxes::FOCUS),
+                                recall_speed_range: Some(range!(u8, 1, 24)),
+                                tour: false,
+                                thumbnail: false,
+                                recall_delay: std::time::Duration::from_millis(0),
+                                names: std::num::NonZeroUsize::new(0),
+                            },
+                            power: {
+                                on_time: std::time::Duration::from_secs(10),
+                                standby: None,
+                                wake_on_lan: false,
+                                retains_settings: true,
+                                home_on_up: false,
+                            },
+                            menu: {
+                            },
+                            inquiry_support: $crate::capabilities::InquirySupport::Partial,
+                            typed_support: grants([
+                                (DirectShutter, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-shutterdirect-grant")])),
+                                (FocusInfinity, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-focusinfinity-grant")])),
+                                (PresetMemory, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-presetmemory-grant")])),
+                                (Shutter, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-shuttercontrol-grant")])),
+                                (Gain, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-gaincontrol-grant")])),
+                                (VersionInquiry, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-versioninquiry-grant")])),
+                                (AutoSlowShutter, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-sonyautoslowshutter-grant")])),
+                                (ExposureMode, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-exposuremode-grant")])),
+                                (DirectZoom, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-directzoom-grant")])),
+                                (DigitalZoomToggle, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-digitalzoomtoggle-grant")])),
+                                (DigitalZoomRange, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-digitalzoomrange-grant")])),
+                                (OnePushFocus, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-onepushfocus-grant")])),
+                                (Iris, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-iriscontrol-grant")])),
+                                (Brightness, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-brightnesscontrol-grant")])),
+                                (ExposureCompensation, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensation-grant")])),
+                                (BacklightCompensation, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-backlightcompensation-grant")])),
+                                (RgbGain, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-rgbgain-grant")])),
+                                (ImageFlip, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-imageflip-grant")])),
+                                (OnePushWhiteBalance(Standard), $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-onepushwhitebalance-grant")])),
+                                ]),
+                        },
+                        encodings: from_grants,
+                        transports: {
+                            tcp_port: None,
+                            udp_port: None,
+                            serial: true,
+                        },
+                        envelope: $crate::profiles::ProfileEnvelope::RawVisca,
+                        timing: {
+                            ack_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_ACK_TIMEOUT_MS),
+                            inquiry_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_INQUIRY_TIMEOUT_MS),
+                            cancellation_timeout: std::time::Duration::from_millis(1000),
+                            ambiguity_timeout: std::time::Duration::from_millis(1000),
+                            busy_timeout: std::time::Duration::from_millis(0),
+                            command_timeouts: $crate::CommandTimeouts::DEFAULT,
+                            raw_inquiry_reply_skew: std::time::Duration::from_millis(0),
+                            inquiry_spacing: std::time::Duration::from_millis(0),
+                            command_spacing: std::time::Duration::from_millis(0),
+                        },
+                        maximum_command_sockets: 2,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
-                        maximum_command_sockets: 2,
-                        position_inquiries: {
-                            pan_tilt: true,
-                            zoom: true,
-                            focus: true,
-                            iris: true,
-                            nd_filter: false,
-                        },
-                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
-                            .union($crate::AffectedAxes::ZOOM)
-                            .union($crate::AffectedAxes::FOCUS),
-                        min_inquiry_spacing_ms: 0,
-                        min_command_spacing_ms: 0,
+                        position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::IRIS)))),
                     },
-                    pan_tilt: {
-                        // R21 command list (3/4, 4/4): signed 20-bit pan
-                        // (`08A58` left end / `F75A8` right end) and signed
-                        // 16-bit tilt (`493D` up / `E796` down) in the
-                        // one-speed, five-pan-nibble position frame. The
-                        // library's degree convention is positive pan right
-                        // and positive tilt up, so pan is opposite the raw
-                        // axis and tilt follows it.
-                        pan_range: range!(i32, -0x08A58, 0x08A58),
-                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x186A, 0x493D)),
-                        max_pan_speed: 0x18,
-                        // The position frame has one speed byte; explicit
-                        // paired speeds must agree and use this same maximum.
-                        max_tilt_speed: 0x18,
-                        simultaneous: true,
-                        preset_recovery_ms: 0,
-                        // R21's position table approximates one degree as
-                        // `0xD0`; the signs follow the documented raw-axis
-                        // polarity.
-                        pan_degrees_to_units: -208.0,
-                        tilt_degrees_to_units: 208.0,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::SonyBrc300,
-                    },
-                    zoom: {
-                        optical_max: 0x4000,
-                        digital_max: Some(0x7F00),
-                        speed_range: range!(u8, 0, 7),
-                        supports_direct: true,
-                        supports_variable: true,
-                        // No cited source states this model's optical ratio.
-                        optical_zoom_ratio: None,
-                    },
-                    focus: {
-                        range: range!(u16, 0x1000, 0xC000),
-                        near_end: $crate::capabilities::FocusNearEnd::Maximum,
-                        auto_focus: true,
-                        one_push: true,
-                        focus_zone_inquiry: false,
-                        zones: profile_constants::NO_FOCUS_ZONES,
-                        max_speed: 7,
-                        af_sensitivity: false,
-                        near_limit_inquiry: false,
-                    },
-                    exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(domain!(u16, 0x00, 0x11)),
-                        shutter_speeds: profile_constants::SONY_BRC300_SHUTTER_SPEEDS,
-                        gain_range: Some(range!(u8, 0x00, 0x07)),
-                        brightness_range: Some(domain!(u8, 0x00, 0x17)),
-                        backlight_comp: true,
-                        exposure_comp_range: Some(range!(i8, -7, 7)),
-                        wdr: false,
-                    },
-                    white_balance: {
-                        modes: profile_constants::STANDARD_WB_MODES,
-                        one_push: true,
-                        rg_tuning_range: None,
-                        bg_tuning_range: None,
-                        color_temp_range: None,
-                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
-                    },
-                    image: {
-                        base_support: true,
-                        contrast_range: None,
-                        sharpness_range: None,
-                        saturation_range: None,
-                        flip: true,
-                        mirror: false,
-                        hue_range: None,
-                        picture_effect: false,
-                        luminance_range: None,
-                        save_after_flip: false,
-                        gamma_range: None,
-                    },
-                    presets: {
-                        highest: 5,
-                        speed_range: Some(range!(u8, 1, 24)),
-                        tour: false,
-                        recall_delay_ms: 0,
-                        thumbnail: false,
-                        max_name_len: 0,
-                    },
-                    power: {
-                        on_secs: 10,
-                        standby: false,
-                        standby_secs: 1,
-                        wake_on_lan: false,
-                        retains_settings: true,
-                        home_on_power_up: false,
-                    },
-                    menu: { direct: false },
-                    tally: { supported: false },
-                    motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
-                    variable_speed: { supported: false },
-                    typed_support: [
-                        (ShutterDirect, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-shutterdirect-grant")])),
-                        (FocusInfinity, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-focusinfinity-grant")])),
-                        (PresetMemory, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-presetmemory-grant")])),
-                        (ShutterControl, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-shuttercontrol-grant")])),
-                        (GainControl, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-gaincontrol-grant")])),
-                        (StandardWhiteBalanceModes, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-standardwhitebalancemodes-grant")])),
-                        (VersionInquiry, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-versioninquiry-grant")])),
-                        (SonyAutoSlowShutter, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-sonyautoslowshutter-grant")])),
-                        (ExposureMode, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-exposuremode-grant")])),
-                        (DirectZoom, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-directzoom-grant")])),
-                        (DigitalZoomToggle, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-digitalzoomtoggle-grant")])),
-                        (DigitalZoomRange, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-digitalzoomrange-grant")])),
-                        (OnePushFocus, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-onepushfocus-grant")])),
-                        (IrisControl, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-iriscontrol-grant")])),
-                        (BrightnessControl, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-brightnesscontrol-grant")])),
-                        (ExposureCompensation, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensation-grant")])),
-                        (BacklightCompensation, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-backlightcompensation-grant")])),
-                        (RgbGain, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-rgbgain-grant")])),
-                        (ImageFlip, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-imageflip-grant")])),
-                        (OnePushWhiteBalance, $crate::source_evidence::source!([(R21, [NearusBrc300], "r21-nearusbrc300-onepushwhitebalance-grant")])),
-                    ],
                     withheld: [],
                     evidence: [
                         ("zoom", "The Nearus command list (R21) `CAM_Zoom` Direct `8x 01 04 47 0p 0q 0r 0s FF` and its zoom position table (x12 lens): optical `0000` (x1) through `4000` (x12), digital `4000` (x1) through `7F00` (x4)."),
@@ -3725,141 +2948,127 @@ macro_rules! builtin_profile_registry {
 
                 profile GenericVisca {
                     doc: "Generic VISCA camera profile.",
-                    id: GenericVisca,
+                    id: "generic_visca",
                     id_doc: "Generic VISCA-compatible camera",
-                    id_attrs: [#[default]],
                     vendor: "Generic",
                     description: "Conservative profile for unknown VISCA-compatible cameras",
-                    envelope: $crate::transport::RawVisca,
-                    transport: {
-                        tcp: { default_port: 5678 },
-                        udp: { default_port: 1259 },
-                        serial: supported,
-                    },
-                    metadata: {
-                        model_name: "Generic VISCA Camera",
-                        default_camera_id: 1,
-                        ack_timeout_ms: profile_registry::INTERIM_ACK_TIMEOUT_MS,
-                        command_timeouts: profile_registry::command_timeouts_ms(10000, 30000, 60000, 300000, 10000),
-                        inquiry_timeout_ms: profile_registry::INTERIM_INQUIRY_TIMEOUT_MS,
-                        cancellation_timeout_ms: 1000,
-                        ambiguity_timeout_ms: 1000,
-                        busy_timeout_ms: 0,
-                        inquiry_support: $crate::capabilities::InquirySupport::Partial,
+                    facts: {
+                        capabilities: {
+                            profile_id: from_id,
+                            model_name: "Generic VISCA Camera",
+                            default_camera_id: 1,
+                            pan_tilt: {
+                                pan_range: range!(i32, -2880, 2880),
+                                tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -1440, 1440)),
+                                pan_speed: range!(u8, 1, 24),
+                                tilt_speed: range!(u8, 1, 0x17),
+                                coordinates: {
+                                    coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                                    wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
+                                    pan_degrees_to_units: 16.0,
+                                    tilt_degrees_to_units: 16.0,
+                                },
+                                endpoint_quantization: $crate::capabilities::EndpointQuantization::Exact,
+                                simultaneous: true,
+                                preset_recovery_time: std::time::Duration::from_millis(0),
+                                variable_speed: false,
+                                motion_sync_speed_range: None,
+                            },
+                            zoom: {
+                                optical_max: 0xFFFF,
+                                digital_max: None,
+                                speed: range!(u8, 0, 7),
+                                direct: false,
+                                variable: true,
+                                optical_ratio: None,
+                            },
+                            focus: {
+                                range: range!(u16, 0x1000, 0xE000),
+                                near_end: $crate::capabilities::FocusNearEnd::Maximum,
+                                auto_focus: true,
+                                one_push: true,
+                                zone_inquiry: false,
+                                zones: (profile_constants::NO_FOCUS_ZONES).to_vec(),
+                                speed: range!(u8, 0, 7),
+                                af_sensitivity: false,
+                                near_limit_inquiry: false,
+                            },
+                            exposure: {
+                                modes: (profile_constants::STANDARD_EXPOSURE_MODES).to_vec(),
+                                iris_range: Some(domain!(u16, 0x00, 0x11, gaps: [0x01, 0x02, 0x03, 0x04])),
+                                shutter_speeds: (profile_constants::SONY_BRC300_SHUTTER_SPEEDS).to_vec(),
+                                gain_range: Some(range!(u8, 0, 7)),
+                                brightness_range: None,
+                                backlight_compensation: false,
+                                compensation_range: None,
+                                wide_dynamic_range: false,
+                            },
+                            white_balance: {
+                                modes: (profile_constants::STANDARD_WB_MODES).to_vec(),
+                                one_push: true,
+                                color_temp_range: None,
+                                color_temperature_steps: std::sync::Arc::from([]),
+                                rgb_gain: None,
+                                rgb_tuning: None,
+                            },
+                            image: None,
+                            presets: {
+                                highest: 5,
+                                recall_axes: $crate::AffectedAxes::PAN_TILT
+                                    .union($crate::AffectedAxes::ZOOM)
+                                    .union($crate::AffectedAxes::FOCUS),
+                                recall_speed_range: None,
+                                tour: false,
+                                thumbnail: false,
+                                recall_delay: std::time::Duration::from_millis(0),
+                                names: std::num::NonZeroUsize::new(0),
+                            },
+                            power: {
+                                on_time: std::time::Duration::from_secs(30),
+                                standby: None,
+                                wake_on_lan: false,
+                                retains_settings: true,
+                                home_on_up: false,
+                            },
+                            menu: {
+                            },
+                            inquiry_support: $crate::capabilities::InquirySupport::Partial,
+                            typed_support: grants([
+                                (DirectShutter, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-shutterdirect-grant"), (R12, [GenericVisca], "r12-genericvisca-shutterdirect-grant"), (R21, [GenericVisca], "r21-genericvisca-shutterdirect-grant")])),
+                                (FocusInfinity, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-focusinfinity-grant"), (R12, [GenericVisca], "r12-genericvisca-focusinfinity-grant"), (R21, [GenericVisca], "r21-genericvisca-focusinfinity-grant")])),
+                                (PresetMemory, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-presetmemory-grant"), (R12, [GenericVisca], "r12-genericvisca-presetmemory-grant"), (R21, [GenericVisca], "r21-genericvisca-presetmemory-grant")])),
+                                (Shutter, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-shuttercontrol-grant"), (R12, [GenericVisca], "r12-genericvisca-shuttercontrol-grant"), (R21, [GenericVisca], "r21-genericvisca-shuttercontrol-grant")])),
+                                (Gain, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-gaincontrol-grant"), (R12, [GenericVisca], "r12-genericvisca-gaincontrol-grant"), (R21, [GenericVisca], "r21-genericvisca-gaincontrol-grant")])),
+                                (VersionInquiry, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-versioninquiry-grant"), (R12, [GenericVisca], "r12-genericvisca-versioninquiry-grant"), (R21, [GenericVisca], "r21-genericvisca-versioninquiry-grant")])),
+                                (ExposureMode, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-exposuremode-grant"), (R12, [GenericVisca], "r12-genericvisca-exposuremode-grant"), (R21, [GenericVisca], "r21-genericvisca-exposuremode-grant")])),
+                                (Iris, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-iriscontrol-grant"), (R12, [GenericVisca], "r12-genericvisca-iriscontrol-grant"), (R21, [GenericVisca], "r21-genericvisca-iriscontrol-grant")])),
+                                (OnePushFocus, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-onepushfocus-grant"), (R12, [GenericVisca], "r12-genericvisca-onepushfocus-grant"), (R21, [GenericVisca], "r21-genericvisca-onepushfocus-grant")])),
+                                (OnePushWhiteBalance(Standard), $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-onepushwhitebalance-grant"), (R12, [GenericVisca], "r12-genericvisca-onepushwhitebalance-grant"), (R21, [GenericVisca], "r21-genericvisca-onepushwhitebalance-grant")])),
+                                ]),
+                        },
+                        encodings: from_grants,
+                        transports: {
+                            tcp_port: Some(5678),
+                            udp_port: Some(1259),
+                            serial: true,
+                        },
+                        envelope: $crate::profiles::ProfileEnvelope::RawVisca,
+                        timing: {
+                            ack_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_ACK_TIMEOUT_MS),
+                            inquiry_timeout: std::time::Duration::from_millis(profile_registry::INTERIM_INQUIRY_TIMEOUT_MS),
+                            cancellation_timeout: std::time::Duration::from_millis(1000),
+                            ambiguity_timeout: std::time::Duration::from_millis(1000),
+                            busy_timeout: std::time::Duration::from_millis(0),
+                            command_timeouts: profile_registry::command_timeouts_ms(10000, 30000, 60000, 300000, 10000),
+                            raw_inquiry_reply_skew: std::time::Duration::from_millis(0),
+                            inquiry_spacing: std::time::Duration::from_millis(0),
+                            command_spacing: std::time::Duration::from_millis(0),
+                        },
+                        maximum_command_sockets: 2,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
-                        maximum_command_sockets: 2,
-                        position_inquiries: {
-                            pan_tilt: true,
-                            zoom: true,
-                            focus: true,
-                            iris: true,
-                            nd_filter: false,
-                        },
-                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
-                            .union($crate::AffectedAxes::ZOOM)
-                            .union($crate::AffectedAxes::FOCUS),
-                        min_inquiry_spacing_ms: 0,
-                        min_command_spacing_ms: 0,
+                        position_inquiries: Some($crate::AffectedAxes::PAN_TILT.union($crate::AffectedAxes::ZOOM.union($crate::AffectedAxes::FOCUS.union($crate::AffectedAxes::IRIS)))),
                     },
-                    pan_tilt: {
-                        pan_range: range!(i32, -2880, 2880),
-                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -1440, 1440)),
-                        max_pan_speed: 24,
-                        max_tilt_speed: 0x17,
-                        simultaneous: true,
-                        preset_recovery_ms: 0,
-                        pan_degrees_to_units: 16.0,
-                        tilt_degrees_to_units: 16.0,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
-                    },
-                    zoom: {
-                        optical_max: 0xFFFF,
-                        digital_max: None,
-                        speed_range: range!(u8, 0, 7),
-                        supports_direct: false,
-                        supports_variable: true,
-                        // No cited source states this model's optical ratio.
-                        optical_zoom_ratio: None,
-                    },
-                    focus: {
-                        range: range!(u16, 0x1000, 0xE000),
-                        near_end: $crate::capabilities::FocusNearEnd::Maximum,
-                        auto_focus: true,
-                        one_push: true,
-                        focus_zone_inquiry: false,
-                        zones: profile_constants::NO_FOCUS_ZONES,
-                        max_speed: 7,
-                        af_sensitivity: false,
-                        near_limit_inquiry: false,
-                    },
-                    exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(domain!(u16, 0x00, 0x11, gaps: [0x01, 0x02, 0x03, 0x04])),
-                        shutter_speeds: profile_constants::SONY_BRC300_SHUTTER_SPEEDS,
-                        gain_range: Some(range!(u8, 0, 7)),
-                        brightness_range: None,
-                        backlight_comp: false,
-                        exposure_comp_range: None,
-                        wdr: false,
-                    },
-                    white_balance: {
-                        modes: profile_constants::STANDARD_WB_MODES,
-                        one_push: true,
-                        rg_tuning_range: None,
-                        bg_tuning_range: None,
-                        color_temp_range: None,
-                        red_gain_range: None,
-                        blue_gain_range: None,
-                    },
-                    image: {
-                        base_support: false,
-                        contrast_range: None,
-                        sharpness_range: None,
-                        saturation_range: None,
-                        flip: false,
-                        mirror: false,
-                        hue_range: None,
-                        picture_effect: false,
-                        luminance_range: None,
-                        save_after_flip: false,
-                        gamma_range: None,
-                    },
-                    presets: {
-                        highest: 5,
-                        speed_range: None,
-                        tour: false,
-                        recall_delay_ms: 0,
-                        thumbnail: false,
-                        max_name_len: 0,
-                    },
-                    power: {
-                        on_secs: 30,
-                        standby: false,
-                        standby_secs: 1,
-                        wake_on_lan: false,
-                        retains_settings: true,
-                        home_on_power_up: false,
-                    },
-                    menu: { direct: false },
-                    tally: { supported: false },
-                    motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
-                    variable_speed: { supported: false },
-                    typed_support: [
-                        (ShutterDirect, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-shutterdirect-grant"), (R12, [GenericVisca], "r12-genericvisca-shutterdirect-grant"), (R21, [GenericVisca], "r21-genericvisca-shutterdirect-grant")])),
-                        (FocusInfinity, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-focusinfinity-grant"), (R12, [GenericVisca], "r12-genericvisca-focusinfinity-grant"), (R21, [GenericVisca], "r21-genericvisca-focusinfinity-grant")])),
-                        (PresetMemory, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-presetmemory-grant"), (R12, [GenericVisca], "r12-genericvisca-presetmemory-grant"), (R21, [GenericVisca], "r21-genericvisca-presetmemory-grant")])),
-                        (ShutterControl, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-shuttercontrol-grant"), (R12, [GenericVisca], "r12-genericvisca-shuttercontrol-grant"), (R21, [GenericVisca], "r21-genericvisca-shuttercontrol-grant")])),
-                        (GainControl, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-gaincontrol-grant"), (R12, [GenericVisca], "r12-genericvisca-gaincontrol-grant"), (R21, [GenericVisca], "r21-genericvisca-gaincontrol-grant")])),
-                        (StandardWhiteBalanceModes, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-standardwhitebalancemodes-grant"), (R12, [GenericVisca], "r12-genericvisca-standardwhitebalancemodes-grant"), (R21, [GenericVisca], "r21-genericvisca-standardwhitebalancemodes-grant")])),
-                        (VersionInquiry, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-versioninquiry-grant"), (R12, [GenericVisca], "r12-genericvisca-versioninquiry-grant"), (R21, [GenericVisca], "r21-genericvisca-versioninquiry-grant")])),
-                        (ExposureMode, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-exposuremode-grant"), (R12, [GenericVisca], "r12-genericvisca-exposuremode-grant"), (R21, [GenericVisca], "r21-genericvisca-exposuremode-grant")])),
-                        (IrisControl, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-iriscontrol-grant"), (R12, [GenericVisca], "r12-genericvisca-iriscontrol-grant"), (R21, [GenericVisca], "r21-genericvisca-iriscontrol-grant")])),
-                        (OnePushFocus, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-onepushfocus-grant"), (R12, [GenericVisca], "r12-genericvisca-onepushfocus-grant"), (R21, [GenericVisca], "r21-genericvisca-onepushfocus-grant")])),
-                        (OnePushWhiteBalance, $crate::source_evidence::source!([(R8, [GenericVisca], "r8-genericvisca-onepushwhitebalance-grant"), (R12, [GenericVisca], "r12-genericvisca-onepushwhitebalance-grant"), (R21, [GenericVisca], "r21-genericvisca-onepushwhitebalance-grant")])),
-                    ],
                     withheld: [],
                     evidence: [
                         ("shutter", "Generic VISCA uses the shutter codes R8, R12 and R21 all list with the same exposure time: `02` 1/4 s through `15` 1/10000 s (R8 also lists `00` 1/1 s and `01` 1/2 s)."),

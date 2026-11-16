@@ -13,7 +13,7 @@ mod support;
 
 use std::{env, io};
 
-use grafton_visca::{camera::profiles::PtzOpticsG2, runtime::TokioRuntime, Connect, Error};
+use grafton_visca::{profiles::PtzOpticsG2, r#async::CameraSession, runtime::TokioRuntime, Error};
 
 use support::finish_session;
 
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Address: {address}");
 
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address, runtime).await?;
     let camera = session.camera();
 
     let inquiry_result: Result<(), Error> = async {
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let focus = camera.focus();
 
         let (power_status, pan_tilt, zoom, focus) = tokio::try_join!(
-            power.state(),
+            power.status(),
             pan_tilt.position(),
             zoom.position(),
             focus.position()

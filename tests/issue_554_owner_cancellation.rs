@@ -23,11 +23,10 @@ use grafton_visca_test_support::{facade_matrix, fake_camera};
 use std::time::Duration;
 
 use grafton_visca::{
-    completion::AppliedOnly,
-    profile::{OperationalTuning, ProfileSpec},
-    profiles::PtzOpticsG2,
-    request::builtin::FocusStop,
-    CancellationOutcome, Error, SessionConfig,
+    config::{OperationalTuning, SessionConfig},
+    operation::{AppliedOnly, CancellationOutcome},
+    profiles::{ProfileSpec, PtzOpticsG2},
+    Error,
 };
 
 use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP};
@@ -37,7 +36,7 @@ fn g2_config(maximum_command_sockets: Option<u8>) -> SessionConfig {
     let config = SessionConfig::new(profile);
     match maximum_command_sockets {
         Some(maximum) => {
-            config.with_tuning(OperationalTuning::new().maximum_command_sockets(maximum))
+            config.with_tuning(OperationalTuning::new().with_maximum_command_sockets(maximum))
         }
         None => config,
     }
@@ -65,7 +64,9 @@ macro_rules! sent_cancel_is_not_supported {
         let ack_before_cancel: bool = $ack_before_cancel;
         let fake = completing_after_first();
         let session = open!(fake, g2_config(Some(1))).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("G2 camera view");
 
         let mut original = wait!(camera.zoom().stop()).expect("transmitted operation");
         wait_for_writes!(fake, 1);
@@ -82,7 +83,7 @@ macro_rules! sent_cancel_is_not_supported {
 
         let refused = wait!(original.cancel())
             .expect_err("G2 sent cancellation must be rejected by profile policy");
-        assert!(matches!(refused, Error::NotSupported));
+        assert!(matches!(refused, Error::CancellationNotSupported));
         // A refusal leaves the handle observing the original operation (#777).
         assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec()]);
 
@@ -99,8 +100,8 @@ macro_rules! sent_cancel_is_not_supported {
         // terminal frame. Its successful applied wait therefore proves the
         // rejected cancellation did not remove or terminalize the original
         // entry, and that no cancellation frame was transmitted.
-        let mut next =
-            wait!(camera.submit::<AppliedOnly, _>(&FocusStop)).expect("next operation admission");
+        let mut next = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop))
+            .expect("next operation admission");
         within!(Duration::from_secs(2), next.applied())
             .expect("next operation applied after original terminal");
         assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec(), FOCUS_STOP.to_vec()]);
@@ -114,7 +115,7 @@ facade_matrix! {
     fn queued_cancel_is_local() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config(None)).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         // G2 has two command sockets. Keep both occupied before admitting the
         // third typed operation so its cancellation is unambiguously pre-wire.
@@ -122,7 +123,7 @@ facade_matrix! {
         wait_for_writes!(fake, 1);
         fake.push(frames::ack(1));
         wait_for_reads!(fake, 1);
-        let second = wait!(camera.submit::<AppliedOnly, _>(&FocusStop)).expect("second operation");
+        let second = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)).expect("second operation");
         wait_for_writes!(fake, 2);
         fake.push(frames::ack(2));
         wait_for_reads!(fake, 2);
@@ -156,7 +157,7 @@ facade_matrix! {
     fn terminal_race_reports_completed() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config(Some(1))).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         let mut original = wait!(camera.zoom().stop()).expect("transmitted operation");
         wait_for_writes!(fake, 1);

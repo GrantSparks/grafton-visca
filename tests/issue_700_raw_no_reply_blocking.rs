@@ -8,9 +8,12 @@ use grafton_visca_test_support::fake_camera;
 
 use fake_camera::FakeCamera;
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
+    blocking::Session,
+    config::SessionConfig,
+    observability::{DiagnosticEvent, DiagnosticOutcome},
+    profiles::ProfileSpec,
     raw::{self, RawReplyShape},
-    DiagnosticEvent, DiagnosticOutcome, ProfileSpec, RetryClass,
+    request::RetryClass,
 };
 
 #[test]
@@ -18,21 +21,21 @@ fn no_reply_plain_command_returns_after_one_write() {
     let fake = FakeCamera::silent();
     let profile = ProfileSpec::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>()
         .expect("runtime profile");
-    let session =
-        Session::open(fake.blocking_wire(), SessionConfig::new(profile)).expect("blocking session");
+    let session = Session::open(fake.blocking_wire(), &SessionConfig::new(profile))
+        .expect("blocking session");
     let camera = session
-        .camera::<grafton_visca::profiles::PtzOpticsG2>()
+        .camera::<grafton_visca::profiles::PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
     let diagnostics = session.subscribe_diagnostics(16).expect("diagnostics");
 
     let wire = [0x81, 0x01, 0x04, 0x07, 0xff];
     let policy = grafton_visca::raw::CommandPolicy::new(
-        grafton_visca::CommandCategory::Quick,
+        grafton_visca::profiles::CommandTimeoutClass::Quick,
         RetryClass::Never,
-        grafton_visca::SubmissionClass::Normal,
+        grafton_visca::request::SubmissionClass::Normal,
     )
     .with_reply_shape(RawReplyShape::NoReply);
-    let command = raw::Plain::with_policy(wire, policy).expect("no-reply raw command");
+    let command = raw::PlainRequest::with_policy(wire, policy).expect("no-reply raw command");
 
     camera
         .execute(&command)

@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use grafton_visca::{Error, Executor};
+use grafton_visca::{runtime::Executor, Error};
 
 /// Counts actor tasks and timer factories through the selected executor.
 #[derive(Clone)]

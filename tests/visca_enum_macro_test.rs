@@ -1,6 +1,6 @@
 //! Built-in value enums expose wire codes only through `WireValue`.
 
-use grafton_visca::{wire::WireValue, ExposureMode};
+use grafton_visca::{types::ExposureMode, wire::WireValue};
 
 #[test]
 fn exposure_mode_wire_values_match_the_protocol() {

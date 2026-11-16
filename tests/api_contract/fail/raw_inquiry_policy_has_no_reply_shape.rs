@@ -1,4 +1,6 @@
-use grafton_visca::{raw::{InquiryPolicy, RawReplyShape}, RetryClass, SubmissionClass};
+use grafton_visca::{
+    raw::InquiryPolicy, raw::RawReplyShape, request::RetryClass, request::SubmissionClass,
+};
 
 fn main() {
     let _ = InquiryPolicy::new(RetryClass::Inquiry, SubmissionClass::Normal)

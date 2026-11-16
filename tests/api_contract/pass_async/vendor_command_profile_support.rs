@@ -1,46 +1,45 @@
 #![cfg(feature = "async")]
 
 use grafton_visca::{
-    profiles::{PtzOpticsG2, SonyEVIH100, SonyFR7},
-    Camera,
+    profiles::PtzOpticsG2, profiles::SonyEviH100, profiles::SonyFr7, r#async::Camera,
 };
 
 fn ptzoptics_vendor_commands(camera: &Camera<PtzOpticsG2>) {
     let _ = camera
         .exposure()
-        .set_anti_flicker(grafton_visca::command::AntiFlickerMode::Hz50);
-    let _ = camera.exposure().flicker_mode();
+        .set_anti_flicker(grafton_visca::types::AntiFlickerMode::Hz50);
+    let _ = camera.exposure().anti_flicker();
     let _ = camera.system().save_settings();
-    let _ = camera.presets().set_recall_speed(
-        grafton_visca::command::PresetSpeed::new(12).expect("valid recall speed"),
-    );
-    let _ = camera.advanced().multicast_on();
-    let _ = camera.advanced().multicast_off();
     let _ = camera
-        .advanced()
+        .presets()
+        .set_recall_speed(grafton_visca::types::PresetSpeed::new(12).expect("valid recall speed"));
+    let _ = camera.streaming().set_multicast(true);
+    let _ = camera.streaming().set_multicast(false);
+    let _ = camera
+        .streaming()
         .set_ndi_quality(grafton_visca::types::NdiQuality::High);
 }
 
-fn sony_spotlight_commands(camera: &Camera<SonyFR7>) {
-    let _ = camera.exposure().spotlight_on();
-    let _ = camera.exposure().spotlight_off();
+fn sony_spotlight_commands(camera: &Camera<SonyFr7>) {
+    let _ = camera.exposure().set_spotlight(true);
+    let _ = camera.exposure().set_spotlight(false);
 }
 
-fn sony_tally_commands(camera: &Camera<SonyFR7>) {
-    let _ = camera.tally().red_on();
-    let _ = camera.tally().red_off();
-    let _ = camera.tally().green_on();
-    let _ = camera.tally().green_off();
+fn sony_tally_commands(camera: &Camera<SonyFr7>) {
+    let _ = camera.tally().set_red(true);
+    let _ = camera.tally().set_red(false);
+    let _ = camera.tally().set_green(true);
+    let _ = camera.tally().set_green(false);
 }
 
-fn sony_auto_slow_shutter_commands(camera: &Camera<SonyEVIH100>) {
-    let _ = camera.exposure().auto_slow_shutter_on();
-    let _ = camera.exposure().auto_slow_shutter_off();
+fn sony_auto_slow_shutter_commands(camera: &Camera<SonyEviH100>) {
+    let _ = camera.exposure().set_auto_slow_shutter(true);
+    let _ = camera.exposure().set_auto_slow_shutter(false);
 }
 
 fn main() {
     let _: fn(&Camera<PtzOpticsG2>) = ptzoptics_vendor_commands;
-    let _: fn(&Camera<SonyFR7>) = sony_spotlight_commands;
-    let _: fn(&Camera<SonyFR7>) = sony_tally_commands;
-    let _: fn(&Camera<SonyEVIH100>) = sony_auto_slow_shutter_commands;
+    let _: fn(&Camera<SonyFr7>) = sony_spotlight_commands;
+    let _: fn(&Camera<SonyFr7>) = sony_tally_commands;
+    let _: fn(&Camera<SonyEviH100>) = sony_auto_slow_shutter_commands;
 }

@@ -3,7 +3,7 @@
 #[cfg(all(feature = "serde", feature = "schemars"))]
 #[test]
 fn test_preset_number_serialization() {
-    use grafton_visca::PresetNumber;
+    use grafton_visca::types::PresetNumber;
 
     let preset = PresetNumber::new(42).expect("Valid preset number");
 
@@ -17,7 +17,7 @@ fn test_preset_number_serialization() {
 #[cfg(all(feature = "serde", feature = "schemars"))]
 #[test]
 fn test_unit_interval_serialization() {
-    use grafton_visca::units::UnitInterval;
+    use grafton_visca::types::UnitInterval;
 
     let normalized = UnitInterval::new(0.75_f32).expect("valid unit interval");
 
@@ -33,7 +33,7 @@ fn test_unit_interval_serialization() {
 #[cfg(all(feature = "serde", feature = "schemars"))]
 #[test]
 fn test_degrees_serialization() {
-    use grafton_visca::units::Degrees;
+    use grafton_visca::types::Degrees;
 
     let degrees = Degrees::new(45.5_f32).expect("finite degrees");
 
@@ -47,10 +47,7 @@ fn test_degrees_serialization() {
 #[cfg(all(feature = "serde", feature = "schemars"))]
 #[test]
 fn test_schema_generation() {
-    use grafton_visca::{
-        units::{Degrees, UnitInterval},
-        PresetNumber,
-    };
+    use grafton_visca::types::{Degrees, PresetNumber, UnitInterval};
     use schemars::schema_for;
 
     // Verify schema can be generated

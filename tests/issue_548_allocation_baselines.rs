@@ -10,14 +10,11 @@ use std::{
 
 use bytes::BytesMut;
 use grafton_visca::{
-    command::{CommandKind, PowerInquiry},
-    request::builtin::{
-        FocusInfinity, FocusStop, PanTiltDrive, PanTiltHome, PanTiltReset, PanTiltStop,
-        PresetReset, PresetSet, ZoomDrive, ZoomStop,
-    },
+    observability::MetricsSnapshot,
+    request::Request,
     transport::{AddressingMode, Envelope, RawVisca, SonyEncapsulated},
-    types::{PanSpeed, TiltSpeed, ZoomSpeed},
-    CameraId, MetricsSnapshot, PanTiltDirection, PresetNumber, Request,
+    types::{CameraId, PanSpeed, PanTiltDirection, PresetNumber, TiltSpeed, ZoomSpeed},
+    wire::CommandKind,
 };
 
 static ALLOCATION_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -92,236 +89,283 @@ macro_rules! assert_generated_inquiry_inventory {
 // Keep this list synchronized with the queryable section of the built-in
 // inquiry table. Retired, unsourced requests are deliberately absent.
 assert_generated_inquiry_inventory!(
-    ("PowerInquiry", grafton_visca::command::PowerInquiry),
-    ("VersionInquiry", grafton_visca::command::VersionInquiry),
+    ("power.status", grafton_visca::command::power::StatusInquiry),
     (
-        "PanTiltPositionInquiry",
-        grafton_visca::command::PanTiltPositionInquiry
+        "zoom.position",
+        grafton_visca::command::zoom::PositionInquiry
     ),
     (
-        "ZoomPositionInquiry",
-        grafton_visca::command::ZoomPositionInquiry
+        "zoom.clear_image_position",
+        grafton_visca::command::zoom::ClearImagePositionInquiry
     ),
     (
-        "FocusPositionInquiry",
-        grafton_visca::command::FocusPositionInquiry
+        "system.version",
+        grafton_visca::command::system::VersionInquiry
     ),
     (
-        "ExposureModeInquiry",
-        grafton_visca::command::ExposureModeInquiry
+        "pan_tilt.position",
+        grafton_visca::command::pan_tilt::PositionInquiry
     ),
     (
-        "ExposureCompensationInquiry",
-        grafton_visca::command::ExposureCompensationInquiry
+        "focus.position",
+        grafton_visca::command::focus::PositionInquiry
+    ),
+    ("focus.mode", grafton_visca::command::focus::ModeInquiry),
+    (
+        "focus.near_limit",
+        grafton_visca::command::focus::NearLimitInquiry
+    ),
+    ("focus.zone", grafton_visca::command::focus::ZoneInquiry),
+    (
+        "focus.sensitivity",
+        grafton_visca::command::focus::SensitivityInquiry
     ),
     (
-        "ExposureCompensationModeInquiry",
-        grafton_visca::command::ExposureCompensationModeInquiry
-    ),
-    ("IrisInquiry", grafton_visca::command::IrisInquiry),
-    ("ShutterInquiry", grafton_visca::command::ShutterInquiry),
-    (
-        "BrightnessInquiry",
-        grafton_visca::command::BrightnessInquiry
+        "presets.speed_selection",
+        grafton_visca::command::presets::SpeedSelectionInquiry
     ),
     (
-        "WhiteBalanceModeInquiry",
-        grafton_visca::command::WhiteBalanceModeInquiry
+        "presets.recall_speed",
+        grafton_visca::command::presets::RecallSpeedInquiry
     ),
     (
-        "ColorTemperatureInquiry",
-        grafton_visca::command::ColorTemperatureInquiry
-    ),
-    ("RedGainInquiry", grafton_visca::command::RedGainInquiry),
-    ("BlueGainInquiry", grafton_visca::command::BlueGainInquiry),
-    (
-        "SharpnessModeInquiry",
-        grafton_visca::command::SharpnessModeInquiry
-    ),
-    (
-        "SaturationInquiry",
-        grafton_visca::command::SaturationInquiry
-    ),
-    ("HueInquiry", grafton_visca::command::HueInquiry),
-    ("GainInquiry", grafton_visca::command::GainInquiry),
-    ("GainLimitInquiry", grafton_visca::command::GainLimitInquiry),
-    ("BacklightInquiry", grafton_visca::command::BacklightInquiry),
-    ("ImageFlipInquiry", grafton_visca::command::ImageFlipInquiry),
-    (
-        "NoiseReduction2DModeInquiry",
-        grafton_visca::command::NoiseReduction2DModeInquiry
-    ),
-    (
-        "NoiseReduction2DInquiry",
-        grafton_visca::command::NoiseReduction2DInquiry
-    ),
-    (
-        "NoiseReduction3DInquiry",
-        grafton_visca::command::NoiseReduction3DInquiry
-    ),
-    ("FocusZoneInquiry", grafton_visca::command::FocusZoneInquiry),
-    (
-        "AutoFocusSensitivityInquiry",
-        grafton_visca::command::AutoFocusSensitivityInquiry
-    ),
-    (
-        "FocusNearLimitInquiry",
-        grafton_visca::command::FocusNearLimitInquiry
-    ),
-    ("FocusModeInquiry", grafton_visca::command::FocusModeInquiry),
-    (
-        "MenuOpenCloseInquiry",
-        grafton_visca::command::MenuOpenCloseInquiry
-    ),
-    ("NdFilterInquiry", grafton_visca::command::NdFilterInquiry),
-    (
-        "PictureEffectInquiry",
-        grafton_visca::command::PictureEffectInquiry
-    ),
-    ("FlipStateInquiry", grafton_visca::command::FlipStateInquiry),
-    (
-        "AutoWhiteBalanceSensitivityInquiry",
-        grafton_visca::command::AutoWhiteBalanceSensitivityInquiry
-    ),
-    (
-        "ExposureCompensationPositionInquiry",
-        grafton_visca::command::ExposureCompensationPositionInquiry
-    ),
-    ("RedTuningInquiry", grafton_visca::command::RedTuningInquiry),
-    (
-        "BlueTuningInquiry",
-        grafton_visca::command::BlueTuningInquiry
-    ),
-    ("GammaInquiry", grafton_visca::command::GammaInquiry),
-    (
-        "SharpnessPositionInquiry",
-        grafton_visca::command::SharpnessPositionInquiry
-    ),
-    (
-        "MotionSyncModeInquiry",
-        grafton_visca::command::MotionSyncModeInquiry
-    ),
-    ("UsbAudioInquiry", grafton_visca::command::UsbAudioInquiry),
-    (
-        "NdFilterPresetInquiry",
-        grafton_visca::command::NdFilterPresetInquiry
-    ),
-    ("TallyRedInquiry", grafton_visca::command::TallyRedInquiry),
-    (
-        "TallyGreenInquiry",
-        grafton_visca::command::TallyGreenInquiry
-    ),
-    (
-        "FlickerModeInquiry",
-        grafton_visca::command::FlickerModeInquiry
-    ),
-    ("ContrastInquiry", grafton_visca::command::ContrastInquiry),
-    ("LuminanceInquiry", grafton_visca::command::LuminanceInquiry),
-    (
-        "Fr7AeLevelInquiry",
-        grafton_visca::command::Fr7AeLevelInquiry
-    ),
-    (
-        "Fr7AutoGainInquiry",
-        grafton_visca::command::Fr7AutoGainInquiry
-    ),
-    (
-        "Fr7AutoShutterInquiry",
-        grafton_visca::command::Fr7AutoShutterInquiry
-    ),
-    (
-        "Fr7AutoIrisInquiry",
-        grafton_visca::command::Fr7AutoIrisInquiry
-    ),
-    (
-        "Fr7PresetWhiteInquiry",
-        grafton_visca::command::Fr7PresetWhiteInquiry
-    ),
-    (
-        "Fr7MemoryColorTemperatureInquiry",
-        grafton_visca::command::Fr7MemoryColorTemperatureInquiry
-    ),
-    (
-        "Fr7MemoryRedGainInquiry",
-        grafton_visca::command::Fr7MemoryRedGainInquiry
-    ),
-    (
-        "Fr7MemoryBlueGainInquiry",
-        grafton_visca::command::Fr7MemoryBlueGainInquiry
-    ),
-    (
-        "Fr7MemoryTintInquiry",
-        grafton_visca::command::Fr7MemoryTintInquiry
-    ),
-    (
-        "Fr7AtwColorTemperatureOffsetInquiry",
-        grafton_visca::command::Fr7AtwColorTemperatureOffsetInquiry
-    ),
-    (
-        "Fr7AtwTintOffsetInquiry",
-        grafton_visca::command::Fr7AtwTintOffsetInquiry
-    ),
-    (
-        "Fr7MasterBlackInquiry",
-        grafton_visca::command::Fr7MasterBlackInquiry
-    ),
-    (
-        "Fr7RedBlackInquiry",
-        grafton_visca::command::Fr7RedBlackInquiry
-    ),
-    (
-        "Fr7BlueBlackInquiry",
-        grafton_visca::command::Fr7BlueBlackInquiry
-    ),
-    ("Fr7DetailInquiry", grafton_visca::command::Fr7DetailInquiry),
-    ("Fr7KneeInquiry", grafton_visca::command::Fr7KneeInquiry),
-    (
-        "Fr7KneeModeInquiry",
-        grafton_visca::command::Fr7KneeModeInquiry
-    ),
-    (
-        "Fr7KneeSlopeInquiry",
-        grafton_visca::command::Fr7KneeSlopeInquiry
-    ),
-    (
-        "Fr7KneePointInquiry",
-        grafton_visca::command::Fr7KneePointInquiry
-    ),
-    (
-        "Fr7KneePermissionInquiry",
-        grafton_visca::command::Fr7KneePermissionInquiry::new(
-            grafton_visca::command::KneeParameter::Setting
-        )
-    ),
-    (
-        "Fr7ClearImageZoomPositionInquiry",
-        grafton_visca::command::Fr7ClearImageZoomPositionInquiry
-    ),
-    (
-        "Fr7PresetSpeedSelectionInquiry",
-        grafton_visca::command::Fr7PresetSpeedSelectionInquiry
-    ),
-    (
-        "Fr7CommonPresetSpeedInquiry",
-        grafton_visca::command::Fr7CommonPresetSpeedInquiry
-    ),
-    (
-        "Fr7SeparatePresetModeInquiry",
-        grafton_visca::command::Fr7SeparatePresetModeInquiry::new(
+        "presets.separate_mode",
+        grafton_visca::command::presets::SeparateModeInquiry::new(
             grafton_visca::types::PresetNumber::MIN
         )
     ),
     (
-        "Fr7SeparatePresetSpeedInquiry",
-        grafton_visca::command::Fr7SeparatePresetSpeedInquiry::new(
+        "presets.separate_speed",
+        grafton_visca::command::presets::SeparateSpeedInquiry::new(
             grafton_visca::types::PresetNumber::MIN
         )
     ),
     (
-        "Fr7SeparatePresetDurationInquiry",
-        grafton_visca::command::Fr7SeparatePresetDurationInquiry::new(
+        "presets.separate_duration",
+        grafton_visca::command::presets::SeparateDurationInquiry::new(
             grafton_visca::types::PresetNumber::MIN
         )
+    ),
+    (
+        "exposure.mode",
+        grafton_visca::command::exposure::ModeInquiry
+    ),
+    (
+        "exposure.shutter",
+        grafton_visca::command::exposure::ShutterInquiry
+    ),
+    (
+        "exposure.compensation",
+        grafton_visca::command::exposure::CompensationInquiry
+    ),
+    (
+        "exposure.compensation_enabled",
+        grafton_visca::command::exposure::CompensationEnabledInquiry
+    ),
+    (
+        "exposure.iris",
+        grafton_visca::command::exposure::IrisInquiry
+    ),
+    (
+        "exposure.brightness",
+        grafton_visca::command::exposure::BrightnessInquiry
+    ),
+    (
+        "exposure.gain",
+        grafton_visca::command::exposure::GainInquiry
+    ),
+    (
+        "exposure.gain_limit",
+        grafton_visca::command::exposure::GainLimitInquiry
+    ),
+    (
+        "exposure.anti_flicker",
+        grafton_visca::command::exposure::AntiFlickerInquiry
+    ),
+    (
+        "exposure.ae_level",
+        grafton_visca::command::exposure::AeLevelInquiry
+    ),
+    (
+        "exposure.auto_gain",
+        grafton_visca::command::exposure::AutoGainInquiry
+    ),
+    (
+        "exposure.auto_shutter",
+        grafton_visca::command::exposure::AutoShutterInquiry
+    ),
+    (
+        "exposure.auto_iris",
+        grafton_visca::command::exposure::AutoIrisInquiry
+    ),
+    (
+        "white_balance.mode",
+        grafton_visca::command::white_balance::ModeInquiry
+    ),
+    (
+        "white_balance.sensitivity",
+        grafton_visca::command::white_balance::SensitivityInquiry
+    ),
+    (
+        "white_balance.color_temperature",
+        grafton_visca::command::white_balance::ColorTemperatureInquiry
+    ),
+    (
+        "white_balance.red_gain",
+        grafton_visca::command::white_balance::RedGainInquiry
+    ),
+    (
+        "white_balance.blue_gain",
+        grafton_visca::command::white_balance::BlueGainInquiry
+    ),
+    (
+        "white_balance.red_tuning",
+        grafton_visca::command::white_balance::RedTuningInquiry
+    ),
+    (
+        "white_balance.blue_tuning",
+        grafton_visca::command::white_balance::BlueTuningInquiry
+    ),
+    (
+        "white_balance.preset_white",
+        grafton_visca::command::white_balance::PresetWhiteInquiry
+    ),
+    (
+        "white_balance.memory_color_temperature",
+        grafton_visca::command::white_balance::MemoryColorTemperatureInquiry
+    ),
+    (
+        "white_balance.memory_red_gain",
+        grafton_visca::command::white_balance::MemoryRedGainInquiry
+    ),
+    (
+        "white_balance.memory_blue_gain",
+        grafton_visca::command::white_balance::MemoryBlueGainInquiry
+    ),
+    (
+        "white_balance.memory_tint",
+        grafton_visca::command::white_balance::MemoryTintInquiry
+    ),
+    (
+        "white_balance.atw_color_temperature_offset",
+        grafton_visca::command::white_balance::AtwColorTemperatureOffsetInquiry
+    ),
+    (
+        "white_balance.atw_tint_offset",
+        grafton_visca::command::white_balance::AtwTintOffsetInquiry
+    ),
+    (
+        "image.saturation",
+        grafton_visca::command::image::SaturationInquiry
+    ),
+    ("image.hue", grafton_visca::command::image::HueInquiry),
+    (
+        "image.luminance",
+        grafton_visca::command::image::LuminanceInquiry
+    ),
+    (
+        "image.contrast",
+        grafton_visca::command::image::ContrastInquiry
+    ),
+    ("image.gamma", grafton_visca::command::image::GammaInquiry),
+    (
+        "image.sharpness_mode",
+        grafton_visca::command::image::SharpnessModeInquiry
+    ),
+    (
+        "image.sharpness",
+        grafton_visca::command::image::SharpnessInquiry
+    ),
+    (
+        "image.noise_reduction_2d",
+        grafton_visca::command::image::NoiseReduction2dInquiry
+    ),
+    (
+        "image.noise_reduction_2d_mode",
+        grafton_visca::command::image::NoiseReduction2dModeInquiry
+    ),
+    (
+        "image.noise_reduction_3d",
+        grafton_visca::command::image::NoiseReduction3dInquiry
+    ),
+    ("image.flip", grafton_visca::command::image::FlipInquiry),
+    (
+        "image.flip_mode",
+        grafton_visca::command::image::FlipModeInquiry
+    ),
+    (
+        "image.picture_effect",
+        grafton_visca::command::image::PictureEffectInquiry
+    ),
+    (
+        "image.master_black",
+        grafton_visca::command::image::MasterBlackInquiry
+    ),
+    (
+        "image.red_black",
+        grafton_visca::command::image::RedBlackInquiry
+    ),
+    (
+        "image.blue_black",
+        grafton_visca::command::image::BlueBlackInquiry
+    ),
+    ("image.detail", grafton_visca::command::image::DetailInquiry),
+    ("image.knee", grafton_visca::command::image::KneeInquiry),
+    (
+        "image.knee_mode",
+        grafton_visca::command::image::KneeModeInquiry
+    ),
+    (
+        "image.knee_slope",
+        grafton_visca::command::image::KneeSlopeInquiry
+    ),
+    (
+        "image.knee_point",
+        grafton_visca::command::image::KneePointInquiry
+    ),
+    (
+        "image.knee_permission",
+        grafton_visca::command::image::KneePermissionInquiry::new(
+            grafton_visca::types::KneeParameter::Setting
+        )
+    ),
+    ("tally.red", grafton_visca::command::tally::RedInquiry),
+    ("tally.green", grafton_visca::command::tally::GreenInquiry),
+    (
+        "nd_filter.density",
+        grafton_visca::command::nd_filter::DensityInquiry
+    ),
+    (
+        "nd_filter.preset",
+        grafton_visca::command::nd_filter::PresetInquiry
+    ),
+    (
+        "motion_sync.enabled",
+        grafton_visca::command::motion_sync::EnabledInquiry
+    ),
+    ("menu.visible", grafton_visca::command::menu::VisibleInquiry),
+    (
+        "streaming.usb_audio",
+        grafton_visca::command::streaming::UsbAudioInquiry
+    ),
+    (
+        "zoom.normalized",
+        grafton_visca::command::zoom::NormalizedInquiry::for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                CameraId::CAMERA_1,
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                    grafton_visca::profiles::PtzOpticsG2,
+                >()
+                .expect("source profile")
+            )
+            .expect("target registration"),
+            grafton_visca::types::ZoomDomain::Optical
+        )
+        .expect("normalized inquiry")
+    ),
+    (
+        "exposure.backlight_compensation",
+        grafton_visca::command::exposure::BacklightCompensationInquiry
     ),
 );
 
@@ -339,23 +383,71 @@ fn zoom_speed() -> ZoomSpeed {
 
 #[test]
 fn representative_typed_requests_encode_without_heap_allocation() {
-    let drive = PanTiltDrive::new(PanTiltDirection::Up, speed(), tilt()).expect("drive");
-    let zoom = ZoomDrive::TeleVariable(zoom_speed());
-    let preset = PresetSet::new(PresetNumber::new(1).expect("preset"));
-    let reset = PresetReset::new(PresetNumber::new(1).expect("preset"));
-    let pan_stop = PanTiltStop::new(speed(), tilt());
+    let drive = grafton_visca::command::pan_tilt::Drive::for_target(
+        &grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                grafton_visca::profiles::PtzOpticsG2,
+            >()
+            .expect("source profile"),
+        )
+        .expect("target registration"),
+        PanTiltDirection::Up,
+        grafton_visca::types::PanTiltSpeed {
+            pan: speed(),
+            tilt: tilt(),
+        },
+    )
+    .expect("drive");
+    let zoom = grafton_visca::command::zoom::TeleVariable::for_target(
+        &grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                grafton_visca::profiles::PtzOpticsG2,
+            >()
+            .expect("source profile"),
+        )
+        .expect("target registration"),
+        zoom_speed(),
+    )
+    .expect("profile-aware request");
+    let preset = grafton_visca::command::presets::Store::new(PresetNumber::new(1).expect("preset"));
+    let reset = grafton_visca::command::presets::Clear::new(PresetNumber::new(1).expect("preset"));
+    let pan_stop = grafton_visca::command::pan_tilt::Stop::for_target(
+        &grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                grafton_visca::profiles::PtzOpticsG2,
+            >()
+            .expect("source profile"),
+        )
+        .expect("target registration"),
+    )
+    .expect("profile-safe stop");
 
-    assert_request_encoding_does_not_allocate("pan/tilt home", &PanTiltHome);
-    assert_request_encoding_does_not_allocate("pan/tilt reset", &PanTiltReset);
+    assert_request_encoding_does_not_allocate(
+        "pan/tilt home",
+        &grafton_visca::command::pan_tilt::Home,
+    );
+    assert_request_encoding_does_not_allocate(
+        "pan/tilt reset",
+        &grafton_visca::command::pan_tilt::Reset,
+    );
     assert_request_encoding_does_not_allocate("pan/tilt stop", &pan_stop);
     assert_request_encoding_does_not_allocate("pan/tilt drive", &drive);
-    assert_request_encoding_does_not_allocate("zoom stop", &ZoomStop);
+    assert_request_encoding_does_not_allocate("zoom stop", &grafton_visca::command::zoom::Stop);
     assert_request_encoding_does_not_allocate("zoom drive", &zoom);
-    assert_request_encoding_does_not_allocate("focus infinity", &FocusInfinity);
-    assert_request_encoding_does_not_allocate("focus stop", &FocusStop);
+    assert_request_encoding_does_not_allocate(
+        "focus infinity",
+        &grafton_visca::command::focus::Infinity,
+    );
+    assert_request_encoding_does_not_allocate("focus stop", &grafton_visca::command::focus::Stop);
     assert_request_encoding_does_not_allocate("preset set", &preset);
     assert_request_encoding_does_not_allocate("preset reset", &reset);
-    assert_request_encoding_does_not_allocate("power inquiry", &PowerInquiry);
+    assert_request_encoding_does_not_allocate(
+        "power inquiry",
+        &grafton_visca::command::power::StatusInquiry,
+    );
 }
 
 fn assert_warmed_framing_reuses_buffer<E: Envelope>(label: &str, envelope: E) {
@@ -431,25 +523,32 @@ fn raw_and_sony_framing_reuse_one_warmed_buffer() {
 #[test]
 fn built_in_command_and_inquiry_preparation_stay_inline() {
     use grafton_visca::{
-        profiles::PtzOpticsG2, testing::preparation, OperationalTuning, ProfileSpec,
+        config::OperationalTuning,
+        profiles::{ProfileSpec, PtzOpticsG2},
+        testing::preparation,
     };
     let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
-    let target = grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
+    let target = grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile)
         .expect("target registration");
     let tuning = OperationalTuning::new();
-    let raw = grafton_visca::raw::Plain::new(
+    let raw = grafton_visca::raw::PlainRequest::new(
         [0x81, 1, 4, 0, 2, 0xff],
-        grafton_visca::CommandCategory::Quick,
-        grafton_visca::RetryClass::Never,
-        grafton_visca::SubmissionClass::Normal,
+        grafton_visca::profiles::CommandTimeoutClass::Quick,
+        grafton_visca::request::RetryClass::Never,
+        grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("inline raw request");
     let allocations = allocations_during(|| {
         preparation::check_command(&raw, &target, tuning)
             .expect("an owned inline raw frame stays inline in preparation");
-        preparation::check_command(&grafton_visca::command::PowerOn::new(), &target, tuning)
+        preparation::check_command(&grafton_visca::command::power::On, &target, tuning)
             .expect("power command prepares");
-        preparation::check_inquiry(&PowerInquiry, &target, tuning).expect("power inquiry prepares");
+        preparation::check_inquiry(
+            &grafton_visca::command::power::StatusInquiry,
+            &target,
+            tuning,
+        )
+        .expect("power inquiry prepares");
     });
     assert_eq!(allocations, 0, "pure built-in preparation allocated");
 }
@@ -458,30 +557,31 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
 #[test]
 fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
     use grafton_visca::{
-        command::PanTiltPositionInquiry,
-        profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
+        config::OperationalTuning,
+        profiles::{ProfileSpec, PtzOpticsG2, SonyBrc300, SonyFr7},
+        request::Inquiry,
         testing::preparation,
-        Inquiry, OperationalTuning, ProfileSpec,
     };
     let profiles = [
         ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"),
-        ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300"),
-        ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+        ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300"),
+        ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
     ];
     let targets = profiles.map(|profile| {
-        grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
+        grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile)
             .expect("target registration")
     });
     for target in &targets {
         let allocations = allocations_during(|| {
             for _ in 0..100 {
                 preparation::check_inquiry(
-                    &PanTiltPositionInquiry,
+                    &grafton_visca::command::pan_tilt::PositionInquiry,
                     target,
                     OperationalTuning::new(),
                 )
                 .expect("position inquiry prepares");
-                let decoder = PanTiltPositionInquiry.decoder_for_profile(target.profile());
+                let decoder = grafton_visca::command::pan_tilt::PositionInquiry
+                    .decoder_for_profile(target.profile());
                 std::hint::black_box(decoder.clone());
             }
         });
@@ -496,8 +596,8 @@ fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
 ))]
 // Counts allocations on the owner thread. External reactor bookkeeping is
 // outside this boundary; the actor regression separately pins timer factories.
-fn assert_timer_reset_does_not_allocate(runtime: &impl grafton_visca::Executor) {
-    use grafton_visca::ResettableTimer;
+fn assert_timer_reset_does_not_allocate(runtime: &impl grafton_visca::runtime::Executor) {
+    use grafton_visca::runtime::ResettableTimer;
     use std::{future::Future, task::Context, time::Duration};
     let initial = runtime.now();
     let mut timer = Box::pin(runtime.timer(initial + Duration::from_secs(60)));
@@ -519,21 +619,21 @@ fn warmed_tokio_timer_resets_do_not_allocate() {
         .enable_all()
         .build()
         .unwrap();
-    let executor = grafton_visca::TokioExecutor::from_handle(runtime.handle().clone());
+    let executor = grafton_visca::runtime::TokioExecutor::from_handle(runtime.handle().clone());
     assert_timer_reset_does_not_allocate(&executor);
 }
 
 #[cfg(feature = "runtime-smol")]
 #[test]
 fn warmed_smol_timer_resets_do_not_allocate() {
-    assert_timer_reset_does_not_allocate(&grafton_visca::SmolExecutor::new());
+    assert_timer_reset_does_not_allocate(&grafton_visca::runtime::SmolExecutor::new());
 }
 
 #[cfg(all(feature = "async", feature = "test-utils"))]
 #[test]
 fn warmed_manual_clock_timer_resets_do_not_allocate() {
+    use grafton_visca::runtime::{Executor, ResettableTimer};
     use grafton_visca::testing::testkit::{ManualClock, ManualClockExecutor};
-    use grafton_visca::{Executor, ResettableTimer};
     use std::{future::Future, task::Context, time::Duration};
     let clock = ManualClock::new();
     // A noop waker cannot participate in quiescence. Keep this thread runnable
@@ -586,10 +686,9 @@ fn warmed_manual_clock_timer_resets_do_not_allocate() {
 #[test]
 fn warmed_receive_decoding_and_batch_recycling_do_not_allocate() {
     use grafton_visca::{
-        profiles::{GenericVisca, SonyFR7},
+        profiles::{GenericVisca, ProfileSpec, SonyFr7},
         testing::receive::ReceiveProbe,
         transport::{SendSemantics, TransportConfig},
-        ProfileSpec,
     };
     const RAW: &[u8] = &[0x90, 0x41, 0xff, 0x90, 0x51, 0xff];
     const SONY: &[u8] = &[
@@ -601,7 +700,7 @@ fn warmed_receive_decoding_and_batch_recycling_do_not_allocate() {
             ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
             RAW,
         ),
-        (ProfileSpec::from_compile_time::<SonyFR7>().unwrap(), SONY),
+        (ProfileSpec::from_compile_time::<SonyFr7>().unwrap(), SONY),
     ] {
         for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
             let mut probe =
@@ -623,10 +722,9 @@ fn warmed_receive_decoding_and_batch_recycling_do_not_allocate() {
 #[test]
 fn warmed_malformed_receive_decoding_does_not_allocate() {
     use grafton_visca::{
-        profiles::{GenericVisca, SonyFR7},
+        profiles::{GenericVisca, ProfileSpec, SonyFr7},
         testing::receive::ReceiveProbe,
         transport::{SendSemantics, TransportConfig},
-        ProfileSpec,
     };
     const RAW_ECHO_AND_ACK: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff, 0x90, 0x41, 0xff];
     const RAW_MALFORMED_AND_ACK: &[u8] = &[0x90, 0x61, 0xff, 0x90, 0x41, 0xff];
@@ -649,19 +747,19 @@ fn warmed_malformed_receive_decoding_does_not_allocate() {
             0,
         ),
         (
-            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
             SONY_WRONG_TYPE,
             SendSemantics::Stream,
             0,
         ),
         (
-            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
             SONY_WRONG_TYPE,
             SendSemantics::Datagram,
             0,
         ),
         (
-            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
             SONY_LENGTH_MISMATCH,
             SendSemantics::Datagram,
             0,
@@ -679,13 +777,13 @@ fn warmed_malformed_receive_decoding_does_not_allocate() {
             0,
         ),
         (
-            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
             SONY_ZERO_PAYLOAD,
             SendSemantics::Stream,
             0,
         ),
         (
-            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
             SONY_ZERO_PAYLOAD,
             SendSemantics::Datagram,
             0,

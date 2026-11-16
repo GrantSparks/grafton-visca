@@ -3,11 +3,11 @@ use super::*;
 
 #[test]
 fn completion_only_cancel_is_unsupported_without_ending_application() {
-    let command = crate::raw::AppliedOnly::with_policy(
+    let command = crate::raw::AppliedOnlyRequest::with_policy(
         [0x81, 0x01, 0x04, 0x07, 0x02, 0xff],
         crate::AffectedAxes::ZOOM,
         crate::raw::OperationPolicy::new(
-            crate::CommandCategory::Quick,
+            crate::CommandTimeoutClass::Quick,
             crate::RetryClass::Never,
             crate::SubmissionClass::Normal,
         )
@@ -28,7 +28,10 @@ fn completion_only_cancel_is_unsupported_without_ending_application() {
     let (owner, peer) = Setup::datagram().spawn();
     let mut operation = owner.submit_operation(prepared).unwrap();
     peer.next_write();
-    assert!(matches!(operation.cancel(None), Err(Error::NotSupported)));
+    assert!(matches!(
+        operation.cancel(None),
+        Err(Error::CancellationNotSupported)
+    ));
     assert!(
         peer.writes.is_empty(),
         "socketless operations never send cancellation frames"
@@ -47,17 +50,17 @@ fn prepared_retry_budget_covers_late_ack_and_completion_on_the_worker() {
         (false, 8, 7, Duration::from_millis(11_500)),
     ] {
         let profile = if sony {
-            ProfileSpec::from_compile_time::<SonyFR7>().unwrap()
+            ProfileSpec::from_compile_time::<SonyFr7>().unwrap()
         } else {
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap()
         };
         let clock = ManualClock::new();
         let _driver = clock.enter();
         let (owner, peer) = Setup::datagram_for(profile.clone()).on(&clock).spawn();
-        let command = crate::raw::AppliedOnly::new(
+        let command = crate::raw::AppliedOnlyRequest::new(
             [0x81, 0x01, 0x04, 0x07, 0x02, 0xff],
             crate::AffectedAxes::ZOOM,
-            crate::CommandCategory::Quick,
+            crate::CommandTimeoutClass::Quick,
             crate::RetryClass::Standard,
             crate::SubmissionClass::Normal,
         )
@@ -69,7 +72,7 @@ fn prepared_retry_budget_covers_late_ack_and_completion_on_the_worker() {
                 profile.clone(),
             )
             .expect("valid target registration"),
-            OperationalTuning::new().ack_timeout(Duration::from_secs(ack_override)),
+            OperationalTuning::new().with_ack_timeout(Duration::from_secs(ack_override)),
             ClassSelection::Request,
         )
         .unwrap();

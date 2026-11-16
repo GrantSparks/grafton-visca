@@ -1,4 +1,4 @@
-use grafton_visca::{completion::AppliedOnly, Operation};
+use grafton_visca::{operation::AppliedOnly, r#async::Operation};
 
 async fn invalid(handle: Operation<AppliedOnly>) {
     let _ = handle.settled().await;

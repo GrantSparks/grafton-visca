@@ -1,8 +1,8 @@
 use grafton_visca::{
-    command::{ImageFreeze, Response, ResponseParser, VISCA_TERMINATOR},
-    request::{Inquiry as InquiryClass, Plain as PlainClass},
-    CameraId, ControlClass, Error, Inquiry, PlainCommand, Request, ResponseDecoder, RetryClass,
-    TimeoutClass,
+    request::ControlClass, request::Inquiry, request::InquiryClass, request::PlainClass,
+    request::PlainCommand, request::Request, request::ResponseDecoder, request::RetryClass,
+    request::TimeoutClass, types::CameraId, wire::Response, wire::ResponseParser,
+    wire::VISCA_TERMINATOR, Error,
 };
 
 struct CustomCommand;
@@ -104,9 +104,8 @@ fn main() {
         .unwrap();
     assert_eq!(payload, 0x7f);
 
-    let response = Response::RawInquiry(grafton_visca::command::RawInquiryPayload::from_slice(&[
-        0x7f,
-    ]));
+    let response =
+        Response::RawInquiry(grafton_visca::wire::RawInquiryPayload::from_slice(&[0x7f]));
     assert_eq!(VendorStatusInquiry::from_response(response).unwrap(), 0x7f);
-    let _raw_freeze_command = ImageFreeze::on();
+    let _raw_freeze_command = grafton_visca::command::image::SetFreeze::new(true);
 }

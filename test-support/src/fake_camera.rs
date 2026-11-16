@@ -46,17 +46,17 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "async")]
+use grafton_visca::runtime::Executor;
 #[cfg(feature = "test-utils")]
 use grafton_visca::testing::testkit::ManualClock;
-#[cfg(feature = "async")]
-use grafton_visca::Executor;
 use grafton_visca::{
-    camera::TransportKind,
-    command::VISCA_TERMINATOR,
+    config::TransportKind,
     transport::{
         AddressedBus, AddressingMode, HasTransportConfig, ReceiveOutcome, SendSemantics,
         TransportConfig,
     },
+    wire::VISCA_TERMINATOR,
     Error,
 };
 

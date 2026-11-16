@@ -1,16 +1,24 @@
 #![allow(dead_code)]
 
-pub use grafton_visca::{Error, KnownState, ProfileSpec, StateKey, TargetRegistration};
+pub use grafton_visca::{
+    config::TargetRegistration, profiles::ProfileSpec, state_cache::KnownState,
+    state_cache::StateKey, types::TallyMode, Error,
+};
 
 mod contract {
-    include!(concat!(env!("GRAFTON_VISCA_SOURCE_ROOT"), "/src/request/builtin_contract.rs"));
+    include!(concat!(
+        env!("GRAFTON_VISCA_SOURCE_ROOT"),
+        "/src/request/builtin_contract.rs"
+    ));
 }
 
 struct NoEffect;
 
 impl contract::BuiltinValidation for NoEffect {
     fn applied_state(&self) -> Option<contract::AppliedStateProjection> {
-        Some(contract::AppliedStateProjection::set(KnownState::TallyMode(true)))
+        Some(contract::AppliedStateProjection::set(
+            KnownState::TallyMode(TallyMode::On),
+        ))
     }
 }
 

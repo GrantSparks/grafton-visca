@@ -5,10 +5,11 @@
 use grafton_visca_test_support::{fake_camera, profile_fixtures};
 
 use grafton_visca::{
-    blocking::{Camera, Session, SessionConfig},
-    camera::{profiles::SonyFR7, TransportKind},
-    profile::ProfileSpec,
+    blocking::{Camera, Session},
+    config::{SessionConfig, TransportKind},
+    profiles::{ProfileSpec, SonyFr7},
     transport::{AddressingMode, SendSemantics, TransportConfig},
+    types::CameraId,
     Error,
 };
 
@@ -41,15 +42,15 @@ fn wire(kind: Option<TransportKind>) -> (FakeCamera, BlockingWire) {
 #[test]
 fn incompatible_standard_transport_fails_before_blocking_startup_or_io() {
     let (fake, transport) = wire(Some(TransportKind::Tcp));
-    let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
+    let profile = ProfileSpec::from_compile_time::<SonyFr7>().expect("Sony FR7 profile");
 
-    let error = Session::open(transport, SessionConfig::new(profile))
+    let error = Session::open(transport, &SessionConfig::new(profile))
         .expect_err("Sony FR7 must reject standard TCP before blocking startup");
 
     assert!(matches!(
         error,
         Error::UnsupportedTransport {
-            profile: grafton_visca::camera::profiles::ProfileId::SonyFr7,
+            profile: grafton_visca::profiles::ProfileId::SonyFr7,
             transport: TransportKind::Tcp,
             ..
         }
@@ -62,9 +63,9 @@ fn incompatible_standard_transport_fails_before_blocking_startup_or_io() {
 #[test]
 fn custom_transport_remains_an_explicit_unchecked_escape_hatch() {
     let (_camera, transport) = wire(None);
-    let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
+    let profile = ProfileSpec::from_compile_time::<SonyFr7>().expect("Sony FR7 profile");
 
-    Session::open(transport, SessionConfig::new(profile))
+    Session::open(transport, &SessionConfig::new(profile))
         .expect("custom transports remain allowed for advanced integrations")
         .close()
         .expect("closing an idle session should succeed");
@@ -75,45 +76,53 @@ fn non_default_downstream_profile_projects_as_a_typed_camera() {
     let (fake, transport) = wire(None);
     let session = Session::open(
         transport,
-        SessionConfig::from_compile_time::<NonDefaultCompileTimeProfile>()
+        &SessionConfig::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("non-default profile config"),
     )
     .expect("session");
 
     let camera: Camera<NonDefaultCompileTimeProfile> = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("exact non-default profile projection");
-    assert_eq!(camera.target(), grafton_visca::CameraId::CAMERA_1);
+    assert_eq!(camera.target(), grafton_visca::types::CameraId::CAMERA_1);
     assert_eq!(fake.write_count(), 0, "a projection writes nothing");
     session.shutdown().expect("shutdown");
 }
 
 #[test]
-fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io() {
+fn explicit_target_selection_checks_registration_before_admission_or_io() {
     let (fake, transport) = wire(Some(TransportKind::Serial));
     let mut config =
         SessionConfig::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>().expect("config");
-    config
-        .register_target(
-            grafton_visca::CameraId::CAMERA_2,
-            grafton_visca::ProfileSpec::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>()
-                .expect("G2 profile"),
+    config = config
+        .with_target(
+            grafton_visca::types::CameraId::CAMERA_2,
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                grafton_visca::profiles::PtzOpticsG2,
+            >()
+            .expect("G2 profile"),
         )
         .expect("second target");
-    let session = Session::open(transport, config).expect("session");
+    let session = Session::open(transport, &config).expect("session");
 
-    assert!(matches!(
-        session.camera::<grafton_visca::profiles::PtzOpticsG2>(),
-        Err(Error::InvalidState(_))
-    ));
-    assert!(matches!(
+    assert_eq!(
         session
-            .camera_for::<grafton_visca::profiles::PtzOpticsG2>(grafton_visca::CameraId::CAMERA_7),
-        Err(Error::InvalidRequest(_))
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1
+            )
+            .expect("explicit registered target")
+            .target(),
+        CameraId::CAMERA_1
+    );
+    assert!(matches!(
+        session.camera::<grafton_visca::profiles::PtzOpticsG2>(
+            grafton_visca::types::CameraId::CAMERA_7
+        ),
+        Err(Error::InvalidRequest { .. })
     ));
     assert!(matches!(
-        session.camera_for::<SonyFR7>(grafton_visca::CameraId::CAMERA_2),
-        Err(Error::InvalidRequest(_))
+        session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_2),
+        Err(Error::InvalidRequest { .. })
     ));
     assert_eq!(
         fake.write_count(),

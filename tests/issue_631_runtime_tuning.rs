@@ -34,9 +34,16 @@ mod paused {
     use std::time::Duration;
 
     use grafton_visca::{
-        camera::CameraConfig, completion::AppliedOnly, profile::ProfileSpec, profiles::SonyFR7,
-        request, AffectedAxes, CameraId, ControlClass, Error, FailureStage, Inquiry,
-        OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
+        config::OperationalTuning,
+        error::FailureStage,
+        operation::AppliedOnly,
+        profiles::{ProfileSpec, SonyFr7},
+        request::{
+            self, ControlClass, Inquiry, OperationCommand, Request, ResponseDecoder, RetryClass,
+            TimeoutClass,
+        },
+        types::{AffectedAxes, CameraId},
+        Error,
     };
 
     use fake_camera::FakeCamera;
@@ -45,7 +52,7 @@ mod paused {
     /// The Sony FR7 profile's acknowledgement deadline (the same on every
     /// built-in profile, see issue #689), read from the profile itself.
     fn profile_ack_timeout() -> Duration {
-        ProfileSpec::from_compile_time::<SonyFR7>()
+        ProfileSpec::from_compile_time::<SonyFr7>()
             .expect("Sony FR7 profile")
             .timing()
             .ack_timeout()
@@ -64,7 +71,7 @@ mod paused {
     struct SilentOperation;
 
     impl Request for SilentOperation {
-        type Class = request::Operation<AppliedOnly>;
+        type Class = request::OperationClass<AppliedOnly>;
         const MAX_SIZE: usize = 3;
         const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
         const RETRY_CLASS: RetryClass = RetryClass::Never;
@@ -88,7 +95,7 @@ mod paused {
     struct SilentInquiry;
 
     impl Request for SilentInquiry {
-        type Class = request::Inquiry;
+        type Class = request::InquiryClass;
         const MAX_SIZE: usize = 3;
         const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
         const RETRY_CLASS: RetryClass = RetryClass::Never;
@@ -115,7 +122,7 @@ mod paused {
     /// `facade_matrix!` body.
     macro_rules! time_to_ack_timeout {
     ($session:expr) => {{
-        let camera = $session.camera::<SonyFR7>().expect("camera view");
+        let camera = $session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
         let started = now!();
         let error = wait!(wait!(camera.submit::<AppliedOnly, _>(&SilentOperation))
             .expect("submission")
@@ -164,7 +171,7 @@ mod paused {
             );
             assert_exact_on_virtual_time!(before, profile_ack_timeout());
 
-            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
+            wait!(session.set_tuning(OperationalTuning::new().with_ack_timeout(WIDE_ACK_TIMEOUT)))
                 .expect("widening an acknowledgement deadline is accepted");
 
             let after = time_to_ack_timeout!(session);
@@ -193,7 +200,7 @@ mod paused {
             let fake = FakeCamera::silent();
             let session = open!(fake, sony_session_config()).expect("owner session");
 
-            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
+            wait!(session.set_tuning(OperationalTuning::new().with_ack_timeout(WIDE_ACK_TIMEOUT)))
                 .expect("widening an acknowledgement deadline is accepted");
             let widened = time_to_ack_timeout!(session);
             assert!(
@@ -228,10 +235,10 @@ mod paused {
         fn a_widened_inquiry_timeout_governs_a_pre_existing_view() {
             let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
             let camera = session
-                .camera::<SonyFR7>()
+                .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
                 .expect("camera view taken before the update");
 
-            wait!(session.set_tuning(OperationalTuning::new().inquiry_timeout(Duration::from_secs(2))))
+            wait!(session.set_tuning(OperationalTuning::new().with_inquiry_timeout(Duration::from_secs(2))))
                 .expect("widening an inquiry deadline is accepted");
 
             let started = now!();
@@ -258,10 +265,10 @@ mod paused {
         fn a_view_taken_before_the_update_prepares_under_the_new_tuning() {
             let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
             let camera = session
-                .camera::<SonyFR7>()
+                .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
                 .expect("camera view taken before the update");
 
-            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
+            wait!(session.set_tuning(OperationalTuning::new().with_ack_timeout(WIDE_ACK_TIMEOUT)))
                 .expect("widening an acknowledgement deadline is accepted");
 
             let started = now!();
@@ -293,7 +300,7 @@ mod paused {
         fn an_update_while_an_operation_is_outstanding_leaves_it_alone() {
             let fake = FakeCamera::silent();
             let session = open!(fake, sony_session_config()).expect("owner session");
-            let camera = session.camera::<SonyFR7>().expect("camera view");
+            let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
 
             let submitted = now!();
             let mut operation =
@@ -309,7 +316,7 @@ mod paused {
 
             // The request is admitted under the profile's 500 ms deadline.
             // Widening to two seconds now must not extend it.
-            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
+            wait!(session.set_tuning(OperationalTuning::new().with_ack_timeout(WIDE_ACK_TIMEOUT)))
                 .expect("an update mid-flight is accepted");
 
             let started = now!();
@@ -332,7 +339,7 @@ mod paused {
             // The update did land, though: the next submission uses it.
             assert_eq!(
                 session.tuning(),
-                OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)
+                OperationalTuning::new().with_ack_timeout(WIDE_ACK_TIMEOUT)
             );
             let after = time_to_ack_timeout!(session);
             assert!(
@@ -357,9 +364,9 @@ mod paused {
             );
 
             let tuning = OperationalTuning::new()
-                .ack_timeout(WIDE_ACK_TIMEOUT)
-                .quick_timeout(Duration::from_secs(9))
-                .retry_limit(2);
+                .with_ack_timeout(WIDE_ACK_TIMEOUT)
+                .with_quick_timeout(Duration::from_secs(9))
+                .with_retry_limit(2);
             wait!(session.set_tuning(tuning)).expect("accepted");
             assert_eq!(session.tuning(), tuning, "the getter reports what was set");
             assert_eq!(
@@ -390,7 +397,7 @@ mod paused {
                 open!(FakeCamera::silent(), strict_config).expect("strict owner session");
             assert_eq!(strict_session.tuning(), OperationalTuning::new());
 
-            let mutable_update = OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT);
+            let mutable_update = OperationalTuning::new().with_ack_timeout(WIDE_ACK_TIMEOUT);
             wait!(strict_session.set_tuning(mutable_update))
                 .expect("runtime-mutable tuning is still replaceable on a strict session");
             assert_eq!(
@@ -415,9 +422,9 @@ mod paused {
             let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
 
             let accepted = OperationalTuning::new()
-                .ack_timeout(WIDE_ACK_TIMEOUT)
-                .quick_timeout(Duration::from_secs(9))
-                .retry_limit(2);
+                .with_ack_timeout(WIDE_ACK_TIMEOUT)
+                .with_quick_timeout(Duration::from_secs(9))
+                .with_retry_limit(2);
             wait!(session.set_tuning(accepted)).expect("accepted");
 
             // Every rejection below is one `ProfileSpec::validate_tuning` rule, and
@@ -425,27 +432,23 @@ mod paused {
             // in `SessionConfig::with_tuning`.
             let rejected = [
                 // Undercuts the profile's own acknowledgement deadline.
-                OperationalTuning::new().ack_timeout(Duration::from_millis(1)),
+                OperationalTuning::new().with_ack_timeout(Duration::from_millis(1)),
                 // A zero deadline is never a deadline.
-                OperationalTuning::new().quick_timeout(Duration::ZERO),
+                OperationalTuning::new().with_quick_timeout(Duration::ZERO),
                 // Raises the profile's socket limit.
-                OperationalTuning::new().maximum_command_sockets(3),
+                OperationalTuning::new().with_maximum_command_sockets(3),
                 // Zero sockets is not a capacity.
-                OperationalTuning::new().maximum_command_sockets(0),
+                OperationalTuning::new().with_maximum_command_sockets(0),
                 // Tuning may only lower the default base retry count of 3.
-                OperationalTuning::new().retry_limit(4),
+                OperationalTuning::new().with_retry_limit(4),
                 // Backoff that is not ordered, with a budget that cannot hold it.
-                OperationalTuning::new().retry_timing(
-                    Duration::from_millis(50),
-                    Duration::from_millis(10),
-                    Duration::from_millis(10),
-                ),
+                OperationalTuning::new().with_initial_retry_backoff(Duration::from_millis(50)).with_maximum_retry_backoff(Duration::from_millis(10)).with_retry_budget(Duration::from_millis(10)),
             ];
             for tuning in rejected {
                 let error = wait!(session.set_tuning(tuning))
                     .expect_err("construction would have rejected this tuning");
                 assert!(
-                    matches!(error, Error::InvalidRequest(_)),
+                    matches!(error, Error::InvalidRequest { .. }),
                     "expected the construction-time rejection, got {error:?}"
                 );
                 assert_eq!(
@@ -463,11 +466,11 @@ mod paused {
         /// The single-camera session exposes the same capability without reaching
         /// for its inner `Session`.
         fn a_camera_session_reconfigures_its_own_session() {
-            let config = CameraConfig::<SonyFR7>::new();
+            let config = grafton_visca::config::CameraConfig::new(grafton_visca::profiles::ProfileSpec::from_compile_time::<SonyFr7>().expect("source profile"), grafton_visca::config::TransportOptions::Custom).into_typed::<SonyFr7>().expect("typed config");
             let session =
                 open_camera!(FakeCamera::silent(), &config).expect("single-camera session");
 
-            let widened = session.tuning().ack_timeout(WIDE_ACK_TIMEOUT);
+            let widened = session.tuning().with_ack_timeout(WIDE_ACK_TIMEOUT);
             wait!(session.set_tuning(widened)).expect("accepted");
             assert_eq!(session.tuning(), widened);
             assert_eq!(
@@ -507,10 +510,10 @@ mod paused {
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 mod concurrent_async_updates {
-    use grafton_visca::Executor;
+    use grafton_visca::runtime::Executor;
     use grafton_visca_test_support::runtime_matrix;
 
-    use grafton_visca::OperationalTuning;
+    use grafton_visca::config::OperationalTuning;
     use grafton_visca_test_support::{
         fake_camera::FakeCamera, profile_fixtures::sony_session_config,
     };
@@ -519,9 +522,9 @@ mod concurrent_async_updates {
     /// The boundary serializes the two updates, so the result is one of the
     /// two whole values and never a mixture of both.
     async fn concurrent_updates_from_two_handles_are_last_writer_wins<E: Executor>(executor: E) {
-        let session = grafton_visca::Session::open(
+        let session = grafton_visca::r#async::Session::open(
             FakeCamera::silent().async_wire(),
-            sony_session_config(),
+            &sony_session_config(),
             executor,
         )
         .await
@@ -531,13 +534,13 @@ mod concurrent_async_updates {
         // Two updates that differ in every field they set. A torn result would
         // mix one field from each; the boundary makes that unrepresentable.
         let first = OperationalTuning::new()
-            .ack_timeout(Duration::from_millis(500))
-            .quick_timeout(Duration::from_secs(9))
-            .retry_limit(1);
+            .with_ack_timeout(Duration::from_millis(500))
+            .with_quick_timeout(Duration::from_secs(9))
+            .with_retry_limit(1);
         let second = OperationalTuning::new()
-            .ack_timeout(Duration::from_millis(900))
-            .quick_timeout(Duration::from_secs(11))
-            .retry_limit(3);
+            .with_ack_timeout(Duration::from_millis(900))
+            .with_quick_timeout(Duration::from_secs(11))
+            .with_retry_limit(3);
 
         for _ in 0..16 {
             let left = session.set_tuning(first);

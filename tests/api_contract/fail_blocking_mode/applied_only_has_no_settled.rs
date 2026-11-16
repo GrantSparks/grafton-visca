@@ -1,4 +1,4 @@
-use grafton_visca::{blocking::Operation, completion::AppliedOnly};
+use grafton_visca::{blocking::Operation, operation::AppliedOnly};
 
 fn invalid(handle: Operation<AppliedOnly>) {
     let _ = handle.settled();

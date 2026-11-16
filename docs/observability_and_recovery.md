@@ -62,8 +62,9 @@ own ACK deadline — so it does not increment this retry path.
 ## Diagnostics
 
 Both facades expose `subscribe_diagnostics(capacity)`. An async subscription
-is read with `DiagnosticSubscription::{try_recv,recv}`, a blocking one with
-`try_recv` and `recv_timeout`. A subscription capacity must be `1..=128`, and
+uses `r#async::Diagnostics`, and a blocking subscription uses
+`blocking::Diagnostics`. Both provide `try_recv`, `recv`, and
+`recv_with_timeout`; the async receives are awaited. A subscription capacity must be `1..=128`, and
 one owner retains at most four live subscriptions. A fifth subscription fails
 with nonretryable `DiagnosticSubscriberLimit { capacity }`; drop an existing
 subscription to make room. Request-admission capacity does not change this
@@ -133,25 +134,32 @@ worker thread (#851).
 
 ## StateCache
 
-Each `Camera<P>`, `BlockingDynSessionCamera`, and `DynSessionCamera` returns a
-cheap read-only `StateCache` view for exactly one target. `StateEntry` is
+Each `Camera<P>`, including `Camera<AnyProfile>`, returns a cheap read-only
+`StateCache` view for exactly one target. Typed per-noun getters return the
+setter's own value type, for example `cache.focus().lock()`,
+`cache.nd_filter().mode()`, and `cache.tally().mode()`. `None` means unknown.
+The generic key/value view remains available. `StateEntry` is
 `#[non_exhaustive]`, so a match
 over it needs a wildcard arm:
 
 ```rust,ignore
 let cache = camera.state_cache();
 assert_eq!(cache.target(), camera.target());
-match cache.value(grafton_visca::StateKey::ImageFreeze) {
-    grafton_visca::StateEntry::Unknown => { /* no exact applied value is currently known */ }
-    grafton_visca::StateEntry::Set(grafton_visca::KnownState::ImageFreeze(enabled)) => {
+if let Some(enabled) = cache.image().freeze() {
+    println!("last applied image freeze: {enabled}");
+}
+match cache.value(grafton_visca::state_cache::StateKey::ImageFreeze) {
+    grafton_visca::state_cache::StateEntry::Unknown => { /* no exact applied value is currently known */ }
+    grafton_visca::state_cache::StateEntry::Set(grafton_visca::state_cache::KnownState::ImageFreeze(enabled)) => {
         println!("freeze enabled: {enabled}");
     }
     _ => {}
 }
 ```
 
-`KnownState` carries each key's native value: booleans, enums, speeds, flip
-pairs, or a typed `PanTiltLimitUpdate`. A cleared limit is a known corner-local
+`KnownState` carries each key's native value: booleans, enums, checked speeds, `ImageFlipMode`, or a typed
+`PanTiltLimitUpdate`. Tally flashing stores `TallyMode::Flash`; it does not
+invalidate the key. `cache.motion_sync().speed()` stores `MotionSyncSpeed`. A cleared limit is a known corner-local
 update whose `position()` is `None`; it remains `StateEntry::Set`. The owner
 registry has seven target slots and one inline slot per `StateKey`, without
 allocation, eviction, or a separate capacity limit. A view contains one target
@@ -297,7 +305,7 @@ additional rows for context-dependent outcomes.
 | `Io / other OS error` | `Other` | — | `Abandon` |
 | `SyntaxError` | `InvalidParameter` | — | `Abandon` |
 | `CommandBufferFull` | `BufferFull` | — | `Resubmit after 200ms` |
-| `CommandCanceled` | `Cancelled` | — | `Abandon` |
+| `CommandCancelled` | `Cancelled` | — | `Abandon` |
 | `NoSocket` | `BufferFull` | — | `Resubmit after 200ms` |
 | `CommandNotExecutable` | `NotExecutable` | — | `Abandon` |
 | `InvalidResponseFormat` | `Protocol` | — | `Abandon` |
@@ -326,7 +334,7 @@ additional rows for context-dependent outcomes.
 | `ControlReserveExhausted` | `BufferFull` | — | `Resubmit after 200ms` |
 | `InquiryShapeCapacityExhausted` | `BufferFull` | PreAdmission / NotAccepted | `Abandon` |
 | `MaxRetriesExceeded` | `Timeout` | — | `Abandon` |
-| `NotSupported` | `Unsupported` | — | `Abandon` |
+| `CancellationNotSupported` | `Unsupported` | — | `Abandon` |
 | `InvalidState` | `NotExecutable` | — | `Abandon` |
 | `OwnerTerminated` | `IoClosed` | — | `ReopenSession` |
 | `DiagnosticSubscriberLimit` | `Other` | — | `Abandon` |
@@ -341,7 +349,7 @@ additional rows for context-dependent outcomes.
 | `StreamPoisoned` | `IoClosed` | — | `ReopenSession` |
 | `InvalidCameraId` | `InvalidParameter` | — | `Abandon` |
 | `ResponseTooLarge` | `Protocol` | — | `Abandon` |
-| `InquiryNotCancelable` | `InvalidParameter` | — | `Abandon` |
+| `InquiryNotCancellable` | `InvalidParameter` | — | `Abandon` |
 | `InvalidAddress` | `InvalidParameter` | — | `Abandon` |
 | `UnsupportedTransport` | `Unsupported` | — | `Abandon` |
 | `MissingRuntime` | `Unsupported` | — | `Abandon` |
@@ -355,7 +363,10 @@ additional rows for context-dependent outcomes.
 <!-- END GENERATED RECOVERY VERDICTS -->
 
 ```rust
-use grafton_visca::{Error, Recovery};
+use grafton_visca::{
+    Error,
+    error::Recovery,
+};
 
 fn next_step(error: &Error) -> &'static str {
     match error.recovery() {
@@ -572,7 +583,7 @@ application idle timeout there are two application-side levers:
    ```rust,ignore
    // Application-owned idle heartbeat; the library starts no timer of its own.
    let before = session.metrics()?.received_frames;
-   let result = session.camera::<PtzOpticsG2>()?.power().state();
+   let result = session.camera::<PtzOpticsG2>(CameraId::CAMERA_1)?.power().status();
    if result.as_ref().is_err_and(|error| error.recovery() == Recovery::ReopenSession) {
        rebuild(&config)?;
    } else if session.metrics()?.received_frames > before {

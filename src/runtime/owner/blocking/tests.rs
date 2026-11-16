@@ -31,8 +31,8 @@ use crate::{
         test_support::{prepare_command, prepare_operation},
         ClassSelection,
     },
-    profile::ProfileSpec,
-    profiles::{GenericVisca, SonyFR7},
+    profiles::ProfileSpec,
+    profiles::{GenericVisca, SonyFr7},
     protocol::sony::SonyHeader,
     request::builtin::{FocusModeCommand, PanTiltLimitClear, ZoomStop},
     runtime::engine::{
@@ -370,7 +370,8 @@ fn await_pan_tilt_limits(owner: &BlockingOwnerHandle) {
     let deadline = Instant::now() + PROMPTLY;
     while owner
         .state_cache(crate::target::TargetSlot::CAMERA_1)
-        .pan_tilt_limits()
+        .pan_tilt()
+        .limit()
         .is_none()
     {
         assert!(
@@ -564,7 +565,7 @@ fn diagnostic_receive_observes_an_owner_deadline_without_wall_time() {
 /// retained before either caller waits.
 #[test]
 fn sony_blocking_waits_retain_out_of_order_peer_results() {
-    let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+    let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
     let (owner, peer) = Setup::datagram_for(profile.clone()).spawn();
     let first = owner.submit_command(focus_manual_for(&profile)).unwrap();
     let first_wire = peer.next_write();
@@ -595,14 +596,14 @@ fn sony_blocking_waits_retain_out_of_order_peer_results() {
 /// write, so this case is Sony-only by name.
 #[test]
 fn sony_transient_blocking_read_fault_retries_and_keeps_the_session() {
-    let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+    let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
     let (owner, peer) = Setup::datagram_for(profile.clone()).spawn();
     let receipt = owner.submit_command(focus_manual_for(&profile)).unwrap();
     let written = peer.next_write();
 
-    peer.send(Read::Fail(Error::Io(Arc::new(std::io::Error::from(
-        std::io::ErrorKind::ConnectionRefused,
-    )))));
+    peer.send(Read::Fail(Error::Io {
+        source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+    }));
     assert_eq!(
         peer.next_write(),
         written,
@@ -698,7 +699,7 @@ fn fatal_stream_reads_retain_the_typed_os_cause() {
         let error = receipt.wait().expect_err("fatal read closes the stream");
         assert!(
             matches!(&error, Error::ConnectionClosed { source: Some(source) }
-            if matches!(source.as_ref(), Error::Io(io) if io.kind() == kind))
+            if matches!(source.as_ref(), Error::Io { source: io } if io.kind() == kind))
         );
         assert!(std::error::Error::source(&error).is_some());
         assert!(matches!(owner.close(), Err(Error::ConnectionClosed { .. })));
@@ -876,8 +877,10 @@ fn self_close_with_external_join(external_first: bool) {
         .recv_timeout(PROMPTLY)
         .expect("self-close must not wait")
     {
-        assert!(matches!(result, Err(Error::InvalidState(message))
-            if message == "blocking owner worker cannot close its own session"));
+        assert!(
+            matches!(result, Err(Error::InvalidState { reason: message })
+            if message == "blocking owner worker cannot close its own session")
+        );
     }
     if !external_first {
         assert!(
@@ -959,11 +962,11 @@ fn a_failed_startup_leaves_no_worker_and_drops_the_transport() {
         ..Setup::datagram()
     }
     .transport();
-    let config = crate::SessionConfig::from_compile_time::<SonyFR7>()
+    let config = crate::SessionConfig::from_compile_time::<SonyFr7>()
         .unwrap()
         .with_sony_sequence_reset_on_connect(true);
     assert!(matches!(
-        crate::blocking::Session::open(transport, config),
+        crate::blocking::Session::open(transport, &config),
         Err(Error::TransportError { .. })
     ));
     assert!(peer.transport_dropped());

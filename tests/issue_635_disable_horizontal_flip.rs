@@ -34,12 +34,11 @@ fn acking_camera() -> FakeCamera {
 #[cfg(feature = "blocking")]
 mod blocking_surface {
     use grafton_visca::{
-        blocking::{Session, SessionConfig},
-        command::ImageFlipMode,
-        profile::ProfileSpec,
-        profiles::PtzOpticsG2,
-        state_cache::StateEntry,
-        StateKey,
+        blocking::Session,
+        config::SessionConfig,
+        profiles::{ProfileSpec, PtzOpticsG2},
+        state_cache::{StateEntry, StateKey},
+        types::ImageFlipMode,
     };
 
     use super::{acking_camera, FakeCamera, MIRROR_OFF, MIRROR_ON};
@@ -47,7 +46,7 @@ mod blocking_surface {
     fn session(profile: ProfileSpec) -> (Session, FakeCamera) {
         let camera = acking_camera();
         let session =
-            Session::open(camera.blocking_wire(), SessionConfig::new(profile)).expect("session");
+            Session::open(camera.blocking_wire(), &SessionConfig::new(profile)).expect("session");
         (session, camera)
     }
 
@@ -55,15 +54,14 @@ mod blocking_surface {
     fn blocking_noun_clears_the_horizontal_mirror() {
         let (session, fake) =
             session(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile"));
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
-        camera.image().enable_horizontal_flip().expect("mirror on");
+        camera.image().set_mirror(true).expect("mirror on");
         assert_eq!(fake.take_only_payload(), MIRROR_ON);
 
-        camera
-            .image()
-            .disable_horizontal_flip()
-            .expect("mirror off");
+        camera.image().set_mirror(false).expect("mirror off");
         assert_eq!(fake.take_only_payload(), MIRROR_OFF);
 
         session.shutdown().expect("shutdown");
@@ -73,7 +71,9 @@ mod blocking_surface {
     fn blocking_mirror_off_invalidates_the_cached_flip_pair() {
         let (session, fake) =
             session(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile"));
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         // Only the combined opcode establishes both axes, so start from a
         // known pair.
@@ -82,30 +82,30 @@ mod blocking_surface {
             .set_flip_mode(ImageFlipMode::Both)
             .expect("combined flip");
         let _ = fake.take_only_payload();
-        assert_eq!(camera.state_cache().flip_state(), Some(ImageFlipMode::Both),);
+        assert_eq!(
+            camera.state_cache().image().flip_mode(),
+            Some(ImageFlipMode::Both),
+        );
 
         // The mirror opcode moves one axis and says nothing about the other,
         // so the pair stops being known — in both directions.
-        camera
-            .image()
-            .disable_horizontal_flip()
-            .expect("mirror off");
+        camera.image().set_mirror(false).expect("mirror off");
         assert_eq!(fake.take_only_payload(), MIRROR_OFF);
         assert_eq!(
-            camera.state_cache().value(StateKey::Flip),
+            camera.state_cache().value(StateKey::ImageFlipMode),
             StateEntry::Unknown,
         );
-        assert_eq!(camera.state_cache().flip_state(), None);
+        assert_eq!(camera.state_cache().image().flip_mode(), None);
 
         camera
             .image()
             .set_flip_mode(ImageFlipMode::Both)
             .expect("combined flip");
         let _ = fake.take_only_payload();
-        camera.image().enable_horizontal_flip().expect("mirror on");
+        camera.image().set_mirror(true).expect("mirror on");
         assert_eq!(fake.take_only_payload(), MIRROR_ON);
         assert_eq!(
-            camera.state_cache().value(StateKey::Flip),
+            camera.state_cache().value(StateKey::ImageFlipMode),
             StateEntry::Unknown,
         );
 
@@ -116,8 +116,11 @@ mod blocking_surface {
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod async_surface {
     use grafton_visca::{
-        profile::ProfileSpec, profiles::PtzOpticsG2, transport::AddressingMode, Session,
-        SessionConfig, TokioRuntime,
+        config::SessionConfig,
+        profiles::{ProfileSpec, PtzOpticsG2},
+        r#async::Session,
+        runtime::TokioRuntime,
+        transport::AddressingMode,
     };
 
     use super::{acking_camera, FakeCamera, MIRROR_OFF, MIRROR_ON};
@@ -126,7 +129,7 @@ mod async_surface {
         let camera = acking_camera();
         let session = Session::open(
             camera.async_wire().with_addressing(AddressingMode::Ip),
-            SessionConfig::new(profile),
+            &SessionConfig::new(profile),
             TokioRuntime::from_current().expect("Tokio runtime"),
         )
         .await
@@ -138,31 +141,29 @@ mod async_surface {
     async fn async_noun_clears_the_horizontal_mirror() {
         let (session, fake) =
             open(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile")).await;
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
-        camera
-            .image()
-            .enable_horizontal_flip()
-            .await
-            .expect("mirror on");
+        camera.image().set_mirror(true).await.expect("mirror on");
         assert_eq!(fake.take_only_payload(), MIRROR_ON);
 
-        camera
-            .image()
-            .disable_horizontal_flip()
-            .await
-            .expect("mirror off");
+        camera.image().set_mirror(false).await.expect("mirror off");
         assert_eq!(fake.take_only_payload(), MIRROR_OFF);
 
         session.shutdown().expect("shutdown");
     }
 }
 
-#[cfg(all(feature = "dyn-api", feature = "runtime-tokio"))]
-mod dyn_surface {
+#[cfg(all(
+    any(feature = "async", feature = "blocking"),
+    feature = "runtime-tokio"
+))]
+mod runtime_profile_surface {
     use grafton_visca::{
-        command::ImageFlipMode, dynapi::DynSessionCameraNouns, profile::ProfileSpec,
-        profiles::PtzOpticsG2, state_cache::StateEntry, StateKey,
+        profiles::{ProfileSpec, PtzOpticsG2},
+        state_cache::{StateEntry, StateKey},
+        types::ImageFlipMode,
     };
 
     use super::{async_surface::open, MIRROR_OFF, MIRROR_ON};
@@ -171,21 +172,15 @@ mod dyn_surface {
     async fn dynamic_noun_clears_the_horizontal_mirror() {
         let (session, fake) =
             open(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile")).await;
-        let camera = session.camera_dyn().expect("dynamic camera");
-        let nouns: &dyn DynSessionCameraNouns = &camera;
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
+        let nouns = &camera;
 
-        nouns
-            .image()
-            .enable_horizontal_flip()
-            .await
-            .expect("mirror on");
+        nouns.image().set_mirror(true).await.expect("mirror on");
         assert_eq!(fake.take_only_payload(), MIRROR_ON);
 
-        nouns
-            .image()
-            .disable_horizontal_flip()
-            .await
-            .expect("mirror off");
+        nouns.image().set_mirror(false).await.expect("mirror off");
         assert_eq!(fake.take_only_payload(), MIRROR_OFF);
 
         session.shutdown().expect("shutdown");
@@ -195,21 +190,26 @@ mod dyn_surface {
     async fn dynamic_mirror_off_invalidates_the_cached_flip_pair() {
         let (session, fake) =
             open(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile")).await;
-        let camera = session.camera_dyn().expect("dynamic camera");
-        let nouns: &dyn DynSessionCameraNouns = &camera;
-
-        nouns.image().set_flip_both().await.expect("combined flip");
-        let _ = fake.take_only_payload();
-        assert_eq!(camera.state_cache().flip_state(), Some(ImageFlipMode::Both),);
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
+        let nouns = &camera;
 
         nouns
             .image()
-            .disable_horizontal_flip()
+            .set_flip_mode(grafton_visca::types::ImageFlipMode::Both)
             .await
-            .expect("mirror off");
+            .expect("combined flip");
+        let _ = fake.take_only_payload();
+        assert_eq!(
+            camera.state_cache().image().flip_mode(),
+            Some(ImageFlipMode::Both),
+        );
+
+        nouns.image().set_mirror(false).await.expect("mirror off");
         assert_eq!(fake.take_only_payload(), MIRROR_OFF);
         assert_eq!(
-            camera.state_cache().value(StateKey::Flip),
+            camera.state_cache().value(StateKey::ImageFlipMode),
             StateEntry::Unknown,
         );
 

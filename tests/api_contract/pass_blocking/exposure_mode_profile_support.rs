@@ -1,13 +1,9 @@
 #![cfg(feature = "blocking")]
 
 use grafton_visca::{
-    blocking::Camera,
-    command::ExposureMode,
-    profiles::{
-        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100,
-    },
-    types::IrisLevel,
+    blocking::Camera, profiles::GenericVisca, profiles::NearusBrc300, profiles::PtzOptics30x,
+    profiles::PtzOpticsG2, profiles::PtzOpticsG3, profiles::SonyBrc300, profiles::SonyBrcH900,
+    profiles::SonyEviH100, types::ExposureMode, types::IrisLevel,
 };
 
 fn ptzoptics_g2(camera: &Camera<PtzOpticsG2>) {
@@ -19,10 +15,10 @@ fn ptzoptics_g3(camera: &Camera<PtzOpticsG3>) {
     let _ = camera.exposure().mode();
     let _ = camera.exposure().set_mode(ExposureMode::Auto);
     let _ = camera.exposure().iris();
-    let _ = camera.exposure().iris_direct(IrisLevel::MIN);
+    let _ = camera.exposure().set_iris(IrisLevel::MIN);
 }
 
-fn ptzoptics_30x(camera: &Camera<PtzOptics30X>) {
+fn ptzoptics_30x(camera: &Camera<PtzOptics30x>) {
     let _ = camera.exposure().mode();
     let _ = camera.exposure().set_mode(ExposureMode::Auto);
 }
@@ -33,24 +29,24 @@ macro_rules! source_backed_sony_exposure {
             let _ = camera.exposure().mode();
             let _ = camera.exposure().set_mode(ExposureMode::Auto);
             let _ = camera.exposure().iris();
-            let _ = camera.exposure().iris_direct(IrisLevel::MIN);
+            let _ = camera.exposure().set_iris(IrisLevel::MIN);
         }
     };
 }
 
-source_backed_sony_exposure!(sony_brch900, SonyBRCH900);
-source_backed_sony_exposure!(sony_evih100, SonyEVIH100);
-source_backed_sony_exposure!(sony_brc300, SonyBRC300);
-source_backed_sony_exposure!(nearus_brc300, NearusBRC300);
+source_backed_sony_exposure!(sony_brch900, SonyBrcH900);
+source_backed_sony_exposure!(sony_evih100, SonyEviH100);
+source_backed_sony_exposure!(sony_brc300, SonyBrc300);
+source_backed_sony_exposure!(nearus_brc300, NearusBrc300);
 source_backed_sony_exposure!(generic_visca, GenericVisca);
 
 fn main() {
     let _: fn(&Camera<PtzOpticsG2>) = ptzoptics_g2;
     let _: fn(&Camera<PtzOpticsG3>) = ptzoptics_g3;
-    let _: fn(&Camera<PtzOptics30X>) = ptzoptics_30x;
-    let _: fn(&Camera<SonyBRCH900>) = sony_brch900;
-    let _: fn(&Camera<SonyEVIH100>) = sony_evih100;
-    let _: fn(&Camera<SonyBRC300>) = sony_brc300;
-    let _: fn(&Camera<NearusBRC300>) = nearus_brc300;
+    let _: fn(&Camera<PtzOptics30x>) = ptzoptics_30x;
+    let _: fn(&Camera<SonyBrcH900>) = sony_brch900;
+    let _: fn(&Camera<SonyEviH100>) = sony_evih100;
+    let _: fn(&Camera<SonyBrc300>) = sony_brc300;
+    let _: fn(&Camera<NearusBrc300>) = nearus_brc300;
     let _: fn(&Camera<GenericVisca>) = generic_visca;
 }

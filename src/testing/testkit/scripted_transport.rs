@@ -349,7 +349,7 @@ impl<E> ScriptedTransport<E> {
     ///
     /// This allows tests to configure transport parameters such as socket,
     /// timeout, and buffer settings. Session admission capacity is configured
-    /// on [`SessionConfig`](crate::SessionConfig), not on the transport.
+    /// on [`crate::config::SessionConfig`], not on the transport.
     pub fn with_config(mut self, config: TransportConfig) -> Self {
         self.config = config;
         self
@@ -919,11 +919,11 @@ mod tests {
             )
             .expect("session");
         let camera = session
-            .camera::<crate::profiles::GenericVisca>()
+            .camera::<crate::profiles::GenericVisca>(crate::types::CameraId::CAMERA_1)
             .expect("camera");
         let start = clock.now();
         assert!(matches!(
-            camera.focus().manual(),
+            camera.focus().set_mode(crate::types::FocusMode::Manual),
             Err(Error::UnsequencedCommandUnconfirmed)
         ));
         assert!(clock.now() > start);
@@ -1147,7 +1147,7 @@ mod tests {
         match result {
             Err(Error::ConnectionClosed { source }) => {
                 assert!(
-                    matches!(source.as_deref(), Some(Error::Io(io)) if io.kind() == std::io::ErrorKind::UnexpectedEof)
+                    matches!(source.as_deref(), Some(Error::Io { source: io }) if io.kind() == std::io::ErrorKind::UnexpectedEof)
                 );
             }
             other => panic!("expected the scripted ConnectionClosed, got {other:?}"),

@@ -32,14 +32,14 @@ macro_rules! runtime_matrix {
             #[$tokio_test]
             async fn tokio() {
                 let executor =
-                    grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
+                    grafton_visca::runtime::TokioRuntime::from_current().expect("Tokio runtime");
                 super::$scenario(executor).await;
             }
 
             #[cfg(feature = "runtime-smol")]
             #[test]
             fn smol() {
-                smol::block_on(super::$scenario(grafton_visca::SmolRuntime::new()));
+                smol::block_on(super::$scenario(grafton_visca::runtime::SmolRuntime::new()));
             }
         }
     };
@@ -54,7 +54,7 @@ macro_rules! runtime_matrix {
 ///     fn applied_stop_completes() {
 ///         let camera = FakeCamera::acking(1);
 ///         let session = open!(camera, config()).expect("session");
-///         let view = session.camera::<P>().expect("view");
+///         let view = session.camera::<P>(grafton_visca::types::CameraId::CAMERA_1).expect("view");
 ///         wait!(view.zoom().stop()).expect("applied");
 ///     }
 /// }
@@ -141,7 +141,7 @@ macro_rules! facade_matrix {
                 #[$tokio_test]
                 async fn tokio() {
                     let executor =
-                        grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
+                        grafton_visca::runtime::TokioRuntime::from_current().expect("Tokio runtime");
                     $crate::facade_matrix!(@async executor, $virtual, $body);
                 }
 
@@ -250,12 +250,12 @@ macro_rules! facade_matrix {
         }
         macro_rules! open {
             ($camera:expr, $config:expr) => {
-                grafton_visca::blocking::Session::open($camera.blocking_wire(), $config)
+                grafton_visca::blocking::Session::open($camera.blocking_wire(), &$config)
             };
         }
         macro_rules! open_camera {
             ($camera:expr, $config:expr) => {
-                grafton_visca::blocking::CameraSession::open($camera.blocking_wire(), $config)
+                grafton_visca::blocking::CameraSession::open($camera.blocking_wire(), &$config)
             };
         }
         macro_rules! wait_for_writes {
@@ -307,17 +307,17 @@ macro_rules! facade_matrix {
         {
             let clock = grafton_visca::testing::testkit::ManualClock::new();
             let executor = grafton_visca::testing::testkit::ManualClockExecutor::new(
-                grafton_visca::SmolRuntime::new(),
+                grafton_visca::runtime::SmolRuntime::new(),
                 &clock,
             );
-            grafton_visca::Executor::block_on(&executor, async {
+            grafton_visca::runtime::Executor::block_on(&executor, async {
                 $crate::facade_matrix!(@async executor, true, $body);
             });
         }
     }};
     (@smol false, $body:block) => {
         smol::block_on(async {
-            let executor = grafton_visca::SmolRuntime::new();
+            let executor = grafton_visca::runtime::SmolRuntime::new();
             $crate::facade_matrix!(@async executor, false, $body);
         })
     };
@@ -329,13 +329,13 @@ macro_rules! facade_matrix {
         }
         macro_rules! open {
             ($camera:expr, $config:expr) => {
-                grafton_visca::Session::open($camera.async_wire(), $config, $executor.clone())
+                grafton_visca::r#async::Session::open($camera.async_wire(), &$config, $executor.clone())
                     .await
             };
         }
         macro_rules! open_camera {
             ($camera:expr, $config:expr) => {
-                grafton_visca::CameraSession::open($camera.async_wire(), $config, $executor.clone())
+                grafton_visca::r#async::CameraSession::open($camera.async_wire(), &$config, $executor.clone())
                     .await
             };
         }
@@ -351,19 +351,19 @@ macro_rules! facade_matrix {
         }
         macro_rules! pause {
             ($duration:expr) => {
-                grafton_visca::Executor::sleep(&$executor, $duration).await
+                grafton_visca::runtime::Executor::sleep(&$executor, $duration).await
             };
         }
         macro_rules! within {
             ($duration:expr, $e:expr) => {
-                grafton_visca::Executor::timeout(&$executor, $duration, $e)
+                grafton_visca::runtime::Executor::timeout(&$executor, $duration, $e)
                     .await
                     .expect(concat!("step exceeded its outer deadline: ", stringify!($e)))
             };
         }
         macro_rules! now {
             () => {
-                grafton_visca::Executor::now(&$executor)
+                grafton_visca::runtime::Executor::now(&$executor)
             };
         }
         macro_rules! after {
@@ -371,8 +371,8 @@ macro_rules! facade_matrix {
                 let duration: std::time::Duration = $duration;
                 let f = $f;
                 let timer = $executor.clone();
-                grafton_visca::Executor::spawn_bg(&$executor, async move {
-                    grafton_visca::Executor::sleep(&timer, duration).await;
+                grafton_visca::runtime::Executor::spawn_bg(&$executor, async move {
+                    grafton_visca::runtime::Executor::sleep(&timer, duration).await;
                     f();
                 });
             }};

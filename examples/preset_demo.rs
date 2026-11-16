@@ -2,17 +2,17 @@
 
 use std::{env, io};
 
-use grafton_visca::{blocking::Connect, profiles::PtzOpticsG2, Error, PresetNumber};
+use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2, types::PresetNumber, Error};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (address, action, number) = arguments()?;
     let preset = PresetNumber::new(number)?;
-    let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address)?;
     let result = {
         let camera = session.camera();
         match action.as_str() {
-            "set" => camera.presets().set(preset),
-            "clear" | "reset" => camera.presets().reset(preset),
+            "set" => camera.presets().store(preset),
+            "clear" | "reset" => camera.presets().clear(preset),
             "recall" => camera.presets().recall(preset)?.settled().map(|_| ()),
             _ => Err(Error::invalid_parameter(
                 "operation",
@@ -36,7 +36,7 @@ fn arguments() -> Result<(String, String, u8), io::Error> {
         .next()
         .unwrap_or_else(|| "1".to_string())
         .parse()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "preset must be 1..=255"))?;
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "preset must be 0..=255"))?;
     if values.next().is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,

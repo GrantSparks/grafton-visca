@@ -296,7 +296,7 @@ mod tests {
     #[tokio::test]
     async fn invalid_buffer_bounds_fail_before_serial_device_open() {
         let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
-            .buffer_config(BufferConfig {
+            .with_buffer_config(BufferConfig {
                 recv_buffer_size: 65,
                 max_buffer_size: 64,
             });
@@ -305,7 +305,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(Error::InvalidRequest(actual))
+            Err(Error::InvalidRequest { reason: actual })
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
     }
@@ -315,18 +315,18 @@ mod tests {
         for (config, message) in [
             (
                 SerialConfig::new("grafton-visca-zero-read-timeout-serial-device")
-                    .read_timeout(Duration::ZERO),
+                    .with_read_timeout(Duration::ZERO),
                 "transport read timeout must be non-zero",
             ),
             (
                 SerialConfig::new("grafton-visca-zero-write-timeout-serial-device")
-                    .write_timeout(Duration::ZERO),
+                    .with_write_timeout(Duration::ZERO),
                 "transport write timeout must be non-zero",
             ),
         ] {
             assert!(matches!(
                 Serial::connect(config).await,
-                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
+                Err(Error::InvalidRequest { reason: actual }) if actual.as_ref() == message
             ));
         }
     }
@@ -373,8 +373,8 @@ mod tests {
         let executor = TokioExecutor::from_current().expect("Tokio runtime is present");
         let mut io = PendingWriteIo;
         let config = SerialConfig::new("/dev/test")
-            .startup(Startup::default().with_interface_clear(true))
-            .write_timeout(Duration::from_millis(5));
+            .with_startup(Startup::default().with_interface_clear(true))
+            .with_write_timeout(Duration::from_millis(5));
 
         let bounded = tokio::time::timeout(
             Duration::from_millis(100),

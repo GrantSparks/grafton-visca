@@ -1,10 +1,7 @@
-use grafton_visca::{
-    capabilities::HasSharpnessControl,
-    profiles::SonyEVIH100,
-};
+use grafton_visca::{capabilities::HasSharpness, profiles::SonyEviH100};
 
-fn requires_level<P: HasSharpnessControl>() {}
+fn requires_level<P: HasSharpness>() {}
 
 fn main() {
-    requires_level::<SonyEVIH100>();
+    requires_level::<SonyEviH100>();
 }

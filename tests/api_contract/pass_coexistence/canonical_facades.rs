@@ -3,10 +3,8 @@
 use std::marker::PhantomData;
 
 use grafton_visca::{
-    blocking,
-    completion::{AppliedOnly, Targeted},
-    profiles::PtzOpticsG2,
-    Camera, Operation, Session,
+    blocking, operation::AppliedOnly, operation::Targeted, profiles::PtzOpticsG2, r#async::Camera,
+    r#async::Operation, r#async::Session,
 };
 
 fn main() {

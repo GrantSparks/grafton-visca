@@ -1,16 +1,22 @@
 #![allow(dead_code)]
 
-pub use grafton_visca::{Error, KnownState, ProfileSpec, StateKey, TargetRegistration};
+pub use grafton_visca::{
+    config::TargetRegistration, profiles::ProfileSpec, state_cache::KnownState,
+    state_cache::StateKey, types::TallyMode, Error,
+};
 
 mod contract {
-    include!(concat!(env!("GRAFTON_VISCA_SOURCE_ROOT"), "/src/request/builtin_contract.rs"));
+    include!(concat!(
+        env!("GRAFTON_VISCA_SOURCE_ROOT"),
+        "/src/request/builtin_contract.rs"
+    ));
 }
 
 struct Tally;
 impl contract::StateValue for Tally {
     const KEY: StateKey = StateKey::TallyMode;
-    type Value = bool;
-    fn known(value: bool) -> KnownState {
+    type Value = TallyMode;
+    fn known(value: TallyMode) -> KnownState {
         KnownState::TallyMode(value)
     }
 }
@@ -18,8 +24,10 @@ impl contract::StateValue for Tally {
 struct MissingValue;
 
 fn main() {
-    let _ = <contract::Clear<Tally> as contract::BuiltinStateProjection<MissingValue>>::project(&MissingValue);
+    let _ = <contract::Clear<Tally> as contract::BuiltinStateProjection<MissingValue>>::project(
+        &MissingValue,
+    );
 }
 
 //~ E0277
-//~ "the trait bound `MissingValue: BuiltinStateValue<bool>` is not satisfied"
+//~ "the trait bound `MissingValue: BuiltinStateValue<grafton_visca::types::TallyMode>` is not satisfied"

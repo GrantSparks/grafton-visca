@@ -1,4 +1,4 @@
-use grafton_visca::ExposureMode;
+use grafton_visca::types::ExposureMode;
 
 fn main() {
     let _ = ExposureMode::try_from(0x00_u8);

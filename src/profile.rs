@@ -1,15 +1,21 @@
 //! Validated runtime camera-profile specifications.
 
+crate::camera::profiles::profile_registry::builtin_profile_registry!(
+    crate::camera::profiles::profile_registry::reexport_builtin_profiles
+);
+pub use crate::camera::profiles::{ProfileGroup, ProfileId};
+pub use crate::profile_selection::{
+    AnyProfile, CameraProfile, ProfileSelection, TypedProfileSelection,
+};
+
 use std::{
     fmt,
     time::{Duration, Instant},
 };
 
-use crate::{
-    capabilities,
-    timeout::{CommandCategory, CommandTimeouts},
-    AffectedAxes, Error, Result,
-};
+use crate::tuning::OperationalTuning;
+
+use crate::{capabilities, AffectedAxes, Error, Result};
 
 /// Builds one actionable profile-construction error. Validation can involve
 /// several coupled facts, so plural field names are retained instead of
@@ -21,7 +27,9 @@ pub(crate) fn invalid_profile_fields(fields: &[&str], reason: impl fmt::Display)
         .collect::<Vec<_>>()
         .join(", ");
     let label = if fields.len() == 1 { "field" } else { "fields" };
-    Error::InvalidRequest(format!("profile {label} {names}: {reason}").into())
+    Error::InvalidRequest {
+        reason: format!("profile {label} {names}: {reason}").into(),
+    }
 }
 
 /// Largest retry backoff ceiling or total budget an explicit override may set.
@@ -57,112 +65,13 @@ fn retry_budget_is_representable(now: Instant, deadline: Duration, ack: Duration
         })
 }
 
-/// Position inquiries available for profile-selected protocol settlement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
-pub struct PositionInquirySupport {
-    pan_tilt: bool,
-    zoom: bool,
-    focus: bool,
-    iris: bool,
-    nd_filter: bool,
-}
-
-impl PositionInquirySupport {
-    /// Creates explicit per-axis inquiry support facts.
-    #[must_use]
-    pub const fn new(pan_tilt: bool, zoom: bool, focus: bool) -> Self {
-        Self {
-            pan_tilt,
-            zoom,
-            focus,
-            iris: false,
-            nd_filter: false,
-        }
-    }
-
-    /// Creates explicit support facts for all five physical inquiry axes.
-    #[must_use]
-    pub const fn new_with_iris_nd(
-        pan_tilt: bool,
-        zoom: bool,
-        focus: bool,
-        iris: bool,
-        nd_filter: bool,
-    ) -> Self {
-        Self {
-            pan_tilt,
-            zoom,
-            focus,
-            iris,
-            nd_filter,
-        }
-    }
-
-    /// Adds explicit iris inquiry support to an existing fact set.
-    #[must_use]
-    pub const fn with_iris(mut self, supported: bool) -> Self {
-        self.iris = supported;
-        self
-    }
-
-    /// Adds explicit ND-filter inquiry support to an existing fact set.
-    #[must_use]
-    pub const fn with_nd_filter(mut self, supported: bool) -> Self {
-        self.nd_filter = supported;
-        self
-    }
-
-    /// Returns whether pan/tilt position can be queried.
-    #[must_use]
-    pub const fn pan_tilt(self) -> bool {
-        self.pan_tilt
-    }
-
-    /// Returns whether zoom position can be queried.
-    #[must_use]
-    pub const fn zoom(self) -> bool {
-        self.zoom
-    }
-
-    /// Returns whether focus position can be queried.
-    #[must_use]
-    pub const fn focus(self) -> bool {
-        self.focus
-    }
-
-    /// Returns whether iris position can be queried.
-    #[must_use]
-    pub const fn iris(self) -> bool {
-        self.iris
-    }
-
-    /// Returns whether ND-filter position can be queried.
-    #[must_use]
-    pub const fn nd_filter(self) -> bool {
-        self.nd_filter
-    }
-
-    /// Returns whether every selected axis has an exact position inquiry.
-    #[must_use]
-    pub const fn supports(self, axes: AffectedAxes) -> bool {
-        (!axes.contains(AffectedAxes::PAN_TILT) || self.pan_tilt)
-            && (!axes.contains(AffectedAxes::ZOOM) || self.zoom)
-            && (!axes.contains(AffectedAxes::FOCUS) || self.focus)
-            && (!axes.contains(AffectedAxes::IRIS) || self.iris)
-            && (!axes.contains(AffectedAxes::ND_FILTER) || self.nd_filter)
-    }
-}
-
 /// Wire envelope required by a camera profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum ProfileEnvelope {
     /// Unencapsulated VISCA bytes.
     RawVisca,
@@ -179,13 +88,13 @@ pub enum ProfileEnvelope {
 pub struct TransportCompatibility {
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
     #[cfg_attr(feature = "schemars", schemars(required, transform = nullable_schema))]
     tcp_port: Option<u16>,
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
     #[cfg_attr(feature = "schemars", schemars(required, transform = nullable_schema))]
     udp_port: Option<u16>,
@@ -193,14 +102,37 @@ pub struct TransportCompatibility {
 }
 
 impl TransportCompatibility {
-    /// Creates transport facts. [`ProfileSpecBuilder::build`] validates them.
+    /// Creates transport facts with no enabled transport.
+    ///
+    /// Add at least one transport before [`ProfileSpecBuilder::build`].
     #[must_use]
-    pub const fn new(tcp_port: Option<u16>, udp_port: Option<u16>, serial: bool) -> Self {
+    pub const fn new() -> Self {
         Self {
-            tcp_port,
-            udp_port,
-            serial,
+            tcp_port: None,
+            udp_port: None,
+            serial: false,
         }
+    }
+
+    /// Enables TCP with its nonzero default port, checked at profile build.
+    #[must_use]
+    pub const fn with_tcp(mut self, port: u16) -> Self {
+        self.tcp_port = Some(port);
+        self
+    }
+
+    /// Enables UDP with its nonzero default port, checked at profile build.
+    #[must_use]
+    pub const fn with_udp(mut self, port: u16) -> Self {
+        self.udp_port = Some(port);
+        self
+    }
+
+    /// Enables serial transport.
+    #[must_use]
+    pub const fn with_serial(mut self) -> Self {
+        self.serial = true;
+        self
     }
 
     /// Returns the default TCP port when TCP is supported.
@@ -222,22 +154,37 @@ impl TransportCompatibility {
     }
 }
 
+impl Default for TransportCompatibility {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Immutable protocol timings owned by a validated profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 #[cfg_attr(feature = "serde", serde(try_from = "ProfileTimingSerde"))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
 pub struct ProfileTiming {
-    ack_timeout: Duration,
-    command_timeouts: CommandTimeouts,
-    inquiry_timeout: Duration,
-    cancellation_timeout: Duration,
-    ambiguity_timeout: Duration,
-    busy_timeout: Duration,
-    raw_inquiry_reply_skew: Duration,
-    minimum_inquiry_spacing: Duration,
-    minimum_command_spacing: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
+    pub(crate) ack_timeout: Duration,
+    pub(crate) command_timeouts: CommandTimeouts,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
+    pub(crate) inquiry_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
+    pub(crate) cancellation_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
+    pub(crate) ambiguity_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
+    pub(crate) busy_timeout: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
+    pub(crate) raw_inquiry_reply_skew: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
+    pub(crate) inquiry_spacing: Duration,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
+    pub(crate) command_spacing: Duration,
 }
 
 /// Persisted timing facts before the builder's invariant is established.
@@ -253,8 +200,8 @@ struct ProfileTimingSerde {
     ambiguity_timeout: Duration,
     busy_timeout: Duration,
     raw_inquiry_reply_skew: Duration,
-    minimum_inquiry_spacing: Duration,
-    minimum_command_spacing: Duration,
+    inquiry_spacing: Duration,
+    command_spacing: Duration,
 }
 
 #[cfg(feature = "serde")]
@@ -270,19 +217,19 @@ impl TryFrom<ProfileTimingSerde> for ProfileTiming {
             ambiguity_timeout: value.ambiguity_timeout,
             busy_timeout: value.busy_timeout,
             raw_inquiry_reply_skew: value.raw_inquiry_reply_skew,
-            minimum_inquiry_spacing: value.minimum_inquiry_spacing,
-            minimum_command_spacing: value.minimum_command_spacing,
+            inquiry_spacing: value.inquiry_spacing,
+            command_spacing: value.command_spacing,
         }
         .validate()
     }
 }
 
-/// Builder for validated [`ProfileTiming`] facts.
+/// Builder for validated [`crate::profiles::ProfileTiming`] facts.
 ///
 /// Every timing fact is required.  The builder does not supply protocol
 /// defaults because timing is part of a profile's safety contract; callers
-/// should use [`CommandTimeouts::default`] explicitly when the standard
-/// command-category deadlines are appropriate.  [`ProfileTiming`] itself is
+/// should use [`crate::profiles::CommandTimeouts::default`] explicitly when the standard
+/// command-category deadlines are appropriate.  [`crate::profiles::ProfileTiming`] itself is
 /// accepted by [`ProfileSpecBuilder::timing`] as one cohesive value so a
 /// profile cannot accidentally mix fields from different timing policies.
 #[derive(Debug, Clone, Copy, Default)]
@@ -294,16 +241,15 @@ pub struct ProfileTimingBuilder {
     ambiguity_timeout: Option<Duration>,
     busy_timeout: Option<Duration>,
     raw_inquiry_reply_skew: Option<Duration>,
-    minimum_inquiry_spacing: Option<Duration>,
-    minimum_command_spacing: Option<Duration>,
+    inquiry_spacing: Option<Duration>,
+    command_spacing: Option<Duration>,
 }
 
 /// Profile-specified pan/tilt coordinate conversion owned by a validated profile.
 ///
 /// This is the crate's single implementation of the degrees ↔ raw-unit
-/// conversion. Request preparation, [`PanTiltExt`], the position types'
-/// profile-aware helpers, and the capability degree ranges all delegate here,
-/// so every path produces the same units for the same angle.
+/// conversion. Request preparation, physical position readback, and capability
+/// degree ranges all use the conversion stored in the target's profile.
 ///
 /// The conversion rule, for each axis with its signed units-per-degree scale:
 ///
@@ -316,8 +262,7 @@ pub struct ProfileTimingBuilder {
 /// `10.05°` is `145` units.
 ///
 /// Deserialization rejects a zero or non-finite scale.
-///
-/// [`PanTiltExt`]: crate::capabilities::pan_tilt::PanTiltExt
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
@@ -326,6 +271,7 @@ pub struct ProfileTimingBuilder {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
 pub struct PanTiltCoordinateConversion {
     coordinate_system: capabilities::CoordinateSystem,
     wire_codec: capabilities::PanTiltWireCodec,
@@ -333,7 +279,7 @@ pub struct PanTiltCoordinateConversion {
     tilt_degrees_to_units: f32,
 }
 
-/// Unvalidated wire form of [`PanTiltCoordinateConversion`].
+/// Unvalidated wire form of [`crate::profiles::PanTiltCoordinateConversion`].
 #[cfg(feature = "serde")]
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -377,7 +323,7 @@ impl PanTiltCoordinateConversion {
                 "units-per-degree scales must be finite and nonzero",
             ));
         }
-        crate::command::pan_tilt::PanTiltFraming::new(wire_codec, coordinate_system)?;
+        crate::command::pan_tilt_wire::PanTiltFraming::new(wire_codec, coordinate_system)?;
         Ok(Self {
             coordinate_system,
             wire_codec,
@@ -416,35 +362,35 @@ impl PanTiltCoordinateConversion {
         self.tilt_degrees_to_units
     }
 
-    /// Returns the conversion a compile-time profile declares.
+    /// Builds a registry row's cached conversion and checks its static facts.
     ///
-    /// A profile whose wire codec cannot frame its coordinate system (Sony
-    /// BRC-300 framing with unsigned-centered coordinates) fails to build at
-    /// this call; `tests/api_contract/fail/inconsistent_pan_tilt_framing_fails_to_build.rs`
-    /// pins the error.
-    #[must_use]
-    pub const fn for_profile<P: capabilities::PanTilt + ?Sized>() -> Self {
-        const {
-            assert!(
-                P::PAN_DEGREES_TO_UNITS.is_finite()
-                    && P::PAN_DEGREES_TO_UNITS != 0.0
-                    && P::TILT_DEGREES_TO_UNITS.is_finite()
-                    && P::TILT_DEGREES_TO_UNITS != 0.0,
-                "pan/tilt coordinate scales must be finite and nonzero"
-            );
-            assert!(
-                crate::command::pan_tilt::PanTiltFraming::is_consistent(
-                    P::PAN_TILT_WIRE_CODEC,
-                    P::COORDINATE_SYSTEM,
-                ),
-                "Sony position framing requires signed-centered coordinates",
-            );
-        }
+    /// Public/custom profiles use `new`, which reports the same failures as
+    /// crate errors. The registry's literals retain compile-time assertions.
+    pub(crate) const fn from_registry(
+        coordinate_system: capabilities::CoordinateSystem,
+        wire_codec: capabilities::PanTiltWireCodec,
+        pan_degrees_to_units: f32,
+        tilt_degrees_to_units: f32,
+    ) -> Self {
+        assert!(
+            pan_degrees_to_units.is_finite()
+                && pan_degrees_to_units != 0.0
+                && tilt_degrees_to_units.is_finite()
+                && tilt_degrees_to_units != 0.0,
+            "pan/tilt coordinate scales must be finite and nonzero"
+        );
+        assert!(
+            crate::command::pan_tilt_wire::PanTiltFraming::is_consistent(
+                wire_codec,
+                coordinate_system
+            ),
+            "Sony position framing requires signed-centered coordinates"
+        );
         Self {
-            coordinate_system: P::COORDINATE_SYSTEM,
-            wire_codec: P::PAN_TILT_WIRE_CODEC,
-            pan_degrees_to_units: P::PAN_DEGREES_TO_UNITS,
-            tilt_degrees_to_units: P::TILT_DEGREES_TO_UNITS,
+            coordinate_system,
+            wire_codec,
+            pan_degrees_to_units,
+            tilt_degrees_to_units,
         }
     }
 
@@ -681,7 +627,7 @@ impl ProfileTiming {
     /// without a matched response.
     ///
     /// This fact is unused by sequence-bearing envelopes and may be zero. It
-    /// cannot exceed [`Self::minimum_inquiry_spacing`].
+    /// cannot exceed [`Self::inquiry_spacing`].
     #[must_use]
     pub const fn raw_inquiry_reply_skew(self) -> Duration {
         self.raw_inquiry_reply_skew
@@ -689,14 +635,14 @@ impl ProfileTiming {
 
     /// Returns the minimum interval between inquiry writes.
     #[must_use]
-    pub const fn minimum_inquiry_spacing(self) -> Duration {
-        self.minimum_inquiry_spacing
+    pub const fn inquiry_spacing(self) -> Duration {
+        self.inquiry_spacing
     }
 
     /// Returns the minimum interval between command writes.
     #[must_use]
-    pub const fn minimum_command_spacing(self) -> Duration {
-        self.minimum_command_spacing
+    pub const fn command_spacing(self) -> Duration {
+        self.command_spacing
     }
 
     fn validate(self) -> Result<Self> {
@@ -721,7 +667,7 @@ impl ProfileTiming {
 
         let now = Instant::now();
         let command_deadlines =
-            CommandCategory::ALL.map(|category| self.command_timeouts.get(category));
+            CommandTimeoutClass::ALL.map(|category| self.command_timeouts.get(category));
         if [
             self.ack_timeout,
             self.inquiry_timeout,
@@ -729,8 +675,8 @@ impl ProfileTiming {
             self.ambiguity_timeout,
             self.busy_timeout,
             self.raw_inquiry_reply_skew,
-            self.minimum_inquiry_spacing,
-            self.minimum_command_spacing,
+            self.inquiry_spacing,
+            self.command_spacing,
         ]
         .into_iter()
         .chain(command_deadlines)
@@ -741,12 +687,9 @@ impl ProfileTiming {
                 "values must be representable by the monotonic clock",
             ));
         }
-        if self.raw_inquiry_reply_skew > self.minimum_inquiry_spacing {
+        if self.raw_inquiry_reply_skew > self.inquiry_spacing {
             return Err(invalid_profile_fields(
-                &[
-                    "timing.raw_inquiry_reply_skew",
-                    "timing.minimum_inquiry_spacing",
-                ],
+                &["timing.raw_inquiry_reply_skew", "timing.inquiry_spacing"],
                 "raw inquiry reply skew cannot exceed minimum inquiry spacing",
             ));
         }
@@ -780,8 +723,8 @@ impl ProfileTimingBuilder {
             ambiguity_timeout: None,
             busy_timeout: None,
             raw_inquiry_reply_skew: None,
-            minimum_inquiry_spacing: None,
-            minimum_command_spacing: None,
+            inquiry_spacing: None,
+            command_spacing: None,
         }
     }
 
@@ -838,15 +781,15 @@ impl ProfileTimingBuilder {
 
     /// Sets the minimum interval between inquiry writes.
     #[must_use]
-    pub const fn minimum_inquiry_spacing(mut self, spacing: Duration) -> Self {
-        self.minimum_inquiry_spacing = Some(spacing);
+    pub const fn inquiry_spacing(mut self, spacing: Duration) -> Self {
+        self.inquiry_spacing = Some(spacing);
         self
     }
 
     /// Sets the minimum interval between command writes.
     #[must_use]
-    pub const fn minimum_command_spacing(mut self, spacing: Duration) -> Self {
-        self.minimum_command_spacing = Some(spacing);
+    pub const fn command_spacing(mut self, spacing: Duration) -> Self {
+        self.command_spacing = Some(spacing);
         self
     }
 
@@ -870,264 +813,15 @@ impl ProfileTimingBuilder {
                 self.raw_inquiry_reply_skew,
                 "timing.raw_inquiry_reply_skew",
             )?,
-            minimum_inquiry_spacing: required(
-                self.minimum_inquiry_spacing,
-                "timing.minimum_inquiry_spacing",
-            )?,
-            minimum_command_spacing: required(
-                self.minimum_command_spacing,
-                "timing.minimum_command_spacing",
-            )?,
+            inquiry_spacing: required(self.inquiry_spacing, "timing.inquiry_spacing")?,
+            command_spacing: required(self.command_spacing, "timing.command_spacing")?,
         }
         .validate()
     }
 }
 
-/// Operational overrides that cannot change request or profile semantics.
-///
-/// Tuning contains no request class, route, decoder, cancellation capability,
-/// or completion-kind fields. Every value is validated against a profile before
-/// it is lowered.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
-pub struct OperationalTuning {
-    command_spacing: Option<Duration>,
-    inquiry_spacing: Option<Duration>,
-    maximum_command_sockets: Option<u8>,
-    ack_timeout: Option<Duration>,
-    quick_timeout: Option<Duration>,
-    movement_timeout: Option<Duration>,
-    preset_timeout: Option<Duration>,
-    long_running_timeout: Option<Duration>,
-    network_timeout: Option<Duration>,
-    settlement_timeout: Option<Duration>,
-    inquiry_timeout: Option<Duration>,
-    retry_limit: Option<u32>,
-    initial_retry_backoff: Option<Duration>,
-    maximum_retry_backoff: Option<Duration>,
-    retry_budget: Option<Duration>,
-}
-
-impl OperationalTuning {
-    /// Creates tuning with no overrides.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            command_spacing: None,
-            inquiry_spacing: None,
-            maximum_command_sockets: None,
-            ack_timeout: None,
-            quick_timeout: None,
-            movement_timeout: None,
-            preset_timeout: None,
-            long_running_timeout: None,
-            network_timeout: None,
-            settlement_timeout: None,
-            inquiry_timeout: None,
-            retry_limit: None,
-            initial_retry_backoff: None,
-            maximum_retry_backoff: None,
-            retry_budget: None,
-        }
-    }
-
-    /// Overrides command pacing, subject to the profile minimum.
-    #[must_use]
-    pub const fn command_spacing(mut self, spacing: Duration) -> Self {
-        self.command_spacing = Some(spacing);
-        self
-    }
-
-    /// Overrides inquiry pacing, subject to the profile minimum.
-    #[must_use]
-    pub const fn inquiry_spacing(mut self, spacing: Duration) -> Self {
-        self.inquiry_spacing = Some(spacing);
-        self
-    }
-
-    /// Lowers owner socket capacity without exceeding the profile limit.
-    #[must_use]
-    pub const fn maximum_command_sockets(mut self, maximum: u8) -> Self {
-        self.maximum_command_sockets = Some(maximum);
-        self
-    }
-
-    /// Overrides the non-zero acknowledgement deadline.
-    #[must_use]
-    pub const fn ack_timeout(mut self, timeout: Duration) -> Self {
-        self.ack_timeout = Some(timeout);
-        self
-    }
-
-    /// Overrides the non-zero quick-command completion deadline.
-    ///
-    /// Category overrides are independent; set each category that needs a
-    /// different deadline.
-    #[must_use]
-    pub const fn quick_timeout(mut self, timeout: Duration) -> Self {
-        self.quick_timeout = Some(timeout);
-        self
-    }
-
-    /// Overrides the non-zero movement-command completion deadline.
-    ///
-    #[must_use]
-    pub const fn movement_timeout(mut self, timeout: Duration) -> Self {
-        self.movement_timeout = Some(timeout);
-        self
-    }
-
-    /// Overrides the non-zero preset-command completion deadline.
-    ///
-    #[must_use]
-    pub const fn preset_timeout(mut self, timeout: Duration) -> Self {
-        self.preset_timeout = Some(timeout);
-        self
-    }
-
-    /// Overrides the non-zero long-running-command completion deadline.
-    ///
-    #[must_use]
-    pub const fn long_running_timeout(mut self, timeout: Duration) -> Self {
-        self.long_running_timeout = Some(timeout);
-        self
-    }
-
-    /// Overrides the non-zero network-command completion deadline.
-    ///
-    #[must_use]
-    pub const fn network_timeout(mut self, timeout: Duration) -> Self {
-        self.network_timeout = Some(timeout);
-        self
-    }
-
-    /// Lengthens the default protocol-settlement budget for targeted operations.
-    ///
-    /// The effective budget is the larger of this override and the request's
-    /// retry budget. Values below every built-in targeted operation's retry
-    /// budget are refused. Use `settled_with_timeout` for an exact shorter bound.
-    #[must_use]
-    pub const fn settlement_timeout(mut self, timeout: Duration) -> Self {
-        self.settlement_timeout = Some(timeout);
-        self
-    }
-
-    /// Overrides the non-zero inquiry deadline.
-    #[must_use]
-    pub const fn inquiry_timeout(mut self, timeout: Duration) -> Self {
-        self.inquiry_timeout = Some(timeout);
-        self
-    }
-
-    /// Lowers the base bounded retry count.
-    ///
-    /// The default base is 3, and tuning may only reduce it:
-    /// [`ProfileSpec::validate_tuning`] rejects a larger value, so tuning can
-    /// never make retries more aggressive than the default. Each request's own
-    /// budget is derived from this base by its timeout category: quick and
-    /// inquiry work gets two more attempts, network work one fewer (at least
-    /// one), and a long-running command exactly one, so the effective count is
-    /// not always the number given here. A request whose retry class is
-    /// [`RetryClass::Never`](crate::RetryClass::Never) is never replayed
-    /// regardless of this value.
-    #[must_use]
-    pub const fn retry_limit(mut self, maximum: u32) -> Self {
-        self.retry_limit = Some(maximum);
-        self
-    }
-
-    /// Lengthens retry backoff and the total retry budget.
-    ///
-    /// Retry timing is a validated profile bound that tuning may only
-    /// lengthen, like every other deadline. By default backoff begins at
-    /// 50 ms and is capped at the larger of 500 ms and the profile busy
-    /// timeout, and a request may retry for the largest of ten seconds, twice
-    /// its own governing deadline, and the busy timeout.
-    /// [`ProfileSpec::validate_tuning`] rejects an `initial` below 50 ms, a
-    /// `maximum` below that ceiling, and a `budget` below the ten-second (or
-    /// busy-timeout) floor. A request whose own default budget is longer than
-    /// `budget` keeps its default.
-    #[must_use]
-    pub const fn retry_timing(
-        mut self,
-        initial: Duration,
-        maximum: Duration,
-        budget: Duration,
-    ) -> Self {
-        self.initial_retry_backoff = Some(initial);
-        self.maximum_retry_backoff = Some(maximum);
-        self.retry_budget = Some(budget);
-        self
-    }
-
-    /// The completion-deadline override for one command category.
-    pub(crate) const fn command_override(self, category: CommandCategory) -> Option<Duration> {
-        match category {
-            CommandCategory::Quick => self.quick_timeout,
-            CommandCategory::Movement => self.movement_timeout,
-            CommandCategory::Preset => self.preset_timeout,
-            CommandCategory::LongRunning => self.long_running_timeout,
-            CommandCategory::Network => self.network_timeout,
-        }
-    }
-
-    /// Applies the retry-limit override to the default base retry count. The
-    /// override may only reduce it.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
-    pub(crate) fn reduce_retry_base(self, default: u32) -> u32 {
-        self.retry_limit.map_or(default, |limit| limit.min(default))
-    }
-}
-
-/// Owner-side reads of the remaining overrides; only preparation and the
-/// owner policy consume them.
-#[cfg(any(feature = "blocking", feature = "async"))]
-impl OperationalTuning {
-    pub(crate) const fn command_spacing_override(self) -> Option<Duration> {
-        self.command_spacing
-    }
-
-    pub(crate) const fn inquiry_spacing_override(self) -> Option<Duration> {
-        self.inquiry_spacing
-    }
-
-    pub(crate) const fn maximum_command_sockets_override(self) -> Option<u8> {
-        self.maximum_command_sockets
-    }
-
-    pub(crate) const fn ack_timeout_override(self) -> Option<Duration> {
-        self.ack_timeout
-    }
-
-    pub(crate) const fn settlement_timeout_override(self) -> Option<Duration> {
-        self.settlement_timeout
-    }
-
-    pub(crate) const fn inquiry_timeout_override(self) -> Option<Duration> {
-        self.inquiry_timeout
-    }
-}
-
-impl OperationalTuning {
-    /// Applies the retry-timing overrides to a request's profile retry
-    /// bounds. Each override may only lengthen its bound, so a value below the
-    /// request's own bound leaves that bound in force.
-    pub(crate) fn lengthen_retry_bounds(self, profile: RetryBounds) -> RetryBounds {
-        let lengthen = |value: Option<Duration>, bound: Duration| {
-            value.map_or(bound, |value| value.max(bound))
-        };
-        RetryBounds {
-            initial_backoff: lengthen(self.initial_retry_backoff, profile.initial_backoff),
-            maximum_backoff: lengthen(self.maximum_retry_backoff, profile.maximum_backoff),
-            total_budget: lengthen(self.retry_budget, profile.total_budget),
-        }
-    }
-}
-
 /// Base retry count every request's per-category retry budget is derived
-/// from. [`OperationalTuning::retry_limit`] may only lower it.
+/// from. [`crate::config::OperationalTuning::with_retry_limit`] may only lower it.
 pub(crate) const DEFAULT_RETRY_BASE: u32 = 3;
 
 /// Smallest first retry backoff.
@@ -1144,7 +838,7 @@ pub(crate) const MINIMUM_RETRY_BUDGET: Duration = Duration::from_secs(10);
 /// Retry pacing bounds for one request.
 ///
 /// [`Self::for_request`] is the profile's bound for a request;
-/// [`OperationalTuning::retry_timing`] may only lengthen each one.
+/// [`crate::config::OperationalTuning::with_retry_budget`] may only lengthen each one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RetryBounds {
     /// Delay before the first retry.
@@ -1197,64 +891,28 @@ pub struct ProfileSpec {
 
 /// Every protocol fact of one profile.
 ///
-/// [`ProfileSpec`] is the validated wrapper; this is also its persisted shape,
+/// [`crate::profiles::ProfileSpec`] is the validated wrapper; this is also its persisted shape,
 /// and the compile-time identity check compares two of these with the derived
 /// equality, so a new fact is always part of both.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
 pub(crate) struct ProfileFacts {
-    capabilities: capabilities::Capabilities,
-    transports: TransportCompatibility,
-    envelope: ProfileEnvelope,
-    timing: ProfileTiming,
-    maximum_command_sockets: u8,
-    supports_operation_complete: bool,
-    supports_command_cancel: bool,
+    pub(crate) capabilities: capabilities::Capabilities,
+    pub(crate) encodings: capabilities::ProfileEncodings,
+    pub(crate) transports: TransportCompatibility,
+    pub(crate) envelope: ProfileEnvelope,
+    pub(crate) timing: ProfileTiming,
+    pub(crate) maximum_command_sockets: u8,
+    pub(crate) supports_operation_complete: bool,
+    pub(crate) supports_command_cancel: bool,
     // Settlement query availability is a low-level protocol fact, distinct
     // from permission to expose a public typed inquiry.
-    position_inquiries: PositionInquirySupport,
-}
-
-impl ProfileFacts {
-    /// The facts a compile-time profile declares.
-    fn compile_time<P>() -> Self
-    where
-        P: CompileTimeProfile,
-    {
-        Self {
-            capabilities: capabilities::Capabilities::from_profile::<P>(),
-            transports: P::TRANSPORTS,
-            envelope: <P::Envelope as crate::transport::Envelope>::KIND,
-            timing: ProfileTiming {
-                ack_timeout: P::ACK_TIMEOUT,
-                command_timeouts: P::COMMAND_TIMEOUTS,
-                inquiry_timeout: P::INQUIRY_TIMEOUT,
-                cancellation_timeout: P::CANCELLATION_TIMEOUT,
-                ambiguity_timeout: P::AMBIGUITY_TIMEOUT,
-                busy_timeout: P::BUSY_TIMEOUT,
-                raw_inquiry_reply_skew: P::RAW_INQUIRY_REPLY_SKEW,
-                minimum_inquiry_spacing: P::MIN_INQUIRY_SPACING,
-                minimum_command_spacing: P::MIN_COMMAND_SPACING,
-            },
-            maximum_command_sockets: P::MAXIMUM_COMMAND_SOCKETS,
-            supports_operation_complete: P::SUPPORTS_OPERATION_COMPLETE,
-            supports_command_cancel: P::SUPPORTS_COMMAND_CANCEL,
-            position_inquiries: P::POSITION_INQUIRIES,
-        }
-    }
-
-    /// Returns whether every fact equals the compile-time declaration of `P`.
-    ///
-    /// This compares the unvalidated declaration: it runs while validating,
-    /// so validating the declaration here would recurse back into this check.
-    pub(crate) fn matches_compile_time<P>(&self) -> bool
-    where
-        P: CompileTimeProfile,
-    {
-        *self == Self::compile_time::<P>()
-    }
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "required_option"))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = nullable_schema))]
+    pub(crate) position_inquiries: Option<AffectedAxes>,
 }
 
 /// Deserialize an optional fact whose key must still be present.
@@ -1292,7 +950,7 @@ fn persisted_spec_error<E: serde::de::Error>(error: impl fmt::Display) -> E {
         )
         .and_then(|(_, tail)| tail.strip_suffix(">()` and persist the result"))
         .is_some_and(|name| {
-            crate::profiles::ProfileId::all()
+            ProfileId::all()
                 .iter()
                 .any(|profile| profile.compile_time_type_name() == name)
         });
@@ -1376,7 +1034,7 @@ impl<'de> serde::Deserialize<'de> for ProfileSpec {
     {
         let facts =
             ProfileFacts::deserialize(deserializer).map_err(persisted_spec_error::<D::Error>)?;
-        Self::validated(facts).map_err(persisted_spec_error::<D::Error>)
+        Self::from_facts(facts).map_err(persisted_spec_error::<D::Error>)
     }
 }
 
@@ -1388,6 +1046,37 @@ impl schemars::JsonSchema for ProfileSpec {
 
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         close_persisted_schema(ProfileFacts::json_schema(generator), generator)
+    }
+}
+
+#[cfg(feature = "ts-rs")]
+impl ts_rs::TS for ProfileSpec {
+    type WithoutGenerics = Self;
+    type OptionInnerType = Self;
+
+    fn name(_config: &ts_rs::Config) -> String {
+        "ProfileSpec".into()
+    }
+    fn output_path() -> Option<std::path::PathBuf> {
+        Some("ProfileSpec.ts".into())
+    }
+    fn inline(config: &ts_rs::Config) -> String {
+        <ProfileFacts as ts_rs::TS>::inline(config)
+    }
+    fn decl(config: &ts_rs::Config) -> String {
+        format!(
+            "type ProfileSpec = {};",
+            <Self as ts_rs::TS>::inline(config)
+        )
+    }
+    fn decl_concrete(config: &ts_rs::Config) -> String {
+        <Self as ts_rs::TS>::decl(config)
+    }
+    fn visit_dependencies(visitor: &mut impl ts_rs::TypeVisitor)
+    where
+        Self: 'static,
+    {
+        <ProfileFacts as ts_rs::TS>::visit_dependencies(visitor);
     }
 }
 
@@ -1406,11 +1095,28 @@ impl ProfileSpec {
     where
         P: CompileTimeProfile,
     {
-        Self::validated(ProfileFacts::compile_time::<P>())
+        let profile = P::spec()?;
+        let facts = profile.capabilities();
+        if facts.profile_id != P::ID {
+            return Err(invalid_profile_fields(
+                &["CompileTimeProfile::ID", "capabilities.profile_id"],
+                "compile-time identity must match the returned profile specification",
+            ));
+        }
+        if facts.typed_support != <P as CompileTimeProfile>::TYPED_SUPPORT {
+            return Err(invalid_profile_fields(
+                &[
+                    "CompileTimeProfile::TYPED_SUPPORT",
+                    "capabilities.typed_support",
+                ],
+                "compile-time permission set must match the returned profile specification",
+            ));
+        }
+        Ok(profile)
     }
 
     /// The only constructor: every spec has passed validation.
-    fn validated(facts: ProfileFacts) -> Result<Self> {
+    pub(crate) fn from_facts(facts: ProfileFacts) -> Result<Self> {
         facts.validate().map(|facts| Self { facts })
     }
 
@@ -1430,35 +1136,36 @@ impl ProfileSpec {
     /// agrees, rather than merely the profile identifier or broad capability
     /// bits. Keep this comparison pure so session projection can reject a
     /// mismatched view before owner admission or protocol I/O.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
+    #[cfg(test)]
     pub(crate) fn ensure_compile_time<P>(&self) -> Result<()>
     where
         P: CompileTimeProfile,
     {
-        if self.matches_compile_time_profile::<P>() {
+        let expected = Self::from_compile_time::<P>()?;
+        if self.facts == expected.facts {
             Ok(())
         } else {
-            Err(Error::InvalidRequest(
-                "registered runtime profile does not match the requested compile-time profile"
-                    .into(),
-            ))
+            Err(Error::InvalidRequest {
+                reason:
+                    "registered runtime profile does not match the requested compile-time profile"
+                        .into(),
+            })
         }
-    }
-
-    /// Returns whether every protocol identity fact matches the generated
-    /// compile-time projection for `P`.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
-    pub(crate) fn matches_compile_time_profile<P>(&self) -> bool
-    where
-        P: CompileTimeProfile,
-    {
-        self.facts.matches_compile_time::<P>()
     }
 
     /// Returns runtime feature and conversion facts.
     #[must_use]
     pub const fn capabilities(&self) -> &capabilities::Capabilities {
         &self.facts.capabilities
+    }
+
+    /// Returns the selected wire encoding for each multi-encoding capability.
+    ///
+    /// A selection is present exactly when its corresponding typed surface is
+    /// granted. Requests use these immutable selections during target lowering.
+    #[must_use]
+    pub const fn encodings(&self) -> &capabilities::ProfileEncodings {
+        &self.facts.encodings
     }
 
     /// Returns profile-specified pan/tilt coordinate facts when pan/tilt is supported.
@@ -1541,15 +1248,15 @@ impl ProfileSpec {
 
     /// Returns per-axis position-inquiry support used for settlement.
     #[must_use]
-    pub const fn position_inquiries(&self) -> PositionInquirySupport {
+    pub const fn position_inquiries(&self) -> Option<AffectedAxes> {
         self.facts.position_inquiries
     }
 
     /// Returns whether the profile declares every selected physical axis.
     ///
     /// This checks the capability inventory, not position-inquiry availability;
-    /// callers that need to poll must additionally use
-    /// [`PositionInquirySupport::supports`].
+    /// callers that need to poll must also check that [`Self::position_inquiries`]
+    /// contains their complete selection.
     #[must_use]
     pub fn supports_axes(&self, axes: AffectedAxes) -> bool {
         let caps = &self.facts.capabilities;
@@ -1561,8 +1268,9 @@ impl ProfileSpec {
                     .exposure
                     .as_ref()
                     .is_some_and(|domain| domain.iris_range.is_some())
-                || caps.supports_typed(capabilities::TypedSupportSurface::SonyFr7Iris))
-            && (!axes.contains(AffectedAxes::ND_FILTER) || caps.has_nd_filter())
+                || caps.supports(capabilities::TypedSupportSurface::IrisSteps))
+            && (!axes.contains(AffectedAxes::ND_FILTER)
+                || caps.supports(capabilities::TypedSupportSurface::NdFilter))
     }
 
     /// The number of typed STOP paths (pan/tilt, zoom, focus) this profile
@@ -1587,31 +1295,34 @@ impl ProfileSpec {
     pub fn validate_tuning(&self, tuning: OperationalTuning) -> Result<()> {
         let now = Instant::now();
         let command_overrides =
-            CommandCategory::ALL.map(|category| tuning.command_override(category));
+            CommandTimeoutClass::ALL.map(|category| tuning.command_override(category));
         if [
-            tuning.command_spacing,
-            tuning.inquiry_spacing,
-            tuning.ack_timeout,
-            tuning.settlement_timeout,
-            tuning.inquiry_timeout,
-            tuning.initial_retry_backoff,
-            tuning.maximum_retry_backoff,
-            tuning.retry_budget,
+            tuning.command_spacing(),
+            tuning.inquiry_spacing(),
+            tuning.ack_timeout(),
+            tuning.settlement_timeout(),
+            tuning.inquiry_timeout(),
+            tuning.initial_retry_backoff(),
+            tuning.maximum_retry_backoff(),
+            tuning.retry_budget(),
         ]
         .into_iter()
         .chain(command_overrides)
         .flatten()
         .any(|duration| !monotonic_duration_is_representable(now, duration))
         {
-            return Err(Error::InvalidRequest(
-                "operational timing overrides must be representable by the monotonic clock".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "operational timing overrides must be representable by the monotonic clock"
+                    .into(),
+            });
         }
 
         // Command and inquiry overrides feed the same derived retry-budget
         // calculation as their profile-owned counterparts.
-        let ack = tuning.ack_timeout.unwrap_or(self.facts.timing.ack_timeout);
-        if CommandCategory::ALL.into_iter().any(|category| {
+        let ack = tuning
+            .ack_timeout()
+            .unwrap_or(self.facts.timing.ack_timeout);
+        if CommandTimeoutClass::ALL.into_iter().any(|category| {
             let deadline = tuning
                 .command_override(category)
                 .unwrap_or(self.facts.timing.command_timeouts.get(category));
@@ -1619,64 +1330,65 @@ impl ProfileSpec {
         }) || !retry_budget_is_representable(
             now,
             tuning
-                .inquiry_timeout
+                .inquiry_timeout()
                 .unwrap_or(self.facts.timing.inquiry_timeout),
             Duration::ZERO,
         ) {
-            return Err(Error::InvalidRequest(
-                "operational retry deadlines must be representable by the monotonic clock".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "operational retry deadlines must be representable by the monotonic clock"
+                    .into(),
+            });
         }
 
         if tuning
-            .command_spacing
-            .is_some_and(|value| value < self.facts.timing.minimum_command_spacing)
+            .command_spacing()
+            .is_some_and(|value| value < self.facts.timing.command_spacing)
             || tuning
-                .inquiry_spacing
-                .is_some_and(|value| value < self.facts.timing.minimum_inquiry_spacing)
+                .inquiry_spacing()
+                .is_some_and(|value| value < self.facts.timing.inquiry_spacing)
         {
-            return Err(Error::InvalidRequest(
-                "operational tuning cannot weaken profile pacing minima".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "operational tuning cannot weaken profile pacing minima".into(),
+            });
         }
         if tuning
-            .maximum_command_sockets
+            .maximum_command_sockets()
             .is_some_and(|value| value == 0 || value > self.facts.maximum_command_sockets)
         {
-            return Err(Error::InvalidRequest(
-                "operational tuning cannot raise the profile socket limit".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "operational tuning cannot raise the profile socket limit".into(),
+            });
         }
         if [
-            tuning.ack_timeout,
-            tuning.settlement_timeout,
-            tuning.inquiry_timeout,
+            tuning.ack_timeout(),
+            tuning.settlement_timeout(),
+            tuning.inquiry_timeout(),
         ]
         .into_iter()
         .chain(command_overrides)
         .flatten()
         .any(|timeout| timeout.is_zero())
         {
-            return Err(Error::InvalidRequest(
-                "operational timeout overrides must be non-zero".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "operational timeout overrides must be non-zero".into(),
+            });
         }
         let undercuts =
             |value: Option<Duration>, floor: Duration| value.is_some_and(|value| value < floor);
-        if undercuts(tuning.ack_timeout, self.facts.timing.ack_timeout)
-            || undercuts(tuning.inquiry_timeout, self.facts.timing.inquiry_timeout)
-            || CommandCategory::ALL.into_iter().any(|category| {
+        if undercuts(tuning.ack_timeout(), self.facts.timing.ack_timeout)
+            || undercuts(tuning.inquiry_timeout(), self.facts.timing.inquiry_timeout)
+            || CommandTimeoutClass::ALL.into_iter().any(|category| {
                 undercuts(
                     tuning.command_override(category),
                     self.facts.timing.command_timeouts.get(category),
                 )
             })
         {
-            return Err(Error::InvalidRequest(
-                "operational timeout overrides cannot undercut profile deadlines".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "operational timeout overrides cannot undercut profile deadlines".into(),
+            });
         }
-        if let Some(settlement) = tuning.settlement_timeout {
+        if let Some(settlement) = tuning.settlement_timeout() {
             let budget = |category| {
                 let deadline = tuning
                     .command_override(category)
@@ -1689,37 +1401,40 @@ impl ProfileSpec {
                     ))
                     .total_budget
             };
-            let floor = budget(CommandCategory::Movement).min(budget(CommandCategory::Preset));
+            let floor =
+                budget(CommandTimeoutClass::Movement).min(budget(CommandTimeoutClass::Preset));
             if settlement < floor {
-                return Err(Error::InvalidRequest(format!(
+                return Err(Error::InvalidRequest { reason: format!(
                     "operational settlement timeout cannot undercut the smallest targeted retry budget ({floor:?})"
-                ).into()));
+                ).into() });
             }
         }
         if tuning
-            .retry_limit
+            .retry_limit()
             .is_some_and(|limit| limit > DEFAULT_RETRY_BASE)
         {
-            return Err(Error::InvalidRequest(
-                format!(
+            return Err(Error::InvalidRequest {
+                reason: format!(
                     "operational retry limit cannot exceed the default base retry count \
                      of {DEFAULT_RETRY_BASE}"
                 )
                 .into(),
-            ));
+            });
         }
         match (
-            tuning.initial_retry_backoff,
-            tuning.maximum_retry_backoff,
-            tuning.retry_budget,
+            tuning.initial_retry_backoff(),
+            tuning.maximum_retry_backoff(),
+            tuning.retry_budget(),
         ) {
             (None, None, None) => {}
             (Some(initial), Some(maximum), Some(budget))
                 if !initial.is_zero() && maximum >= initial && budget >= initial => {}
             _ => {
-                return Err(Error::InvalidRequest(
-                    "retry timing requires non-zero ordered backoff and a sufficient budget".into(),
-                ));
+                return Err(Error::InvalidRequest {
+                    reason:
+                        "retry timing requires non-zero ordered backoff and a sufficient budget"
+                            .into(),
+                });
             }
         }
         // The profile's request-independent retry floor: every request's own
@@ -1730,32 +1445,32 @@ impl ProfileSpec {
             Duration::ZERO,
             Duration::ZERO,
         );
-        if undercuts(tuning.initial_retry_backoff, floor.initial_backoff)
-            || undercuts(tuning.maximum_retry_backoff, floor.maximum_backoff)
-            || undercuts(tuning.retry_budget, floor.total_budget)
+        if undercuts(tuning.initial_retry_backoff(), floor.initial_backoff)
+            || undercuts(tuning.maximum_retry_backoff(), floor.maximum_backoff)
+            || undercuts(tuning.retry_budget(), floor.total_budget)
         {
-            return Err(Error::InvalidRequest(
-                format!(
+            return Err(Error::InvalidRequest {
+                reason: format!(
                     "operational retry timing cannot undercut the profile retry bounds \
                      (initial backoff {:?}, backoff ceiling {:?}, budget {:?})",
                     floor.initial_backoff, floor.maximum_backoff, floor.total_budget,
                 )
                 .into(),
-            ));
+            });
         }
         // The ordering rule above keeps `initial` below both of these, so
         // bounding the ceiling and the budget bounds all three (see
         // [`MAXIMUM_RETRY_TIMING`]).
         if tuning
-            .maximum_retry_backoff
+            .maximum_retry_backoff()
             .is_some_and(|maximum| maximum > MAXIMUM_RETRY_TIMING)
             || tuning
-                .retry_budget
+                .retry_budget()
                 .is_some_and(|budget| budget > MAXIMUM_RETRY_TIMING)
         {
-            return Err(Error::InvalidRequest(
-                "retry backoff ceiling and budget cannot exceed one hour".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "retry backoff ceiling and budget cannot exceed one hour".into(),
+            });
         }
         Ok(())
     }
@@ -1801,9 +1516,10 @@ impl ProfileFacts {
             ));
         }
         if let Some(profile_id) = self.capabilities.profile_id {
-            if !profile_id.matches_profile_facts(&self) {
+            let registered = profile_id.raw_facts();
+            if self != registered {
                 let stored = self.capabilities.typed_support;
-                let registry = profile_id.registry_typed_support();
+                let registry = registered.capabilities.typed_support;
                 if stored != registry {
                     // The common case is a spec persisted by an earlier
                     // release whose registry granted a different typed
@@ -1847,12 +1563,14 @@ impl ProfileFacts {
                         "supports_operation_complete",
                         "supports_command_cancel",
                         "position_inquiries",
+                        "encodings",
                     ],
                     "built-in identity does not match the runtime protocol identity facts",
                 ));
             }
         }
         self.capabilities.validate_domains()?;
+        self.encodings.validate(self.capabilities.typed_support)?;
         for surface in self.capabilities.typed_support.iter() {
             if !self.capabilities.surface_metadata(surface).permits() {
                 return Err(invalid_profile_fields(
@@ -1865,27 +1583,23 @@ impl ProfileFacts {
         }
         let caps = &self.capabilities;
         let queries = self.position_inquiries;
-        if caps.inquiry_support == capabilities::InquirySupport::None
-            && (queries.pan_tilt
-                || queries.zoom
-                || queries.focus
-                || queries.iris
-                || queries.nd_filter)
-        {
+        let can_query = |axis| queries.is_some_and(|available| available.contains(axis));
+        if caps.inquiry_support == capabilities::InquirySupport::None && queries.is_some() {
             return Err(invalid_profile_fields(
                 &["position_inquiries", "capabilities.inquiry_support"],
                 "position inquiries require profile inquiry support",
             ));
         }
-        if (queries.pan_tilt && caps.pan_tilt.is_none())
-            || (queries.zoom && caps.zoom.is_none())
-            || (queries.focus && caps.focus.is_none())
-            || (queries.iris
+        if (can_query(AffectedAxes::PAN_TILT) && caps.pan_tilt.is_none())
+            || (can_query(AffectedAxes::ZOOM) && caps.zoom.is_none())
+            || (can_query(AffectedAxes::FOCUS) && caps.focus.is_none())
+            || (can_query(AffectedAxes::IRIS)
                 && caps
                     .exposure
                     .as_ref()
                     .is_none_or(|domain| domain.iris_range.is_none()))
-            || (queries.nd_filter && !caps.has_nd_filter())
+            || (can_query(AffectedAxes::ND_FILTER)
+                && !caps.supports(capabilities::TypedSupportSurface::NdFilter))
         {
             return Err(invalid_profile_fields(
                 &["position_inquiries", "capabilities"],
@@ -1893,14 +1607,14 @@ impl ProfileFacts {
             ));
         }
         if !self.supports_operation_complete
-            && ((caps.pan_tilt.is_some() && !queries.pan_tilt)
-                || (caps.focus.is_some() && !queries.focus)
-                || (caps.supports_typed(capabilities::TypedSupportSurface::DirectZoom)
-                    && !queries.zoom)
-                || (caps.supports_typed(capabilities::TypedSupportSurface::IrisControl)
-                    && !queries.iris)
-                || (caps.supports_typed(capabilities::TypedSupportSurface::NdFilter)
-                    && !queries.nd_filter))
+            && ((caps.pan_tilt.is_some() && !can_query(AffectedAxes::PAN_TILT))
+                || (caps.focus.is_some() && !can_query(AffectedAxes::FOCUS))
+                || (caps.supports(capabilities::TypedSupportSurface::DirectZoom)
+                    && !can_query(AffectedAxes::ZOOM))
+                || (caps.supports(capabilities::TypedSupportSurface::Iris)
+                    && !can_query(AffectedAxes::IRIS))
+                || (caps.supports(capabilities::TypedSupportSurface::NdFilter)
+                    && !can_query(AffectedAxes::ND_FILTER)))
         {
             return Err(invalid_profile_fields(
                 &["supports_operation_complete", "position_inquiries"],
@@ -1916,14 +1630,15 @@ impl ProfileFacts {
                         .exposure
                         .as_ref()
                         .is_none_or(|domain| domain.iris_range.is_none()))
-                || (presets.recall_axes.contains(AffectedAxes::ND_FILTER) && !caps.has_nd_filter())
+                || (presets.recall_axes.contains(AffectedAxes::ND_FILTER)
+                    && !caps.supports(capabilities::TypedSupportSurface::NdFilter))
             {
                 return Err(invalid_profile_fields(
                     &["capabilities.presets.recall_axes"],
                     "preset recall must name present physical axes",
                 ));
             }
-            if !self.supports_operation_complete && !queries.supports(presets.recall_axes) {
+            if !self.supports_operation_complete && !can_query(presets.recall_axes) {
                 return Err(invalid_profile_fields(
                     &[
                         "supports_operation_complete",
@@ -1939,27 +1654,30 @@ impl ProfileFacts {
     }
 }
 
-/// Compile-time camera profile that lowers to the validated runtime form.
-pub trait CompileTimeProfile: capabilities::Profile {
-    /// Compatible standard transports and their default ports.
-    const TRANSPORTS: TransportCompatibility;
-    /// Inquiry response timeout.
-    const INQUIRY_TIMEOUT: Duration;
-    /// Socket-cancellation response timeout.
-    const CANCELLATION_TIMEOUT: Duration;
-    /// Pre-ack cancellation ambiguity timeout.
-    const AMBIGUITY_TIMEOUT: Duration;
-    /// Late-reply skew retained after an uncertain raw inquiry release.
-    const RAW_INQUIRY_REPLY_SKEW: Duration = Self::MIN_INQUIRY_SPACING;
-    /// Maximum number of command sockets per camera target.
-    const MAXIMUM_COMMAND_SOCKETS: u8;
-    /// Exact axes affected by a preset recall.
-    const PRESET_RECALL_AXES: Option<AffectedAxes>;
-    /// Per-axis position inquiry availability.
-    const POSITION_INQUIRIES: PositionInquirySupport;
+/// A source-backed compile-time camera profile with one runtime specification.
+///
+/// Implementations build their facts through the same [`ProfileSpecBuilder`]
+/// used by custom runtime profiles, or delegate to a built-in [`crate::profiles::ProfileId::spec`].
+/// `TYPED_SUPPORT` and `ID` must agree with the returned specification;
+/// [`crate::profiles::ProfileSpec::from_compile_time`] checks that contract before registration.
+/// Support marker implementations remain separate evidence-backed claims.
+///
+/// [`crate::profiles::ProfileId::spec`]: crate::profiles::ProfileId::spec
+pub trait CompileTimeProfile {
+    /// The exact optional typed-surface grants evidenced for this profile.
+    const TYPED_SUPPORT: capabilities::TypedSupportSet;
+
+    /// Built-in identity, or `None` for a downstream/custom profile.
+    const ID: Option<ProfileId>;
+
+    /// Builds this profile's validated, immutable runtime facts.
+    ///
+    /// Use [`crate::profiles::ProfileSpec::builder`] for custom facts or a built-in id's
+    /// `spec` method. Do not recursively call `from_compile_time::<Self>()`.
+    fn spec() -> Result<ProfileSpec>;
 }
 
-/// Builder for a validated runtime [`ProfileSpec`].
+/// Builder for a validated runtime [`crate::profiles::ProfileSpec`].
 ///
 /// Transport, envelope, timing, socket, completion, cancellation,
 /// and per-axis inquiry facts are mandatory. This prevents a generic default
@@ -1967,19 +1685,21 @@ pub trait CompileTimeProfile: capabilities::Profile {
 #[derive(Debug, Clone)]
 pub struct ProfileSpecBuilder {
     capabilities: capabilities::Capabilities,
+    encodings: capabilities::ProfileEncodings,
     transports: Option<TransportCompatibility>,
     envelope: Option<ProfileEnvelope>,
     timing: Option<ProfileTiming>,
     maximum_command_sockets: Option<u8>,
     supports_operation_complete: Option<bool>,
     supports_command_cancel: Option<bool>,
-    position_inquiries: Option<PositionInquirySupport>,
+    position_inquiries: Option<Option<AffectedAxes>>,
 }
 
 impl ProfileSpecBuilder {
     fn runtime(capabilities: capabilities::Capabilities) -> Self {
         Self {
             capabilities,
+            encodings: capabilities::ProfileEncodings::EMPTY,
             transports: None,
             envelope: None,
             timing: None,
@@ -2012,10 +1732,13 @@ impl ProfileSpecBuilder {
         self
     }
 
-    /// Sets exact per-axis position-inquiry support for settlement.
+    /// Sets the axes with exact position inquiries for settlement.
+    ///
+    /// Pass `None` explicitly when the profile provides no position inquiries.
+    /// This fact is required even for a profile with no inquiry axes.
     #[must_use]
-    pub fn position_inquiries(mut self, supported: PositionInquirySupport) -> Self {
-        self.position_inquiries = Some(supported);
+    pub fn position_inquiries(mut self, supported: impl Into<Option<AffectedAxes>>) -> Self {
+        self.position_inquiries = Some(supported.into());
         self
     }
 
@@ -2082,10 +1805,28 @@ impl ProfileSpecBuilder {
         self
     }
 
+    /// Declares the menu-control domain.
+    #[must_use]
+    pub fn menu(mut self, facts: capabilities::MenuCaps) -> Self {
+        self.capabilities.menu = Some(facts);
+        self
+    }
+
     /// Sets the complete optional typed-surface permission set.
     #[must_use]
     pub fn typed_support(mut self, support: capabilities::TypedSupportSet) -> Self {
         self.capabilities.typed_support = support;
+        self
+    }
+
+    /// Selects the documented wire encoding of a granted typed surface.
+    ///
+    /// Both the grant and its encoding are required for a multi-encoding
+    /// surface. Repeating a selection replaces that surface's earlier choice;
+    /// it never changes the capability grants themselves.
+    #[must_use]
+    pub fn encoding(mut self, selection: impl Into<capabilities::EncodingSelection>) -> Self {
+        self.encodings = self.encodings.with_encoding(selection.into());
         self
     }
 
@@ -2123,8 +1864,9 @@ impl ProfileSpecBuilder {
             value.ok_or_else(|| invalid_profile_fields(&[field], "is required"))
         }
 
-        ProfileSpec::validated(ProfileFacts {
+        ProfileSpec::from_facts(ProfileFacts {
             capabilities: self.capabilities,
+            encodings: self.encodings,
             transports: required(self.transports, "transports")?,
             envelope: required(self.envelope, "envelope")?,
             timing: required(self.timing, "timing")?,
@@ -2144,6 +1886,8 @@ impl ProfileSpecBuilder {
         })
     }
 }
+
+pub use crate::timeout::{CommandTimeoutClass, CommandTimeouts};
 
 #[cfg(test)]
 #[allow(clippy::expect_used, unused_qualifications)]
@@ -2217,7 +1961,7 @@ mod tests {
     }
     fn runtime_builder(capabilities: Capabilities) -> ProfileSpecBuilder {
         ProfileSpec::builder(capabilities)
-            .transports(TransportCompatibility::new(Some(5678), None, false))
+            .transports(TransportCompatibility::new().with_tcp(5678))
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
                 ProfileTiming::builder()
@@ -2228,19 +1972,19 @@ mod tests {
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
                     .raw_inquiry_reply_skew(Duration::from_millis(25))
-                    .minimum_inquiry_spacing(Duration::from_millis(25))
-                    .minimum_command_spacing(Duration::from_millis(25))
+                    .inquiry_spacing(Duration::from_millis(25))
+                    .command_spacing(Duration::from_millis(25))
                     .build()
                     .expect("valid timing"),
             )
             .maximum_command_sockets(1)
             .supports_operation_complete(false)
             .supports_command_cancel(false)
-            .position_inquiries(PositionInquirySupport::new(true, true, true))
+            .position_inquiries(AffectedAxes::PAN_TILT | AffectedAxes::ZOOM | AffectedAxes::FOCUS)
     }
     fn conservative_runtime_builder(capabilities: Capabilities) -> ProfileSpecBuilder {
         ProfileSpec::builder(capabilities)
-            .transports(TransportCompatibility::new(Some(5678), None, false))
+            .transports(TransportCompatibility::new().with_tcp(5678))
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
                 ProfileTiming::builder()
@@ -2251,19 +1995,96 @@ mod tests {
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
                     .raw_inquiry_reply_skew(Duration::ZERO)
-                    .minimum_inquiry_spacing(Duration::ZERO)
-                    .minimum_command_spacing(Duration::ZERO)
+                    .inquiry_spacing(Duration::ZERO)
+                    .command_spacing(Duration::ZERO)
                     .build()
                     .expect("valid timing"),
             )
             .maximum_command_sockets(1)
             .supports_operation_complete(false)
             .supports_command_cancel(false)
-            .position_inquiries(PositionInquirySupport::new(false, false, false))
+            .position_inquiries(None)
+    }
+
+    /// A community profile needs no metadata-trait implementation or registry row.
+    struct CommunityProfile;
+
+    impl CompileTimeProfile for CommunityProfile {
+        const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::EMPTY;
+        const ID: Option<crate::profiles::ProfileId> = None;
+
+        fn spec() -> Result<ProfileSpec> {
+            runtime_builder(valid_runtime_capabilities()).build()
+        }
+    }
+
+    #[test]
+    fn community_compile_time_profiles_use_the_same_validated_builder() {
+        let declared = CommunityProfile::spec().expect("community specification");
+        let lowered = ProfileSpec::from_compile_time::<CommunityProfile>()
+            .expect("matching compile-time declaration");
+        assert_eq!(declared, lowered);
+        assert_eq!(lowered.capabilities().profile_id, None);
+        assert_eq!(lowered.capabilities().typed_support, TypedSupportSet::EMPTY);
+        lowered
+            .ensure_compile_time::<CommunityProfile>()
+            .expect("the exact facts bind the typed view");
+    }
+
+    #[test]
+    fn compile_time_declarations_must_match_their_returned_specification() {
+        struct WrongIdentity;
+        impl CompileTimeProfile for WrongIdentity {
+            const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::EMPTY;
+            const ID: Option<crate::profiles::ProfileId> =
+                Some(crate::profiles::ProfileId::GenericVisca);
+
+            fn spec() -> Result<ProfileSpec> {
+                CommunityProfile::spec()
+            }
+        }
+
+        struct WrongPermissionSet;
+        impl CompileTimeProfile for WrongPermissionSet {
+            const TYPED_SUPPORT: TypedSupportSet =
+                TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
+            const ID: Option<crate::profiles::ProfileId> = None;
+
+            fn spec() -> Result<ProfileSpec> {
+                CommunityProfile::spec()
+            }
+        }
+
+        let identity_error = ProfileSpec::from_compile_time::<WrongIdentity>()
+            .expect_err("a built-in id cannot name custom facts")
+            .to_string();
+        assert!(
+            identity_error.contains("CompileTimeProfile::ID"),
+            "{identity_error}"
+        );
+        let support_error = ProfileSpec::from_compile_time::<WrongPermissionSet>()
+            .expect_err("typed grants must match the declared facts")
+            .to_string();
+        assert!(
+            support_error.contains("CompileTimeProfile::TYPED_SUPPORT"),
+            "{support_error}"
+        );
+        let profile = CommunityProfile::spec().expect("valid custom facts");
+        assert!(profile.ensure_compile_time::<WrongIdentity>().is_err());
+        assert!(profile.ensure_compile_time::<WrongPermissionSet>().is_err());
+    }
+
+    #[test]
+    fn every_builtin_spec_uses_its_one_raw_registry_fact_record() {
+        for id in crate::profiles::ProfileId::all() {
+            let profile = id.spec().expect("validated built-in registry row");
+            assert_eq!(profile.capabilities().profile_id, Some(*id));
+            assert_eq!(profile.facts, id.raw_facts());
+        }
     }
     fn invalid_request_message<T>(result: Result<T>) -> Option<String> {
         match result {
-            Err(Error::InvalidRequest(message)) => Some(message.into_owned()),
+            Err(Error::InvalidRequest { reason: message }) => Some(message.into_owned()),
             _ => None,
         }
     }
@@ -2284,13 +2105,12 @@ mod tests {
             .expect("generic profile");
         assert_eq!(
             generic.command_timeouts(),
-            CommandTimeouts::new(
-                Duration::from_secs(10),
-                Duration::from_secs(30),
-                Duration::from_secs(60),
-                Duration::from_secs(300),
-                Duration::from_secs(10),
-            )
+            CommandTimeouts::DEFAULT
+                .with_quick_timeout(Duration::from_secs(10))
+                .with_movement_timeout(Duration::from_secs(30))
+                .with_preset_timeout(Duration::from_secs(60))
+                .with_long_running_timeout(Duration::from_secs(300))
+                .with_network_timeout(Duration::from_secs(10))
         );
     }
 
@@ -2304,8 +2124,8 @@ mod tests {
             .ambiguity_timeout(Duration::from_secs(3))
             .busy_timeout(Duration::from_secs(4))
             .raw_inquiry_reply_skew(Duration::from_millis(25))
-            .minimum_inquiry_spacing(Duration::from_millis(25))
-            .minimum_command_spacing(Duration::from_millis(50));
+            .inquiry_spacing(Duration::from_millis(25))
+            .command_spacing(Duration::from_millis(50));
 
         macro_rules! missing_timing_field {
             ($member:ident, $field:literal) => {{
@@ -2328,8 +2148,8 @@ mod tests {
         missing_timing_field!(ambiguity_timeout, "ambiguity_timeout");
         missing_timing_field!(busy_timeout, "busy_timeout");
         missing_timing_field!(raw_inquiry_reply_skew, "raw_inquiry_reply_skew");
-        missing_timing_field!(minimum_inquiry_spacing, "minimum_inquiry_spacing");
-        missing_timing_field!(minimum_command_spacing, "minimum_command_spacing");
+        missing_timing_field!(inquiry_spacing, "inquiry_spacing");
+        missing_timing_field!(command_spacing, "command_spacing");
 
         let timing = complete.build().expect("complete timing facts");
 
@@ -2340,8 +2160,8 @@ mod tests {
         assert_eq!(timing.ambiguity_timeout(), Duration::from_secs(3));
         assert_eq!(timing.busy_timeout(), Duration::from_secs(4));
         assert_eq!(timing.raw_inquiry_reply_skew(), Duration::from_millis(25));
-        assert_eq!(timing.minimum_inquiry_spacing(), Duration::from_millis(25));
-        assert_eq!(timing.minimum_command_spacing(), Duration::from_millis(50));
+        assert_eq!(timing.inquiry_spacing(), Duration::from_millis(25));
+        assert_eq!(timing.command_spacing(), Duration::from_millis(50));
 
         assert!(ProfileTiming::builder()
             .ack_timeout(Duration::ZERO)
@@ -2351,8 +2171,8 @@ mod tests {
             .ambiguity_timeout(Duration::from_secs(1))
             .busy_timeout(Duration::ZERO)
             .raw_inquiry_reply_skew(Duration::ZERO)
-            .minimum_inquiry_spacing(Duration::ZERO)
-            .minimum_command_spacing(Duration::ZERO)
+            .inquiry_spacing(Duration::ZERO)
+            .command_spacing(Duration::ZERO)
             .build()
             .is_err());
     }
@@ -2407,8 +2227,8 @@ mod tests {
                 .ambiguity_timeout(Duration::from_secs(1))
                 .busy_timeout(Duration::ZERO)
                 .raw_inquiry_reply_skew(Duration::ZERO)
-                .minimum_inquiry_spacing(Duration::ZERO)
-                .minimum_command_spacing(Duration::ZERO)
+                .inquiry_spacing(Duration::ZERO)
+                .command_spacing(Duration::ZERO)
         };
 
         for result in [
@@ -2418,8 +2238,8 @@ mod tests {
             complete().ambiguity_timeout(Duration::MAX).build(),
             complete().busy_timeout(Duration::MAX).build(),
             complete().raw_inquiry_reply_skew(Duration::MAX).build(),
-            complete().minimum_inquiry_spacing(Duration::MAX).build(),
-            complete().minimum_command_spacing(Duration::MAX).build(),
+            complete().inquiry_spacing(Duration::MAX).build(),
+            complete().command_spacing(Duration::MAX).build(),
         ] {
             assert!(result.is_err());
         }
@@ -2431,41 +2251,36 @@ mod tests {
 
         let default = CommandTimeouts::default();
         let command_timeout_cases = [
-            CommandTimeouts::new(
-                Duration::MAX,
-                default.movement_timeout(),
-                default.preset_timeout(),
-                default.long_running_timeout(),
-                default.network_timeout(),
-            ),
-            CommandTimeouts::new(
-                default.quick_timeout(),
-                Duration::MAX,
-                default.preset_timeout(),
-                default.long_running_timeout(),
-                default.network_timeout(),
-            ),
-            CommandTimeouts::new(
-                default.quick_timeout(),
-                default.movement_timeout(),
-                Duration::MAX,
-                default.long_running_timeout(),
-                default.network_timeout(),
-            ),
-            CommandTimeouts::new(
-                default.quick_timeout(),
-                default.movement_timeout(),
-                default.preset_timeout(),
-                Duration::MAX,
-                default.network_timeout(),
-            ),
-            CommandTimeouts::new(
-                default.quick_timeout(),
-                default.movement_timeout(),
-                default.preset_timeout(),
-                default.long_running_timeout(),
-                Duration::MAX,
-            ),
+            CommandTimeouts::DEFAULT
+                .with_quick_timeout(Duration::MAX)
+                .with_movement_timeout(default.movement_timeout())
+                .with_preset_timeout(default.preset_timeout())
+                .with_long_running_timeout(default.long_running_timeout())
+                .with_network_timeout(default.network_timeout()),
+            CommandTimeouts::DEFAULT
+                .with_quick_timeout(default.quick_timeout())
+                .with_movement_timeout(Duration::MAX)
+                .with_preset_timeout(default.preset_timeout())
+                .with_long_running_timeout(default.long_running_timeout())
+                .with_network_timeout(default.network_timeout()),
+            CommandTimeouts::DEFAULT
+                .with_quick_timeout(default.quick_timeout())
+                .with_movement_timeout(default.movement_timeout())
+                .with_preset_timeout(Duration::MAX)
+                .with_long_running_timeout(default.long_running_timeout())
+                .with_network_timeout(default.network_timeout()),
+            CommandTimeouts::DEFAULT
+                .with_quick_timeout(default.quick_timeout())
+                .with_movement_timeout(default.movement_timeout())
+                .with_preset_timeout(default.preset_timeout())
+                .with_long_running_timeout(Duration::MAX)
+                .with_network_timeout(default.network_timeout()),
+            CommandTimeouts::DEFAULT
+                .with_quick_timeout(default.quick_timeout())
+                .with_movement_timeout(default.movement_timeout())
+                .with_preset_timeout(default.preset_timeout())
+                .with_long_running_timeout(default.long_running_timeout())
+                .with_network_timeout(Duration::MAX),
         ];
         for command_timeouts in command_timeout_cases {
             assert!(complete()
@@ -2479,20 +2294,21 @@ mod tests {
     fn ordinary_five_minute_long_running_deadline_remains_valid() {
         let timing = ProfileTiming::builder()
             .ack_timeout(Duration::from_millis(100))
-            .command_timeouts(CommandTimeouts::new(
-                Duration::from_secs(5),
-                Duration::from_secs(30),
-                Duration::from_secs(60),
-                Duration::from_secs(300),
-                Duration::from_secs(5),
-            ))
+            .command_timeouts(
+                CommandTimeouts::DEFAULT
+                    .with_quick_timeout(Duration::from_secs(5))
+                    .with_movement_timeout(Duration::from_secs(30))
+                    .with_preset_timeout(Duration::from_secs(60))
+                    .with_long_running_timeout(Duration::from_secs(300))
+                    .with_network_timeout(Duration::from_secs(5)),
+            )
             .inquiry_timeout(Duration::from_secs(1))
             .cancellation_timeout(Duration::from_secs(1))
             .ambiguity_timeout(Duration::from_secs(1))
             .busy_timeout(Duration::ZERO)
             .raw_inquiry_reply_skew(Duration::ZERO)
-            .minimum_inquiry_spacing(Duration::ZERO)
-            .minimum_command_spacing(Duration::ZERO)
+            .inquiry_spacing(Duration::ZERO)
+            .command_spacing(Duration::ZERO)
             .build()
             .expect("ordinary five-minute LongRunning deadline is representable");
 
@@ -2504,13 +2320,12 @@ mod tests {
 
     #[test]
     fn runtime_command_timeout_values_are_explicit_and_nonzero_validated() {
-        let exact = CommandTimeouts::new(
-            Duration::from_secs(6),
-            Duration::from_secs(7),
-            Duration::from_secs(8),
-            Duration::from_secs(9),
-            Duration::from_secs(10),
-        );
+        let exact = CommandTimeouts::DEFAULT
+            .with_quick_timeout(Duration::from_secs(6))
+            .with_movement_timeout(Duration::from_secs(7))
+            .with_preset_timeout(Duration::from_secs(8))
+            .with_long_running_timeout(Duration::from_secs(9))
+            .with_network_timeout(Duration::from_secs(10));
         let profile = runtime_builder(valid_runtime_capabilities())
             .timing(
                 ProfileTiming::builder()
@@ -2521,8 +2336,8 @@ mod tests {
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
                     .raw_inquiry_reply_skew(Duration::from_millis(25))
-                    .minimum_inquiry_spacing(Duration::from_millis(25))
-                    .minimum_command_spacing(Duration::from_millis(25))
+                    .inquiry_spacing(Duration::from_millis(25))
+                    .command_spacing(Duration::from_millis(25))
                     .build()
                     .expect("valid timing"),
             )
@@ -2530,15 +2345,14 @@ mod tests {
             .expect("exact runtime category values");
         assert_eq!(profile.command_timeouts(), exact);
 
-        assert!(CommandTimeouts::new(
-            Duration::ZERO,
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-        )
-        .validate()
-        .is_err());
+        assert!(CommandTimeouts::DEFAULT
+            .with_quick_timeout(Duration::ZERO)
+            .with_movement_timeout(Duration::from_secs(1))
+            .with_preset_timeout(Duration::from_secs(1))
+            .with_long_running_timeout(Duration::from_secs(1))
+            .with_network_timeout(Duration::from_secs(1))
+            .validate()
+            .is_err());
     }
 
     #[test]
@@ -2547,28 +2361,30 @@ mod tests {
             .build()
             .expect("valid runtime profile");
         assert!(profile
-            .validate_tuning(OperationalTuning::new().command_spacing(Duration::from_millis(1)))
+            .validate_tuning(
+                OperationalTuning::new().with_command_spacing(Duration::from_millis(1))
+            )
             .is_err());
         assert!(profile
-            .validate_tuning(OperationalTuning::new().maximum_command_sockets(2))
+            .validate_tuning(OperationalTuning::new().with_maximum_command_sockets(2))
             .is_err());
         assert!(profile
-            .validate_tuning(OperationalTuning::new().ack_timeout(Duration::from_nanos(1)))
+            .validate_tuning(OperationalTuning::new().with_ack_timeout(Duration::from_nanos(1)))
             .is_err());
         assert!(profile
-            .validate_tuning(OperationalTuning::new().inquiry_timeout(Duration::from_nanos(1)))
+            .validate_tuning(OperationalTuning::new().with_inquiry_timeout(Duration::from_nanos(1)))
             .is_err());
         for tuning in [
-            OperationalTuning::new().quick_timeout(Duration::from_nanos(1)),
-            OperationalTuning::new().movement_timeout(Duration::from_nanos(1)),
-            OperationalTuning::new().preset_timeout(Duration::from_nanos(1)),
-            OperationalTuning::new().long_running_timeout(Duration::from_nanos(1)),
-            OperationalTuning::new().network_timeout(Duration::from_nanos(1)),
+            OperationalTuning::new().with_quick_timeout(Duration::from_nanos(1)),
+            OperationalTuning::new().with_movement_timeout(Duration::from_nanos(1)),
+            OperationalTuning::new().with_preset_timeout(Duration::from_nanos(1)),
+            OperationalTuning::new().with_long_running_timeout(Duration::from_nanos(1)),
+            OperationalTuning::new().with_network_timeout(Duration::from_nanos(1)),
         ] {
             assert!(profile.validate_tuning(tuning).is_err());
         }
         assert!(profile
-            .validate_tuning(OperationalTuning::new().quick_timeout(Duration::ZERO))
+            .validate_tuning(OperationalTuning::new().with_quick_timeout(Duration::ZERO))
             .is_err());
     }
 
@@ -2579,37 +2395,38 @@ mod tests {
         for seconds in [2, 20, 59] {
             let error = profile
                 .validate_tuning(
-                    OperationalTuning::new().settlement_timeout(Duration::from_secs(seconds)),
+                    OperationalTuning::new().with_settlement_timeout(Duration::from_secs(seconds)),
                 )
                 .expect_err("an override below the retry floor has no effect");
-            assert!(matches!(error, Error::InvalidRequest(message) if message.contains("60s")));
+            assert!(
+                matches!(error, Error::InvalidRequest { reason: message } if message.contains("60s"))
+            );
         }
         for seconds in [60, 61, 90, 120] {
             profile
                 .validate_tuning(
-                    OperationalTuning::new().settlement_timeout(Duration::from_secs(seconds)),
+                    OperationalTuning::new().with_settlement_timeout(Duration::from_secs(seconds)),
                 )
                 .expect("an override at or above the floor is useful");
         }
         let tuned = OperationalTuning::new()
-            .movement_timeout(Duration::from_secs(90))
-            .preset_timeout(Duration::from_secs(70));
+            .with_movement_timeout(Duration::from_secs(90))
+            .with_preset_timeout(Duration::from_secs(70));
         assert!(profile
-            .validate_tuning(tuned.settlement_timeout(Duration::from_secs(139)))
+            .validate_tuning(tuned.with_settlement_timeout(Duration::from_secs(139)))
             .is_err());
         profile
-            .validate_tuning(tuned.settlement_timeout(Duration::from_secs(140)))
+            .validate_tuning(tuned.with_settlement_timeout(Duration::from_secs(140)))
             .expect("the smaller Preset retry budget sets the floor");
-        let tuned_retry = OperationalTuning::new().retry_timing(
-            Duration::from_millis(50),
-            Duration::from_millis(500),
-            Duration::from_secs(150),
-        );
+        let tuned_retry = OperationalTuning::new()
+            .with_initial_retry_backoff(Duration::from_millis(50))
+            .with_maximum_retry_backoff(Duration::from_millis(500))
+            .with_retry_budget(Duration::from_secs(150));
         assert!(profile
-            .validate_tuning(tuned_retry.settlement_timeout(Duration::from_secs(149)))
+            .validate_tuning(tuned_retry.with_settlement_timeout(Duration::from_secs(149)))
             .is_err());
         profile
-            .validate_tuning(tuned_retry.settlement_timeout(Duration::from_secs(150)))
+            .validate_tuning(tuned_retry.with_settlement_timeout(Duration::from_secs(150)))
             .expect("retry tuning participates in the settlement floor");
     }
 
@@ -2620,16 +2437,16 @@ mod tests {
             .expect("valid runtime profile");
 
         for tuning in [
-            OperationalTuning::new().command_spacing(Duration::MAX),
-            OperationalTuning::new().inquiry_spacing(Duration::MAX),
-            OperationalTuning::new().ack_timeout(Duration::MAX),
-            OperationalTuning::new().quick_timeout(Duration::MAX),
-            OperationalTuning::new().movement_timeout(Duration::MAX),
-            OperationalTuning::new().preset_timeout(Duration::MAX),
-            OperationalTuning::new().long_running_timeout(Duration::MAX),
-            OperationalTuning::new().network_timeout(Duration::MAX),
-            OperationalTuning::new().settlement_timeout(Duration::MAX),
-            OperationalTuning::new().inquiry_timeout(Duration::MAX),
+            OperationalTuning::new().with_command_spacing(Duration::MAX),
+            OperationalTuning::new().with_inquiry_spacing(Duration::MAX),
+            OperationalTuning::new().with_ack_timeout(Duration::MAX),
+            OperationalTuning::new().with_quick_timeout(Duration::MAX),
+            OperationalTuning::new().with_movement_timeout(Duration::MAX),
+            OperationalTuning::new().with_preset_timeout(Duration::MAX),
+            OperationalTuning::new().with_long_running_timeout(Duration::MAX),
+            OperationalTuning::new().with_network_timeout(Duration::MAX),
+            OperationalTuning::new().with_settlement_timeout(Duration::MAX),
+            OperationalTuning::new().with_inquiry_timeout(Duration::MAX),
         ] {
             assert!(profile.validate_tuning(tuning).is_err());
         }
@@ -2640,11 +2457,10 @@ mod tests {
         let profile = runtime_builder(valid_runtime_capabilities())
             .build()
             .expect("valid runtime profile");
-        let sane = OperationalTuning::new().retry_timing(
-            Duration::from_millis(50),
-            Duration::from_millis(500),
-            Duration::from_secs(10),
-        );
+        let sane = OperationalTuning::new()
+            .with_initial_retry_backoff(Duration::from_millis(50))
+            .with_maximum_retry_backoff(Duration::from_millis(500))
+            .with_retry_budget(Duration::from_secs(10));
         assert!(profile.validate_tuning(sane).is_ok());
 
         for budget in [
@@ -2652,11 +2468,10 @@ mod tests {
             Duration::MAX - Duration::from_secs(1),
             MAXIMUM_RETRY_TIMING + Duration::from_nanos(1),
         ] {
-            let inverted = OperationalTuning::new().retry_timing(
-                Duration::from_millis(50),
-                Duration::from_millis(500),
-                budget,
-            );
+            let inverted = OperationalTuning::new()
+                .with_initial_retry_backoff(Duration::from_millis(50))
+                .with_maximum_retry_backoff(Duration::from_millis(500))
+                .with_retry_budget(budget);
             assert!(
                 profile.validate_tuning(inverted).is_err(),
                 "a {budget:?} retry budget must be rejected, not saturated into zero retries"
@@ -2665,19 +2480,21 @@ mod tests {
 
         // The same saturation turns an absurd ceiling into no backoff at all.
         assert!(profile
-            .validate_tuning(OperationalTuning::new().retry_timing(
-                Duration::from_millis(50),
-                Duration::MAX,
-                Duration::from_secs(10),
-            ))
+            .validate_tuning(
+                OperationalTuning::new()
+                    .with_initial_retry_backoff(Duration::from_millis(50))
+                    .with_maximum_retry_backoff(Duration::MAX)
+                    .with_retry_budget(Duration::from_secs(10))
+            )
             .is_err());
         // Exactly at the bound is still accepted.
         assert!(profile
-            .validate_tuning(OperationalTuning::new().retry_timing(
-                Duration::from_millis(50),
-                MAXIMUM_RETRY_TIMING,
-                MAXIMUM_RETRY_TIMING,
-            ))
+            .validate_tuning(
+                OperationalTuning::new()
+                    .with_initial_retry_backoff(Duration::from_millis(50))
+                    .with_maximum_retry_backoff(MAXIMUM_RETRY_TIMING)
+                    .with_retry_budget(MAXIMUM_RETRY_TIMING)
+            )
             .is_ok());
     }
 
@@ -2687,11 +2504,10 @@ mod tests {
             .build()
             .expect("valid runtime profile");
         let tuning = |initial: u64, maximum: u64, budget: u64| {
-            OperationalTuning::new().retry_timing(
-                Duration::from_millis(initial),
-                Duration::from_millis(maximum),
-                Duration::from_millis(budget),
-            )
+            OperationalTuning::new()
+                .with_initial_retry_backoff(Duration::from_millis(initial))
+                .with_maximum_retry_backoff(Duration::from_millis(maximum))
+                .with_retry_budget(Duration::from_millis(budget))
         };
         for (initial, maximum, budget) in [(49, 500, 10_000), (50, 499, 10_000), (50, 500, 9_999)] {
             let error =
@@ -2707,7 +2523,7 @@ mod tests {
 
         // A profile busy timeout raises the floors it governs.
         let busy = ProfileSpec::builder(valid_runtime_capabilities())
-            .transports(TransportCompatibility::new(Some(5678), None, false))
+            .transports(TransportCompatibility::new().with_tcp(5678))
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
                 ProfileTiming::builder()
@@ -2718,15 +2534,15 @@ mod tests {
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::from_secs(12))
                     .raw_inquiry_reply_skew(Duration::from_millis(25))
-                    .minimum_inquiry_spacing(Duration::from_millis(25))
-                    .minimum_command_spacing(Duration::from_millis(25))
+                    .inquiry_spacing(Duration::from_millis(25))
+                    .command_spacing(Duration::from_millis(25))
                     .build()
                     .expect("valid timing"),
             )
             .maximum_command_sockets(1)
             .supports_operation_complete(false)
             .supports_command_cancel(false)
-            .position_inquiries(PositionInquirySupport::new(true, true, true))
+            .position_inquiries(AffectedAxes::PAN_TILT | AffectedAxes::ZOOM | AffectedAxes::FOCUS)
             .build()
             .expect("valid busy-timeout profile");
         assert!(busy.validate_tuning(tuning(50, 11_999, 12_000)).is_err());
@@ -2741,17 +2557,18 @@ mod tests {
             .expect("valid runtime profile");
         for limit in 0..=DEFAULT_RETRY_BASE {
             assert!(profile
-                .validate_tuning(OperationalTuning::new().retry_limit(limit))
+                .validate_tuning(OperationalTuning::new().with_retry_limit(limit))
                 .is_ok());
             assert_eq!(
                 OperationalTuning::new()
-                    .retry_limit(limit)
+                    .with_retry_limit(limit)
                     .reduce_retry_base(DEFAULT_RETRY_BASE),
                 limit
             );
         }
         let error = invalid_request_message(
-            profile.validate_tuning(OperationalTuning::new().retry_limit(DEFAULT_RETRY_BASE + 1)),
+            profile
+                .validate_tuning(OperationalTuning::new().with_retry_limit(DEFAULT_RETRY_BASE + 1)),
         )
         .expect("a raised retry limit must be rejected");
         assert!(
@@ -2761,7 +2578,7 @@ mod tests {
         // Even unvalidated, an override never raises the base.
         assert_eq!(
             OperationalTuning::new()
-                .retry_limit(32)
+                .with_retry_limit(32)
                 .reduce_retry_base(DEFAULT_RETRY_BASE),
             DEFAULT_RETRY_BASE
         );
@@ -2782,7 +2599,7 @@ mod tests {
 
     #[test]
     fn compile_time_conversions_satisfy_the_framing_rule() {
-        use crate::command::pan_tilt::PanTiltFraming;
+        use crate::command::pan_tilt_wire::PanTiltFraming;
         use capabilities::{CoordinateSystem, PanTiltWireCodec};
 
         assert!(!PanTiltFraming::is_consistent(
@@ -2806,7 +2623,10 @@ mod tests {
             assert!(PanTiltFraming::is_consistent(codec, system));
             assert!(PanTiltFraming::new(codec, system).is_ok());
         }
-        let brc300 = PanTiltCoordinateConversion::for_profile::<crate::profiles::SonyBRC300>();
+        let brc300 = crate::profiles::SonyBrc300::spec()
+            .expect("BRC profile")
+            .pan_tilt_coordinates()
+            .expect("BRC coordinate conversion");
         assert_eq!(
             PanTiltFraming::for_conversion(brc300),
             PanTiltFraming::new(
@@ -2858,17 +2678,17 @@ mod tests {
     #[test]
     fn sony_envelope_requires_ip_only_transport_compatibility() {
         assert!(runtime_builder(valid_runtime_capabilities())
-            .transports(TransportCompatibility::new(None, None, true))
+            .transports(TransportCompatibility::new().with_serial())
             .envelope(ProfileEnvelope::SonyEncapsulated)
             .build()
             .is_err());
         assert!(runtime_builder(valid_runtime_capabilities())
-            .transports(TransportCompatibility::new(Some(52381), None, true))
+            .transports(TransportCompatibility::new().with_tcp(52381).with_serial())
             .envelope(ProfileEnvelope::SonyEncapsulated)
             .build()
             .is_err());
         assert!(runtime_builder(valid_runtime_capabilities())
-            .transports(TransportCompatibility::new(Some(52381), None, false))
+            .transports(TransportCompatibility::new().with_tcp(52381))
             .envelope(ProfileEnvelope::SonyEncapsulated)
             .build()
             .is_ok());
@@ -2928,7 +2748,7 @@ mod tests {
 
     #[test]
     fn coordinate_conversion_uses_selected_bounds_and_one_endpoint_policy() {
-        let spec = ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7");
+        let spec = ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7");
         let desktop =
             crate::TargetRegistration::new(crate::CameraId::CAMERA_1, spec).expect("target");
         let ceiling = desktop
@@ -3038,16 +2858,16 @@ mod tests {
         let mut caps = valid_runtime_capabilities();
         caps.zoom = None;
         assert!(runtime_builder(caps)
-            .position_inquiries(PositionInquirySupport::new(true, false, true))
+            .position_inquiries(AffectedAxes::PAN_TILT | AffectedAxes::FOCUS)
             .build()
             .is_err());
         assert!(runtime_builder(valid_runtime_capabilities())
-            .position_inquiries(PositionInquirySupport::new(false, true, true))
+            .position_inquiries(AffectedAxes::ZOOM | AffectedAxes::FOCUS)
             .build()
             .is_err());
         assert!(runtime_builder(valid_runtime_capabilities())
             .supports_operation_complete(true)
-            .position_inquiries(PositionInquirySupport::new(false, false, false))
+            .position_inquiries(None)
             .build()
             .is_ok());
     }
@@ -3057,20 +2877,23 @@ mod tests {
         for surface in [
             TypedSupportSurface::DirectZoom,
             TypedSupportSurface::FocusZoneInquiry,
-            TypedSupportSurface::UsbAudio,
-            TypedSupportSurface::PtzOpticsPresetRecallSpeed,
+            TypedSupportSurface::PresetRecallSpeed,
         ] {
             let mut caps = valid_runtime_capabilities();
             caps.presets.as_mut().expect("presets").recall_speed_range = None;
             caps.typed_support = TypedSupportSet::from_surface(surface);
             assert!(runtime_builder(caps).build().is_err(), "{surface:?}");
         }
+        // USB audio has no separate capability-domain record or numeric
+        // inventory. Its explicit grant is the complete capability fact.
+        let mut usb = Capabilities::runtime_baseline("USB audio fixture", 1).expect("baseline");
+        usb.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::UsbAudio);
+        assert!(conservative_runtime_builder(usb).build().is_ok());
         for refinement in [
             TypedSupportSurface::TallyBrightness,
-            TypedSupportSurface::PtzOpticsTally,
+            TypedSupportSurface::TallyMode,
         ] {
             let mut caps = valid_runtime_capabilities();
-            caps.tally = true;
             caps.typed_support = TypedSupportSet::from_surface(refinement);
             assert!(runtime_builder(caps.clone()).build().is_err());
             caps.typed_support = caps
@@ -3118,14 +2941,136 @@ mod tests {
     }
 
     fn copy_builder(base: &ProfileSpec, caps: Capabilities) -> ProfileSpecBuilder {
-        ProfileSpec::builder(caps)
+        let mut builder = ProfileSpec::builder(caps)
             .transports(base.transports())
             .envelope(base.envelope())
             .timing(base.timing())
             .maximum_command_sockets(base.maximum_command_sockets())
             .supports_operation_complete(base.supports_operation_complete())
             .supports_command_cancel(base.supports_command_cancel())
-            .position_inquiries(base.position_inquiries())
+            .position_inquiries(base.position_inquiries());
+        for selection in base.encodings().iter() {
+            builder = builder.encoding(selection);
+        }
+        builder
+    }
+
+    #[test]
+    fn encoding_selection_is_required_exactly_for_granted_multi_encoding_surfaces() {
+        use capabilities::PresetRecallSpeedEncoding;
+        let mut caps = valid_runtime_capabilities();
+        caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::PresetRecallSpeed);
+        assert!(
+            runtime_builder(caps.clone()).build().is_err(),
+            "a grant cannot infer its encoding"
+        );
+        let selected = runtime_builder(caps)
+            .encoding(PresetRecallSpeedEncoding::PtzOptics)
+            .build()
+            .expect("explicitly selected recall-speed encoding");
+        assert_eq!(
+            selected.encodings().preset_recall_speed(),
+            Some(PresetRecallSpeedEncoding::PtzOptics)
+        );
+        assert!(
+            runtime_builder(valid_runtime_capabilities())
+                .encoding(PresetRecallSpeedEncoding::PtzOptics)
+                .build()
+                .is_err(),
+            "an encoding cannot create a capability grant"
+        );
+    }
+
+    #[test]
+    fn builtin_encoding_selections_follow_source_backed_grants_and_identity() {
+        use capabilities::{OnePushWhiteBalanceEncoding, PresetRecallSpeedEncoding};
+        for id in crate::profiles::ProfileId::all() {
+            let profile = id
+                .spec()
+                .expect("built-in facts select every required encoding");
+            let support = profile.capabilities().typed_support;
+            assert_eq!(
+                profile.encodings().preset_recall_speed().is_some(),
+                support.contains(TypedSupportSurface::PresetRecallSpeed)
+            );
+            assert_eq!(
+                profile.encodings().one_push_white_balance().is_some(),
+                support.contains(TypedSupportSurface::OnePushWhiteBalance)
+            );
+        }
+        let ptzoptics = crate::profiles::ProfileId::PtzOpticsG2
+            .spec()
+            .expect("PTZOptics");
+        assert_eq!(
+            ptzoptics.encodings().preset_recall_speed(),
+            Some(PresetRecallSpeedEncoding::PtzOptics)
+        );
+        assert_eq!(
+            ptzoptics.encodings().one_push_white_balance(),
+            Some(OnePushWhiteBalanceEncoding::Standard)
+        );
+        let sony = crate::profiles::ProfileId::SonyFr7.spec().expect("FR7");
+        assert_eq!(
+            sony.encodings().preset_recall_speed(),
+            Some(PresetRecallSpeedEncoding::SonyFr7)
+        );
+        assert_eq!(
+            sony.encodings().one_push_white_balance(),
+            Some(OnePushWhiteBalanceEncoding::SonyFr7)
+        );
+        let recall_range = sony
+            .capabilities()
+            .presets
+            .as_ref()
+            .expect("FR7 presets")
+            .recall_speed_range
+            .as_ref()
+            .expect("1C common recall-speed domain");
+        assert_eq!((recall_range.min(), recall_range.max()), (1, 50));
+        let mut changed = ptzoptics.facts.clone();
+        changed.encodings = changed
+            .encodings
+            .with_encoding(PresetRecallSpeedEncoding::SonyFr7.into());
+        let error =
+            ProfileSpec::from_facts(changed).expect_err("an encoding is an exact identity fact");
+        assert!(error.to_string().contains("encodings"));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn persisted_encoding_selections_are_explicit_strict_and_round_trip() {
+        use capabilities::PresetRecallSpeedEncoding;
+        let mut caps = valid_runtime_capabilities();
+        caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::PresetRecallSpeed);
+        let profile = runtime_builder(caps)
+            .encoding(PresetRecallSpeedEncoding::PtzOptics)
+            .build()
+            .expect("runtime profile");
+        let saved = serde_json::to_value(&profile).expect("serialize selected encoding");
+        assert_eq!(
+            saved["encodings"],
+            serde_json::json!({"preset_recall_speed": "ptzoptics"})
+        );
+        assert_eq!(
+            serde_json::from_value::<ProfileSpec>(saved.clone()).expect("round trip"),
+            profile
+        );
+        for encodings in [
+            serde_json::json!({}),
+            serde_json::json!({"unknown_encoding":"standard"}),
+            serde_json::json!({"preset_recall_speed":"unknown"}),
+            serde_json::json!({"preset_recall_speed":"ptzoptics","one_push_white_balance":"standard"}),
+        ] {
+            let mut invalid = saved.clone();
+            invalid["encodings"] = encodings;
+            assert!(serde_json::from_value::<ProfileSpec>(invalid).is_err());
+        }
+        let mut missing = saved;
+        missing.as_object_mut().expect("object").remove("encodings");
+        assert!(
+            serde_json::from_value::<ProfileSpec>(missing).is_err(),
+            "old specs cannot silently infer encoding selections"
+        );
     }
 
     #[test]
@@ -3133,33 +3078,23 @@ mod tests {
         use crate::profiles::PtzOpticsG2;
 
         let base = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in profile");
-        let rebuilt = |capabilities| {
-            ProfileSpec::builder(capabilities)
-                .transports(base.transports())
-                .envelope(base.envelope())
-                .timing(base.timing())
-                .maximum_command_sockets(base.maximum_command_sockets())
-                .supports_operation_complete(base.supports_operation_complete())
-                .supports_command_cancel(base.supports_command_cancel())
-                .position_inquiries(base.position_inquiries())
-        };
+        let rebuilt = |capabilities| copy_builder(&base, capabilities);
         let unclaimed_capabilities = || {
             let mut capabilities = base.capabilities().clone();
             capabilities.profile_id = None;
             capabilities
         };
         let altered_timing = ProfileTiming {
-            minimum_command_spacing: base.timing().minimum_command_spacing
-                + Duration::from_millis(1),
+            command_spacing: base.timing().command_spacing + Duration::from_millis(1),
             ..base.timing()
         };
-        let altered_position_inquiries = PositionInquirySupport::new_with_iris_nd(
-            base.position_inquiries().pan_tilt(),
-            base.position_inquiries().zoom(),
-            base.position_inquiries().focus(),
-            !base.position_inquiries().iris(),
-            base.position_inquiries().nd_filter(),
-        );
+        // Toggle instead of adding IRIS: G2 already declares that inquiry.
+        // A mutation fixture must actually differ from the registered facts.
+        let altered_position_inquiries = AffectedAxes::from_bits(
+            base.position_inquiries().expect("G2 inquiries").bits() ^ AffectedAxes::IRIS.bits(),
+        )
+        .ok();
+        assert_ne!(altered_position_inquiries, base.position_inquiries());
 
         macro_rules! assert_identity_mismatch {
             ($field:literal, $configure:expr) => {{
@@ -3186,7 +3121,7 @@ mod tests {
         }
 
         assert_identity_mismatch!("transports", |builder: ProfileSpecBuilder| builder
-            .transports(TransportCompatibility::new(Some(5678), Some(1259), false)));
+            .transports(TransportCompatibility::new().with_tcp(5678).with_udp(1259)));
         assert_identity_mismatch!("timing", |builder: ProfileSpecBuilder| builder
             .timing(altered_timing));
         assert_identity_mismatch!("maximum_command_sockets", |builder: ProfileSpecBuilder| {
@@ -3304,7 +3239,7 @@ mod tests {
         caps.focus.as_mut().expect("focus").af_sensitivity = true;
         assert!(copy_builder(&base, caps).build().is_err());
         let mut caps = custom();
-        caps.image = None;
+        caps.exposure = None;
         caps.typed_support =
             TypedSupportSet::from_surface(TypedSupportSurface::BacklightCompensation);
         assert!(copy_builder(&base, caps).build().is_err());
@@ -3345,7 +3280,7 @@ mod tests {
         let builder_error = copy_builder(&base, facts.capabilities)
             .build()
             .expect_err("the saved facts conflict with the current built-in identity");
-        assert!(matches!(&builder_error, Error::InvalidRequest(_)));
+        assert!(matches!(&builder_error, Error::InvalidRequest { .. }));
         let cause = builder_error.to_string();
         assert!(cause.contains("`capabilities.profile_id`"), "{cause}");
         assert!(cause.contains("`capabilities`"), "{cause}");
@@ -3369,7 +3304,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn saved_builtin_typed_support_keeps_one_model_regeneration_instruction() {
-        let base = ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7");
+        let base = ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7");
         let mut caps = base.capabilities().clone();
         caps.typed_support = caps
             .typed_support
@@ -3377,12 +3312,12 @@ mod tests {
         let builder_error = copy_builder(&base, caps.clone())
             .build()
             .expect_err("the built-in identity must retain its current typed support");
-        assert!(matches!(&builder_error, Error::InvalidRequest(_)));
+        assert!(matches!(&builder_error, Error::InvalidRequest { .. }));
         let cause = builder_error.to_string();
         assert!(cause.contains("missing: VersionInquiry"), "{cause}");
         assert!(
             cause.ends_with(
-                "`ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFR7>()` \
+                "`ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFr7>()` \
                  and persist the result"
             ),
             "{cause}"
@@ -3461,5 +3396,61 @@ mod tests {
         assert!(serde_json::from_value::<ProfileSpec>(invalid).is_err());
         let restored: ProfileSpec = serde_json::from_value(value).expect("current grouped shape");
         assert_eq!(restored, base);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn explicit_absence_of_inquiry_axes_is_required_and_round_trips() {
+        let profile = runtime_builder(valid_runtime_capabilities())
+            .supports_operation_complete(true)
+            .position_inquiries(None)
+            .build()
+            .expect("exact completion can represent no position inquiries");
+        assert_eq!(profile.position_inquiries(), None);
+        let mut value = serde_json::to_value(&profile).expect("serialize no-query profile");
+        assert_eq!(value["position_inquiries"], serde_json::Value::Null);
+        assert_eq!(
+            serde_json::from_value::<ProfileSpec>(value.clone()).expect("explicit absence"),
+            profile
+        );
+        value
+            .as_object_mut()
+            .expect("profile object")
+            .remove("position_inquiries");
+        let error = serde_json::from_value::<ProfileSpec>(value)
+            .expect_err("fact cannot be omitted")
+            .to_string();
+        assert!(
+            error.contains("missing field `position_inquiries`"),
+            "{error}"
+        );
+    }
+
+    #[cfg(feature = "ts-rs")]
+    #[test]
+    fn profile_typescript_has_the_persisted_object_shape_without_a_facts_alias() {
+        let config = ts_rs::Config::default();
+        let declaration = <ProfileSpec as ts_rs::TS>::decl(&config);
+        assert!(
+            declaration.starts_with("type ProfileSpec = {"),
+            "{declaration}"
+        );
+        assert!(!declaration.contains("ProfileFacts"), "{declaration}");
+        for field in [
+            "capabilities",
+            "encodings",
+            "transports",
+            "envelope",
+            "timing",
+            "position_inquiries",
+        ] {
+            assert!(declaration.contains(&format!("{field}:")), "{declaration}");
+        }
+        let timing = <ProfileTiming as ts_rs::TS>::decl(&config);
+        assert!(timing.contains("command_spacing:"), "{timing}");
+        assert!(timing.contains("inquiry_spacing:"), "{timing}");
+        assert!(!timing.contains("minimum_"), "{timing}");
+        assert!(timing.contains("secs: number"), "{timing}");
+        assert!(timing.contains("nanos: number"), "{timing}");
     }
 }

@@ -46,8 +46,13 @@ use std::{
 };
 
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2, profile::ProfileSpec, transport::SendSemantics, units::Degrees,
-    Certainty, Error, FailureContext, FailureStage, HaltOutcome, SessionConfig, SpeedLevel,
+    config::SessionConfig,
+    error::{Certainty, FailureContext, FailureStage},
+    operation::HaltOutcome,
+    profiles::{ProfileSpec, PtzOpticsG2},
+    transport::SendSemantics,
+    types::{Degrees, SpeedLevel},
+    Error,
 };
 
 #[cfg(all(
@@ -168,7 +173,7 @@ fn g2_command_spacing() -> Duration {
     ProfileSpec::from_compile_time::<PtzOpticsG2>()
         .expect("G2")
         .timing()
-        .minimum_command_spacing()
+        .command_spacing()
 }
 
 fn g2_config() -> SessionConfig {
@@ -254,10 +259,10 @@ facade_matrix! {
     fn g2_focus_stop_rejected_on_a_free_socket_fails_conclusively_without_retry() {
         let link = Link::new(halt_transcript());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         let started = now!();
-        let report = wait!(camera.motion().stop_all_motion()).expect("halt accepted");
+        let report = wait!(camera.motion().stop_all()).expect("halt accepted");
         let elapsed = now!().duration_since(started);
 
         assert!(
@@ -292,7 +297,7 @@ facade_matrix! {
     fn error_naming_a_busy_socket_ends_the_executing_move_without_replay() {
         let link = Link::new(busy_socket_rejection());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
         wait!(wait!(camera.zoom().stop())
             .expect("zoom stop admitted")
             .applied())
@@ -300,7 +305,7 @@ facade_matrix! {
 
         let mut relative = wait!(camera
             .pan_tilt()
-            .relative(Degrees::new(10.0).expect("valid degrees"), Degrees::new(0.0).expect("valid degrees"), SpeedLevel::Fastest))
+            .relative(grafton_visca::types::PanTiltPosition { pan: Degrees::new(10.0).expect("valid degrees"), tilt: Degrees::new(0.0).expect("valid degrees") }, SpeedLevel::Fastest))
         .expect("relative move admitted");
         pause!(Duration::from_millis(150));
         let relative_frame = link.writes()[1].clone();
@@ -328,11 +333,11 @@ facade_matrix! {
     fn post_ack_rejection_of_the_executing_move_is_terminal_and_never_replayed() {
         let link = Link::new(post_ack_rejection());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         let result = wait!(wait!(camera
             .pan_tilt()
-            .relative(Degrees::new(10.0).expect("valid degrees"), Degrees::new(0.0).expect("valid degrees"), SpeedLevel::Fastest))
+            .relative(grafton_visca::types::PanTiltPosition { pan: Degrees::new(10.0).expect("valid degrees"), tilt: Degrees::new(0.0).expect("valid degrees") }, SpeedLevel::Fastest))
         .expect("relative move admitted")
         .applied_with_timeout(Duration::from_secs(5)));
 
@@ -345,7 +350,7 @@ facade_matrix! {
             "{result:?}"
         );
         let error = result.unwrap_err();
-        assert!(!matches!(error.recovery(), grafton_visca::Recovery::Resubmit { .. }));
+        assert!(!matches!(error.recovery(), grafton_visca::error::Recovery::Resubmit { .. }));
         assert_eq!(
             error.failure_context(),
             Some(FailureContext::new(
@@ -365,7 +370,7 @@ facade_matrix! {
     fn stale_stream_ack_never_completes_a_later_stop() {
         let link = Link::new(stalled_stream_camera());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         link.stall();
         let tele = wait!(wait!(camera.zoom().tele())
@@ -401,7 +406,7 @@ facade_matrix! {
     fn ordinary_motion_waits_for_the_owed_stream_response() {
         let link = Link::new(stalled_stream_camera());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         link.stall();
         let tele = wait!(wait!(camera.zoom().tele())
@@ -428,7 +433,7 @@ facade_matrix! {
     fn a_long_stall_latches_only_ordinary_commands_until_the_owed_answer() {
         let link = Link::new(stalled_stream_camera());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         link.stall();
         let tele = wait!(wait!(camera.zoom().tele())
@@ -477,12 +482,12 @@ facade_matrix! {
     fn halt_superseding_unsent_motion_reports_not_accepted() {
         let link = Link::with_semantics(unanswered_first_command(), SendSemantics::Datagram);
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         let _first = wait!(camera.zoom().tele()).expect("tele admitted");
         pause!(Duration::from_millis(50));
         let mut queued = wait!(camera.zoom().wide()).expect("wide admitted");
-        let _report = wait!(camera.motion().stop_all_motion()).expect("halt accepted");
+        let _report = wait!(camera.motion().stop_all()).expect("halt accepted");
 
         let error = wait!(queued.applied()).expect_err("the halt superseded it");
         assert!(matches!(error, Error::MotionSuperseded { .. }), "{error:?}");

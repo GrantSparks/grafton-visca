@@ -23,7 +23,7 @@
 5 driver-input transmission-finished tx=1 result=ok
 5 effect state id=2 from=sending to=awaiting-ack
 6 input cancel sent
-6 outcome cancellation id=2 Error::NotSupported source=profile
+6 outcome cancellation id=2 Error::CancellationNotSupported source=profile
 6 effect cancellation-ignored id=2 protocol-state=awaiting-ack cancel-frame=none
 7 input inspect-transmissions kind=cancel
 7 outcome transmissions kind=cancel count=0

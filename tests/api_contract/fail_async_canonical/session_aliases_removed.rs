@@ -1,4 +1,4 @@
-use grafton_visca::Session;
+use grafton_visca::r#async::Session;
 
 fn main() {
     let _ = Session::new;

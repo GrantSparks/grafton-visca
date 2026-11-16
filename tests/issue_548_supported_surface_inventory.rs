@@ -11,8 +11,10 @@ pub mod error {
 }
 
 use grafton_visca::{
-    camera::profiles::ProfileId, capabilities::TypedSupportSurface, value, value_enum, CameraId,
-    Inquiry, Request, ViscaInquiry,
+    profiles::ProfileId,
+    request::{Inquiry, Request},
+    types::CameraId,
+    value, value_enum, ViscaInquiry,
 };
 
 use grafton_visca::wire::WireValue;
@@ -36,7 +38,7 @@ struct InventoryValue(u8);
 const EXPECTED_PROFILES: &[&str] = &[
     "PtzOpticsG2",
     "PtzOpticsG3",
-    "PtzOptics30X",
+    "PtzOptics30x",
     "SonyFr7",
     "SonyBrcH900",
     "SonyEviH100",
@@ -44,26 +46,6 @@ const EXPECTED_PROFILES: &[&str] = &[
     "NearusBrc300",
     "GenericVisca",
 ];
-
-fn marked_names(document: &str, section: &str) -> Vec<String> {
-    let begin = format!("<!-- BEGIN {section} -->");
-    let end = format!("<!-- END {section} -->");
-    let (_, body) = document
-        .split_once(&begin)
-        .unwrap_or_else(|| panic!("missing {begin}"));
-    let (body, _) = body
-        .split_once(&end)
-        .unwrap_or_else(|| panic!("missing {end}"));
-    body.split('`')
-        .enumerate()
-        .filter(|(index, name)| {
-            index % 2 == 1
-                && !name.is_empty()
-                && name.chars().all(|ch| ch.is_alphanumeric() || ch == '_')
-        })
-        .map(|(_, name)| name.to_owned())
-        .collect()
-}
 
 fn assert_same_names(mut actual: Vec<String>, mut documented: Vec<String>, label: &str) {
     actual.sort_unstable();
@@ -82,50 +64,6 @@ fn assert_same_names(mut actual: Vec<String>, mut documented: Vec<String>, label
     );
 }
 
-/// Names exported by top-level `pub use` declarations, including aliases and
-/// grouped paths. Private and nested-module imports cannot satisfy this gate.
-fn public_use_names(source: &str) -> Vec<String> {
-    let tokens = source_scan::production_tokens(source);
-    let mut names = Vec::new();
-    let mut depth = 0;
-    let mut index = 0;
-    while index < tokens.len() {
-        if depth == 0
-            && tokens[index] == "pub"
-            && tokens.get(index + 1).is_some_and(|token| token == "use")
-        {
-            let start = index + 2;
-            let end = start
-                + tokens[start..]
-                    .iter()
-                    .position(|token| token == ";")
-                    .unwrap_or_else(|| panic!("unterminated public use"));
-            for (offset, token) in tokens[start..end].iter().enumerate() {
-                assert_ne!(
-                    token, "*",
-                    "closed utility inventories require explicit exports"
-                );
-                let next = tokens.get(start + offset + 1).map(String::as_str);
-                if token.chars().all(|ch| ch.is_alphanumeric() || ch == '_')
-                    && matches!(next, Some("," | "}" | ";"))
-                {
-                    assert_ne!(token, "self", "name a self export with an explicit alias");
-                    names.push(token.clone());
-                }
-            }
-            index = end + 1;
-            continue;
-        }
-        match tokens[index].as_str() {
-            "{" => depth += 1,
-            "}" => depth -= 1,
-            _ => {}
-        }
-        index += 1;
-    }
-    names
-}
-
 /// Pins the public static accessor names and makes each one a compile-time
 /// fact: every name must resolve in each enabled facade, so a renamed or
 /// missing accessor fails to build rather than relying on a source scan.
@@ -136,19 +74,37 @@ macro_rules! static_accessor_inventory {
         #[cfg(feature = "async")]
         fn async_accessors_resolve<P>()
         where
-            P: grafton_visca::CompileTimeProfile
+            P: grafton_visca::profiles::CompileTimeProfile
+                + grafton_visca::capabilities::HasPower
+                + grafton_visca::capabilities::HasZoom
+                + grafton_visca::capabilities::HasFocus
+                + grafton_visca::capabilities::HasPanTilt
+                + grafton_visca::capabilities::HasPresets
+                + grafton_visca::capabilities::HasExposure
+                + grafton_visca::capabilities::HasWhiteBalance
+                + grafton_visca::capabilities::HasImage
+                + grafton_visca::capabilities::HasMenu
                 + grafton_visca::capabilities::HasTally
                 + grafton_visca::capabilities::HasNdFilter
                 + grafton_visca::capabilities::HasMotionSync
                 + 'static,
         {
-            $( let _: Option<grafton_visca::$accessor<'static, P>> = None; )*
+            $( let _: Option<grafton_visca::r#async::$accessor<'static, P>> = None; )*
         }
 
         #[cfg(feature = "blocking")]
         fn blocking_accessors_resolve<P>()
         where
-            P: grafton_visca::CompileTimeProfile
+            P: grafton_visca::profiles::CompileTimeProfile
+                + grafton_visca::capabilities::HasPower
+                + grafton_visca::capabilities::HasZoom
+                + grafton_visca::capabilities::HasFocus
+                + grafton_visca::capabilities::HasPanTilt
+                + grafton_visca::capabilities::HasPresets
+                + grafton_visca::capabilities::HasExposure
+                + grafton_visca::capabilities::HasWhiteBalance
+                + grafton_visca::capabilities::HasImage
+                + grafton_visca::capabilities::HasMenu
                 + grafton_visca::capabilities::HasTally
                 + grafton_visca::capabilities::HasNdFilter
                 + grafton_visca::capabilities::HasMotionSync
@@ -160,7 +116,6 @@ macro_rules! static_accessor_inventory {
 }
 
 static_accessor_inventory!(
-    AdvancedAccessor,
     ExposureAccessor,
     FocusAccessor,
     ImageAccessor,
@@ -170,47 +125,11 @@ static_accessor_inventory!(
     PanTiltAccessor,
     PowerAccessor,
     PresetsAccessor,
+    StreamingAccessor,
     SystemAccessor,
     TallyAccessor,
     WhiteBalanceAccessor,
     ZoomAccessor,
-);
-
-/// Pins the public `Dyn*` trait names and makes each one a compile-time fact:
-/// every name must resolve as an object type in `grafton_visca::dynapi`, so a
-/// renamed or missing trait fails to build rather than relying on a source
-/// scan.
-macro_rules! dyn_trait_inventory {
-    ($($dyn_trait:ident),* $(,)?) => {
-        const EXPECTED_DYN_TRAITS: &[&str] = &[$(stringify!($dyn_trait)),*];
-
-        #[cfg(all(feature = "dyn-api", feature = "async"))]
-        fn dyn_traits_resolve() {
-            $( let _: Option<&dyn grafton_visca::dynapi::$dyn_trait> = None; )*
-        }
-    };
-}
-
-dyn_trait_inventory!(
-    DynAdvanced,
-    DynAppliedRequest,
-    DynExposure,
-    DynFocus,
-    DynImage,
-    DynMenu,
-    DynMotion,
-    DynMotionSync,
-    DynNdFilter,
-    DynPanTilt,
-    DynPower,
-    DynPresets,
-    DynSessionCameraControl,
-    DynSessionCameraNouns,
-    DynSystem,
-    DynTally,
-    DynTargetedRequest,
-    DynWhiteBalance,
-    DynZoom,
 );
 
 #[test]
@@ -239,18 +158,38 @@ fn built_in_profile_and_transport_inventory_is_closed() {
         assert_eq!(profile.default_tcp_port(), tcp, "{profile:?} TCP drift");
         assert_eq!(profile.default_udp_port(), udp, "{profile:?} UDP drift");
         assert_eq!(
-            profile.supports_serial(),
+            profile
+                .spec()
+                .expect("registered profile")
+                .transports()
+                .supports_serial(),
             serial,
             "{profile:?} serial drift"
         );
-        assert_eq!(profile.supports_tcp(), tcp.is_some());
-        assert_eq!(profile.supports_udp(), udp.is_some());
+        assert_eq!(
+            profile
+                .spec()
+                .expect("registered profile")
+                .transports()
+                .tcp_port()
+                .is_some(),
+            tcp.is_some()
+        );
+        assert_eq!(
+            profile
+                .spec()
+                .expect("registered profile")
+                .transports()
+                .udp_port()
+                .is_some(),
+            udp.is_some()
+        );
     }
 }
 
 #[test]
 fn built_in_group_and_vendor_inventory_is_closed() {
-    use grafton_visca::{camera::profiles::ProfileGroup, capabilities::InquirySupport};
+    use grafton_visca::{capabilities::InquirySupport, profiles::ProfileGroup};
 
     let expected = [
         (
@@ -265,11 +204,11 @@ fn built_in_group_and_vendor_inventory_is_closed() {
             InquirySupport::Partial,
         ),
         (
-            ProfileGroup::PtzOpticsG2,
+            ProfileGroup::PtzOptics,
             &[
                 ProfileId::PtzOpticsG2,
                 ProfileId::PtzOpticsG3,
-                ProfileId::PtzOptics30X,
+                ProfileId::PtzOptics30x,
             ][..],
             (true, true, true, false),
             InquirySupport::Full,
@@ -324,22 +263,6 @@ fn built_in_group_and_vendor_inventory_is_closed() {
 }
 
 #[test]
-fn typed_capability_gate_inventory_is_closed() {
-    let actual: Vec<_> = TypedSupportSurface::ALL
-        .iter()
-        .map(|gate| format!("{gate:?}"))
-        .collect();
-    assert_same_names(
-        actual,
-        marked_names(
-            include_str!("../docs/architecture_inventory.md"),
-            "OPTIONAL TYPED GATES",
-        ),
-        "optional typed gates",
-    );
-}
-
-#[test]
 fn static_noun_and_control_inventory_is_closed() {
     // The accessor names are compile-time facts (`static_accessor_inventory!`);
     // this keeps the closed list itself readable and duplicate-free.
@@ -364,11 +287,6 @@ fn static_noun_and_control_inventory_is_closed() {
         })
         .map(|tokens| tokens[2].clone())
         .collect();
-    let documented = marked_names(
-        include_str!("../docs/architecture_inventory.md"),
-        "STATIC NOUNS",
-    );
-    assert_same_names(source_names.clone(), documented, "static nouns");
     let mut compiled_names: Vec<_> = EXPECTED_ACCESSORS
         .iter()
         .map(|name| (*name).to_owned())
@@ -378,61 +296,44 @@ fn static_noun_and_control_inventory_is_closed() {
 
     let surface = declarations(include_str!("../src/command/surface.rs"));
     assert!(surface.contains("pub(crate) const fn surface_entry"));
-    // No second command inventory: the registry is one exhaustive match over
-    // `BuiltinCommand`, and every arm's class is a const-checked ledger row.
-    assert!(surface.contains("match command {"));
-    assert!(surface.contains("registry_class(BuiltinCommand::$command, registry_class!($kind))"));
+    // No second command inventory: canonical noun rows project their exact
+    // protocol identities, and the const index checks their ledger classes.
+    assert_eq!(surface.matches("noun_table!(surface_registry)").count(), 1);
+    assert!(surface.contains(
+        "rows: <$request as crate::command::semantics::BuiltinRequestContract>::LEDGER_ROWS"
+    ));
+    assert!(surface.contains("registry_class(row, surface.kind)"));
 }
 
 #[test]
-fn dynamic_control_inventory_is_closed() {
-    let whole_nouns = include_str!("../src/dynapi/nouns.rs");
+fn runtime_profile_control_inventory_uses_the_native_accessors() {
+    // Runtime profiles resolve the same concrete accessor types as typed profiles.
+    // The public AnyProfile fixture also checks every method's native future output.
+    #[cfg(feature = "async")]
+    {
+        use grafton_visca::{profiles::AnyProfile, r#async::*};
+        let _: Option<PowerAccessor<'static, AnyProfile>> = None;
+        let _: Option<PanTiltAccessor<'static, AnyProfile>> = None;
+        let _: Option<MotionAccessor<'static>> = None;
+    }
+    #[cfg(feature = "blocking")]
+    {
+        use grafton_visca::{blocking::*, profiles::AnyProfile};
+        let _: Option<PowerAccessor<'static, AnyProfile>> = None;
+        let _: Option<PanTiltAccessor<'static, AnyProfile>> = None;
+        let _: Option<MotionAccessor<'static>> = None;
+    }
 
-    // The trait names are compile-time facts (`dyn_trait_inventory!`); this
-    // keeps the closed list itself readable and duplicate-free.
-    let mut sorted = EXPECTED_DYN_TRAITS.to_vec();
-    sorted.sort_unstable();
-    sorted.dedup();
-    assert_eq!(sorted, EXPECTED_DYN_TRAITS);
-    #[cfg(all(feature = "dyn-api", feature = "async"))]
-    dyn_traits_resolve();
-
-    // The forbidden-token gates below are negative, so they read the whole
-    // file: a legacy spelling hiding in a test module is still a legacy
-    // spelling. The legacy spelling is a method named `<noun>_op`.
-    let legacy_op_methods: Vec<&str> = whole_nouns
-        .lines()
-        .map(str::trim_start)
-        .filter_map(|line| {
-            let line = line
-                .strip_prefix("pub(crate) ")
-                .or_else(|| line.strip_prefix("pub "))
-                .unwrap_or(line);
-            line.strip_prefix("fn ")
-        })
-        .filter_map(|rest| rest.split('(').next())
-        .map(str::trim)
-        .filter(|name| name.ends_with("_op"))
+    let noun_tokens = source_scan::production_tokens(include_str!("../src/noun_table.rs"));
+    let legacy_methods: Vec<_> = noun_tokens
+        .windows(2)
+        .filter(|tokens| tokens[1] == "(" && tokens[0].ends_with("_op"))
+        .map(|tokens| tokens[0].clone())
         .collect();
     assert!(
-        legacy_op_methods.is_empty(),
-        "forbidden legacy `_op` dynamic methods: {legacy_op_methods:?}"
+        legacy_methods.is_empty(),
+        "forbidden legacy noun methods: {legacy_methods:?}"
     );
-
-    for forbidden in [
-        "and_wait",
-        "defog_mode",
-        "nr_speed",
-        "nd_filter_position",
-        "fn lock(",
-        "fn unlock(",
-    ] {
-        assert!(
-            !whole_nouns.contains(forbidden),
-            "forbidden legacy dynamic surface token {forbidden:?}"
-        );
-    }
-    assert!(!whole_nouns.contains("fn result("));
 }
 
 #[test]
@@ -448,7 +349,6 @@ fn ecosystem_derive_test_and_extension_inventory_is_documented() {
         "serde",
         "schemars",
         "ts-rs",
-        "dyn-api",
         "test-utils",
         "ViscaInquiry",
         "value_enum",
@@ -457,7 +357,7 @@ fn ecosystem_derive_test_and_extension_inventory_is_documented() {
         "ScriptedTransport",
         "ManualClockExecutor",
         "ViscaCameraSimulator",
-        "Connect",
+        "CameraSession",
         "CameraConfig",
         "BlockingTransport",
         "AsyncTransport",
@@ -531,7 +431,6 @@ fn ecosystem_feature_inventory_matches_cargo_manifest() {
         [
             "async",
             "blocking",
-            "dyn-api",
             "runtime-smol",
             "runtime-tokio",
             "schemars",
@@ -550,44 +449,6 @@ fn tcp_is_not_a_feature() {
         assert_ne!(name, "tcp", "`tcp` gates no code and must not be a feature");
         assert!(!value.contains("\"tcp\""));
     }
-}
-
-#[test]
-fn test_utility_inventory_matches_public_exports() {
-    let mut actual = public_use_names(include_str!("../src/testing/testkit/mod.rs"));
-    actual.extend(public_use_names(include_str!("../src/testing/mod.rs")));
-    assert_same_names(
-        actual,
-        marked_names(
-            include_str!("../docs/architecture_inventory.md"),
-            "STABLE TEST UTILITIES",
-        ),
-        "stable test utilities",
-    );
-}
-
-#[test]
-fn export_inventory_ignores_decoys_and_tracks_aliases() {
-    let source = r#"
-        // pub use fake::Comment;
-        const TEXT: &str = "pub use fake::Literal;";
-        #[cfg(test)]
-        mod tests { pub use fake::TestOnly; }
-        mod nested { pub use fake::Nested; }
-        pub(crate) use fake::Private;
-        pub use real::{One, Two as Renamed, nested::{Three}};
-        pub use real::Four;
-    "#;
-    assert_same_names(
-        public_use_names(source),
-        vec![
-            "One".into(),
-            "Renamed".into(),
-            "Three".into(),
-            "Four".into(),
-        ],
-        "export scanner fixture",
-    );
 }
 
 #[cfg(feature = "test-utils")]

@@ -23,7 +23,7 @@ async fn async_manual_clock_rejects_settlement_query_at_deadline() {
     let frames = harness.frames.clone();
     let writes = Arc::clone(&harness.writes);
     let actor_task = tokio::spawn(actor.run(harness.driver));
-    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
 
     let mut operation = handle
         .submit_operation(prepared_zoom(&profile))

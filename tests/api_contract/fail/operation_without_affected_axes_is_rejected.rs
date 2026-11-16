@@ -1,12 +1,12 @@
 use grafton_visca::{
-    completion::Targeted, request, CameraId, ControlClass, Error, OperationCommand, Request,
-    RetryClass, TimeoutClass,
+    operation::Targeted, request, request::ControlClass, request::OperationCommand,
+    request::Request, request::RetryClass, request::TimeoutClass, types::CameraId, Error,
 };
 
 struct MissingAffectedAxes;
 
 impl Request for MissingAffectedAxes {
-    type Class = request::Operation<Targeted>;
+    type Class = request::OperationClass<Targeted>;
 
     const MAX_SIZE: usize = 2;
     const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;

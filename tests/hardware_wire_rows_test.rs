@@ -16,9 +16,10 @@
 //! 3. Tests that change settings additionally need `VISCA_HW_ALLOW_SETTINGS=1`;
 //!    tests that can move the camera need `VISCA_HW_ALLOW_MOTION=1`. A missing
 //!    flag prints a skip line and returns (passing).
-//! 4. `VISCA_PROFILE` selects the compile-time profile the test body is
-//!    instantiated for: `g2` (default) selects `PtzOpticsG2`, `30x` selects
-//!    `PtzOptics30X`. Anything else is a hard failure before any I/O.
+//! 4. `VISCA_PROFILE` selects a built-in profile at run time using its
+//!    `snake_case` id (default `ptzoptics_g2`, for example `ptzoptics_30x`).
+//!    Invalid ids fail before I/O. Every body uses `Camera<AnyProfile>`; the
+//!    selected profile must grant the particular rows that scenario checks.
 //!
 //! Transport: raw TCP `{VISCA_CAMERA_IP}:5678` through the blocking facade.
 //!
@@ -62,7 +63,7 @@
 //!
 //! Run every row with:
 //! ```sh
-//! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=g2 \
+//! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=ptzoptics_g2 \
 //!   VISCA_HW_ALLOW_SETTINGS=1 VISCA_HW_ALLOW_MOTION=1 \
 //!   cargo test --test hardware_wire_rows_test --features runtime-tokio \
 //!   -- --ignored --nocapture --test-threads=1
@@ -70,7 +71,7 @@
 //!
 //! The G2 shutter table round trip alone (settings, no motion):
 //! ```sh
-//! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=g2 VISCA_HW_ALLOW_SETTINGS=1 \
+//! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=ptzoptics_g2 VISCA_HW_ALLOW_SETTINGS=1 \
 //!   cargo test --test hardware_wire_rows_test --features runtime-tokio \
 //!   -- --ignored --nocapture --test-threads=1 --exact hw05_shutter_round_trip
 //! ```
@@ -78,7 +79,7 @@
 //! The G2 tilt polarity row alone (motion; watch the camera and confirm the
 //! direction when the `OPERATOR` line asks):
 //! ```sh
-//! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=g2 VISCA_HW_ALLOW_MOTION=1 \
+//! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=ptzoptics_g2 VISCA_HW_ALLOW_MOTION=1 \
 //!   cargo test --test hardware_wire_rows_test --features runtime-tokio \
 //!   -- --ignored --nocapture --test-threads=1 --exact hw05_tilt_polarity
 //! ```
@@ -95,26 +96,17 @@ use std::{
 use grafton_visca::wire::WireValue;
 
 use grafton_visca::{
-    blocking::{Camera, CameraSession, Connect},
-    camera::{
-        profiles::{PtzOptics30X, PtzOpticsG2},
-        IdleWait, PanTiltUnits,
-    },
-    capabilities::{
-        Capabilities, HasDirectZoom, HasExposure, HasExposureMode, HasFocus, HasFocusZone,
-        HasFocusZoneInquiry, HasImageProcessing, HasIrisControl, HasNoiseReduction2D,
-        HasNoiseReduction2DControl, HasNoiseReduction2DMode, HasNoiseReduction3D,
-        HasNoiseReduction3DControl, HasPanTilt, HasPictureEffect, HasPresets, HasZoom, PanTilt,
-        ShutterSpeedEntry, SupportsTcp,
-    },
-    command::{
-        ExposureCommand, ExposureMode, FocusZone, NoiseReduction2D, NoiseReduction2DMode,
-        NoiseReduction3D, PanTiltDirection, Shutter, ShutterInquiry,
-    },
+    blocking::{Camera, CameraSession},
+    capabilities::{Capabilities, ShutterSpeedEntry},
+    profiles::{AnyProfile, ProfileSpec},
     raw,
-    types::{PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition},
-    units::{Degrees, UnitInterval},
-    AffectedAxes, CameraId, CompileTimeProfile, Error, Request, RetryClass, ZoomDomain,
+    request::{Request, RetryClass},
+    types::{
+        AffectedAxes, CameraId, Degrees, ExposureMode, FocusZone, IdleWait, NoiseReduction2D,
+        NoiseReduction2DMode, NoiseReduction3D, PanSpeed, PanTiltDirection, PanTiltUnits,
+        ShutterSpeed, SpeedLevel, TiltSpeed, UnitInterval, ZoomDomain, ZoomPosition,
+    },
+    Error,
 };
 
 use hardware::{
@@ -183,103 +175,19 @@ fn settings_gate(hw: &Hw, test: &str) -> Option<String> {
 // Profile selection
 // ---------------------------------------------------------------------------
 
-/// The profile the test bodies are instantiated for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Selected {
-    G2,
-    X30,
-}
-
-/// Reads `VISCA_PROFILE` (`g2` default, or `30x`). An unknown value is a hard
-/// failure before any camera I/O.
-fn selected_profile(hw: &Hw) -> Selected {
-    let raw = env::var("VISCA_PROFILE").unwrap_or_default();
-    let selected = match raw.trim().to_ascii_lowercase().as_str() {
-        "" | "g2" => Selected::G2,
-        "30x" => Selected::X30,
-        other => panic!("VISCA_PROFILE must be `g2` or `30x`, got `{other}`"),
-    };
-    hw!(hw, "profile.selected={selected:?} VISCA_PROFILE={raw:?}");
-    selected
-}
-
-/// Everything the wire-row tests need from a profile. The blanket impl means
-/// only profiles that statically declare every row can be selected.
-trait WireRowProfile:
-    CompileTimeProfile
-    + SupportsTcp
-    + HasPanTilt
-    + HasZoom
-    + HasFocus
-    + HasPresets
-    + HasImageProcessing
-    + HasExposure
-    + grafton_visca::capabilities::HasShutterControl
-    + grafton_visca::capabilities::HasShutterDirect
-    + grafton_visca::capabilities::HasGainControl
-    + HasExposureMode
-    + HasIrisControl
-    + HasDirectZoom
-    + HasFocusZone
-    + HasFocusZoneInquiry
-    + HasNoiseReduction2D
-    + HasNoiseReduction2DControl
-    + HasNoiseReduction2DMode
-    + HasNoiseReduction3D
-    + HasNoiseReduction3DControl
-    + HasPictureEffect
-{
-}
-
-impl<P> WireRowProfile for P where
-    P: CompileTimeProfile
-        + SupportsTcp
-        + HasPanTilt
-        + HasZoom
-        + HasFocus
-        + HasPresets
-        + HasImageProcessing
-        + HasExposure
-        + grafton_visca::capabilities::HasShutterControl
-        + grafton_visca::capabilities::HasShutterDirect
-        + grafton_visca::capabilities::HasGainControl
-        + HasExposureMode
-        + HasIrisControl
-        + HasDirectZoom
-        + HasFocusZone
-        + HasFocusZoneInquiry
-        + HasNoiseReduction2D
-        + HasNoiseReduction2DControl
-        + HasNoiseReduction2DMode
-        + HasNoiseReduction3D
-        + HasNoiseReduction3DControl
-        + HasPictureEffect
-{
-}
-
-/// Calls the generic runner `$run::<P>($hw, $ip)` for the selected profile.
-macro_rules! run_for_profile {
-    ($selected:expr, $run:ident, $hw:expr, $ip:expr) => {
-        match $selected {
-            Selected::G2 => $run::<PtzOpticsG2>($hw, $ip),
-            Selected::X30 => $run::<PtzOptics30X>($hw, $ip),
-        }
-    };
-}
-
-/// Prints the chosen profile and its capability model name, then opens a raw
-/// TCP session.
-fn open_session<P: WireRowProfile>(hw: &Hw, ip: &str) -> CameraSession<P> {
-    let capabilities = Capabilities::from_profile::<P>();
+/// Opens a runtime-selected profile on the wire scenarios' explicit TCP port.
+fn open_session(hw: &Hw, ip: &str) -> CameraSession<AnyProfile> {
+    let address = format!("{ip}:{TCP_PORT}");
+    let config = hardware::camera_config(grafton_visca::config::TransportOptions::tcp(address));
+    let profile = config.profile().expect("validated profile");
     hw!(
         hw,
-        "profile.type={} model_name={:?}",
-        std::any::type_name::<P>(),
-        capabilities.model_name
+        "profile.id={:?} model_name={:?}",
+        profile.capabilities().profile_id,
+        profile.name()
     );
-    let address = format!("{ip}:{TCP_PORT}");
-    hw!(hw, "connect.tcp={address}");
-    Connect::open_tcp::<P>(address).expect("open TCP session")
+    hw!(hw, "connect.tcp={:?}", config.transport());
+    CameraSession::connect(&config).expect("open TCP session")
 }
 
 // ---------------------------------------------------------------------------
@@ -299,12 +207,11 @@ fn hw05_corrected_inquiries() {
     let Some(ip) = camera_ip(&hw, "hw05_corrected_inquiries") else {
         return;
     };
-    let selected = selected_profile(&hw);
-    run_for_profile!(selected, corrected_inquiries, &hw, &ip);
+    corrected_inquiries(&hw, &ip);
 }
 
-fn corrected_inquiries<P: WireRowProfile>(hw: &Hw, ip: &str) {
-    let session = open_session::<P>(hw, ip);
+fn corrected_inquiries(hw: &Hw, ip: &str) {
+    let session = open_session(hw, ip);
     let camera = session.camera();
 
     let zone = camera.focus().zone();
@@ -355,8 +262,8 @@ fn mode2(result: &Result<NoiseReduction2DMode, Error>) -> String {
 /// captured before any change; a dimension is marked dirty before its first
 /// set attempt, so `Drop` restores it on every exit path, including a panic or
 /// an early `?`. Each restore is attempted at most once.
-struct NrGuard<'a, P: WireRowProfile> {
-    camera: &'a Camera<P>,
+struct NrGuard<'a> {
+    camera: &'a Camera<AnyProfile>,
     hw: Hw,
     orig_2d: Option<NoiseReduction2D>,
     orig_mode: Option<NoiseReduction2DMode>,
@@ -365,7 +272,7 @@ struct NrGuard<'a, P: WireRowProfile> {
     dirty_3d: Cell<bool>,
 }
 
-impl<P: WireRowProfile> NrGuard<'_, P> {
+impl NrGuard<'_> {
     /// Restores the 2D level (`81 01 04 53 0n FF`) and, only when the mode
     /// reading no longer equals the original, the 2D mode (`81 01 04 50 02/03
     /// FF`). The mode is restored last because the level setter is the only
@@ -377,8 +284,14 @@ impl<P: WireRowProfile> NrGuard<'_, P> {
         let hw = &self.hw;
         if let Some(level) = self.orig_2d {
             let result = match level {
-                NoiseReduction2D::Off => self.camera.image().disable_noise_reduction_2d(),
-                NoiseReduction2D::Level(level) => self.camera.image().set_noise_reduction_2d(level),
+                NoiseReduction2D::Off => self
+                    .camera
+                    .image()
+                    .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Off),
+                NoiseReduction2D::Level(level) => self
+                    .camera
+                    .image()
+                    .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Level(level)),
             };
             observe(hw, "restore.nr2d.set", &result);
             sleep(SETTLE_DELAY);
@@ -402,8 +315,14 @@ impl<P: WireRowProfile> NrGuard<'_, P> {
         let hw = &self.hw;
         if let Some(level) = self.orig_3d {
             let result = match level {
-                NoiseReduction3D::Off => self.camera.image().disable_noise_reduction_3d(),
-                NoiseReduction3D::Level(level) => self.camera.image().set_noise_reduction_3d(level),
+                NoiseReduction3D::Off => self
+                    .camera
+                    .image()
+                    .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Off),
+                NoiseReduction3D::Level(level) => self
+                    .camera
+                    .image()
+                    .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Level(level)),
             };
             observe(hw, "restore.nr3d.set", &result);
             sleep(SETTLE_DELAY);
@@ -437,7 +356,7 @@ impl<P: WireRowProfile> NrGuard<'_, P> {
     }
 }
 
-impl<P: WireRowProfile> Drop for NrGuard<'_, P> {
+impl Drop for NrGuard<'_> {
     fn drop(&mut self) {
         let any = self.dirty_2d.get() || self.dirty_3d.get();
         if any {
@@ -462,18 +381,17 @@ fn hw05_nr_level_zero_round_trip() {
     let Some(ip) = settings_gate(&hw, "hw05_nr_level_zero_round_trip") else {
         return;
     };
-    let selected = selected_profile(&hw);
-    run_for_profile!(selected, nr_level_zero_round_trip, &hw, &ip);
+    nr_level_zero_round_trip(&hw, &ip);
 }
 
-fn nr_level_zero_round_trip<P: WireRowProfile>(hw: &Hw, ip: &str) {
-    let session = open_session::<P>(hw, ip);
+fn nr_level_zero_round_trip(hw: &Hw, ip: &str) {
+    let session = open_session(hw, ip);
     let outcome = nr_zero_body(session.camera(), hw);
     close_session(hw, session);
     outcome.expect("NR level zero round trip").assert_all();
 }
 
-fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks, Error> {
+fn nr_zero_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
 
     let orig_2d = camera.image().noise_reduction_2d();
@@ -500,7 +418,9 @@ fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks
     // level setter changes it is recorded, not asserted.
     if guard.orig_2d.is_some() {
         guard.dirty_2d.set(true);
-        let set = camera.image().disable_noise_reduction_2d();
+        let set = camera
+            .image()
+            .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Off);
         observe(hw, "nr2d.set_level_zero", &set);
         sleep(SETTLE_DELAY);
         let level = camera.image().noise_reduction_2d();
@@ -525,7 +445,9 @@ fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks
     // Then 3D.
     if guard.orig_3d.is_some() {
         guard.dirty_3d.set(true);
-        let set = camera.image().disable_noise_reduction_3d();
+        let set = camera
+            .image()
+            .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Off);
         observe(hw, "nr3d.set_level_zero", &set);
         sleep(SETTLE_DELAY);
         let level = camera.image().noise_reduction_3d();
@@ -563,14 +485,14 @@ fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks
 
 /// Restores the original focus zone. Marked dirty before the first set
 /// attempt, so `Drop` restores it on every exit path. Attempted at most once.
-struct FocusZoneGuard<'a, P: WireRowProfile> {
-    camera: &'a Camera<P>,
+struct FocusZoneGuard<'a> {
+    camera: &'a Camera<AnyProfile>,
     hw: Hw,
     original: Option<FocusZone>,
     dirty: Cell<bool>,
 }
 
-impl<P: WireRowProfile> FocusZoneGuard<'_, P> {
+impl FocusZoneGuard<'_> {
     /// Restores the zone (`81 01 04 AA 00/01/02 FF`).
     fn restore(&self) {
         if !self.dirty.replace(false) {
@@ -597,7 +519,7 @@ impl<P: WireRowProfile> FocusZoneGuard<'_, P> {
     }
 }
 
-impl<P: WireRowProfile> Drop for FocusZoneGuard<'_, P> {
+impl Drop for FocusZoneGuard<'_> {
     fn drop(&mut self) {
         if self.dirty.get() {
             hw!(self.hw, "guard.begin focus_zone");
@@ -618,18 +540,17 @@ fn hw05_focus_zone_round_trip() {
     let Some(ip) = settings_gate(&hw, "hw05_focus_zone_round_trip") else {
         return;
     };
-    let selected = selected_profile(&hw);
-    run_for_profile!(selected, focus_zone_round_trip, &hw, &ip);
+    focus_zone_round_trip(&hw, &ip);
 }
 
-fn focus_zone_round_trip<P: WireRowProfile>(hw: &Hw, ip: &str) {
-    let session = open_session::<P>(hw, ip);
+fn focus_zone_round_trip(hw: &Hw, ip: &str) {
+    let session = open_session(hw, ip);
     let outcome = focus_zone_body(session.camera(), hw);
     close_session(hw, session);
     outcome.expect("focus zone round trip").assert_all();
 }
 
-fn focus_zone_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks, Error> {
+fn focus_zone_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
 
     let original = camera.focus().zone();
@@ -689,18 +610,17 @@ fn hw05_direct_zoom_positions() {
     let Some(ip) = motion_gate(&hw, "hw05_direct_zoom_positions") else {
         return;
     };
-    let selected = selected_profile(&hw);
-    run_for_profile!(selected, direct_zoom_positions, &hw, &ip);
+    direct_zoom_positions(&hw, &ip);
 }
 
-fn direct_zoom_positions<P: WireRowProfile>(hw: &Hw, ip: &str) {
-    let session = open_session::<P>(hw, ip);
+fn direct_zoom_positions(hw: &Hw, ip: &str) {
+    let session = open_session(hw, ip);
     let outcome = direct_zoom_body(session.camera(), hw);
     close_session(hw, session);
     outcome.expect("direct zoom positions").assert_all();
 }
 
-fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks, Error> {
+fn direct_zoom_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let recall_attempted = Cell::new(false);
 
@@ -740,7 +660,7 @@ fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Ch
             .as_ref()
             .expect("zoom domain")
             .optical_ratio,
-        capabilities.supports_direct_zoom()
+        capabilities.zoom.as_ref().is_some_and(|zoom| zoom.direct)
     );
     hw!(
         hw,
@@ -851,28 +771,37 @@ fn hw05_absolute_pan_tilt_small_offset() {
     let Some(ip) = motion_gate(&hw, "hw05_absolute_pan_tilt_small_offset") else {
         return;
     };
-    let selected = selected_profile(&hw);
-    run_for_profile!(selected, absolute_pan_tilt_small_offset, &hw, &ip);
+    absolute_pan_tilt_small_offset(&hw, &ip);
 }
 
-fn absolute_pan_tilt_small_offset<P: WireRowProfile>(hw: &Hw, ip: &str) {
-    let session = open_session::<P>(hw, ip);
+fn absolute_pan_tilt_small_offset(hw: &Hw, ip: &str) {
+    let session = open_session(hw, ip);
     let outcome = absolute_pan_tilt_body(session.camera(), hw);
     close_session(hw, session);
     outcome.expect("absolute pan/tilt").assert_all();
 }
 
-fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks, Error> {
+fn absolute_pan_tilt_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let recall_attempted = Cell::new(false);
 
-    let p0 = camera.pan_tilt().position();
+    let p0 = camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry);
     observe(hw, "pan_tilt.p0", &p0);
     let p0 = p0?;
 
     let capabilities = camera.capabilities();
-    let pan_units = <P as PanTilt>::PAN_DEGREES_TO_UNITS;
-    let tilt_units = <P as PanTilt>::TILT_DEGREES_TO_UNITS;
+    let pan_units = capabilities
+        .pan_tilt
+        .as_ref()
+        .expect("pan/tilt domain")
+        .coordinates
+        .pan_degrees_to_units();
+    let tilt_units = capabilities
+        .pan_tilt
+        .as_ref()
+        .expect("pan/tilt domain")
+        .coordinates
+        .tilt_degrees_to_units();
     let slowest = SpeedLevel::Slowest;
     hw!(
         hw,
@@ -932,8 +861,8 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
         return Ok(checks);
     }
 
-    let conversion = grafton_visca::ProfileSpec::from_compile_time::<P>()
-        .expect("profile")
+    let conversion = camera
+        .profile()
         .pan_tilt_coordinates()
         .expect("coordinate conversion");
     let pan_degrees = conversion.pan_degrees(target_pan);
@@ -975,14 +904,16 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
     };
 
     let mut operation = camera.pan_tilt().absolute(
-        Degrees::new(pan_degrees).expect("valid degrees"),
-        Degrees::new(tilt_degrees).expect("valid degrees"),
+        grafton_visca::types::PanTiltPosition {
+            pan: Degrees::new(pan_degrees).expect("valid degrees"),
+            tilt: Degrees::new(tilt_degrees).expect("valid degrees"),
+        },
         slowest,
     )?;
     hw!(hw, "pan_tilt.absolute.submitted id={:?}", operation.id());
     let settled = operation.settled();
     observe(hw, "pan_tilt.absolute.settled", &settled);
-    let readback = camera.pan_tilt().position();
+    let readback = camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry);
     observe(hw, "pan_tilt.readback", &readback);
     if let Ok(position) = &readback {
         hw!(
@@ -1058,7 +989,12 @@ fn settable_shutter_mode(
     }
     [ExposureMode::Shutter, ExposureMode::Manual]
         .into_iter()
-        .find(|mode| capabilities.supports_exposure_mode(*mode))
+        .find(|mode| {
+            capabilities
+                .exposure
+                .as_ref()
+                .is_some_and(|exposure| exposure.modes.contains(mode))
+        })
 }
 
 fn shutter_text(result: &Result<ShutterSpeed, Error>) -> String {
@@ -1076,29 +1012,32 @@ fn mode_text(result: &Result<ExposureMode, Error>) -> String {
 
 /// Sets one shutter code and reads it back through the typed inquiry and the
 /// raw inquiry of the same frame.
-struct ShutterProbe<'a, P: WireRowProfile> {
-    camera: &'a Camera<P>,
+struct ShutterProbe<'a> {
+    camera: &'a Camera<AnyProfile>,
     target: CameraId,
     hw: Hw,
-    raw_inquiry: raw::Inquiry<Vec<u8>>,
+    raw_inquiry: raw::InquiryRequest<Vec<u8>>,
 }
 
-impl<P: WireRowProfile> ShutterProbe<'_, P> {
+impl ShutterProbe<'_> {
     /// Sets `entry`'s code (`81 01 04 4A 00 00 0p 0q FF`), waits, inquires it
     /// back (`81 09 04 4A FF`) and checks that both the typed `ShutterSpeed`
     /// and the raw reply position equal the code set.
     fn round_trip(&self, checks: &mut Checks, label: &str, entry: &ShutterSpeedEntry) {
         let hw = &self.hw;
         let speed = ShutterSpeed::new(entry.value).expect("valid value");
-        let set_frame = encode(&Shutter::SetSpeed(speed), self.target)
-            .map_or_else(|_| "ERR".to_owned(), |bytes| hex(&bytes));
+        let set_frame = encode(
+            &grafton_visca::command::exposure::SetShutter::new(speed),
+            self.target,
+        )
+        .map_or_else(|_| "ERR".to_owned(), |bytes| hex(&bytes));
         hw!(
             hw,
             "shutter.{label}.target fraction={} code=0x{:02X} set_frame={set_frame}",
             entry.exposure,
             entry.value
         );
-        let set = self.camera.exposure().shutter_direct(speed);
+        let set = self.camera.exposure().set_shutter(speed);
         observe(hw, &format!("shutter.{label}.set"), &set);
         sleep(SETTLE_DELAY);
         let typed = self.camera.exposure().shutter();
@@ -1141,8 +1080,8 @@ impl<P: WireRowProfile> ShutterProbe<'_, P> {
 /// `Drop` restores it on every exit path, including a panic or an early `?`.
 /// Each restore is attempted at most once. The shutter goes first, while the
 /// test's shutter-settable mode is still active.
-struct ShutterGuard<'a, P: WireRowProfile> {
-    camera: &'a Camera<P>,
+struct ShutterGuard<'a> {
+    camera: &'a Camera<AnyProfile>,
     hw: Hw,
     original_mode: ExposureMode,
     original_shutter: ShutterSpeed,
@@ -1150,13 +1089,13 @@ struct ShutterGuard<'a, P: WireRowProfile> {
     shutter_dirty: Cell<bool>,
 }
 
-impl<P: WireRowProfile> ShutterGuard<'_, P> {
+impl ShutterGuard<'_> {
     /// Restores the shutter (`81 01 04 4A 00 00 0p 0q FF`), then the exposure
     /// mode (`81 01 04 39 0m FF`).
     fn restore(&self) {
         let hw = &self.hw;
         if self.shutter_dirty.replace(false) {
-            let result = self.camera.exposure().shutter_direct(self.original_shutter);
+            let result = self.camera.exposure().set_shutter(self.original_shutter);
             observe(hw, "restore.shutter.set", &result);
             sleep(SETTLE_DELAY);
         }
@@ -1184,7 +1123,7 @@ impl<P: WireRowProfile> ShutterGuard<'_, P> {
     }
 }
 
-impl<P: WireRowProfile> Drop for ShutterGuard<'_, P> {
+impl Drop for ShutterGuard<'_> {
     fn drop(&mut self) {
         if self.mode_dirty.get() || self.shutter_dirty.get() {
             hw!(self.hw, "guard.begin shutter");
@@ -1210,22 +1149,17 @@ fn hw05_shutter_round_trip() {
     let Some(ip) = settings_gate(&hw, "hw05_shutter_round_trip") else {
         return;
     };
-    let selected = selected_profile(&hw);
-    run_for_profile!(selected, shutter_round_trip, &hw, &ip);
+    shutter_round_trip(&hw, &ip);
 }
 
-fn shutter_round_trip<P: WireRowProfile>(hw: &Hw, ip: &str) {
-    let session = open_session::<P>(hw, ip);
+fn shutter_round_trip(hw: &Hw, ip: &str) {
+    let session = open_session(hw, ip);
     let outcome = shutter_body(session.camera(), session.target(), hw);
     close_session(hw, session);
     outcome.expect("shutter round trip").assert_all();
 }
 
-fn shutter_body<P: WireRowProfile>(
-    camera: &Camera<P>,
-    target: CameraId,
-    hw: &Hw,
-) -> Result<Checks, Error> {
+fn shutter_body(camera: &Camera<AnyProfile>, target: CameraId, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let capabilities = camera.capabilities();
     let table = &capabilities
@@ -1276,11 +1210,11 @@ fn shutter_body<P: WireRowProfile>(
         camera,
         target,
         hw: *hw,
-        raw_inquiry: raw::Inquiry::from_fn(
-            encode(&ShutterInquiry, target)?,
+        raw_inquiry: raw::InquiryRequest::from_fn(
+            encode(&grafton_visca::command::exposure::ShutterInquiry, target)?,
             payload_bytes,
             RetryClass::Inquiry,
-            grafton_visca::SubmissionClass::Normal,
+            grafton_visca::request::SubmissionClass::Normal,
         )?,
     };
 
@@ -1298,7 +1232,10 @@ fn shutter_body<P: WireRowProfile>(
         hw!(
             hw,
             "exposure_mode.target={test_mode:?} frame={}",
-            hex(&encode(&ExposureCommand::new(test_mode), target)?)
+            hex(&encode(
+                &grafton_visca::command::exposure::SetMode::new(test_mode),
+                target
+            )?)
         );
         guard.mode_dirty.set(true);
         let set = camera.exposure().set_mode(test_mode);
@@ -1370,8 +1307,8 @@ struct TiltDrive {
 /// speed 1 and tilt speed 1 for [`DRIVE`], sends STOP, waits for rest and
 /// reads the position. An error after the drive was submitted returns through
 /// `?` into the caller's [`MotionGuard`].
-fn tilt_drive<P: WireRowProfile>(
-    camera: &Camera<P>,
+fn tilt_drive(
+    camera: &Camera<AnyProfile>,
     hw: &Hw,
     label: &str,
     direction: PanTiltDirection,
@@ -1382,9 +1319,13 @@ fn tilt_drive<P: WireRowProfile>(
     sleep(OBSERVE_PAUSE);
 
     let drive_started = Instant::now();
-    let mut drive = camera
-        .pan_tilt()
-        .move_direction(direction, pan_speed, tilt_speed)?;
+    let mut drive = camera.pan_tilt().drive(
+        direction,
+        grafton_visca::types::PanTiltSpeed {
+            pan: pan_speed,
+            tilt: tilt_speed,
+        },
+    )?;
     hw!(hw, "tilt.{label}.submitted id={:?}", drive.id());
     sleep(DRIVE);
     let mut stop = camera.pan_tilt().stop()?;
@@ -1408,9 +1349,9 @@ fn tilt_drive<P: WireRowProfile>(
         &format!("tilt.{label}"),
         REST_SAMPLES,
         REST_INTERVAL,
-        || camera.pan_tilt().position(),
+        || camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry),
     );
-    let after = camera.pan_tilt().position();
+    let after = camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry);
     observe(hw, &format!("tilt.{label}.after"), &after);
     Ok(TiltDrive {
         after: after?,
@@ -1421,7 +1362,8 @@ fn tilt_drive<P: WireRowProfile>(
 /// Prints one drive's raw and degree positions and records its checks: the
 /// raw and degree tilt increase for an `up` drive and decrease otherwise, and
 /// pan is unchanged within [`PAN_TOLERANCE_RAW`].
-fn record_tilt<P: WireRowProfile>(
+fn record_tilt(
+    profile: &ProfileSpec,
     hw: &Hw,
     checks: &mut Checks,
     label: &str,
@@ -1429,8 +1371,7 @@ fn record_tilt<P: WireRowProfile>(
     before: PanTiltUnits,
     drive: &TiltDrive,
 ) {
-    let conversion = grafton_visca::ProfileSpec::from_compile_time::<P>()
-        .expect("profile")
+    let conversion = profile
         .pan_tilt_coordinates()
         .expect("coordinate conversion");
     let after = drive.after;
@@ -1487,22 +1428,21 @@ fn hw05_tilt_polarity() {
     let Some(ip) = motion_gate(&hw, "hw05_tilt_polarity") else {
         return;
     };
-    let selected = selected_profile(&hw);
-    run_for_profile!(selected, tilt_polarity, &hw, &ip);
+    tilt_polarity(&hw, &ip);
 }
 
-fn tilt_polarity<P: WireRowProfile>(hw: &Hw, ip: &str) {
-    let session = open_session::<P>(hw, ip);
+fn tilt_polarity(hw: &Hw, ip: &str) {
+    let session = open_session(hw, ip);
     let outcome = tilt_polarity_body(session.camera(), hw);
     close_session(hw, session);
     outcome.expect("tilt polarity").assert_all();
 }
 
-fn tilt_polarity_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks, Error> {
+fn tilt_polarity_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let recall_attempted = Cell::new(false);
 
-    let p0 = camera.pan_tilt().position();
+    let p0 = camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry);
     observe(hw, "pan_tilt.p0", &p0);
     let p0 = p0?;
 
@@ -1511,7 +1451,7 @@ fn tilt_polarity_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<
         hw,
         "profile.pan_tilt tilt_range={:?} tilt_degrees_to_units={} pan_tolerance_raw={PAN_TOLERANCE_RAW}",
         capabilities.pan_tilt.as_ref().expect("pan/tilt domain").tilt_ranges.range(None).as_inclusive(),
-        <P as PanTilt>::TILT_DEGREES_TO_UNITS
+        capabilities.pan_tilt.as_ref().expect("pan/tilt domain").coordinates.tilt_degrees_to_units()
     );
     // An axis at a limit cannot show a change; never move it there.
     if p0.tilt
@@ -1557,9 +1497,17 @@ fn tilt_polarity_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<
     };
 
     let up = tilt_drive(camera, hw, "UP", PanTiltDirection::Up)?;
-    record_tilt::<P>(hw, &mut checks, "UP", true, p0, &up);
+    record_tilt(camera.profile(), hw, &mut checks, "UP", true, p0, &up);
     let down = tilt_drive(camera, hw, "DOWN", PanTiltDirection::Down)?;
-    record_tilt::<P>(hw, &mut checks, "DOWN", false, up.after, &down);
+    record_tilt(
+        camera.profile(),
+        hw,
+        &mut checks,
+        "DOWN",
+        false,
+        up.after,
+        &down,
+    );
 
     restore_and_report(camera, hw, &recall_attempted);
     hw!(

@@ -40,7 +40,7 @@ use crate::{
 /// the typed STOP — see the guard pattern in `docs/migration_2_0.md` and
 /// `examples/operation_handles_async.rs`. For an explicit stop on a path you
 /// control, use `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
-/// `camera.focus().stop()`, or `camera.motion().stop_all_motion()`;
+/// `camera.focus().stop()`, or `camera.motion().stop_all()`;
 /// [`cancel`](Self::cancel) is protocol cancellation and does not by itself
 /// prove motion ended.
 #[must_use = "await, cancel, or explicitly detach this operation"]
@@ -96,8 +96,8 @@ where
     /// Cancels the operation and waits for the cancellation's conclusion,
     /// bounded by the configured cancellation deadline.
     ///
-    /// The result is [`CancellationOutcome::Cancelled`] when cancellation
-    /// won, [`CancellationOutcome::Completed`] when the operation was applied
+    /// The result is [`crate::operation::CancellationOutcome::Cancelled`] when cancellation
+    /// won, [`crate::operation::CancellationOutcome::Completed`] when the operation was applied
     /// first, and the operation's own error when it failed first.
     ///
     /// Cancelling is idempotent. The handle has one cancellation intent;
@@ -111,9 +111,9 @@ where
     /// Cancelling a request that is still queued always succeeds. Cancelling
     /// one that has already been written needs profile support for the
     /// standard VISCA socket-cancel command; without it — the built-in
-    /// PTZOptics profiles ([`PtzOpticsG2`], [`PtzOpticsG3`] and
-    /// [`PtzOptics30X`]) are in that position — the owner refuses with
-    /// [`Error::NotSupported`] and leaves the original request scheduled,
+    /// PTZOptics profiles ([`crate::profiles::PtzOpticsG2`], [`crate::profiles::PtzOpticsG3`] and
+    /// [`crate::profiles::PtzOptics30x`]) are in that position — the owner refuses with
+    /// [`Error::CancellationNotSupported`] and leaves the original request scheduled,
     /// retryable, and able to complete. The handle is unaffected and can
     /// still wait for it. A refusal does not stop the camera; a moving axis
     /// ends with an applied typed STOP.
@@ -123,9 +123,9 @@ where
     /// expired) returns that error; the handle still observes the operation's
     /// own outcome.
     ///
-    /// [`PtzOpticsG2`]: crate::profiles::PtzOpticsG2
-    /// [`PtzOpticsG3`]: crate::profiles::PtzOpticsG3
-    /// [`PtzOptics30X`]: crate::profiles::PtzOptics30X
+    /// [`crate::profiles::PtzOpticsG2`]: crate::profiles::PtzOpticsG2
+    /// [`crate::profiles::PtzOpticsG3`]: crate::profiles::PtzOpticsG3
+    /// [`crate::profiles::PtzOptics30x`]: crate::profiles::PtzOptics30x
     pub async fn cancel(&mut self) -> Result<CancellationOutcome, Error> {
         self.receipt.cancel(None).await
     }

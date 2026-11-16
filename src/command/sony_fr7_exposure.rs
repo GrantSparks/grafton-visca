@@ -58,7 +58,6 @@ impl AeLevel {
     serde(rename_all = "snake_case", deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum Fr7AeLevel {
     /// Increase the AE level by one quarter EV.
     Up,
@@ -84,7 +83,6 @@ macro_rules! automatic_control {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(deny_unknown_fields))]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         pub struct $name {
             enabled: bool,
         }
@@ -98,6 +96,7 @@ macro_rules! automatic_control {
 
             /// Returns the requested enablement state.
             #[must_use]
+            #[cfg(test)]
             pub const fn enabled(self) -> bool {
                 self.enabled
             }
@@ -140,7 +139,6 @@ macro_rules! iris_adjustment {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(deny_unknown_fields))]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         pub struct $name {
             steps: IrisStep,
         }
@@ -154,6 +152,7 @@ macro_rules! iris_adjustment {
 
             /// Returns the relative adjustment count.
             #[must_use]
+            #[cfg(test)]
             pub const fn steps(self) -> IrisStep {
                 self.steps
             }

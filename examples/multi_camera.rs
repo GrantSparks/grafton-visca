@@ -1,10 +1,10 @@
 //! Multi-camera session: two targets on one serialized owner, selected by
-//! `camera_for`.
+//! `camera`.
 //!
 //! Multiple targets share one transport and one owner, so a multi-target session
 //! needs a serial-addressed transport (multi-target registration is rejected on
 //! IP transports). This example uses a tiny in-memory serial bus so it runs with
-//! no hardware. Each registered target is reached with `camera_for::<P>(target)`;
+//! no hardware. Each registered target is reached with `camera::<P>(target)`;
 //! the two views share the owner's pacing, correlation, and cancellation.
 //!
 //! Requires only the default `blocking` feature.
@@ -12,11 +12,9 @@
 use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    profile::ProfileSpec,
-    profiles::GenericVisca,
-    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
-    CameraId, Error,
+    blocking::Session, config::SessionConfig, profiles::GenericVisca, profiles::ProfileSpec,
+    transport::BlockingTransport, transport::HasTransportConfig, transport::ReceiveOutcome,
+    transport::TransportConfig, types::CameraId, Error,
 };
 
 /// A minimal in-memory transport that reports SERIAL addressing, so multi-target
@@ -78,13 +76,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Two targets share one raw-VISCA serial envelope. Both profiles must be
     // RawVisca; GenericVisca (and PtzOpticsG2) qualify. Sony-encapsulated
     // profiles cannot be multi-targeted.
-    let mut config = SessionConfig::new(ProfileSpec::from_compile_time::<GenericVisca>()?);
-    config.register_target(
-        CameraId::CAMERA_2,
-        ProfileSpec::from_compile_time::<GenericVisca>()?,
-    )?;
+    let config = SessionConfig::new(ProfileSpec::from_compile_time::<GenericVisca>()?)
+        .with_target(
+            CameraId::CAMERA_2,
+            ProfileSpec::from_compile_time::<GenericVisca>()?,
+        )?;
 
-    let session = Session::open(SerialBus::new(), config)?;
+    let session = Session::open(SerialBus::new(), &config)?;
     let result = drive_both(&session);
     // Close is the deterministic teardown barrier; report a control error too.
     match (result, session.close()) {
@@ -94,11 +92,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn drive_both(session: &Session) -> Result<(), Error> {
-    // `camera()` is only for a sole target; a multi-target session selects each
-    // view with `camera_for(target)`, which also checks the compile-time profile
-    // matches the registered one.
-    let cam1 = session.camera_for::<GenericVisca>(CameraId::CAMERA_1)?;
-    let cam2 = session.camera_for::<GenericVisca>(CameraId::CAMERA_2)?;
+    // Every target is explicit. Selecting a compile-time view also checks that
+    // the complete registered profile matches the requested type.
+    let cam1 = session.camera::<GenericVisca>(CameraId::CAMERA_1)?;
+    let cam2 = session.camera::<GenericVisca>(CameraId::CAMERA_2)?;
     println!("camera 1 target = {:?}", cam1.target());
     println!("camera 2 target = {:?}", cam2.target());
 

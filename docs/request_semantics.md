@@ -1,6 +1,6 @@
 # Built-in request semantics
 
-`command::semantics::BuiltinCommand` is the authoritative ledger.  A wire
+The private `BuiltinCommand` ledger is authoritative for implementation review.  A wire
 opcode, timeout category, or command module is not allowed to infer a request
 class.  One `builtin_command_ledger!` list in `src/command/semantics.rs` names
 every built-in command together with its classification; the enum, its `ALL`
@@ -19,23 +19,23 @@ The rule is intentionally narrow:
 ## Typed raw escape hatches
 
 Custom wire frames use the single canonical raw namespace. The four request
-classes are `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, and
-`raw::AppliedOnly`; plain commands use `raw::CommandPolicy`, operations use
+classes are `raw::PlainRequest`, `raw::InquiryRequest`, `raw::TargetedRequest`, and
+`raw::AppliedOnlyRequest`; plain commands use `raw::CommandPolicy`, operations use
 `raw::OperationPolicy`, and inquiries use `raw::InquiryPolicy`. Each class
 has one primary `new` constructor and one
 `with_policy` constructor where a prebuilt policy is useful. Inquiry decoders
 use `from_fn` or `with_context`, and operation values expose `bytes()` and
 `affected_axes()`. All inquiry convenience constructors select the `Inquiry`
 timeout category. Inquiry policies store neither timeout nor command reply
-shape. Command and operation policies take `CommandCategory`, which has no
+shape. Command and operation policies take `CommandTimeoutClass`, which has no
 `Inquiry` variant; all policies take `SubmissionClass`, which has no urgent lane.
 Policy construction is infallible, and raw request construction validates only
 wire bytes.
 
 The raw namespace is the explicit escape hatch for callers that need to supply
-wire bytes or a custom response decoder. The low-level `command` module remains
-available to the crate's protocol implementation, but wire encoding alone does
-not choose a completion class; owner submission uses the typed
+wire bytes or a custom response decoder. Public built-in requests live under `command::<noun>::<Request>`, with
+`<Property>Inquiry` for inquiries and setters mirroring the noun methods.
+Wire encoding alone does not choose a completion class; owner submission uses the typed
 `Request`/`Inquiry`/`OperationCommand` contracts.
 
 Raw frames are bounded by the single public `raw::MAX_BYTES` constant; the
@@ -154,7 +154,7 @@ not assume every command follows the ACK-then-completion shape. The axis is
   ledger keeps its first answer distinct (#795). A successful raw datagram
   terminal leaves a bounded `AllResponses` hold before ordinary same-target
   response-bearing work starts; a raw stream accounts for the answer in its
-  ledger instead. Cancellation after the write is refused with `NotSupported`
+  ledger instead. Cancellation after the write is refused with `CancellationNotSupported`
   because this command can never own a cancellable socket (#835).
 - `NoReply` — a plain-command-only fire-and-forget shape. Its `execute()`
   result proves only that the local transport write succeeded; it does **not**
@@ -244,7 +244,7 @@ focus target, so it is applied-only on `Focus`.
 closed, its wire command is a continuous physical pan/tilt drive. It is therefore
 an applied-only `PAN_TILT` operation, participates in halt fences and motion
 tracking, and returns a handle on every facade. Observe it with `applied()`;
-end physical movement with a pan/tilt STOP or `stop_all_motion()` (#839).
+end physical movement with a pan/tilt STOP or `stop_all()` (#839).
 
 ### Applied-state effects
 

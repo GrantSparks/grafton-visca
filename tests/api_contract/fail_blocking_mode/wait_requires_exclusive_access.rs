@@ -1,4 +1,4 @@
-use grafton_visca::{blocking::Operation, completion::Targeted};
+use grafton_visca::{blocking::Operation, operation::Targeted};
 
 // Waits borrow the handle exclusively (#777): a shared reference cannot wait,
 // so one handle is never observed by two waits at once.

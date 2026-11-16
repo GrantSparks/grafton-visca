@@ -15,8 +15,8 @@ use std::{
 };
 
 use grafton_visca::{
-    completion::AppliedOnly, profiles::SonyFR7, raw, request::builtin::ZoomStop,
-    transport::SendSemantics, Error, ErrorKind, RetryClass, SessionConfig,
+    config::SessionConfig, error::ErrorKind, operation::AppliedOnly, profiles::SonyFr7, raw,
+    request::RetryClass, transport::SendSemantics, Error,
 };
 use grafton_visca_test_support::{
     facade_matrix,
@@ -74,14 +74,14 @@ facade_matrix! {
                     }
                 }),
             };
-            let session = open!(wire, SessionConfig::from_compile_time::<SonyFR7>().unwrap()).unwrap();
-            let camera = session.camera::<SonyFR7>().unwrap();
-            let mut first = wait!(camera.submit::<AppliedOnly, _>(&ZoomStop)).unwrap();
+            let session = open!(wire, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
+            let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+            let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap();
             let error = wait!(first.applied()).unwrap_err();
             assert_eq!(error.kind(), ErrorKind::Transport, "{kind:?}: {error:?}");
             assert!(!error.requires_new_session());
             assert_eq!(io_cause(&error), Some(kind));
-            let mut next = wait!(camera.submit::<AppliedOnly, _>(&ZoomStop)).unwrap();
+            let mut next = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap();
             wait!(next.applied()).unwrap();
             let metrics = wait!(session.metrics()).unwrap();
             assert_eq!(metrics.writes, 2);
@@ -100,22 +100,22 @@ facade_matrix! {
                     }
                 }),
             };
-            let session = open!(wire, SessionConfig::from_compile_time::<SonyFR7>().unwrap()).unwrap();
+            let session = open!(wire, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
             let initial_writes = wire.peer.write_count();
-            let camera = session.camera::<SonyFR7>().unwrap();
+            let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
             // FR7's sourced five-nibble positions need 17 payload bytes;
             // this opaque 18-byte request exceeds its actual envelope bound.
             let mut bytes = vec![0; 18];
             bytes[..4].copy_from_slice(&[0x81, 0x01, 0x04, 0x99]);
             bytes[17] = 0xff;
-            let request = raw::Plain::new(bytes, grafton_visca::CommandCategory::Quick, RetryClass::Never, grafton_visca::SubmissionClass::Normal).unwrap();
-            assert!(matches!(wait!(camera.execute(&request)), Err(Error::InvalidRequest(_))));
+            let request = raw::PlainRequest::new(bytes, grafton_visca::profiles::CommandTimeoutClass::Quick, RetryClass::Never, grafton_visca::request::SubmissionClass::Normal).unwrap();
+            assert!(matches!(wait!(camera.execute(&request)), Err(Error::InvalidRequest { .. })));
             let metrics = wait!(session.metrics()).unwrap();
             assert_eq!(metrics.admitted, 0);
             assert_eq!(metrics.writes, 0);
             assert_eq!(metrics.write_failures, 0);
             assert_eq!(wire.peer.write_count(), initial_writes);
-            let mut next = wait!(camera.submit::<AppliedOnly, _>(&ZoomStop)).unwrap();
+            let mut next = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap();
             wait!(next.applied()).unwrap();
             wait!(session.close()).unwrap();
         }

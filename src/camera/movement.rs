@@ -54,7 +54,7 @@ impl Default for MovementTolerance {
 /// snapshots, using each prepared inquiry's observer timeout (including its
 /// retry budget) and profile-selected inquiry pacing.
 ///
-/// The type is `#[non_exhaustive]`: build it with [`MotionQuery::new`],
+/// The type is `#[non_exhaustive]`: build it with [`crate::types::MotionQuery::new`],
 /// [`Default`] or [`From<AffectedAxes>`], then the `with_*` methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -74,7 +74,7 @@ pub struct MotionQuery {
 }
 
 impl MotionQuery {
-    /// Default observation window, matching [`IdleWait`]'s default interval.
+    /// Default observation window, matching [`crate::types::IdleWait`]'s default interval.
     pub const DEFAULT_WINDOW: Duration = Duration::from_millis(100);
 
     /// Creates a query with the default tolerance and observation window.
@@ -131,7 +131,7 @@ impl From<AffectedAxes> for MotionQuery {
 
 /// Complete policy for waiting until selected axes become idle.
 ///
-/// The type is `#[non_exhaustive]`: build it with [`IdleWait::new`], the
+/// The type is `#[non_exhaustive]`: build it with [`crate::types::IdleWait::new`], the
 /// `for_*` presets, [`Default`] or [`From<Duration>`], then the `with_*`
 /// methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,7 +204,7 @@ impl IdleWait {
     /// Waits for a preset recall over every mechanical movement axis.
     ///
     /// A preset moves pan/tilt, zoom, and focus together and can take a while,
-    /// so this budgets 60 seconds over [`AffectedAxes::MOVEMENT`].
+    /// so this budgets 60 seconds over [`crate::types::AffectedAxes::MOVEMENT`].
     #[must_use]
     pub const fn for_preset_recall() -> Self {
         Self::new(AffectedAxes::MOVEMENT, Duration::from_secs(60))
@@ -273,7 +273,7 @@ impl PanTiltPosition {
 /// Raw pan/tilt position returned by a low-level VISCA inquiry.
 ///
 /// Units and axis polarity are profile-specific. Use the target profile's
-/// coordinate conversion to obtain a physical [`PanTiltPosition`].
+/// coordinate conversion to obtain a physical [`crate::types::PanTiltPosition`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]

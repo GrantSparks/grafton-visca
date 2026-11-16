@@ -1651,9 +1651,9 @@ fn reaching_the_debt_cap_keeps_queries_available_without_dropping_command_debt()
         Input::TransmissionFinished {
             request: query_id,
             transmission,
-            result: WriteOutcome::NotSent(Error::InvalidRequest(
-                "test transport refused before bytes".into(),
-            )),
+            result: WriteOutcome::NotSent(Error::InvalidRequest {
+                reason: "test transport refused before bytes".into(),
+            }),
         },
         now,
     );

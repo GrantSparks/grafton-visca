@@ -5,14 +5,14 @@
 
 use std::{env, io};
 
-use grafton_visca::{blocking::Connect, profiles::PtzOpticsG2, Error};
+use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2, Error};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = address()?;
-    let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address)?;
     let result = {
         let camera = session.camera();
-        let power = camera.power().state()?;
+        let power = camera.power().status()?;
         let pan_tilt = camera.pan_tilt().position()?;
         let zoom = camera.zoom().position()?;
         let focus = camera.focus().position()?;

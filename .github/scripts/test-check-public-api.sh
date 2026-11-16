@@ -6,13 +6,24 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 checker="${script_dir}/check-public-api.sh"
 fixture="$(mktemp -d)"
 trap 'rm -rf -- "${fixture:?}"' EXIT
-mkdir -p "${fixture}/src" "${fixture}/bin"
+mkdir -p "${fixture}/src" "${fixture}/bin" "${fixture}/cargo-args"
 git -C "${fixture}" init -q
 git -C "${fixture}" config user.name "API Fixture"
 git -C "${fixture}" config user.email "api@example.invalid"
 echo 'pub struct Original;' >"${fixture}/src/lib.rs"
 echo '# Changes' >"${fixture}/CHANGELOG.md"
-git -C "${fixture}" add src CHANGELOG.md
+cat >"${fixture}/Cargo.toml" <<'TOML'
+[package]
+name = "public-api-fixture"
+version = "0.0.0"
+edition = "2021"
+
+[features]
+blocking = []
+runtime-tokio = []
+dyn-api = []
+TOML
+git -C "${fixture}" add src CHANGELOG.md Cargo.toml
 git -C "${fixture}" commit -qm 'test: establish API base'
 base="$(git -C "${fixture}" rev-parse HEAD)"
 
@@ -20,6 +31,11 @@ cat >"${fixture}/bin/cargo" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$*" == '+nightly-2026-08-26 public-api --color never --simplified '* ]]
+side=head
+if [[ "$PWD" == */base-source.* ]]; then
+    side=base
+fi
+printf '%s\n' "$@" >"${API_FIXTURE_ARGS_DIR}/${side}.args"
 if [[ -n "${API_FIXTURE_FAIL_BASE:-}" && "$PWD" == */base-source.* ]]; then
     exit 42
 fi
@@ -29,12 +45,8 @@ fi
 SH
 chmod +x "${fixture}/bin/cargo"
 export PATH="${fixture}/bin:${PATH}"
+export API_FIXTURE_ARGS_DIR="${fixture}/cargo-args"
 cd "${fixture}"
-
-for surface in blocking tokio-dyn all-features; do
-    bash "${checker}" "${base}" "${surface}"
-    test ! -s "target/public-api/${surface}/changes.diff"
-done
 
 expect_failure() {
     local expected="$1"
@@ -47,6 +59,77 @@ expect_failure() {
         exit 1
     fi
 }
+
+assert_cargo_args() {
+    local side="$1"
+    shift
+    printf '%s\n' +nightly-2026-08-26 public-api --color never --simplified \
+        "$@" >"${fixture}/expected.args"
+    diff -u "${fixture}/expected.args" "${API_FIXTURE_ARGS_DIR}/${side}.args"
+}
+
+# Each surface retains its complete argument vector, including the legacy
+# async surface when both source revisions still declare dyn-api.
+for surface in blocking async all-features; do
+    rm -f "${API_FIXTURE_ARGS_DIR}/"*.args
+    bash "${checker}" "${base}" "${surface}"
+    test ! -s "target/public-api/${surface}/changes.diff"
+    case "${surface}" in
+        blocking) args=(--no-default-features --features blocking) ;;
+        async) args=(--no-default-features --features runtime-tokio,dyn-api) ;;
+        all-features) args=(--all-features) ;;
+    esac
+    assert_cargo_args head "${args[@]}"
+    assert_cargo_args base "${args[@]}"
+done
+
+# HEAD has removed the feature, while its archived base still needs it to
+# expose the old API. Similar-looking comments and metadata are not features.
+cat >Cargo.toml <<'TOML'
+[package]
+name = "public-api-fixture"
+version = "0.0.0"
+edition = "2021"
+
+# dyn-api was removed from the public feature vocabulary.
+[package.metadata.compatibility]
+dyn-api = "retired"
+
+[features]
+blocking = []
+runtime-tokio = []
+TOML
+rm -f "${API_FIXTURE_ARGS_DIR}/"*.args
+bash "${checker}" "${base}" async
+assert_cargo_args head --no-default-features --features runtime-tokio
+assert_cargo_args base --no-default-features --features runtime-tokio,dyn-api
+git add Cargo.toml
+git commit -qm 'test: remove obsolete API feature'
+modern_base="$(git rev-parse HEAD)"
+
+# The same script works after the base has also removed the feature.
+rm -f "${API_FIXTURE_ARGS_DIR}/"*.args
+bash "${checker}" "${modern_base}" async
+assert_cargo_args head --no-default-features --features runtime-tokio
+assert_cargo_args base --no-default-features --features runtime-tokio
+
+# Reverse the feature declarations to prove neither side borrows the other's
+# selection. This also covers comparisons of older working trees.
+git show "${base}:Cargo.toml" >Cargo.toml
+rm -f "${API_FIXTURE_ARGS_DIR}/"*.args
+bash "${checker}" "${modern_base}" async
+assert_cargo_args head --no-default-features --features runtime-tokio,dyn-api
+assert_cargo_args base --no-default-features --features runtime-tokio
+git show "${modern_base}:Cargo.toml" >Cargo.toml
+
+# A malformed source manifest must fail rather than silently dropping the
+# legacy feature. No cargo invocation may run after that parse failure.
+printf '[features\n' >Cargo.toml
+rm -f "${API_FIXTURE_ARGS_DIR}/"*.args
+expect_failure 1 bash "${checker}" "${base}" async
+test ! -e "${API_FIXTURE_ARGS_DIR}/head.args"
+test ! -e "${API_FIXTURE_ARGS_DIR}/base.args"
+git show "${modern_base}:Cargo.toml" >Cargo.toml
 
 # The baseline comes from its commit, not from the modified working tree.
 echo 'pub struct Changed;' >src/lib.rs
@@ -66,6 +149,7 @@ export API_FIXTURE_EMPTY=1
 expect_failure 1 bash "${checker}" "${base}" blocking
 unset API_FIXTURE_EMPTY
 expect_failure 2 bash "${checker}" "${base}" unknown
+expect_failure 2 bash "${checker}" "${base}" tokio-dyn
 if compgen -G 'target/public-api/*/base-source.*' >/dev/null; then
     echo 'temporary source archive was not removed' >&2
     exit 1

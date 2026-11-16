@@ -1,6 +1,6 @@
 // #808: no helper converts angles without a profile's units-per-degree scale,
 // and the profile-less position value types are gone.
-use grafton_visca::{camera::PanTiltPosition, types::PanPosition};
+use grafton_visca::{types::PanPosition, types::PanTiltPosition};
 
 fn main() {
     let _ = PanTiltPosition::from_degrees(0.0, 0.0)

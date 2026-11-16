@@ -35,3 +35,12 @@ macro_rules! identity {
 }
 
 identity!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, bool);
+
+pub use crate::command::{
+    bytes::VISCA_TERMINATOR,
+    encode::CommandKind,
+    response::{
+        parse_inquiry_payload, BoolConvention, Nibbles, Payload, RawInquiryPayload, Response,
+    },
+    typed::ResponseParser,
+};

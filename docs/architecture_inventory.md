@@ -11,14 +11,28 @@ Caller-visible differences from 1.x are recorded in
 
 ## Profiles, envelopes, and transports
 
-The built-in profiles are `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`,
-`SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, and
+The built-in profiles are `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`,
+`SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, and
 `GenericVisca`. The three PTZOptics profiles and `GenericVisca` support raw VISCA over TCP,
-UDP, and serial, with default network ports 5678 and 1259. `SonyEVIH100`,
-`SonyBRC300`, and `NearusBRC300` support raw serial only. `SonyFR7` and
-`SonyBRCH900` support Sony-encapsulated VISCA over UDP on port 52381. The
+UDP, and serial, with default network ports 5678 and 1259. `SonyEviH100`,
+`SonyBrc300`, and `NearusBrc300` support raw serial only. `SonyFr7` and
+`SonyBrcH900` support Sony-encapsulated VISCA over UDP on port 52381. The
 profile-specific capability and transport matrix remains checked in
-`camera::profile_registry` against `camera_profile_support.md`.
+the profile registry against `camera_profile_support.md`.
+
+<!-- BEGIN BUILTIN PROFILES -->
+| Profile | TCP default | UDP default | Serial | Envelope |
+| --- | --- | --- | --- | --- |
+| `PtzOpticsG2` | 5678 | 1259 | yes | `RawVisca` |
+| `PtzOpticsG3` | 5678 | 1259 | yes | `RawVisca` |
+| `PtzOptics30x` | 5678 | 1259 | yes | `RawVisca` |
+| `SonyFr7` | n/a | 52381 | no | `SonyEncapsulated` |
+| `SonyBrcH900` | n/a | 52381 | no | `SonyEncapsulated` |
+| `SonyEviH100` | n/a | n/a | yes | `RawVisca` |
+| `SonyBrc300` | n/a | n/a | yes | `RawVisca` |
+| `NearusBrc300` | n/a | n/a | yes | `RawVisca` |
+| `GenericVisca` | 5678 | 1259 | yes | `RawVisca` |
+<!-- END BUILTIN PROFILES -->
 
 The transport contract includes TCP, UDP, blocking serial, Tokio serial,
 `RawVisca`, `SonyEncapsulated`, `BlockingTransport`, `AsyncTransport`,
@@ -35,40 +49,21 @@ behavior as built-in transports.
 
 ## Capability gates
 
-Every profile retains the baseline profile facets `ProfileMetadata`,
-`PanTilt`, `Zoom`, `Focus`, `Exposure`, `WhiteBalance`, `ImageProcessing`,
-`Presets`, `Power`, `MenuCapability`, `Tally`, `MotionSyncMetadata`,
-`NdFilterMetadata`, `VariableSpeedMetadata`, and `ProfileTypedSupport`.
-Standard transport gates are `SupportsTcp`, `SupportsUdp`, and
-`SupportsSerial`.
+Every compile-time profile supplies `CompileTimeProfile::{TYPED_SUPPORT, ID,
+spec}`. Built-ins generate their `ProfileSpec` directly from the registry;
+downstream profiles use the same builder and validation path.
+
+Domain gates are `HasPower`, `HasZoom`, `HasFocus`, `HasPanTilt`, `HasPresets`,
+`HasExposure`, `HasWhiteBalance`, `HasImage`, and `HasMenu`, emitted from the
+corresponding optional domain records. Standard transport gates are
+`SupportsTcp`, `SupportsUdp`, and `SupportsSerial`, emitted from the same
+transport block that builds the spec. Runtime discovery uses only
+`Capabilities::supports(TypedSupportSurface)` and domain presence.
 
 The optional typed gates are exactly the following closed list:
 
 <!-- BEGIN OPTIONAL TYPED GATES -->
-`DirectZoom`, `DigitalZoomToggle`,
-`DigitalZoomRange`, `IrisControl`, `OnePushFocus`, `PtzOpticsSnapFocus`,
-`FocusLock`, `PushAutoFocus`, `FocusZone`, `AutoFocusSensitivity`,
-`FocusNearLimitInquiry`, `BacklightCompensation`, `WideDynamicRange`,
-`ExposureCompensation`, `BrightnessControl`, `OnePushWhiteBalance`,
-`AutoTrackingWhiteBalance`, `AutoWhiteBalanceSensitivity`, `ColorTemperature`,
-`RgbGain`, `RgbTuning`, `ImageFlip`, `ImageMirror`, `CombinedImageFlip`,
-`ContrastControl`, `SharpnessControl`, `SaturationControl`, `HueControl`,
-`LuminanceControl`, `GammaControl`, `NoiseReduction2D`,
-`NoiseReduction3D`, `PictureEffect`, `Tally`, `DirectMenu`, `NdFilter`,
-`VariableSpeed`, `MotionSync`, `FocusZoneInquiry`, `UsbAudio`,
-`PtzOpticsAntiFlicker`, `PtzOpticsSettingsSave`,
-`PtzOpticsPresetRecallSpeed`, `SonySpotlight`, `SonyAutoSlowShutter`,
-`PtzOpticsMulticastStreaming`, `PtzOpticsNdiQuality`, `ExposureMode`,
-`NoiseReduction2DControl`,
-`NoiseReduction3DControl`, `ImageFreeze`, `TallyBrightness`,
-`PtzOpticsTally`, `VersionInquiry`, `ColorTemperatureInquiry`, `NoiseReduction2DMode`,
-`SonyFr7AeLevel`, `SonyFr7AutoGain`, `SonyFr7AutoShutter`, `SonyFr7Iris`,
-`SonyFr7WhiteBalance`, `SonyFr7PresetWhite`, `SonyFr7MemoryColorTemperature`,
-`SonyFr7MemoryGain`, `SonyFr7MemoryTint`, `SonyFr7AtwOffsets`, `SonyFr7Black`,
-`SonyFr7Detail`, `SonyFr7Knee`, `SonyFr7HighResolutionZoom`,
-`SonyFr7ClearImageZoom`, `SonyFr7PresetSpeed`, `SonyFr7PresetDuration`, and
-`SharpnessMode`, `FocusInfinity`, `PresetMemory`, `ShutterControl`, `GainControl`, `GainLimit`, `StandardWhiteBalanceModes`, `MenuDisplay`, `MenuEnterReturn`, and
-`MenuStatusInquiry`, `ShutterDirect`, and `PowerStandby`.
+`DirectZoom`, `DigitalZoomToggle`, `DigitalZoomRange`, `Iris`, `OnePushFocus`, `SnapFocus`, `FocusLock`, `PushAutoFocus`, `FocusZone`, `AutoFocusSensitivity`, `FocusNearLimit`, `BacklightCompensation`, `WideDynamicRange`, `ExposureCompensation`, `Brightness`, `OnePushWhiteBalance`, `AutoWhiteBalanceSensitivity`, `ColorTemperature`, `RgbGain`, `RgbTuning`, `ImageFlip`, `ImageMirror`, `CombinedImageFlip`, `Contrast`, `Sharpness`, `Saturation`, `Hue`, `Luminance`, `Gamma`, `NoiseReduction2D`, `NoiseReduction3D`, `PictureEffect`, `Tally`, `DirectMenu`, `NdFilter`, `PanTiltSpeedMode`, `MotionSync`, `FocusZoneInquiry`, `UsbAudio`, `AntiFlicker`, `SettingsSave`, `PresetRecallSpeed`, `PresetRecallSpeedInquiry`, `Spotlight`, `AutoSlowShutter`, `MulticastStreaming`, `NdiQuality`, `ExposureMode`, `ImageFreeze`, `TallyBrightness`, `TallyMode`, `VersionInquiry`, `ColorTemperatureInquiry`, `NoiseReduction2DMode`, `AeLevel`, `AutoGain`, `AutoShutter`, `IrisSteps`, `AutoIris`, `PresetWhite`, `MemoryColorTemperature`, `MemoryGain`, `MemoryTint`, `AtwOffsets`, `BlackLevels`, `Detail`, `Knee`, `HighResolutionZoom`, `ClearImageZoom`, `SeparatePresetSpeed`, `SeparatePresetDuration`, `SharpnessMode`, `FocusInfinity`, `PresetMemory`, `Shutter`, `Gain`, `GainLimit`, `MenuDisplay`, `MenuEnterReturn`, `MenuDisplayInquiry`, `DirectShutter`, `PowerStandby`.
 <!-- END OPTIONAL TYPED GATES -->
 
 The generated profile registry remains
@@ -79,11 +74,7 @@ the single source for marker implementations and runtime discovery facts.
 The noun inventory is:
 
 <!-- BEGIN STATIC NOUNS -->
-`PowerAccessor`, `ZoomAccessor`, `SystemAccessor`,
-`PanTiltAccessor`, `FocusAccessor`, `ExposureAccessor`,
-`WhiteBalanceAccessor`, `ImageAccessor`, `PresetsAccessor`, `TallyAccessor`,
-`NdFilterAccessor`, `MotionSyncAccessor`, `MenuAccessor`, and
-`AdvancedAccessor`, plus the `MotionAccessor`.
+`PowerAccessor`, `ZoomAccessor`, `SystemAccessor`, `PanTiltAccessor`, `FocusAccessor`, `PresetsAccessor`, `ExposureAccessor`, `WhiteBalanceAccessor`, `ImageAccessor`, `TallyAccessor`, `NdFilterAccessor`, `MotionSyncAccessor`, `MenuAccessor`, `StreamingAccessor`, `MotionAccessor`.
 <!-- END STATIC NOUNS -->
 
 Blocking and async use the same
@@ -96,46 +87,37 @@ In particular, `ExposureAccessor::mode` and `ExposureAccessor::set_mode` use
 `HasExposureMode` rather than inheriting broad `HasExposure` permission.
 Sony FR7 has separate sourced families for relative iris movement, white
 balance, image settings, high-resolution zoom and preset speed/duration;
-their `HasSonyFr7*` markers do not grant the shared VISCA counterparts.
-`HasSharpnessControl` covers level/step operations; the independent
+their concept markers describe those sourced contracts and do not grant a
+different shared-VISCA contract.
+`HasSharpness` covers level/step operations; the independent
 `HasSharpnessMode` covers auto/manual mode and its inquiry.
 
-## Dynamic controls
+## Runtime-selected profiles
 
-The native blocking runtime-profile surface is `BlockingDynSessionCamera`.
-It erases the compile-time profile marker while retaining typed request values,
-synchronous results, blocking lifecycle handles, motion observation, state
-cache, and submission-class controls. The `dyn-api` feature does not imply
-`async`, so this projection adds no futures, executor, or async-runtime
-dependency.
-
-The async dynamic surface is `DynSessionCamera` plus the object-safe
-`DynSessionCameraControl`, `DynSessionCameraNouns`, the 14 `Dyn*` noun traits,
-and `DynMotion`. It also exposes `DynTargetedOperation` and
-`DynAppliedOperation`. It is generated from the same noun-table rows as the
-static surface, so it has exactly the static surface's target-facing command
-methods and typed inquiry methods, with the same semantic classes. Dynamic
-projection erases profile and request types only; it does not introduce
-another runtime, owner, cancellation, deadline, outcome, or settling policy. Because it carries no compile-time
-marker bounds, it reproduces the static surface's capability gates at runtime
-through `validate_for_target`, admitting exactly the operations the static
-`<noun>()` accessor could name — including the base-domain inquiries, which are
-gated on the same base marker as their noun accessor. Both gates are derived
-from the same noun-table row, so the erased and static gates cannot drift.
+Both facades expose `Camera<profiles::AnyProfile>` through the same inherent
+noun methods as compile-time profiles. The profile parameter changes only the
+permission check: runtime views validate the registered domains, inventories,
+optional permissions and encoding selection before I/O. Concrete request and
+`Operation<K>` types retain their completion class. There is one owner, one
+transport and one cache; no boxed trait projection or extra feature is needed.
 
 ## Connection paths
 
 The supported paths are:
 
-- `Connect` convenience construction for blocking TCP/UDP/serial and async
-  TCP/UDP/Tokio-serial. TCP/UDP return `CameraSession<P>`; serial returns the
-  multi-target `Session`. `Connect::open(TransportOptions)` is the
-  runtime-selected network form.
-- `CameraConfig` as the sole configurable standard-transport form, with
-  runtime-selected Tokio or smol async execution.
-- `blocking::Session::open` or async `Session::open` construction from a
-  caller-owned transport and shared `SessionConfig`.
-- `Session` camera views and the explicit `raw` request escape hatches.
+`CameraSession` owns one profile-bound camera; `CameraConfig` holds its reusable
+connection settings. `Session` owns a registered target collection.
+
+- `blocking::CameraSession::<P>::connect_tcp`, `connect_udp`, and
+  `connect_serial`; the `r#async` counterparts take an explicit runtime last.
+  All return the same profile-bound single-camera `CameraSession<P>` shape.
+- `CameraSession::connect(&config::CameraConfig<P>)` for reusable settings;
+  async construction takes the runtime last. Runtime profiles use
+  `CameraConfig<AnyProfile>` with an explicit `ProfileSelection`.
+- `Session::connect(&config::SessionConfig)` for a registered multi-target bus.
+- `Session::open(transport, &config)` and `CameraSession::open(transport,
+  &config)` for caller-owned transports, with an executor last on the async side.
+- `Session::camera::<P>(target)` views and the explicit `raw` escape hatches.
 
 Profile/transport incompatibility must still fail before protocol startup.
 Blocking, runtime-neutral async, Tokio, smol, runtime coexistence, and the
@@ -145,7 +127,7 @@ documented serial feature combinations remain build-matrix requirements.
 
 The ecosystem features are `blocking`, `async`, `runtime-tokio`, `runtime-smol`,
 `transport-serial`, `transport-serial-tokio`, `serde`, `schemars`, `ts-rs`,
-`dyn-api`, and `test-utils`. Serialization, JSON Schema, and TypeScript exports
+and `test-utils`. Serialization, JSON Schema, and TypeScript exports
 remain supported for the documented public value/configuration types. A persisted
 current `ProfileSpec` must carry every fact key, including `Option` keys:
 explicit `null` means absent, while a missing key requires regeneration (#855).
@@ -156,20 +138,25 @@ The supported downstream value attributes are `value` and `value_enum`;
 `ViscaInquiry` is the inquiry derive. Stable test utilities are:
 
 <!-- BEGIN STABLE TEST UTILITIES -->
-| Public utility | Feature condition |
-| --- | --- |
-| `Step` | `test-utils` |
-| `helpers` | `test-utils` |
-| `ScriptedBlockingTransport` | `test-utils,blocking` |
-| `ScriptedTransport` | `test-utils,async` |
-| `ManualClock` | `test-utils,blocking` or `test-utils,async` |
-| `ClockParticipant` | `test-utils,blocking` or `test-utils,async` |
-| `ClockJoinHandle` | `test-utils,blocking` or `test-utils,async` |
-| `ManualClockExecutor` | `test-utils,async` |
-| `ManualClockTimer` | `test-utils,async` |
-| `LocalExecutor` | `test-utils,async` |
-| `TaskJoin` | `test-utils,async` |
-| `ViscaCameraSimulator` | `test-utils,runtime-tokio` |
+| Public module | Utility | Export condition |
+| --- | --- | --- |
+| `testing` | `CommandType` | `all(feature = "runtime-tokio", any(test, feature = "test-utils"))` |
+| `testing` | `SimulatorBuilder` | `all(feature = "runtime-tokio", any(test, feature = "test-utils"))` |
+| `testing` | `SimulatorConfig` | `all(feature = "runtime-tokio", any(test, feature = "test-utils"))` |
+| `testing` | `ViscaCameraSimulator` | `all(feature = "runtime-tokio", any(test, feature = "test-utils"))` |
+| `testing::testkit` | `Immediate` | `all(feature = "test-utils", feature = "async")` |
+| `testing::testkit` | `ScriptedTransport` | `all(feature = "test-utils", feature = "async")` |
+| `testing::testkit` | `ScriptedBlockingTransport` | `all(feature = "test-utils", feature = "blocking")` |
+| `testing::testkit` | `ClockJoinHandle` | `all(feature = "test-utils", any(feature = "blocking", feature = "async"))` |
+| `testing::testkit` | `ClockParticipant` | `all(feature = "test-utils", any(feature = "blocking", feature = "async"))` |
+| `testing::testkit` | `ManualClock` | `all(feature = "test-utils", any(feature = "blocking", feature = "async"))` |
+| `testing::testkit` | `LocalExecutor` | `all(feature = "test-utils", feature = "async")` |
+| `testing::testkit` | `ManualClockExecutor` | `all(feature = "test-utils", feature = "async")` |
+| `testing::testkit` | `ManualClockTimer` | `all(feature = "test-utils", feature = "async")` |
+| `testing::testkit` | `TaskJoin` | `all(feature = "test-utils", feature = "async")` |
+| `testing::testkit` | `helpers` | `feature = "test-utils"` |
+| `testing::testkit` | `DynamicResponseFn` | `feature = "test-utils"` |
+| `testing::testkit` | `Step` | `feature = "test-utils"` |
 <!-- END STABLE TEST UTILITIES -->
 
 The simulator can be constructed without a runtime; sending and receiving
@@ -194,9 +181,9 @@ cannot manufacture or demote the intrinsic urgent safety class:
 ordinary-work type. Submission APIs also accept no caller-supplied lifecycle
 IDs, target, completion class, retry class, or settlement metadata.
 
-Raw frames use `raw::CommandPolicy` for `raw::Plain`, `raw::OperationPolicy`
-for `raw::Targeted` and `raw::AppliedOnly`, and `raw::InquiryPolicy` for
-`raw::Inquiry`. Command and operation policies take `CommandCategory`, whose
+Raw frames use `raw::CommandPolicy` for `raw::PlainRequest`, `raw::OperationPolicy`
+for `raw::TargetedRequest` and `raw::AppliedOnlyRequest`, and `raw::InquiryPolicy` for
+`raw::InquiryRequest`. Command and operation policies take `CommandTimeoutClass`, whose
 five variants exclude `Inquiry`; inquiry timing is fixed by the request kind.
 A plain command may select any `raw::RawReplyShape`, while an operation uses
 `raw::OperationReplyShape`, which has no `NoReply` variant. Inquiry policy

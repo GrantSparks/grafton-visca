@@ -16,10 +16,11 @@
 use grafton_visca_test_support::{facade_matrix, fake_camera};
 
 use grafton_visca::{
-    profile::ProfileSpec,
-    profiles::GenericVisca,
+    config::SessionConfig,
+    profiles::{GenericVisca, ProfileSpec},
     transport::{AddressedBus, AddressingMode, SendSemantics, TransportConfig},
-    CameraId, Error, SessionConfig,
+    types::CameraId,
+    Error,
 };
 
 #[cfg(all(

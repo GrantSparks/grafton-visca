@@ -62,9 +62,9 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
         .unwrap();
 
     frames
-        .send_async(OwnerReceive::read_error(Error::Io(Arc::new(
-            std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
-        ))))
+        .send_async(OwnerReceive::read_error(Error::Io {
+            source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+        }))
         .await
         .unwrap();
 
@@ -118,16 +118,16 @@ async fn fatal_receive_fault_closes_the_session() {
         assert_eq!(started.recv_async().await.unwrap(), receipt.id);
         gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
         frames
-            .send_async(OwnerReceive::read_error(Error::Io(Arc::new(
-                std::io::Error::from(kind),
-            ))))
+            .send_async(OwnerReceive::read_error(Error::Io {
+                source: Arc::new(std::io::Error::from(kind)),
+            }))
             .await
             .unwrap();
 
         assert!(matches!(
             receipt.terminal().await.unwrap(),
             RuntimeOutcome::Command(CommandOutcome::Failed(Error::ConnectionClosed { source: Some(source) }))
-                if matches!(source.as_ref(), Error::Io(io) if io.kind() == kind)
+                if matches!(source.as_ref(), Error::Io { source: io } if io.kind() == kind)
         ));
         let snapshot = actor_task.await.unwrap();
         assert_eq!(snapshot.state, SessionState::Closed);
@@ -243,7 +243,7 @@ async fn a_permanently_failing_transport_eventually_ends_the_session() {
     };
     assert!(
         matches!(source.as_ref(), Error::WithContext { context, source }
-            if context.contains("consecutive receive faults") && matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other)),
+            if context.contains("consecutive receive faults") && matches!(source.as_ref(), Error::Io { source: io } if io.kind() == std::io::ErrorKind::Other)),
         "the typed cause must retain the fault-run context: {source}"
     );
 }
@@ -384,12 +384,12 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
 
     for timeout in [
         Error::io_timeout(),
-        Error::Io(Arc::new(std::io::Error::from(
-            std::io::ErrorKind::WouldBlock,
-        ))),
-        Error::Io(Arc::new(std::io::Error::from(
-            std::io::ErrorKind::Interrupted,
-        ))),
+        Error::Io {
+            source: Arc::new(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
+        },
+        Error::Io {
+            source: Arc::new(std::io::Error::from(std::io::ErrorKind::Interrupted)),
+        },
     ] {
         frames
             .send_async(OwnerReceive::read_error(timeout))

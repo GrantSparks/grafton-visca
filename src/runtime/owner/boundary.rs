@@ -800,9 +800,9 @@ impl OwnerHandleCore {
                     // Only this method sends on the one-slot shutdown lane,
                     // so a full queue while Open is an internal invariant
                     // failure. Repeated callers observe the same failure.
-                    let error = Error::InvalidState(
-                        "shutdown signal lane was full before acceptance".into(),
-                    );
+                    let error = Error::InvalidState {
+                        reason: "shutdown signal lane was full before acceptance".into(),
+                    };
                     *state = LifecycleState::SignalFailed(error.clone());
                     Err(error)
                 }
@@ -869,8 +869,9 @@ impl OwnerHandleCore {
                 Err(error)
             }
             Err(flume::TrySendError::Full(_)) => {
-                let error =
-                    Error::InvalidState("admission channel full after permit reservation".into());
+                let error = Error::InvalidState {
+                    reason: "admission channel full after permit reservation".into(),
+                };
                 self.record_pre_admission_rejection(target, lane, &error);
                 Err(error)
             }
@@ -1034,7 +1035,7 @@ mod tests {
     fn lifecycle_reachable_states_preserve_every_boundary_verdict() {
         const MISSING: &str = "OwnerTerminated";
         const SHUTDOWN: &str = "RuntimeShutdown";
-        const FAILED: &str = "InvalidState(\"signal failed\")";
+        const FAILED: &str = "InvalidState { reason: \"signal failed\" }";
         assert_lifecycle(
             LifecycleState::Open,
             None,
@@ -1052,7 +1053,9 @@ mod tests {
             None,
         );
         assert_lifecycle(
-            LifecycleState::SignalFailed(Error::InvalidState("signal failed".into())),
+            LifecycleState::SignalFailed(Error::InvalidState {
+                reason: "signal failed".into(),
+            }),
             Some(FAILED),
             Some(MISSING),
             Some(FAILED),
@@ -1082,7 +1085,9 @@ mod tests {
         );
         assert_lifecycle(
             LifecycleState::Terminated {
-                error: Error::InvalidState("signal failed".into()),
+                error: Error::InvalidState {
+                    reason: "signal failed".into(),
+                },
                 metrics: TerminalMetrics::Pending,
             },
             Some(FAILED),
@@ -1098,7 +1103,9 @@ mod tests {
         let states = [
             LifecycleState::Open,
             LifecycleState::ShutdownAccepted,
-            LifecycleState::SignalFailed(Error::InvalidState("signal failed".into())),
+            LifecycleState::SignalFailed(Error::InvalidState {
+                reason: "signal failed".into(),
+            }),
             LifecycleState::ShutDown {
                 metrics: TerminalMetrics::Pending,
             },
@@ -1107,7 +1114,9 @@ mod tests {
                 metrics: TerminalMetrics::Pending,
             },
             LifecycleState::Terminated {
-                error: Error::InvalidState("signal failed".into()),
+                error: Error::InvalidState {
+                    reason: "signal failed".into(),
+                },
                 metrics: TerminalMetrics::Pending,
             },
         ];
@@ -1129,7 +1138,9 @@ mod tests {
                 });
                 // Repeated publication and a subsequent teardown preserve the
                 // authoritative result, including accepted shutdown success.
-                lifecycle.publish_terminal(Error::InvalidState("later result".into()));
+                lifecycle.publish_terminal(Error::InvalidState {
+                    reason: "later result".into(),
+                });
                 lifecycle.fail_closed();
                 let state = lifecycle.lock_state().clone();
                 let terminal = state.terminal().unwrap();

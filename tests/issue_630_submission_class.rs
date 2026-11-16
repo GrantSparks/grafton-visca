@@ -15,10 +15,9 @@
 //!   only: it opens a single-camera `CameraSession`, whose async `open` takes
 //!   an executor a `facade_matrix!` body cannot name (`open!` opens only a
 //!   multi-camera `Session`).
-//! * `dyn_projection_has_the_same_surface` is async only and needs
-//!   `dyn-api`: it drives `submit_applied` and the submission-class setters of
-//!   the async erased projection, which the blocking erased projection does
-//!   not offer.
+//! * `runtime_profile_projection_has_the_same_surface` is async only: it
+//!   drives `submit` and submission-class setters through `Camera<AnyProfile>`
+//!   and verifies the same queue ordering as the typed view.
 
 #![cfg(any(
     feature = "blocking",
@@ -33,16 +32,15 @@ use grafton_visca_test_support::{facade_matrix, fake_camera};
 use std::{thread, time::Duration};
 
 #[cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-use grafton_visca::Executor;
+use grafton_visca::runtime::Executor;
 use grafton_visca::{
-    completion::AppliedOnly,
-    profile::ProfileSpec,
-    profiles::PtzOpticsG2,
-    request::builtin::{FocusDrive, FocusModeCommand, ZoomDrive, ZoomStop},
-    SessionConfig, SubmissionClass,
+    config::SessionConfig,
+    operation::AppliedOnly,
+    profiles::{ProfileSpec, PtzOpticsG2},
+    request::SubmissionClass,
 };
 
 use fake_camera::{frames, FakeCamera, ZOOM_STOP, ZOOM_TELE};
@@ -110,22 +108,22 @@ facade_matrix! {
     fn background_yields_to_a_later_user_submission() {
         let fake = lane_camera();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         let first =
-            wait!(camera.submit::<AppliedOnly, _>(&ZoomDrive::Tele)).expect("first socket");
+            wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).expect("first socket");
         wait_for_writes!(fake, 1);
         let second =
-            wait!(camera.submit::<AppliedOnly, _>(&FocusDrive::Far)).expect("second socket");
+            wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Far)).expect("second socket");
         wait_for_writes!(fake, 2);
 
         let background = wait!(camera
             .with_submission_class(SubmissionClass::Background)
-            .submit::<AppliedOnly, _>(&ZoomDrive::Wide))
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide))
         .expect("background submission is admitted and queued");
         let user = wait!(camera
             .with_submission_class(SubmissionClass::User)
-            .submit::<AppliedOnly, _>(&FocusDrive::Near))
+            .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Near))
         .expect("user submission is admitted and queued");
         settle!();
         assert_eq!(fake.write_count(), 2, "{STARVED}");
@@ -163,13 +161,13 @@ facade_matrix! {
     fn handle_default_and_derived_view_override() {
         let fake = lane_camera();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         let first =
-            wait!(camera.submit::<AppliedOnly, _>(&ZoomDrive::Tele)).expect("first socket");
+            wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).expect("first socket");
         wait_for_writes!(fake, 1);
         let second =
-            wait!(camera.submit::<AppliedOnly, _>(&FocusDrive::Far)).expect("second socket");
+            wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Far)).expect("second socket");
         wait_for_writes!(fake, 2);
 
         let mut poller = camera.clone();
@@ -185,8 +183,8 @@ facade_matrix! {
         // Both are `SubmissionClass::User` built-ins, so only the handle they
         // came from can separate them.
         let demoted =
-            wait!(poller.submit::<AppliedOnly, _>(&ZoomDrive::Wide)).expect("demoted submission");
-        let ordinary = wait!(camera.submit::<AppliedOnly, _>(&FocusDrive::Near))
+            wait!(poller.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide)).expect("demoted submission");
+        let ordinary = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Near))
             .expect("ordinary submission");
         settle!();
         assert_eq!(fake.write_count(), 2, "{STARVED}");
@@ -206,9 +204,9 @@ facade_matrix! {
         // Now the override: the demoted handle submits first and still wins.
         let raised = wait!(poller
             .with_submission_class(SubmissionClass::User)
-            .submit::<AppliedOnly, _>(&ZoomDrive::Tele))
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele))
         .expect("raised submission");
-        let later = wait!(camera.submit::<AppliedOnly, _>(&FocusDrive::Far))
+        let later = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Far))
             .expect("later ordinary submission");
         settle!();
         assert_eq!(fake.write_count(), 4, "{STARVED}");
@@ -240,20 +238,20 @@ facade_matrix! {
     fn urgent_cannot_be_demoted_by_any_submission_override() {
         let fake = lane_camera();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         let first =
-            wait!(camera.submit::<AppliedOnly, _>(&ZoomDrive::Tele)).expect("first socket");
+            wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).expect("first socket");
         wait_for_writes!(fake, 1);
         let second =
-            wait!(camera.submit::<AppliedOnly, _>(&FocusDrive::Far)).expect("second socket");
+            wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Far)).expect("second socket");
         wait_for_writes!(fake, 2);
 
-        let ordinary = wait!(camera.submit::<AppliedOnly, _>(&FocusDrive::Near))
+        let ordinary = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Near))
             .expect("ordinary user-class submission");
         let mut poller = camera.clone();
         poller.set_submission_class(Some(SubmissionClass::Background));
-        let stop = wait!(poller.submit::<AppliedOnly, _>(&ZoomStop))
+        let stop = wait!(poller.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
             .expect("stop from a demoted handle");
         settle!();
         assert_eq!(fake.write_count(), 2, "{STARVED}");
@@ -274,9 +272,9 @@ facade_matrix! {
         // intrinsic urgent safety floor.
         let protected_stop = wait!(camera
             .with_submission_class(SubmissionClass::Background)
-            .submit::<AppliedOnly, _>(&ZoomStop))
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
         .expect("stop with background ordinary-traffic QoS");
-        let later = wait!(camera.submit::<AppliedOnly, _>(&FocusDrive::Far))
+        let later = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Far))
             .expect("later user-class submission");
         settle!();
         assert_eq!(fake.write_count(), 4, "{STARVED}");
@@ -303,18 +301,18 @@ facade_matrix! {
     fn classified_execute_reaches_the_wire() {
         let fake = lane_camera();
         let session = open!(fake, g2_config()).expect("owner session");
-        let mut camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let mut camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         let completion = complete_after_writes(&fake, 1, 2);
         wait!(camera
             .with_submission_class(SubmissionClass::Background)
-            .execute(&FocusModeCommand::Manual))
+            .execute(&grafton_visca::command::focus::SetMode::new(grafton_visca::types::FocusMode::Manual)))
         .expect("background plain command still executes");
         completion.join().expect("completion thread");
 
         camera.set_submission_class(Some(SubmissionClass::User));
         let completion = complete_after_writes(&fake, 2, 1);
-        wait!(camera.execute(&FocusModeCommand::Auto))
+        wait!(camera.execute(&grafton_visca::command::focus::SetMode::new(grafton_visca::types::FocusMode::Auto)))
             .expect("handle default plain command still executes");
         completion.join().expect("completion thread");
 
@@ -330,7 +328,7 @@ facade_matrix! {
 fn a_camera_session_default_reaches_the_views_it_hands_out() {
     let mut session = grafton_visca::blocking::CameraSession::<PtzOpticsG2>::open(
         lane_camera().blocking_wire(),
-        &grafton_visca::blocking::CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1"),
+        &grafton_visca::config::CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1"),
     )
     .expect("single-camera session");
 
@@ -356,23 +354,26 @@ fn a_camera_session_default_reaches_the_views_it_hands_out() {
 
 /// The erased projection carries the same submission-class surface.
 #[cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
+async fn runtime_profile_projection_has_the_same_surface<E: Executor>(executor: E) {
     let fake = lane_camera();
-    let session = grafton_visca::Session::open(fake.async_wire(), g2_config(), executor.clone())
-        .await
-        .expect("owner session");
-    let dynamic = session.camera_dyn().expect("dynamic view");
+    let session =
+        grafton_visca::r#async::Session::open(fake.async_wire(), &g2_config(), executor.clone())
+            .await
+            .expect("owner session");
+    let dynamic = session
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("dynamic view");
 
     let first = dynamic
-        .submit_applied(&ZoomDrive::Tele)
+        .submit(&grafton_visca::command::zoom::Tele)
         .await
         .expect("first socket");
     fake.wait_for_writes_async(&executor, 1).await;
     let second = dynamic
-        .submit_applied(&FocusDrive::Far)
+        .submit(&grafton_visca::command::focus::Far)
         .await
         .expect("second socket");
     fake.wait_for_writes_async(&executor, 2).await;
@@ -384,12 +385,12 @@ async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
     assert_eq!(dynamic.submission_class(), None);
 
     let demoted = poller
-        .submit_applied(&ZoomDrive::Wide)
+        .submit(&grafton_visca::command::zoom::Wide)
         .await
         .expect("demoted submission");
     let ordinary = dynamic
         .with_submission_class(SubmissionClass::User)
-        .submit_applied(&FocusDrive::Near)
+        .submit(&grafton_visca::command::focus::Near)
         .await
         .expect("ordinary submission");
     for _ in 0..5 {
@@ -410,7 +411,10 @@ async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
     assert_eq!(fake.writes()[3], ZOOM_WIDE.to_vec());
 
     // A typed view projected out of the dynamic one inherits the default.
-    let typed = poller.camera::<PtzOpticsG2>().expect("typed projection");
+    let typed = poller
+        .clone()
+        .into_typed::<PtzOpticsG2>()
+        .expect("typed projection");
     assert_eq!(typed.submission_class(), Some(SubmissionClass::Background));
 
     first.detach();
@@ -421,7 +425,7 @@ async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
 }
 
 #[cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-grafton_visca_test_support::runtime_matrix!(dyn_projection_has_the_same_surface);
+grafton_visca_test_support::runtime_matrix!(runtime_profile_projection_has_the_same_surface);

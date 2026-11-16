@@ -1,14 +1,14 @@
 #![cfg(feature = "async")]
 
-use grafton_visca::{completion, Operation};
+use grafton_visca::{operation, r#async::Operation};
 
 fn require_handle_traits<T: Send + Sync + Unpin>() {}
 
-fn generic_operation<K: completion::Kind>() {
+fn generic_operation<K: operation::Kind>() {
     require_handle_traits::<Operation<K>>();
 }
 
 fn main() {
-    generic_operation::<completion::Targeted>();
-    generic_operation::<completion::AppliedOnly>();
+    generic_operation::<operation::Targeted>();
+    generic_operation::<operation::AppliedOnly>();
 }

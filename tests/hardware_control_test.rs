@@ -1,5 +1,5 @@
 #![cfg(feature = "blocking")]
-//! Hardware integration test: validates VISCA SET commands against a real PTZOptics G2 camera.
+//! Hardware integration test: validates VISCA SET commands with a runtime profile.
 //!
 //! **WARNING: These tests change camera settings.** Each test follows a safe pattern:
 //! 1. Read current value (save original)
@@ -11,7 +11,9 @@
 //! If a test panics between steps 2 and 4, the camera setting may be left in a modified state.
 //! All modified settings are non-destructive image processing parameters.
 //!
-//! This test requires a real PTZOptics G2 camera on the network.
+//! `VISCA_PROFILE` selects a built-in `snake_case` id (default `ptzoptics_g2`).
+//! The selected camera must grant the settings checked by each scenario.
+//! This test requires a real camera on the network.
 //! It is **ignored by default** and only runs when the `VISCA_CAMERA_IP` environment
 //! variable is set.
 //!
@@ -23,18 +25,23 @@
 use std::thread;
 use std::time::Duration;
 
-use grafton_visca::blocking::{CameraSession, Connect};
-use grafton_visca::profiles::PtzOpticsG2;
+use grafton_visca::blocking::CameraSession;
+use grafton_visca::profiles::AnyProfile;
 use grafton_visca::types::{ContrastLevel, GammaLevel, LuminanceLevel};
+use grafton_visca_test_support::hardware;
 
 /// Delay between set and readback to allow camera processing.
 const SETTLE_DELAY: Duration = Duration::from_millis(500);
 
-fn connect() -> Option<CameraSession<PtzOpticsG2>> {
+fn connect() -> Option<CameraSession<AnyProfile>> {
     let ip = std::env::var("VISCA_CAMERA_IP").ok()?;
-    let addr = format!("{ip}:5678");
+    let config = hardware::network_config(ip);
+    let addr = format!("{:?}", config.transport());
     eprintln!("Connecting to camera at {addr}...");
-    Some(Connect::open_tcp::<PtzOpticsG2>(addr).expect("Failed to connect to camera"))
+    Some(
+        grafton_visca::blocking::CameraSession::<AnyProfile>::connect(&config)
+            .expect("Failed to connect to camera"),
+    )
 }
 
 #[test]

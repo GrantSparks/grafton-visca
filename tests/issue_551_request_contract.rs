@@ -1,4 +1,4 @@
-use grafton_visca::AffectedAxes;
+use grafton_visca::types::AffectedAxes;
 
 #[test]
 fn affected_axes_rejects_empty_and_unknown_bit_sets() {
@@ -26,8 +26,8 @@ fn affected_axes_supports_iris_nd_and_canonical_iteration() {
     assert_eq!(
         axes.iter().collect::<Vec<_>>(),
         vec![
-            grafton_visca::AffectedAxis::Iris,
-            grafton_visca::AffectedAxis::NdFilter,
+            grafton_visca::types::AffectedAxis::Iris,
+            grafton_visca::types::AffectedAxis::NdFilter,
         ]
     );
 }

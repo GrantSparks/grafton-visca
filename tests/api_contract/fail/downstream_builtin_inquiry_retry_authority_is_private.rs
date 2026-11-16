@@ -1,11 +1,12 @@
 use grafton_visca::{
-    request, CameraId, ControlClass, Inquiry, Request, ResponseDecoder, RetryClass, TimeoutClass,
+    request, request::ControlClass, request::Inquiry, request::Request, request::ResponseDecoder,
+    request::RetryClass, request::TimeoutClass, types::CameraId,
 };
 
 struct DownstreamInquiry;
 
 impl Request for DownstreamInquiry {
-    type Class = request::Inquiry;
+    type Class = request::InquiryClass;
 
     const MAX_SIZE: usize = 3;
     const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;

@@ -17,13 +17,11 @@ use std::{
 
 use fake_camera::{frames, Answer, FakeCamera, FOCUS_STOP, ZOOM_STOP};
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    completion::AppliedOnly,
-    profile::ProfileSpec,
-    profiles::SonyFR7,
-    request::builtin::{FocusStop, PanTiltStop, ZoomStop},
-    types::{PanSpeed, TiltSpeed},
-    Error, OperationalTuning,
+    blocking::Session,
+    config::{OperationalTuning, SessionConfig},
+    operation::AppliedOnly,
+    profiles::{ProfileSpec, SonyFr7},
+    Error,
 };
 
 use profile_fixtures::{session_config, sony_session_config, NonDefaultCompileTimeProfile};
@@ -48,11 +46,18 @@ fn two_socket_camera() -> FakeCamera {
     FakeCamera::visca(move |_, answer| answer_on_alternating_sockets(&mut next_socket, answer))
 }
 
-fn pan_tilt_stop() -> PanTiltStop {
-    PanTiltStop::new(
-        PanSpeed::new(1).expect("valid pan speed"),
-        TiltSpeed::new(1).expect("valid tilt speed"),
+fn pan_tilt_stop() -> grafton_visca::command::pan_tilt::Stop {
+    grafton_visca::command::pan_tilt::Stop::for_target(
+        &grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                grafton_visca::profiles::PtzOpticsG2,
+            >()
+            .expect("source profile"),
+        )
+        .expect("target registration"),
     )
+    .expect("profile-safe stop")
 }
 
 const FIRST_WRITE_ERROR: &str = "distinctive first-write transport failure";
@@ -119,14 +124,16 @@ fn pacing_camera(minimum_spacing: Duration) -> (FakeCamera, AcceptedWrites) {
 fn a_third_operation_queues_until_a_socket_frees() {
     let fake = two_socket_camera();
     let session =
-        Session::open(fake.blocking_wire(), sony_session_config()).expect("owner session");
-    let camera = session.camera::<SonyFR7>().expect("camera view");
+        Session::open(fake.blocking_wire(), &sony_session_config()).expect("owner session");
+    let camera = session
+        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera view");
 
     let mut first = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("first submission");
     let mut second = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
         .expect("second submission");
     let mut third = camera
         .submit::<AppliedOnly, _>(&pan_tilt_stop())
@@ -160,18 +167,19 @@ fn a_third_operation_queues_until_a_socket_frees() {
 /// one completes.
 #[test]
 fn a_one_socket_target_queues_the_second_operation() {
-    let config = session_config().with_tuning(OperationalTuning::new().maximum_command_sockets(1));
+    let config =
+        session_config().with_tuning(OperationalTuning::new().with_maximum_command_sockets(1));
     let fake = two_socket_camera();
-    let session = Session::open(fake.blocking_wire(), config).expect("owner session");
+    let session = Session::open(fake.blocking_wire(), &config).expect("owner session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let mut first = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("first operation");
     let mut second = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
         .expect("the second operation is admitted while the one socket is busy");
     first.applied().expect("first operation applied");
     second.applied().expect("queued operation applied");
@@ -188,13 +196,13 @@ fn a_failed_operation_write_is_its_outcome_and_releases_the_permit() {
     let config =
         session_config().with_admission_capacity(NonZeroUsize::new(1).expect("one permit"));
     let (fake, accepted) = first_write_failure_camera();
-    let session = Session::open(fake.blocking_wire(), config).expect("owner session");
+    let session = Session::open(fake.blocking_wire(), &config).expect("owner session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("submission succeeds at admission")
         .applied()
         .expect_err("the failed write is the operation's outcome");
@@ -222,7 +230,7 @@ fn a_failed_operation_write_is_its_outcome_and_releases_the_permit() {
     // With only one admission permit, this proves that terminal removal also
     // released the permit rather than merely dropping the public observer.
     camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
         .expect("the terminalized request released its admission permit")
         .applied()
         .expect("the later datagram operation must recover normally");
@@ -243,22 +251,24 @@ fn a_failed_operation_write_is_its_outcome_and_releases_the_permit() {
 /// is free; the transport guard catches an owner that skips that wait.
 #[test]
 fn typed_operations_respect_profile_pacing() {
-    let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
+    let profile = ProfileSpec::from_compile_time::<SonyFr7>().expect("Sony FR7 profile");
     assert_eq!(
-        profile.timing().minimum_command_spacing(),
+        profile.timing().command_spacing(),
         Duration::from_millis(35),
         "the pacing precondition must be nonzero"
     );
     let (fake, accepted) = pacing_camera(Duration::from_millis(30));
     let session =
-        Session::open(fake.blocking_wire(), SessionConfig::new(profile)).expect("owner session");
-    let camera = session.camera::<SonyFR7>().expect("camera view");
+        Session::open(fake.blocking_wire(), &SessionConfig::new(profile)).expect("owner session");
+    let camera = session
+        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera view");
 
     let mut first = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("first operation");
     let mut second = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
         .expect("second operation");
     first.applied().expect("first operation applied");
     second.applied().expect("second operation applied");

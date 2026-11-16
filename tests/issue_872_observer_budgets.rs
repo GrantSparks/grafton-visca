@@ -16,14 +16,16 @@ use std::time::Duration;
 mod inquiry_budget {
     use super::*;
     use grafton_visca::{
-        camera::MotionQuery, profiles::PtzOpticsG2, testing::testkit::Step, AffectedAxes,
-        OperationalTuning, SessionConfig,
+        config::{OperationalTuning, SessionConfig},
+        profiles::PtzOpticsG2,
+        testing::testkit::Step,
+        types::{AffectedAxes, MotionQuery},
     };
 
     fn config() -> SessionConfig {
         SessionConfig::from_compile_time::<PtzOpticsG2>()
             .expect("G2 profile")
-            .with_tuning(OperationalTuning::new().inquiry_timeout(Duration::from_secs(20)))
+            .with_tuning(OperationalTuning::new().with_inquiry_timeout(Duration::from_secs(20)))
     }
 
     fn script() -> Vec<Step> {
@@ -57,7 +59,9 @@ mod inquiry_budget {
                 config(),
             )
             .expect("virtual blocking session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
         let start = clock.now();
         assert!(!camera
             .motion()
@@ -78,13 +82,18 @@ mod inquiry_budget {
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test(start_paused = true)]
     async fn tokio_motion_observation_covers_both_slow_inquiries() {
-        use grafton_visca::{testing::testkit::ScriptedTransport, Executor, TokioRuntime};
+        use grafton_visca::{
+            runtime::{Executor, TokioRuntime},
+            testing::testkit::ScriptedTransport,
+        };
         let runtime = TokioRuntime::from_current().expect("Tokio runtime");
         let transport = ScriptedTransport::new(script()).with_executor(runtime.clone());
-        let session = grafton_visca::Session::open(transport, config(), runtime.clone())
+        let session = grafton_visca::r#async::Session::open(transport, &config(), runtime.clone())
             .await
             .expect("Tokio session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
         let start = runtime.now();
         assert!(!camera
             .motion()
@@ -99,8 +108,9 @@ mod inquiry_budget {
 mod settlement_budget {
     use super::*;
     use grafton_visca::{
-        completion::Targeted, request::builtin::PanTiltHome, Error, OperationalTuning,
-        SessionConfig,
+        config::{OperationalTuning, SessionConfig},
+        operation::Targeted,
+        Error,
     };
     use grafton_visca_test_support::{
         facade_matrix,
@@ -127,11 +137,11 @@ mod settlement_budget {
             });
             let config = SessionConfig::from_compile_time::<Raw>().expect("polled profile")
                 .with_tuning(OperationalTuning::new()
-                    .settlement_timeout(Duration::from_secs(90))
-                    .inquiry_spacing(Duration::from_secs(5)));
+                    .with_settlement_timeout(Duration::from_secs(90))
+                    .with_inquiry_spacing(Duration::from_secs(5)));
             let session = open!(fake, config).expect("session");
-            let camera = session.camera::<Raw>().expect("camera");
-            let mut operation = wait!(camera.submit::<Targeted, _>(&PanTiltHome)).expect("move");
+            let camera = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+            let mut operation = wait!(camera.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("move");
             let started = now!();
             let error = wait!(operation.settled()).expect_err("changing positions never settle");
             assert!(matches!(error, Error::ObservationTimeout { .. }), "{error:?}");

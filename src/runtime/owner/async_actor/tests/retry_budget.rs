@@ -8,7 +8,7 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
         (false, 8, 7, Duration::from_millis(11_500)),
     ] {
         let profile = if sony {
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().unwrap()
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().unwrap()
         } else {
             crate::ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap()
         };
@@ -26,10 +26,10 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
         let (handle, actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
         let harness = harness();
         let actor_task = tokio::spawn(actor.run(harness.driver));
-        let command = crate::raw::AppliedOnly::new(
+        let command = crate::raw::AppliedOnlyRequest::new(
             [0x81, 0x01, 0x04, 0x07, 0x02, 0xff],
             crate::AffectedAxes::ZOOM,
-            crate::CommandCategory::Quick,
+            crate::CommandTimeoutClass::Quick,
             crate::RetryClass::Standard,
             crate::SubmissionClass::Normal,
         )
@@ -39,7 +39,7 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
                 &command,
                 &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
                     .expect("valid target registration"),
-                crate::OperationalTuning::new().ack_timeout(Duration::from_secs(ack_override)),
+                crate::OperationalTuning::new().with_ack_timeout(Duration::from_secs(ack_override)),
                 crate::prepared::ClassSelection::Request,
             )
             .unwrap();

@@ -154,10 +154,8 @@ pub(crate) async fn connect_tcp_on(
                 .map(TokioTcpStream::from_connected)
         })
         .await
-        .map_err(|error| {
-            Error::InvalidState(
-                format!("selected Tokio runtime stopped while connecting TCP: {error}").into(),
-            )
+        .map_err(|error| Error::InvalidState {
+            reason: format!("selected Tokio runtime stopped while connecting TCP: {error}").into(),
         })?
 }
 
@@ -173,10 +171,8 @@ pub(crate) async fn connect_udp_on(
     handle
         .spawn(async move { async_connect::connect_udp::<TokioNet>(&address, config).await })
         .await
-        .map_err(|error| {
-            Error::InvalidState(
-                format!("selected Tokio runtime stopped while connecting UDP: {error}").into(),
-            )
+        .map_err(|error| Error::InvalidState {
+            reason: format!("selected Tokio runtime stopped while connecting UDP: {error}").into(),
         })?
 }
 

@@ -1,8 +1,8 @@
 use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
 use grafton_visca::{
-    command::{InquiryData, VISCA_TERMINATOR},
-    CameraId, Request, ViscaInquiry,
+    __macro_support::InquiryData, request::Request, types::CameraId, wire::VISCA_TERMINATOR,
+    ViscaInquiry,
 };
 
 /// Mirrors canonical downstream pan/tilt inquiry decoding.

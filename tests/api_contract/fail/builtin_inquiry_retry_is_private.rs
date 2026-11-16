@@ -1,4 +1,4 @@
-use grafton_visca::RetryClass;
+use grafton_visca::request::RetryClass;
 
 fn main() {
     let _ = RetryClass::BuiltinInquiry;

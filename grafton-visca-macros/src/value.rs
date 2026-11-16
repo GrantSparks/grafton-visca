@@ -13,7 +13,7 @@ use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     Attribute, Data, DeriveInput, Error, Expr, ExprArray, Fields, Ident, Lit, LitStr, Meta, Path,
-    Result, Token, Type,
+    Result, Token, Type, Visibility,
 };
 
 use crate::attr::{unknown_key, AttrSlot};
@@ -534,9 +534,10 @@ fn helpers(expansion: &Expansion, inner: Option<&Type>) -> (TokenStream, TokenSt
     });
     let typescript = features.contains("ts_rs").then(|| {
         let helper = LitStr::new(&format!("{module}::ts_rs"), Span::call_site());
+        let export = matches!(expansion.input.vis, Visibility::Public(_)).then(|| quote!(, export));
         quote! {
             #[derive(#path::__macro_support::ts_rs::TS)]
-            #[ts(crate = #helper, export)]
+            #[ts(crate = #helper #export)]
         }
     });
     (quote!(#support), quote!(#serde #schemars #typescript))
@@ -1095,6 +1096,81 @@ mod tests {
 
     fn value_enum(arguments: TokenStream, input: TokenStream) -> Result<TokenStream> {
         expand(quote!(crate = ::visca; []; enum [#arguments] #input))
+    }
+
+    #[test]
+    fn automatic_typescript_exports_follow_public_item_visibility() {
+        for (item, public) in [
+            (
+                quote!(
+                    pub struct Level(u8);
+                ),
+                true,
+            ),
+            (
+                quote!(
+                    pub(crate) struct Level(u8);
+                ),
+                false,
+            ),
+            (
+                quote!(
+                    pub(super) struct Level(u8);
+                ),
+                false,
+            ),
+            (
+                quote!(
+                    struct Level(u8);
+                ),
+                false,
+            ),
+        ] {
+            let result =
+                expand(quote!(crate = ::renamed; [serde, ts_rs]; scalar [min = 0, max = 3] #item))
+                    .unwrap()
+                    .to_string();
+            assert!(result.contains("__macro_support :: ts_rs :: TS"));
+            assert_eq!(result.contains(", export"), public, "{result}");
+        }
+        for (item, public) in [
+            (
+                quote!(
+                    pub enum Mode {
+                        Off = 0,
+                    }
+                ),
+                true,
+            ),
+            (
+                quote!(
+                    pub(crate) enum Mode {
+                        Off = 0,
+                    }
+                ),
+                false,
+            ),
+        ] {
+            let result = expand(quote!(crate = ::renamed; [serde, ts_rs]; enum [] #item))
+                .unwrap()
+                .to_string();
+            assert!(result.contains("__macro_support :: ts_rs :: TS"));
+            assert_eq!(result.contains(", export"), public, "{result}");
+        }
+    }
+
+    #[test]
+    fn private_values_retain_explicit_user_typescript_export_attributes() {
+        let result = expand(quote! {
+            crate = ::renamed; [serde, ts_rs]; scalar [min = 0, max = 3]
+            #[ts(export, export_to = "private/")]
+            struct Hidden(u8);
+        })
+        .unwrap()
+        .to_string();
+        assert!(result.contains("ts (export , export_to = \"private/\")"));
+        assert!(result.contains("__macro_support :: ts_rs :: TS"));
+        assert_eq!(result.matches("export").count(), 2, "{result}");
     }
 
     #[test]

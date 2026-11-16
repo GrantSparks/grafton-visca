@@ -70,8 +70,8 @@ where
 mod tests {
     use super::*;
     use crate::{
-        profile::{OperationalTuning, ProfileSpec},
-        profiles::{GenericVisca, SonyFR7},
+        config::OperationalTuning,
+        profiles::{GenericVisca, ProfileSpec, SonyFr7},
         protocol::framer::RawIncompletePrefix,
         runtime::{
             engine::RawPrefixEvidence,
@@ -193,7 +193,7 @@ mod tests {
             receives: std::collections::VecDeque::new(),
             semantics: SendSemantics::Datagram,
         };
-        let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+        let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
         let mut adapter =
             AsyncTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
@@ -441,12 +441,12 @@ mod tests {
     fn an_idle_read_timeout_decodes_as_no_data() {
         for idle in [
             Error::io_timeout(),
-            Error::Io(std::sync::Arc::new(std::io::Error::from(
-                std::io::ErrorKind::WouldBlock,
-            ))),
-            Error::Io(std::sync::Arc::new(std::io::Error::from(
-                std::io::ErrorKind::Interrupted,
-            ))),
+            Error::Io {
+                source: std::sync::Arc::new(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
+            },
+            Error::Io {
+                source: std::sync::Arc::new(std::io::Error::from(std::io::ErrorKind::Interrupted)),
+            },
         ] {
             let transport = ScriptedTransport {
                 config: TransportConfig::default(),
@@ -478,9 +478,9 @@ mod tests {
     fn real_read_failures_still_reach_the_owner_as_faults() {
         for fault in [
             Error::transport_error(std::io::Error::other("ICMP port unreachable")),
-            Error::Io(std::sync::Arc::new(std::io::Error::from(
-                std::io::ErrorKind::TimedOut,
-            ))),
+            Error::Io {
+                source: std::sync::Arc::new(std::io::Error::from(std::io::ErrorKind::TimedOut)),
+            },
         ] {
             let transport = ScriptedTransport {
                 config: TransportConfig::default(),
@@ -507,13 +507,13 @@ mod tests {
     fn immutable_tuning_is_lowered_into_owner_policy() {
         let profile = profile();
         let tuning = OperationalTuning::new()
-            .command_spacing(
-                profile.timing().minimum_command_spacing() + std::time::Duration::from_millis(1),
+            .with_command_spacing(
+                profile.timing().command_spacing() + std::time::Duration::from_millis(1),
             )
-            .inquiry_spacing(
-                profile.timing().minimum_inquiry_spacing() + std::time::Duration::from_millis(1),
+            .with_inquiry_spacing(
+                profile.timing().inquiry_spacing() + std::time::Duration::from_millis(1),
             )
-            .maximum_command_sockets(1);
+            .with_maximum_command_sockets(1);
         let transport = ScriptedTransport {
             config: TransportConfig::default(),
             sent: Vec::new(),

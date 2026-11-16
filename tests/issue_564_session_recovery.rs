@@ -21,7 +21,9 @@ use fake_camera::AsyncWire;
 #[cfg(feature = "blocking")]
 use fake_camera::BlockingWire;
 use fake_camera::FakeCamera;
-use grafton_visca::{transport::TransportConfig, Error, ProfileSpec, SessionConfig};
+use grafton_visca::{
+    config::SessionConfig, profiles::ProfileSpec, transport::TransportConfig, Error,
+};
 
 fn profile() -> ProfileSpec {
     ProfileSpec::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>().expect("profile")
@@ -34,10 +36,12 @@ fn stream_camera(successful_writes: usize) -> FakeCamera {
     let mut remaining = successful_writes;
     FakeCamera::new(move |write, answer| {
         if remaining == 0 {
-            answer.fail_send(Error::Io(Arc::new(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "peer went away mid-frame",
-            ))));
+            answer.fail_send(Error::Io {
+                source: Arc::new(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "peer went away mid-frame",
+                )),
+            });
             return;
         }
         remaining -= 1;
@@ -68,9 +72,10 @@ fn serial_config() -> TransportConfig {
 mod blocking_recovery {
     use grafton_visca::{
         blocking::Session,
-        state_cache::StateEntry,
+        error::ErrorKind,
+        state_cache::{StateEntry, StateKey},
         transport::{AddressingMode, SendSemantics},
-        Error, ErrorKind, StateKey,
+        Error,
     };
 
     use super::{
@@ -92,19 +97,21 @@ mod blocking_recovery {
         // The reusable configuration is what recovery keeps.
         let config = SessionConfig::new(profile());
 
-        let session = Session::open(stream_wire(&stream_camera(1)), config.clone())
+        let session = Session::open(stream_wire(&stream_camera(1)), &config.clone())
             .expect("open the original session");
         let camera = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .expect("camera view");
         camera
-            .advanced()
-            .multicast_on()
+            .streaming()
+            .set_multicast(true)
             .expect("the first command applies before the transport fails");
 
         let poisoned = camera
-            .advanced()
-            .multicast_off()
+            .streaming()
+            .set_multicast(false)
             .expect_err("a stream write failure poisons the session");
         assert!(
             matches!(poisoned, Error::StreamPoisoned { .. }),
@@ -118,14 +125,16 @@ mod blocking_recovery {
         // A poisoned session is terminal: every later operation keeps reporting
         // a condition that classifies the same way, and it is never revived.
         let retained = camera
-            .advanced()
-            .multicast_on()
+            .streaming()
+            .set_multicast(true)
             .expect_err("a poisoned session never accepts new work");
         assert!(retained.requires_new_session());
         assert!(session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1
+            )
             .expect("camera view")
-            .inquire(&grafton_visca::command::ZoomPositionInquiry)
+            .inquire(&grafton_visca::command::zoom::PositionInquiry)
             .expect_err("a poisoned session rejects inquiries too")
             .requires_new_session());
 
@@ -134,24 +143,29 @@ mod blocking_recovery {
         drop(camera);
         drop(session);
 
-        let rebuilt = Session::open(stream_wire(&stream_camera(usize::MAX)), config)
+        let rebuilt = Session::open(stream_wire(&stream_camera(usize::MAX)), &config)
             .expect("rebuild a fresh session");
         let rebuilt_camera = rebuilt
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .expect("camera view on the rebuilt session");
         let cache = rebuilt_camera.state_cache();
         assert_eq!(
-            cache.value(StateKey::MulticastStreaming),
+            cache.value(StateKey::StreamingMulticast),
             StateEntry::Unknown,
             "a fresh session starts with an unknown state cache"
         );
         rebuilt_camera
-            .advanced()
-            .multicast_on()
+            .streaming()
+            .set_multicast(true)
             .expect("the rebuilt session drives a command through to completion");
-        match cache.value(StateKey::MulticastStreaming) {
+        match cache.value(StateKey::StreamingMulticast) {
             StateEntry::Set(value) => {
-                assert_eq!(value, grafton_visca::KnownState::MulticastStreaming(true))
+                assert_eq!(
+                    value,
+                    grafton_visca::state_cache::KnownState::StreamingMulticast(true)
+                )
             }
             other => {
                 panic!("expected the rebuilt session to record the applied state, got {other:?}")
@@ -164,14 +178,16 @@ mod blocking_recovery {
     fn peer_closure_requires_a_new_session() {
         let session = Session::open(
             stream_wire(&closing_camera()),
-            SessionConfig::new(profile()),
+            &SessionConfig::new(profile()),
         )
         .expect("open a session");
         let closed = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .expect("camera view")
-            .advanced()
-            .multicast_on()
+            .streaming()
+            .set_multicast(true)
             .expect_err("a zero-byte read closes the session");
         assert!(
             matches!(closed, Error::ConnectionClosed { .. }),
@@ -184,19 +200,24 @@ mod blocking_recovery {
     fn deliberate_shutdown_does_not_require_a_new_session() {
         let session = Session::open(
             stream_wire(&stream_camera(usize::MAX)),
-            SessionConfig::new(profile()),
+            &SessionConfig::new(profile()),
         )
         .expect("open a session");
         let camera = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .expect("camera view");
-        camera.advanced().multicast_on().expect("first command");
+        camera
+            .streaming()
+            .set_multicast(true)
+            .expect("first command");
 
         session.shutdown().expect("deliberate shutdown");
 
         let stopped = camera
-            .advanced()
-            .multicast_off()
+            .streaming()
+            .set_multicast(false)
             .expect_err("a shut-down session rejects new work");
         assert!(
             matches!(stopped, Error::RuntimeShutdown),
@@ -215,9 +236,10 @@ mod blocking_recovery {
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod tokio_recovery {
     use grafton_visca::{
+        r#async::Session,
         runtime::TokioRuntime,
         transport::{AddressingMode, SendSemantics},
-        Error, Session,
+        Error,
     };
 
     use super::{profile, serial_config, stream_camera, AsyncWire, FakeCamera, SessionConfig};
@@ -236,23 +258,25 @@ mod tokio_recovery {
         let config = SessionConfig::new(profile());
         let session = Session::open(
             stream_wire(&stream_camera(1)),
-            config.clone(),
+            &config.clone(),
             TokioRuntime::from_current().expect("tokio runtime"),
         )
         .await
         .expect("open the original session");
         let camera = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .expect("camera view");
         camera
-            .advanced()
-            .multicast_on()
+            .streaming()
+            .set_multicast(true)
             .await
             .expect("the first command applies before the transport fails");
 
         let poisoned = camera
-            .advanced()
-            .multicast_off()
+            .streaming()
+            .set_multicast(false)
             .await
             .expect_err("a stream write failure poisons the session");
         assert!(
@@ -261,8 +285,8 @@ mod tokio_recovery {
         );
         assert!(poisoned.requires_new_session());
         assert!(camera
-            .advanced()
-            .multicast_on()
+            .streaming()
+            .set_multicast(true)
             .await
             .expect_err("a poisoned session never accepts new work")
             .requires_new_session());
@@ -272,16 +296,18 @@ mod tokio_recovery {
 
         let rebuilt = Session::open(
             stream_wire(&stream_camera(usize::MAX)),
-            config,
+            &config,
             TokioRuntime::from_current().expect("tokio runtime"),
         )
         .await
         .expect("rebuild a fresh session");
         rebuilt
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .expect("camera view on the rebuilt session")
-            .advanced()
-            .multicast_on()
+            .streaming()
+            .set_multicast(true)
             .await
             .expect("the rebuilt session drives a command through to completion");
         rebuilt.shutdown().expect("shutdown");
@@ -291,25 +317,27 @@ mod tokio_recovery {
     async fn deliberate_async_shutdown_does_not_require_a_new_session() {
         let session = Session::open(
             stream_wire(&stream_camera(usize::MAX)),
-            SessionConfig::new(profile()),
+            &SessionConfig::new(profile()),
             TokioRuntime::from_current().expect("tokio runtime"),
         )
         .await
         .expect("open a session");
         let camera = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .expect("camera view");
         camera
-            .advanced()
-            .multicast_on()
+            .streaming()
+            .set_multicast(true)
             .await
             .expect("first command");
 
         session.shutdown().expect("deliberate shutdown");
 
         let stopped = camera
-            .advanced()
-            .multicast_off()
+            .streaming()
+            .set_multicast(false)
             .await
             .expect_err("a shut-down session rejects new work");
         assert!(

@@ -5,15 +5,13 @@
 //! projection.
 
 use grafton_visca::{
-    blocking::{Camera, CameraSession},
-    capabilities::PanTilt,
-    profiles::PtzOpticsG2,
-    CompileTimeProfile,
+    blocking::Camera, blocking::CameraSession, capabilities::HasPanTilt,
+    profiles::CompileTimeProfile, profiles::PtzOpticsG2,
 };
 
 fn bound_view<P>(session: &CameraSession<P>) -> Camera<P>
 where
-    P: CompileTimeProfile + PanTilt,
+    P: CompileTimeProfile + HasPanTilt,
 {
     let camera = session.camera();
     let _target = camera.target();
@@ -22,7 +20,7 @@ where
 
 fn owned_camera<P>(session: CameraSession<P>) -> Camera<P>
 where
-    P: CompileTimeProfile + PanTilt,
+    P: CompileTimeProfile + HasPanTilt,
 {
     session.into_camera()
 }

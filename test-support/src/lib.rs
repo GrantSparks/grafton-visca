@@ -12,6 +12,8 @@
 //! `cfg(feature = ..)` checks read grafton-visca's own features.
 
 pub mod compile_fail;
+mod generated;
+pub use generated::bless_or_assert;
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub mod fake_camera;
 #[cfg(feature = "blocking")]

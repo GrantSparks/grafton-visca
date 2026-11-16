@@ -36,11 +36,7 @@ fn echo_camera() -> FakeCamera {
 mod blocking_single_camera {
     use std::time::Duration;
 
-    use grafton_visca::{
-        blocking::{CameraConfig, CameraSession, Connect},
-        profiles::PtzOpticsG2,
-        CameraId, Error,
-    };
+    use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2, types::CameraId, Error};
 
     use super::{echo_camera, FakeCamera, ZOOM_STOP};
 
@@ -50,13 +46,22 @@ mod blocking_single_camera {
     }
 
     #[test]
-    fn the_profile_is_named_once_and_the_view_needs_no_projection() {
+    fn custom_transport_binds_the_checked_profile_without_view_projection() {
         let fake = echo_camera();
 
-        // `PtzOpticsG2` appears exactly once, on the configuration. The camera
-        // view below is bound to it by construction: no turbofish, no `?`.
-        let camera = CameraSession::open(fake.blocking_wire(), &CameraConfig::<PtzOpticsG2>::new())
-            .expect("single-camera owner session");
+        // The configuration is checked against its typed profile. The camera
+        // view below inherits that profile: no turbofish, no `?`.
+        let camera = CameraSession::open(
+            fake.blocking_wire(),
+            &grafton_visca::config::CameraConfig::new(
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                    .expect("source profile"),
+                grafton_visca::config::TransportOptions::Custom,
+            )
+            .into_typed::<PtzOpticsG2>()
+            .expect("typed config"),
+        )
+        .expect("single-camera owner session");
 
         assert_eq!(camera.target(), CameraId::CAMERA_1);
         assert_eq!(camera.camera().target(), CameraId::CAMERA_1);
@@ -81,9 +86,14 @@ mod blocking_single_camera {
     #[test]
     fn the_configured_form_keeps_camera_id_and_timing_policy() {
         let fake = echo_camera();
-        let config = CameraConfig::<PtzOpticsG2>::new()
-            .try_camera_id(3)
-            .expect("camera 3 is addressable");
+        let config = grafton_visca::config::CameraConfig::new(
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                .expect("source profile"),
+            grafton_visca::config::TransportOptions::Custom,
+        )
+        .into_typed::<PtzOpticsG2>()
+        .expect("typed config")
+        .with_camera_id(CameraId::new(3).expect("camera 3 is addressable"));
 
         let camera = CameraSession::open(fake.blocking_wire(), &config)
             .expect("single-camera owner session");
@@ -104,8 +114,17 @@ mod blocking_single_camera {
     #[test]
     fn shutdown_is_observable_and_drop_alone_tears_the_session_down() {
         let fake = echo_camera();
-        let camera = CameraSession::open(fake.blocking_wire(), &CameraConfig::<PtzOpticsG2>::new())
-            .expect("single-camera owner session");
+        let camera = CameraSession::open(
+            fake.blocking_wire(),
+            &grafton_visca::config::CameraConfig::new(
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                    .expect("source profile"),
+                grafton_visca::config::TransportOptions::Custom,
+            )
+            .into_typed::<PtzOpticsG2>()
+            .expect("typed config"),
+        )
+        .expect("single-camera owner session");
 
         camera.shutdown().expect("owner shutdown");
         let rejected = camera
@@ -135,13 +154,22 @@ mod blocking_single_camera {
     #[test]
     fn the_session_view_still_selects_the_same_owner() {
         let fake = echo_camera();
-        let camera = CameraSession::open(fake.blocking_wire(), &CameraConfig::<PtzOpticsG2>::new())
-            .expect("single-camera owner session");
+        let camera = CameraSession::open(
+            fake.blocking_wire(),
+            &grafton_visca::config::CameraConfig::new(
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                    .expect("source profile"),
+                grafton_visca::config::TransportOptions::Custom,
+            )
+            .into_typed::<PtzOpticsG2>()
+            .expect("typed config"),
+        )
+        .expect("single-camera owner session");
 
         // The multi-camera path is unchanged and reaches the same owner.
         let session_view = camera
             .session()
-            .camera::<PtzOpticsG2>()
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("session projection");
         assert_eq!(session_view.target(), camera.camera().target());
         assert_eq!(session_view.profile(), camera.camera().profile());
@@ -151,8 +179,10 @@ mod blocking_single_camera {
 
     #[test]
     fn standard_construction_preflight_runs_before_any_socket() {
-        let error = Connect::open_tcp::<PtzOpticsG2>("invalid:address:format")
-            .expect_err("a malformed endpoint must be rejected");
+        let error = grafton_visca::blocking::CameraSession::<PtzOpticsG2>::connect_tcp(
+            "invalid:address:format",
+        )
+        .expect_err("a malformed endpoint must be rejected");
         assert!(
             matches!(error, Error::InvalidAddress { .. }),
             "unexpected preflight error: {error:?}"
@@ -173,11 +203,12 @@ mod async_single_camera {
     };
 
     use grafton_visca::{
-        camera::{CameraConfig, Connect},
         profiles::PtzOpticsG2,
-        runtime::Runtime,
+        r#async::CameraSession,
+        runtime::{Executor, Runtime},
         transport::{AddressingMode, TransportConfig},
-        CameraId, CameraSession, Error, Executor,
+        types::CameraId,
+        Error,
     };
 
     use super::{echo_camera, fake_camera::AsyncWire, FakeCamera, ZOOM_STOP};
@@ -223,7 +254,9 @@ mod async_single_camera {
                 .lock()
                 .expect("transport lock")
                 .take()
-                .ok_or_else(|| Error::InvalidState("echo transport already taken".into()))
+                .ok_or_else(|| Error::InvalidState {
+                    reason: "echo transport already taken".into(),
+                })
         }
     }
 
@@ -305,9 +338,12 @@ mod async_single_camera {
         let fake = echo_camera();
         let runtime = EchoRuntime::new(inner, echo_wire(&fake));
 
-        let camera = Connect::open_tcp::<PtzOpticsG2, _>("camera.local", runtime.clone())
-            .await
-            .expect("single-camera owner session");
+        let camera = grafton_visca::r#async::CameraSession::<PtzOpticsG2>::connect_tcp(
+            "camera.local",
+            runtime.clone(),
+        )
+        .await
+        .expect("single-camera owner session");
 
         assert_eq!(runtime.endpoints(), vec!["camera.local:5678".to_owned()]);
         assert_eq!(camera.target(), CameraId::CAMERA_1);
@@ -329,9 +365,14 @@ mod async_single_camera {
     /// The configured form is the same bind with the caller's own transport.
     async fn configured_constructor_binds_the_profile_once<E: Executor>(executor: E) {
         let fake = echo_camera();
-        let config = CameraConfig::<PtzOpticsG2>::new()
-            .try_camera_id(3)
-            .expect("camera 3 is addressable");
+        let config = grafton_visca::config::CameraConfig::new(
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                .expect("source profile"),
+            grafton_visca::config::TransportOptions::Custom,
+        )
+        .into_typed::<PtzOpticsG2>()
+        .expect("typed config")
+        .with_camera_id(CameraId::new(3).expect("camera 3 is addressable"));
 
         let camera = CameraSession::open(echo_wire(&fake), &config, executor)
             .await
@@ -368,7 +409,13 @@ mod async_single_camera {
         let fake = echo_camera();
         let camera = CameraSession::open(
             echo_wire(&fake),
-            &CameraConfig::<PtzOpticsG2>::new(),
+            &grafton_visca::config::CameraConfig::new(
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                    .expect("source profile"),
+                grafton_visca::config::TransportOptions::Custom,
+            )
+            .into_typed::<PtzOpticsG2>()
+            .expect("typed config"),
             executor.clone(),
         )
         .await

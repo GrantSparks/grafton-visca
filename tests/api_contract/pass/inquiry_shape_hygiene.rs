@@ -1,4 +1,4 @@
-use grafton_visca::{Inquiry, PayloadShape};
+use grafton_visca::{request::Inquiry, request::PayloadShape};
 
 #[allow(dead_code)]
 struct None;

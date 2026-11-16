@@ -17,11 +17,9 @@ mod support;
 use std::{env, thread::sleep, time::Duration};
 
 use grafton_visca::{
-    blocking::{Camera, Connect},
-    camera::{profiles::PtzOpticsG2, IdleWait},
-    command::PanTiltDirection,
-    types::{PanSpeed, TiltSpeed},
-    AffectedAxes, Error,
+    blocking::Camera, blocking::CameraSession, profiles::PtzOpticsG2, types::AffectedAxes,
+    types::IdleWait, types::PanSpeed, types::PanTiltDirection, types::PanTiltSpeed,
+    types::TiltSpeed, Error,
 };
 
 use support::finish_session;
@@ -32,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
         .ok_or("camera address required (argument or VISCA_CAMERA_ADDR)")?;
 
-    let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address)?;
     let camera = session.camera();
     let result = movement(camera);
     finish_session(result, session.close())?;
@@ -73,10 +71,9 @@ fn movement(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     // would keep moving. The guard is what bounds the motion to this scope.
     {
         let _stop_on_exit = StopPanTiltOnExit { camera };
-        let mut drive = camera.pan_tilt().move_direction(
+        let mut drive = camera.pan_tilt().drive(
             PanTiltDirection::Up,
-            PanSpeed::new(6)?,
-            TiltSpeed::new(6)?,
+            PanTiltSpeed::new(PanSpeed::new(6)?, TiltSpeed::new(6)?),
         )?;
         sleep(Duration::from_millis(250));
         drive.applied()?;

@@ -24,10 +24,9 @@
 //!   down, so the wait is provably pending when shutdown arrives. A blocking
 //!   wait registers nothing a second thread can observe, so the interleaving
 //!   cannot be forced and a port would not prove the wait was pending.
-//! * `dyn_handles_share_the_contract` (with `dyn-api`) covers the dynamic
-//!   projection's completion-erased handles (`submit_applied`,
-//!   `submit_targeted`). The blocking dynamic projection has no such handles:
-//!   its `submit` returns the typed blocking handle the matrix already covers.
+//! * `runtime_profile_handles_share_the_contract` covers concrete
+//!   `Operation<AppliedOnly>` and `Operation<Targeted>` handles submitted
+//!   through the async `Camera<AnyProfile>` view.
 
 #![cfg(any(
     all(feature = "blocking", feature = "test-utils"),
@@ -44,16 +43,22 @@ use std::{
 };
 
 use grafton_visca::{
-    completion::AppliedOnly,
-    profile::ProfileSpec,
-    request::builtin::{ZoomDrive, ZoomStop},
-    CancellationOutcome, Error, SessionConfig,
+    config::SessionConfig,
+    operation::{AppliedOnly, CancellationOutcome},
+    profiles::ProfileSpec,
+    Error,
 };
 
-#[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
-use grafton_visca::request::builtin::PanTiltHome;
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "test-utils",
+    any(feature = "async", feature = "blocking")
+))]
 #[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
-use grafton_visca::{completion::Targeted, Certainty, FailureContext, FailureStage};
+use grafton_visca::{
+    error::{Certainty, FailureContext, FailureStage},
+    operation::Targeted,
+};
 #[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 use std::time::Instant;
 
@@ -79,13 +84,25 @@ struct PositionReplies {
 /// The switch that makes the scripted camera answer position inquiries.
 #[derive(Debug)]
 struct Positions {
-    #[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
+    #[cfg(any(
+        feature = "runtime-tokio",
+        feature = "test-utils",
+        any(feature = "async", feature = "blocking")
+    ))]
     camera: FakeCamera,
-    #[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
+    #[cfg(any(
+        feature = "runtime-tokio",
+        feature = "test-utils",
+        any(feature = "async", feature = "blocking")
+    ))]
     replies: Arc<Mutex<PositionReplies>>,
 }
 
-#[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "test-utils",
+    any(feature = "async", feature = "blocking")
+))]
 impl Positions {
     /// Answers every position inquiry from now on, including those already
     /// written and unanswered.
@@ -120,9 +137,17 @@ fn scripted_camera() -> (FakeCamera, Positions) {
         }
     });
     let positions = Positions {
-        #[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
+        #[cfg(any(
+            feature = "runtime-tokio",
+            feature = "test-utils",
+            any(feature = "async", feature = "blocking")
+        ))]
         camera: camera.clone(),
-        #[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
+        #[cfg(any(
+            feature = "runtime-tokio",
+            feature = "test-utils",
+            any(feature = "async", feature = "blocking")
+        ))]
         replies,
     };
     (camera, positions)
@@ -152,10 +177,12 @@ fn debug<T: std::fmt::Debug>(value: &T) -> String {
 #[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 macro_rules! running_zoom {
     ($session:expr, $camera:expr) => {{
-        let view = $session.camera::<Raw>().expect("raw camera");
+        let view = $session
+            .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("raw camera");
         let writes = $camera.write_count();
         let reads = $camera.read_count();
-        let operation = wait!(view.submit::<AppliedOnly, _>(&ZoomDrive::Tele))
+        let operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele))
             .expect("continuous zoom admitted");
         wait_for_writes!($camera, writes + 1);
         $camera.push(frames::ack(1));
@@ -180,7 +207,7 @@ facade_matrix! {
         let expired = wait!(moving.applied_with_timeout(SHORT))
             .expect_err("nothing concluded the zoom");
         assert!(matches!(expired, Error::ObservationTimeout { operation, .. } if operation == id));
-        assert!(!matches!(expired.recovery(), grafton_visca::Recovery::Resubmit { .. }));
+        assert!(!matches!(expired.recovery(), grafton_visca::error::Recovery::Resubmit { .. }));
         camera.push(frames::complete(1));
         wait!(moving.applied()).expect("the handle observes the completion");
         wait!(moving.applied_with_timeout(Duration::ZERO))
@@ -195,8 +222,8 @@ facade_matrix! {
     fn application_then_settlement_restarts_an_abandoned_proof() {
         let (camera, positions) = scripted_camera();
         let session = open!(camera, config()).expect("owner session");
-        let view = session.camera::<Raw>().expect("raw camera");
-        let mut home = wait!(view.submit::<Targeted, _>(&PanTiltHome)).expect("home admitted");
+        let view = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("raw camera");
+        let mut home = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("home admitted");
         wait_for_writes!(camera, 1);
         camera.push(frames::ack(1));
 
@@ -245,8 +272,8 @@ facade_matrix! {
         }
         .expect("two equal samples settle home");
         assert!(
-            matches!(evidence, grafton_visca::Settlement::ObservedStable { axes, window, .. }
-            if axes == grafton_visca::AffectedAxes::PAN_TILT && !window.is_zero())
+            matches!(evidence, grafton_visca::operation::Settlement::ObservedStable { axes, window, .. }
+            if axes == grafton_visca::types::AffectedAxes::PAN_TILT && !window.is_zero())
         );
         let polled = camera.write_count();
         wait!(home.settled_with_timeout(Duration::ZERO)).expect("settlement is cached");
@@ -304,7 +331,7 @@ facade_matrix! {
             wait!(moving.cancel()).expect("cancellation won"),
             CancellationOutcome::Cancelled
         );
-        assert!(matches!(wait!(moving.applied()), Err(Error::CommandCanceled)));
+        assert!(matches!(wait!(moving.applied()), Err(Error::CommandCancelled)));
         assert_eq!(
             wait!(moving.cancel()).expect("cached"),
             CancellationOutcome::Cancelled
@@ -373,8 +400,8 @@ facade_matrix! {
             "{failed:?}"
         );
         let again = wait!(moving.cancel()).expect_err("the failure is cached");
-        assert!(!matches!(failed.recovery(), grafton_visca::Recovery::Resubmit { .. }));
-        assert!(!matches!(again.recovery(), grafton_visca::Recovery::Resubmit { .. }));
+        assert!(!matches!(failed.recovery(), grafton_visca::error::Recovery::Resubmit { .. }));
+        assert!(!matches!(again.recovery(), grafton_visca::error::Recovery::Resubmit { .. }));
         assert_eq!(again.failure_context(), failed.failure_context());
         assert_eq!(
             camera.writes(),
@@ -402,11 +429,11 @@ facade_matrix! {
         let session = open!(camera, config()).expect("owner session");
         let mut moving = running_zoom!(session, camera);
         let first = wait!(moving.cancel()).expect_err("cancel write fails");
-        assert!(!matches!(first.recovery(), grafton_visca::Recovery::Resubmit { .. }));
+        assert!(!matches!(first.recovery(), grafton_visca::error::Recovery::Resubmit { .. }));
         let source = std::error::Error::source(&first).expect("transport source retained");
         assert!(source.to_string().contains("cancel send failed"));
         let again = wait!(moving.cancel()).expect_err("cached cancellation failure");
-        assert!(!matches!(again.recovery(), grafton_visca::Recovery::Resubmit { .. }));
+        assert!(!matches!(again.recovery(), grafton_visca::error::Recovery::Resubmit { .. }));
         assert_eq!(debug(&first), debug(&again));
         assert_eq!(camera.writes(), vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()]);
         assert!(matches!(wait!(moving.applied_with_timeout(SHORT)),
@@ -449,8 +476,8 @@ facade_matrix! {
         camera.push(frames::canceled(1));
         wait_for_reads!(camera, 2);
 
-        let view = session.camera::<Raw>().expect("raw camera");
-        let mut stop = wait!(view.submit::<AppliedOnly, _>(&ZoomStop)).expect("stop admitted");
+        let view = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("raw camera");
+        let mut stop = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("stop admitted");
         wait_for_writes!(camera, 3);
         camera.push(frames::ack(1));
         camera.push(frames::complete(1));
@@ -471,13 +498,13 @@ facade_matrix! {
     fn later_admission_supersedes_polled_settlement() {
         let (camera, _) = scripted_camera();
         let session = open!(camera, config()).expect("owner session");
-        let view = session.camera::<Raw>().expect("raw camera");
-        let mut first = wait!(view.submit::<Targeted, _>(&PanTiltHome)).expect("first home");
+        let view = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("raw camera");
+        let mut first = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("first home");
         wait_for_writes!(camera, 1);
         camera.push(frames::ack(1));
         camera.push(frames::complete(1));
         wait!(first.applied()).expect("first applied");
-        let later = wait!(view.submit::<Targeted, _>(&PanTiltHome)).expect("later admitted");
+        let later = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("later admitted");
         assert!(
             matches!(wait!(first.settled()), Err(Error::SettlementSuperseded { operation, .. }) if operation == first.id())
         );
@@ -495,14 +522,17 @@ facade_matrix! {
 ))]
 mod async_facade {
     use futures_lite::future;
-    use grafton_visca::{Executor, Operation, Session};
+    use grafton_visca::{
+        r#async::{Operation, Session},
+        runtime::Executor,
+    };
     use grafton_visca_test_support::runtime_matrix;
 
     use super::*;
 
     async fn open<E: Executor>(executor: &E) -> (Session, FakeCamera, Positions) {
         let (camera, positions) = scripted_camera();
-        let session = Session::open(camera.async_wire(), config(), executor.clone())
+        let session = Session::open(camera.async_wire(), &config(), executor.clone())
             .await
             .expect("owner session");
         (session, camera, positions)
@@ -515,11 +545,13 @@ mod async_facade {
         session: &Session,
         camera: &FakeCamera,
     ) -> Operation<AppliedOnly> {
-        let view = session.camera::<Raw>().expect("raw camera");
+        let view = session
+            .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("raw camera");
         let writes = camera.write_count();
         let reads = camera.read_count();
         let operation = view
-            .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
             .await
             .expect("continuous zoom admitted");
         camera.wait_for_writes_async(executor, writes + 1).await;
@@ -545,7 +577,7 @@ mod async_facade {
         assert!(matches!(expired, Error::ObservationTimeout { operation, .. } if operation == id));
         assert!(!matches!(
             expired.recovery(),
-            grafton_visca::Recovery::Resubmit { .. }
+            grafton_visca::error::Recovery::Resubmit { .. }
         ));
         let lost = future::or(async { Some(moving.applied().await) }, async {
             executor.sleep(SHORT).await;
@@ -613,7 +645,7 @@ mod async_facade {
 
         assert!(matches!(
             moving.applied().await,
-            Err(Error::CommandCanceled)
+            Err(Error::CommandCancelled)
         ));
         assert_eq!(
             moving.cancel().await.expect("cached"),
@@ -653,9 +685,11 @@ mod async_facade {
         camera.push(frames::canceled(1));
         camera.wait_for_reads_async(&executor, 2).await;
 
-        let view = session.camera::<Raw>().expect("raw camera");
+        let view = session
+            .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("raw camera");
         let mut stop = view
-            .submit::<AppliedOnly, _>(&ZoomStop)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
             .await
             .expect("stop admitted");
         camera.wait_for_writes_async(&executor, 3).await;
@@ -674,12 +708,14 @@ mod async_facade {
     }
 
     /// The dynamic projection erases the completion marker, not the contract.
-    #[cfg(feature = "dyn-api")]
-    async fn dyn_handles_share_the_contract<E: Executor>(executor: E) {
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    async fn runtime_profile_handles_share_the_contract<E: Executor>(executor: E) {
         let (session, camera, positions) = open(&executor).await;
-        let view = session.camera_dyn().expect("dynamic camera");
+        let view = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
         let mut moving = view
-            .submit_applied(&ZoomDrive::Tele)
+            .submit(&grafton_visca::command::zoom::Tele)
             .await
             .expect("continuous zoom admitted");
         camera.wait_for_writes_async(&executor, 1).await;
@@ -701,7 +737,7 @@ mod async_facade {
         );
         assert!(matches!(
             moving.applied().await,
-            Err(Error::CommandCanceled)
+            Err(Error::CommandCancelled)
         ));
         assert_eq!(
             camera.writes(),
@@ -710,7 +746,7 @@ mod async_facade {
 
         positions.answer();
         let mut home = view
-            .submit_targeted(&PanTiltHome)
+            .submit(&grafton_visca::command::pan_tilt::Home)
             .await
             .expect("home admitted");
         camera.wait_for_writes_async(&executor, 3).await;
@@ -718,7 +754,7 @@ mod async_facade {
         camera.push(frames::complete(1));
         home.applied().await.expect("home applied");
         assert!(
-            matches!(home.settled().await.expect("home settled"), grafton_visca::Settlement::ObservedStable { axes, .. } if axes == grafton_visca::AffectedAxes::PAN_TILT)
+            matches!(home.settled().await.expect("home settled"), grafton_visca::operation::Settlement::ObservedStable { axes, .. } if axes == grafton_visca::types::AffectedAxes::PAN_TILT)
         );
         home.settled_with_timeout(Duration::ZERO)
             .await
@@ -733,14 +769,14 @@ mod async_facade {
         dropping_a_handle_whose_cancel_future_was_dropped,
     );
 
-    #[cfg(feature = "dyn-api")]
-    runtime_matrix!(dyn_handles_share_the_contract);
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    runtime_matrix!(runtime_profile_handles_share_the_contract);
 
     /// The losing branch of a real `tokio::select!` drops its wait future.
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn tokio_select_losing_branch_keeps_the_handle_observing() {
-        let executor = grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
+        let executor = grafton_visca::runtime::TokioRuntime::from_current().expect("Tokio runtime");
         let (session, camera, _) = open(&executor).await;
         let mut moving = running_zoom(&executor, &session, &camera).await;
 

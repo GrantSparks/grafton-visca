@@ -8,11 +8,10 @@
 
 use grafton_visca::{
     capabilities::TypedSupportSurface,
-    command::DigitalZoom,
-    profiles::{NearusBRC300, SonyBRC300},
-    request::builtin::{FocusTrigger, ZoomTarget},
-    types::ZoomPosition,
-    CameraId, Error, ProfileSpec, Request,
+    profiles::{NearusBrc300, ProfileSpec, SonyBrc300},
+    request::Request,
+    types::{CameraId, ZoomPosition},
+    Error,
 };
 
 fn wire<R: Request + ?Sized>(request: &R) -> Vec<u8> {
@@ -27,18 +26,20 @@ fn wire<R: Request + ?Sized>(request: &R) -> Vec<u8> {
 fn profiles() -> [(&'static str, ProfileSpec); 2] {
     [
         (
-            "SonyBRC300",
-            ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
+            "SonyBrc300",
+            ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300 profile"),
         ),
         (
-            "NearusBRC300",
-            ProfileSpec::from_compile_time::<NearusBRC300>().expect("Nearus profile"),
+            "NearusBrc300",
+            ProfileSpec::from_compile_time::<NearusBrc300>().expect("Nearus profile"),
         ),
     ]
 }
 
-fn target(position: u16) -> ZoomTarget {
-    ZoomTarget::new(ZoomPosition::new(position).expect("zoom position"))
+fn target(position: u16) -> grafton_visca::command::zoom::SetPosition {
+    grafton_visca::command::zoom::SetPosition::new(
+        ZoomPosition::new(position).expect("zoom position"),
+    )
 }
 
 #[test]
@@ -71,8 +72,8 @@ fn zoom_tables_follow_the_sources() {
         for position in [0x4000, 0x7F00] {
             target(position)
                 .validate_for_target(
-                    &grafton_visca::TargetRegistration::new(
-                        grafton_visca::CameraId::CAMERA_1,
+                    &grafton_visca::config::TargetRegistration::new(
+                        grafton_visca::types::CameraId::CAMERA_1,
                         profile.clone(),
                     )
                     .expect("target registration"),
@@ -86,8 +87,8 @@ fn zoom_tables_follow_the_sources() {
         assert!(
             matches!(
                 target(0x7F01).validate_for_target(
-                    &grafton_visca::TargetRegistration::new(
-                        grafton_visca::CameraId::CAMERA_1,
+                    &grafton_visca::config::TargetRegistration::new(
+                        grafton_visca::types::CameraId::CAMERA_1,
                         profile.clone()
                     )
                     .expect("target registration")
@@ -112,15 +113,15 @@ fn digital_zoom_toggle_and_one_push_focus_are_granted() {
             TypedSupportSurface::DigitalZoomRange,
             TypedSupportSurface::OnePushFocus,
         ] {
-            assert!(capabilities.supports_typed(surface), "{name} {surface:?}");
+            assert!(capabilities.supports(surface), "{name} {surface:?}");
         }
 
         for (enabled, byte) in [(true, 0x02), (false, 0x03)] {
-            let command = DigitalZoom::new(enabled);
+            let command = grafton_visca::command::zoom::SetDigitalZoom::new(enabled);
             command
                 .validate_for_target(
-                    &grafton_visca::TargetRegistration::new(
-                        grafton_visca::CameraId::CAMERA_1,
+                    &grafton_visca::config::TargetRegistration::new(
+                        grafton_visca::types::CameraId::CAMERA_1,
                         profile.clone(),
                     )
                     .expect("target registration"),
@@ -129,17 +130,17 @@ fn digital_zoom_toggle_and_one_push_focus_are_granted() {
             assert_eq!(wire(&command), [0x81, 0x01, 0x04, 0x06, byte, 0xFF]);
         }
 
-        FocusTrigger::OnePush
+        grafton_visca::command::focus::OnePush
             .validate_for_target(
-                &grafton_visca::TargetRegistration::new(
-                    grafton_visca::CameraId::CAMERA_1,
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
             )
             .unwrap_or_else(|error| panic!("{name} one-push focus: {error}"));
         assert_eq!(
-            wire(&FocusTrigger::OnePush),
+            wire(&grafton_visca::command::focus::OnePush),
             [0x81, 0x01, 0x04, 0x18, 0x01, 0xFF]
         );
     }

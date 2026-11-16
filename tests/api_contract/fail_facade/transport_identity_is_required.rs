@@ -1,4 +1,4 @@
-use grafton_visca::transport::{HasTransportConfig, TransportConfig};
+use grafton_visca::{transport::HasTransportConfig, transport::TransportConfig};
 
 struct MissingIdentity;
 

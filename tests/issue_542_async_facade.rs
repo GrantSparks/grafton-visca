@@ -25,18 +25,22 @@ use std::{
 };
 
 use grafton_visca::{
-    camera::TransportKind,
     capabilities::Capabilities,
-    completion::{AppliedOnly, Targeted},
-    profile::{
-        CompileTimeProfile, PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming,
-        TransportCompatibility,
+    config::{SessionConfig, TransportKind},
+    operation::{AppliedOnly, Targeted},
+    profiles::{
+        CompileTimeProfile, ProfileEnvelope, ProfileId, ProfileSpec, ProfileTiming, PtzOpticsG2,
+        SonyFr7, TransportCompatibility,
     },
-    profiles::{ProfileId, PtzOpticsG2, SonyFR7},
-    request,
+    r#async::{Camera, Operation, Session},
+    request::{
+        self, ControlClass, Inquiry, OperationCommand, Request, ResponseDecoder, RetryClass,
+        TimeoutClass,
+    },
+    runtime::Executor,
     transport::{AddressingMode, TransportConfig},
-    Camera, CameraId, ControlClass, Error, Executor, Inquiry, Operation, OperationCommand, Request,
-    ResponseDecoder, RetryClass, Session, SessionConfig, TimeoutClass,
+    types::CameraId,
+    Error,
 };
 
 use fake_camera::{frames, AsyncWire, FakeCamera};
@@ -48,7 +52,7 @@ async fn generic_operation_submission<P, K, O>(
 ) -> Result<Operation<K>, Error>
 where
     P: CompileTimeProfile,
-    K: grafton_visca::completion::Kind,
+    K: grafton_visca::operation::Kind,
     O: OperationCommand<K> + ?Sized,
 {
     camera.submit::<K, O>(operation).await
@@ -58,7 +62,7 @@ where
 struct PlainPing;
 
 impl Request for PlainPing {
-    type Class = request::Plain;
+    type Class = request::PlainClass;
     const MAX_SIZE: usize = 3;
     const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
     const RETRY_CLASS: RetryClass = RetryClass::Never;
@@ -74,7 +78,7 @@ impl Request for PlainPing {
 struct RawInquiry;
 
 impl Request for RawInquiry {
-    type Class = request::Inquiry;
+    type Class = request::InquiryClass;
     const MAX_SIZE: usize = 3;
     const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
     const RETRY_CLASS: RetryClass = RetryClass::Never;
@@ -133,26 +137,26 @@ fn generic_profile() -> ProfileSpec {
 fn unsupported_focus_profile() -> ProfileSpec {
     let capabilities = Capabilities::runtime_baseline("no-focus-camera", 1).expect("baseline");
     ProfileSpec::builder(capabilities)
-        .transports(TransportCompatibility::new(Some(5678), None, false))
+        .transports(TransportCompatibility::new().with_tcp(5678))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(
             ProfileTiming::builder()
                 .ack_timeout(Duration::from_millis(100))
-                .command_timeouts(grafton_visca::CommandTimeouts::default())
+                .command_timeouts(grafton_visca::profiles::CommandTimeouts::default())
                 .inquiry_timeout(Duration::from_secs(1))
                 .cancellation_timeout(Duration::from_secs(1))
                 .ambiguity_timeout(Duration::from_secs(1))
                 .busy_timeout(Duration::ZERO)
                 .raw_inquiry_reply_skew(Duration::ZERO)
-                .minimum_inquiry_spacing(Duration::ZERO)
-                .minimum_command_spacing(Duration::ZERO)
+                .inquiry_spacing(Duration::ZERO)
+                .command_spacing(Duration::ZERO)
                 .build()
                 .expect("valid timing"),
         )
         .maximum_command_sockets(1)
         .supports_operation_complete(false)
         .supports_command_cancel(false)
-        .position_inquiries(PositionInquirySupport::new(false, false, false))
+        .position_inquiries(None)
         .build()
         .expect("unsupported profile")
 }
@@ -161,12 +165,14 @@ async fn one_owner_admits_plain_inquiry_and_typed_operations<E: Executor>(execut
     let fake = camera();
     let session = Session::open(
         fake.async_wire(),
-        SessionConfig::new(generic_profile()),
+        &SessionConfig::new(generic_profile()),
         executor,
     )
     .await
     .expect("session");
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
     camera.execute(&PlainPing).await.expect("plain command");
     assert_eq!(
@@ -174,21 +180,18 @@ async fn one_owner_admits_plain_inquiry_and_typed_operations<E: Executor>(execut
         vec![1, 2]
     );
     camera
-        .submit::<Targeted, _>(&grafton_visca::request::builtin::PanTiltHome)
+        .submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)
         .await
         .expect("targeted admission")
         .settled()
         .await
         .expect("targeted settlement");
-    generic_operation_submission::<_, AppliedOnly, _>(
-        &camera,
-        &grafton_visca::request::builtin::ZoomStop,
-    )
-    .await
-    .expect("applied-only admission")
-    .applied()
-    .await
-    .expect("applied completion");
+    generic_operation_submission::<_, AppliedOnly, _>(&camera, &grafton_visca::command::zoom::Stop)
+        .await
+        .expect("applied-only admission")
+        .applied()
+        .await
+        .expect("applied completion");
 
     session.shutdown().expect("shutdown");
     assert_eq!(fake.write_count(), 4);
@@ -198,15 +201,15 @@ async fn unsupported_axis_fails_before_owner_admission_or_io<E: Executor>(execut
     let fake = camera();
     let session = Session::open(
         fake.async_wire(),
-        SessionConfig::new(unsupported_focus_profile()),
+        &SessionConfig::new(unsupported_focus_profile()),
         executor,
     )
     .await
     .expect("session");
     let error = session
-        .camera::<PtzOpticsG2>()
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
         .expect_err("runtime profile mismatch must fail before projection");
-    assert!(matches!(error, Error::InvalidRequest(_)));
+    assert!(matches!(error, Error::InvalidRequest { .. }));
     assert_eq!(fake.write_count(), 0);
     session.shutdown().expect("shutdown");
 }
@@ -214,28 +217,29 @@ async fn unsupported_axis_fails_before_owner_admission_or_io<E: Executor>(execut
 async fn raw_serial_multi_target_registration_routes_each_camera<E: Executor>(executor: E) {
     let fake = camera();
     let mut config = SessionConfig::new(generic_profile());
-    config
-        .register_target(CameraId::CAMERA_2, generic_profile())
+    config = config
+        .with_target(CameraId::CAMERA_2, generic_profile())
         .expect("bounded registration");
 
-    let session = Session::open(serial_wire(&fake), config, executor)
+    let session = Session::open(serial_wire(&fake), &config, executor)
         .await
         .expect("raw serial multi-target startup");
-    assert!(matches!(
+    assert_eq!(
         session
-            .camera::<PtzOpticsG2>()
-            .expect_err("camera() requires one sole target"),
-        Error::InvalidState(_)
-    ));
+            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .expect("explicit registered target")
+            .target(),
+        CameraId::CAMERA_1
+    );
 
     session
-        .camera_for::<PtzOpticsG2>(CameraId::CAMERA_2)
+        .camera::<PtzOpticsG2>(CameraId::CAMERA_2)
         .expect("registered camera 2")
         .execute(&PlainPing)
         .await
         .expect("camera 2 command");
     session
-        .camera_for::<PtzOpticsG2>(CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
         .expect("registered camera 1")
         .execute(&PlainPing)
         .await
@@ -261,7 +265,7 @@ async fn incompatible_standard_transport_fails_before_send_or_owner_spawn<E: Exe
 
     let error = Session::open(
         fake.async_wire().with_transport_kind(TransportKind::Tcp),
-        SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile")),
+        &SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>().expect("Sony FR7 profile")),
         executor,
     )
     .await
@@ -283,12 +287,14 @@ async fn dropping_or_detaching_operation_is_observation_only<E: Executor>(execut
     let fake = camera();
     let session = Session::open(
         fake.async_wire(),
-        SessionConfig::new(generic_profile()),
+        &SessionConfig::new(generic_profile()),
         executor.clone(),
     )
     .await
     .expect("session");
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
     let dropped = camera.zoom().stop().await.expect("operation admission");
     drop(dropped);
@@ -308,12 +314,14 @@ async fn shutdown_requests_actor_and_rejects_later_admission_without_join_claim<
     let fake = camera();
     let session = Session::open(
         fake.async_wire(),
-        SessionConfig::new(generic_profile()),
+        &SessionConfig::new(generic_profile()),
         executor,
     )
     .await
     .expect("session");
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
     session.shutdown().expect("shutdown request");
     let error = camera
@@ -336,7 +344,7 @@ async fn non_default_downstream_profile_projects_and_clones_without_new_owner<E:
     };
     let session = Session::open(
         fake.async_wire(),
-        SessionConfig::from_compile_time::<NonDefaultCompileTimeProfile>()
+        &SessionConfig::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("non-default profile config"),
         executor,
     )
@@ -344,7 +352,7 @@ async fn non_default_downstream_profile_projects_and_clones_without_new_owner<E:
     .expect("session");
 
     let camera: Camera<NonDefaultCompileTimeProfile> = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("exact non-default profile projection");
     let clone = camera.clone();
     assert_eq!(camera.target(), clone.target());
@@ -353,29 +361,32 @@ async fn non_default_downstream_profile_projects_and_clones_without_new_owner<E:
     session.shutdown().expect("shutdown");
 }
 
-async fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io<E: Executor>(
+async fn explicit_target_selection_checks_registration_before_admission_or_io<E: Executor>(
     executor: E,
 ) {
     let fake = camera();
     let mut config = SessionConfig::from_compile_time::<PtzOpticsG2>().expect("config");
-    config
-        .register_target(CameraId::CAMERA_2, generic_profile())
+    config = config
+        .with_target(CameraId::CAMERA_2, generic_profile())
         .expect("second target");
-    let session = Session::open(serial_wire(&fake), config, executor)
+    let session = Session::open(serial_wire(&fake), &config, executor)
         .await
         .expect("session");
 
+    assert_eq!(
+        session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("explicit registered target")
+            .target(),
+        CameraId::CAMERA_1
+    );
     assert!(matches!(
-        session.camera::<PtzOpticsG2>(),
-        Err(Error::InvalidState(_))
+        session.camera::<PtzOpticsG2>(CameraId::CAMERA_7),
+        Err(Error::InvalidRequest { .. })
     ));
     assert!(matches!(
-        session.camera_for::<PtzOpticsG2>(CameraId::CAMERA_7),
-        Err(Error::InvalidRequest(_))
-    ));
-    assert!(matches!(
-        session.camera_for::<SonyFR7>(CameraId::CAMERA_2),
-        Err(Error::InvalidRequest(_))
+        session.camera::<SonyFr7>(CameraId::CAMERA_2),
+        Err(Error::InvalidRequest { .. })
     ));
     assert_eq!(fake.write_count(), 0);
     session.shutdown().expect("shutdown");
@@ -384,14 +395,14 @@ async fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io<E:
 async fn owner_admits_uses_and_closes<E: Executor>(executor: E) {
     let session = Session::open(
         FakeCamera::acking(1).async_wire(),
-        SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
+        &SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
         executor,
     )
     .await
     .unwrap();
 
     session
-        .camera::<PtzOpticsG2>()
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
         .unwrap()
         .zoom()
         .stop()
@@ -413,6 +424,6 @@ runtime_matrix!(
     dropping_or_detaching_operation_is_observation_only,
     shutdown_requests_actor_and_rejects_later_admission_without_join_claim,
     non_default_downstream_profile_projects_and_clones_without_new_owner,
-    wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io,
+    explicit_target_selection_checks_registration_before_admission_or_io,
     owner_admits_uses_and_closes,
 );

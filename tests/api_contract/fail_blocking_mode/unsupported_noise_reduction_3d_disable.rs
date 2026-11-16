@@ -1,12 +1,14 @@
 #![cfg(feature = "blocking")]
 
-use grafton_visca::{blocking::Camera, profiles::SonyFR7};
+use grafton_visca::{blocking::Camera, profiles::SonyFr7};
 
-fn sony_fr7_cannot_disable_3d_noise_reduction(camera: &Camera<SonyFR7>) {
-    let _ = camera.image().disable_noise_reduction_3d();
+fn sony_fr7_cannot_disable_3d_noise_reduction(camera: &Camera<SonyFr7>) {
+    let _ = camera
+        .image()
+        .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Off);
 }
 
 fn main() {}
 
 //~ E0277
-//~ "profile `SonyFR7` does not declare 3D noise-reduction control support"
+//~ "camera profile `grafton_visca::profiles::SonyFr7` does not support `grafton_visca::capabilities::gate::NoiseReduction3D`"

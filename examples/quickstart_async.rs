@@ -14,9 +14,8 @@ mod support;
 use std::{env, io};
 
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, IdleWait},
-    runtime::TokioRuntime,
-    AffectedAxes, Connect, Error,
+    profiles::PtzOpticsG2, r#async::CameraSession, runtime::TokioRuntime, types::AffectedAxes,
+    types::IdleWait, Error,
 };
 use tokio::time::{sleep, Duration};
 
@@ -75,11 +74,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Address: {}", args.address);
 
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_tcp::<PtzOpticsG2, _>(&args.address, runtime).await?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(&args.address, runtime).await?;
     let camera = session.camera();
 
     let run_result = async {
-        let power = camera.power().state().await?;
+        let power = camera.power().status().await?;
         println!("Power: {power:?}");
 
         let position = camera.zoom().position().await?;

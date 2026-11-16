@@ -12,8 +12,11 @@
 use std::time::Duration;
 
 use grafton_visca::{
-    command::MenuDirection, profiles::PtzOpticsG2, transport::SendSemantics, Certainty,
-    FailureContext, FailureStage, ProfileSpec, SessionConfig,
+    config::SessionConfig,
+    error::{Certainty, FailureContext, FailureStage},
+    profiles::{ProfileSpec, PtzOpticsG2},
+    transport::SendSemantics,
+    types::MenuDirection,
 };
 use grafton_visca_test_support::{facade_matrix, fake_camera};
 
@@ -47,7 +50,7 @@ facade_matrix! {
     fn navigation_has_an_applied_handle_and_needs_an_explicit_stop() {
         let fake = FakeCamera::acking(1);
         let session = open!(fake, config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
         let mut navigation = wait!(camera.menu().navigate(MenuDirection::Up))
             .expect("navigation admitted");
         wait!(navigation.applied()).expect("navigation applied");
@@ -72,14 +75,14 @@ facade_matrix! {
             }
         }));
         let session = open!(fake, config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
         let _first = wait!(camera.zoom().tele()).expect("first command admitted");
         wait_for_writes!(fake.0, 1);
         pause!(Duration::from_millis(50));
         let mut navigation = wait!(camera.menu().navigate(MenuDirection::Up))
             .expect("navigation admitted behind first command");
 
-        let _halt = wait!(camera.motion().stop_all_motion()).expect("halt admitted");
+        let _halt = wait!(camera.motion().stop_all()).expect("halt admitted");
         let error = wait!(navigation.applied()).expect_err("halt supersedes navigation");
         assert!(matches!(error, grafton_visca::Error::MotionSuperseded { .. }));
         assert_eq!(

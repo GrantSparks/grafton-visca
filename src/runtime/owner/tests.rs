@@ -137,7 +137,7 @@ fn control_lane_uses_its_own_named_nonzero_bound() {
     policy.limits.control_requests = 0;
     assert!(matches!(
         OwnerState::new(policy, Instant::now()),
-        Err(Error::InvalidRequest(_))
+        Err(Error::InvalidRequest { .. })
     ));
 }
 
@@ -168,9 +168,9 @@ fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
     let mut state = reconfigurable_owner_state_at(Instant::now());
     let live = state.live_tuning();
     let tuning = crate::OperationalTuning::new()
-        .command_spacing(Duration::from_millis(200))
-        .inquiry_spacing(Duration::from_millis(300))
-        .maximum_command_sockets(1);
+        .with_command_spacing(Duration::from_millis(200))
+        .with_inquiry_spacing(Duration::from_millis(300))
+        .with_maximum_command_sockets(1);
     state
         .retune(
             crate::session_config::ValidatedTuning::for_test(tuning).expect("validated tuning"),
@@ -223,7 +223,7 @@ fn retune_checks_the_selected_clock_before_replacing_live_tuning() {
     let previous = live.get();
     let latest = crate::timeout::saturating_deadline(Instant::now(), Duration::MAX);
     let selected = latest - Duration::from_millis(100);
-    let update = crate::OperationalTuning::new().command_spacing(Duration::from_secs(1));
+    let update = crate::OperationalTuning::new().with_command_spacing(Duration::from_secs(1));
     let update =
         crate::session_config::ValidatedTuning::for_test(update).expect("profile-valid tuning");
     assert!(state.retune(update, selected).is_err());
@@ -235,7 +235,7 @@ fn retune_checks_the_selected_clock_before_replacing_live_tuning() {
 fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
     let mut state = reconfigurable_owner_state_at(Instant::now());
     let live = state.live_tuning();
-    let accepted = crate::OperationalTuning::new().command_spacing(Duration::from_millis(200));
+    let accepted = crate::OperationalTuning::new().with_command_spacing(Duration::from_millis(200));
     state
         .retune(
             crate::session_config::ValidatedTuning::for_test(accepted).expect("validated"),
@@ -243,10 +243,10 @@ fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
         )
         .expect("accepted");
     let error = crate::session_config::ValidatedTuning::for_test(
-        crate::OperationalTuning::new().maximum_command_sockets(3),
+        crate::OperationalTuning::new().with_maximum_command_sockets(3),
     )
     .expect_err("invalid tuning cannot cross the owner boundary");
-    assert!(matches!(error, Error::InvalidRequest(_)));
+    assert!(matches!(error, Error::InvalidRequest { .. }));
     assert_eq!(live.get().get(), accepted);
     assert_eq!(
         state.policy().baseline.command_spacing,
@@ -405,17 +405,17 @@ fn pan_tilt_limit_cache_preserves_typed_corner_updates_and_clears() {
     use crate::command::PanTiltLimitCorner;
     use crate::{KnownState, PanTiltLimitUpdate, StateEntry};
     let mut cache = TargetStateCache::default();
-    let set = KnownState::PanTiltLimits(PanTiltLimitUpdate::set(
+    let set = KnownState::PanTiltLimit(PanTiltLimitUpdate::set(
         PanTiltLimitCorner::DownLeft,
         crate::camera::PanTiltUnits::new(12, -4),
     ));
     cache.apply(AppliedStateProjection::set(set));
-    assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Set(set));
-    let clear = KnownState::PanTiltLimits(PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight));
+    assert_eq!(cache.entry(StateKey::PanTiltLimit), StateEntry::Set(set));
+    let clear = KnownState::PanTiltLimit(PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight));
     cache.apply(AppliedStateProjection::set(clear));
-    assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Set(clear));
-    cache.apply(AppliedStateProjection::invalidate(StateKey::PanTiltLimits));
-    assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Unknown);
+    assert_eq!(cache.entry(StateKey::PanTiltLimit), StateEntry::Set(clear));
+    cache.apply(AppliedStateProjection::invalidate(StateKey::PanTiltLimit));
+    assert_eq!(cache.entry(StateKey::PanTiltLimit), StateEntry::Unknown);
 }
 
 #[test]
@@ -426,25 +426,25 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
     let other = crate::StateCache::from_registry(Arc::clone(&registry), TargetSlot::CAMERA_2);
     let mut covered = Vec::new();
     macro_rules! check {
-        ($variant:ident, $getter:ident, $value:expr) => {{
+        ($variant:ident, $noun:ident, $getter:ident, $value:expr) => {{
             let value = $value;
             let known = KnownState::$variant(value);
             let key = known.key();
             assert_eq!(cache.value(key), StateEntry::Unknown);
-            assert_eq!(cache.$getter(), None);
+            assert_eq!(cache.$noun().$getter(), None);
             registry[TargetSlot::CAMERA_1]
                 .lock()
                 .unwrap()
                 .apply(AppliedStateProjection::set(known));
             assert_eq!(cache.value(key), StateEntry::Set(known));
-            assert_eq!(cache.$getter(), Some(value));
+            assert_eq!(cache.$noun().$getter(), Some(value));
             assert_eq!(other.value(key), StateEntry::Unknown);
             registry[TargetSlot::CAMERA_1]
                 .lock()
                 .unwrap()
                 .apply(AppliedStateProjection::invalidate(key));
             assert_eq!(cache.value(key), StateEntry::Unknown);
-            assert_eq!(cache.$getter(), None);
+            assert_eq!(cache.$noun().$getter(), None);
             registry[TargetSlot::CAMERA_1]
                 .lock()
                 .unwrap()
@@ -453,35 +453,64 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
         }};
     }
     check!(
-        PanTiltLimits,
-        pan_tilt_limits,
+        PanTiltLimit,
+        pan_tilt,
+        limit,
         crate::PanTiltLimitUpdate::set(
             crate::command::PanTiltLimitCorner::DownLeft,
             crate::camera::PanTiltUnits::new(-123, 456)
         )
     );
-    check!(PresetRecallSpeed, preset_recall_speed, 12);
-    check!(FocusLockMode, focus_lock, true);
-    check!(Spotlight, spotlight, true);
-    check!(AutoSlowShutter, auto_slow_shutter, false);
+    check!(
+        PresetsRecallSpeed,
+        presets,
+        recall_speed,
+        crate::types::PresetSpeed::new(12).unwrap()
+    );
+    check!(FocusLock, focus, lock, true);
+    check!(ExposureSpotlight, exposure, spotlight, true);
+    check!(ExposureAutoSlowShutter, exposure, auto_slow_shutter, false);
     check!(
         NdFilterMode,
-        nd_filter_mode,
+        nd_filter,
+        mode,
         crate::command::NdFilterMode::Variable
     );
-    check!(AutoNdFilter, auto_nd_filter, false);
-    check!(ImageFreeze, image_freeze, true);
-    check!(DigitalZoomMode, digital_zoom, false);
-    check!(MulticastStreaming, multicast_streaming, true);
-    check!(NdiQuality, ndi_quality, crate::types::NdiQuality::Medium);
-    check!(TallyBrightness, tally_brightness_is_high, false);
+    check!(NdFilterAuto, nd_filter, auto, false);
+    check!(ImageFreeze, image, freeze, true);
+    check!(ZoomDigitalZoom, zoom, digital_zoom, false);
+    check!(StreamingMulticast, streaming, multicast, true);
+    check!(
+        StreamingNdiQuality,
+        streaming,
+        ndi_quality,
+        crate::types::NdiQuality::Medium
+    );
+    check!(
+        TallyBrightness,
+        tally,
+        brightness,
+        crate::types::TallyBrightness::Low
+    );
     check!(
         PanTiltSpeedMode,
-        variable_speed_mode,
+        pan_tilt,
+        speed_mode,
         crate::command::PanTiltSpeedMode::Fine50
     );
-    check!(TallyMode, tally_mode, true);
-    check!(Flip, flip_state, crate::command::ImageFlipMode::Vertical);
+    check!(TallyMode, tally, mode, crate::types::TallyMode::Flash);
+    check!(
+        ImageFlipMode,
+        image,
+        flip_mode,
+        crate::types::ImageFlipMode::Vertical
+    );
+    check!(
+        MotionSyncSpeed,
+        motion_sync,
+        speed,
+        crate::types::MotionSyncSpeed::NORMAL
+    );
     assert_eq!(
         covered.iter().map(|value| value.key()).collect::<Vec<_>>(),
         StateKey::ALL
@@ -497,11 +526,11 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
         registry[TargetSlot::CAMERA_1]
             .lock()
             .unwrap()
-            .apply(AppliedStateProjection::set(KnownState::PanTiltLimits(
+            .apply(AppliedStateProjection::set(KnownState::PanTiltLimit(
                 update,
             )));
-        assert_eq!(cache.pan_tilt_limits(), Some(update));
-        assert!(cache.pan_tilt_limits().unwrap().is_cleared());
+        assert_eq!(cache.pan_tilt().limit(), Some(update));
+        assert!(cache.pan_tilt().limit().unwrap().is_cleared());
     }
     assert_eq!(
         size_of::<TargetStateCache>(),
@@ -995,9 +1024,9 @@ mod metrics {
         apply(
             &mut state,
             Input::ReceiveFault {
-                error: Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::ConnectionRefused,
-                ))),
+                error: Error::Io {
+                    source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+                },
             },
             start,
         );
@@ -1069,7 +1098,7 @@ mod metrics {
                 )
                 | (
                     CommandOutcome::Cancelled,
-                    Some(Err(Error::CommandCanceled)),
+                    Some(Err(Error::CommandCancelled)),
                     Some(Ok(CancellationOutcome::Cancelled)),
                 )
                 | (
@@ -1269,25 +1298,27 @@ mod metrics {
         let deadline = Instant::now() + Duration::from_secs(1);
         let (mut observation, terminal) = observation_fixture();
         let cancel = observation.cancellation_request();
-        cancel.observer.resolve_at(Error::NotSupported, deadline);
+        cancel
+            .observer
+            .resolve_at(Error::CancellationNotSupported, deadline);
         terminal.resolve_at(CommandOutcome::Applied, deadline + Duration::from_nanos(1));
         assert!(matches!(
             observation.cancellation(deadline),
-            Some(Err(Error::NotSupported))
+            Some(Err(Error::CancellationNotSupported))
         ));
         assert!(matches!(
             observation.cancellation(deadline + Duration::from_nanos(1)),
             Some(Ok(CancellationOutcome::Completed))
         ));
         let (mut observation, _) = observation_fixture();
-        observation
-            .cancellation_request()
-            .observer
-            .resolve_at(Error::NotSupported, deadline + Duration::from_nanos(1));
+        observation.cancellation_request().observer.resolve_at(
+            Error::CancellationNotSupported,
+            deadline + Duration::from_nanos(1),
+        );
         assert!(observation.cancellation(deadline).is_none());
         assert!(matches!(
             observation.cancellation(deadline + Duration::from_nanos(1)),
-            Some(Err(Error::NotSupported))
+            Some(Err(Error::CancellationNotSupported))
         ));
     }
 
@@ -1484,8 +1515,12 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
 
     for idle in [
         Error::io_timeout(),
-        Error::Io(Arc::new(std::io::Error::from(ErrorKind::WouldBlock))),
-        Error::Io(Arc::new(std::io::Error::from(ErrorKind::Interrupted))),
+        Error::Io {
+            source: Arc::new(std::io::Error::from(ErrorKind::WouldBlock)),
+        },
+        Error::Io {
+            source: Arc::new(std::io::Error::from(ErrorKind::Interrupted)),
+        },
         Error::io_timeout().with_context("idle poll"),
     ] {
         assert!(
@@ -1497,9 +1532,13 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
         );
     }
     for fault in [
-        Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut))),
+        Error::Io {
+            source: Arc::new(std::io::Error::from(ErrorKind::TimedOut)),
+        },
         Error::transport_error(std::io::Error::other("ICMP port unreachable")),
-        Error::Io(Arc::new(std::io::Error::from(ErrorKind::ConnectionRefused))),
+        Error::Io {
+            source: Arc::new(std::io::Error::from(ErrorKind::ConnectionRefused)),
+        },
         Error::ConnectionClosed { source: None },
     ] {
         assert!(
@@ -1511,7 +1550,9 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
         );
     }
 
-    let keepalive_timeout = Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut)));
+    let keepalive_timeout = Error::Io {
+        source: Arc::new(std::io::Error::from(ErrorKind::TimedOut)),
+    };
     assert!(
         matches!(
             OwnerReceive::read_error(keepalive_timeout),
@@ -1520,7 +1561,9 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
         "an OS TCP timeout is terminal instead of an endless idle read"
     );
 
-    let invalid_input = Error::Io(Arc::new(std::io::Error::from(ErrorKind::InvalidInput)));
+    let invalid_input = Error::Io {
+        source: Arc::new(std::io::Error::from(ErrorKind::InvalidInput)),
+    };
     assert!(
         matches!(
             OwnerReceive::read_error(invalid_input),
@@ -1666,6 +1709,7 @@ mod lifecycle_trace {
             CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape, RequestContext,
             RetryPolicy, TimeoutPolicy, TransportKind,
         },
+        wire::WireValue,
         CameraId, Error,
     };
 
@@ -1753,15 +1797,12 @@ mod lifecycle_trace {
             Phase::AwaitingAck { .. } => "awaiting-ack".to_owned(),
             Phase::AwaitingCompletion { .. } => "awaiting-completion".to_owned(),
             Phase::Executing { socket, .. } => {
-                format!("executing(socket={})", socket.as_socket_number())
+                format!("executing(socket={})", socket.to_wire())
             }
             Phase::AwaitingReply { .. } => "awaiting-reply".to_owned(),
             Phase::Backoff { .. } => "backoff".to_owned(),
             Phase::AwaitingCancellationResolution { socket, .. } => {
-                format!(
-                    "awaiting-cancellation(socket={})",
-                    socket.as_socket_number()
-                )
+                format!("awaiting-cancellation(socket={})", socket.to_wire())
             }
         }
     }
@@ -1805,15 +1846,15 @@ mod lifecycle_trace {
             Error::InquiryFailed { source } => format!("InquiryFailed({})", error_label(source)),
             Error::MessageLengthError => "MessageLengthError".to_owned(),
             Error::CommandBufferFull => "CommandBufferFull".to_owned(),
-            Error::CommandCanceled => "CommandCanceled".to_owned(),
+            Error::CommandCancelled => "CommandCancelled".to_owned(),
             Error::NoSocket => "NoSocket".to_owned(),
             Error::CommandNotExecutable => "CommandNotExecutable".to_owned(),
-            Error::NotSupported => "NotSupported".to_owned(),
+            Error::CancellationNotSupported => "CancellationNotSupported".to_owned(),
             Error::RuntimeShutdown => "RuntimeShutdown".to_owned(),
             Error::StreamPoisoned { .. } => "StreamPoisoned".to_owned(),
             Error::RuntimeQueueFull { .. } => "Capacity".to_owned(),
             Error::TransportError { source: reason, .. } => match reason.as_ref() {
-                Error::Io(source) => source.to_string(),
+                Error::Io { source } => source.to_string(),
                 other => error_label(other),
             },
             other => format!("{other:?}"),
@@ -1918,9 +1959,9 @@ mod lifecycle_trace {
                 cancellation,
             },
             // Fixtures observe this exact write-only effect through StateCache.
-            applied_state: Some(AppliedStateProjection::set(crate::KnownState::Spotlight(
-                true,
-            ))),
+            applied_state: Some(AppliedStateProjection::set(
+                crate::KnownState::ExposureSpotlight(true),
+            )),
         }
     }
 
@@ -2190,7 +2231,7 @@ mod lifecycle_trace {
             };
             if let Some(socket) = field(input, "socket") {
                 assert_eq!(
-                    wire_socket.map(|socket| socket.as_socket_number()),
+                    wire_socket.map(|socket| socket.to_wire()),
                     socket.parse::<u8>().ok(),
                     "fixture socket disagrees with its own bytes"
                 );
@@ -2244,7 +2285,7 @@ mod lifecycle_trace {
                 } else {
                     "target-socket"
                 },
-                socket.as_socket_number(),
+                socket.to_wire(),
                 hex_text(&bytes)
             ));
             self.drain(effects, "protocol", out);
@@ -2432,7 +2473,7 @@ mod lifecycle_trace {
                             }
                             CancellationObservation::Failed(error) => (
                                 format!("Error::{}", error_label(error)),
-                                if matches!(error, Error::NotSupported) {
+                                if matches!(error, Error::CancellationNotSupported) {
                                     "profile"
                                 } else {
                                     "engine"
@@ -2664,7 +2705,7 @@ mod lifecycle_trace {
                         self.at,
                         request.get(),
                         target.camera().value(),
-                        socket.as_socket_number()
+                        socket.to_wire()
                     ));
                 }
             }
@@ -2829,7 +2870,7 @@ mod lifecycle_trace {
             .contains("cancellation-recorded id=1 disposition=queued-local cancel-frame=none")));
         assert!(records
             .iter()
-            .any(|line| line.contains("Error::NotSupported source=profile")));
+            .any(|line| line.contains("Error::CancellationNotSupported source=profile")));
         assert!(records
             .iter()
             .any(|line| line.ends_with("transmissions kind=cancel count=0")));
@@ -2857,9 +2898,16 @@ mod lifecycle_trace {
 fn fatal_receive_io_table_drives_raw_and_wrapped_verdicts() {
     for &kind in crate::transport::FATAL_RECEIVE_IO_KINDS {
         for error in [
-            Error::Io(Arc::new(std::io::Error::from(kind))),
-            Error::Io(Arc::new(std::io::Error::from(kind))).with_context("read camera"),
-            Error::transport_error(Error::Io(Arc::new(std::io::Error::from(kind)))),
+            Error::Io {
+                source: Arc::new(std::io::Error::from(kind)),
+            },
+            Error::Io {
+                source: Arc::new(std::io::Error::from(kind)),
+            }
+            .with_context("read camera"),
+            Error::transport_error(Error::Io {
+                source: Arc::new(std::io::Error::from(kind)),
+            }),
         ] {
             let original = error.to_string();
             let OwnerReceive::Fatal(ReceiveFatal::TransportClosed { cause: Some(cause) }) =
@@ -2875,12 +2923,12 @@ fn fatal_receive_io_table_drives_raw_and_wrapped_verdicts() {
         }
     }
     for error in [
-        Error::Io(Arc::new(std::io::Error::from(
-            std::io::ErrorKind::ConnectionRefused,
-        ))),
-        Error::transport_error(Error::Io(Arc::new(std::io::Error::from(
-            std::io::ErrorKind::ConnectionRefused,
-        )))),
+        Error::Io {
+            source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+        },
+        Error::transport_error(Error::Io {
+            source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+        }),
     ] {
         assert!(matches!(
             OwnerReceive::read_error(error),

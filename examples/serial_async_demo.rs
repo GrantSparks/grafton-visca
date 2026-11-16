@@ -1,6 +1,6 @@
 //! Read-only Tokio serial VISCA example.
 //!
-//! The example builds a [`CameraConfig`](grafton_visca::camera::CameraConfig),
+//! The example builds a [`CameraConfig`](grafton_visca::config::CameraConfig),
 //! validates the requested VISCA camera ID before opening the device, performs
 //! two inquiries, and explicitly closes the session on both inquiry success and
 //! failure.
@@ -16,9 +16,8 @@
 use std::env;
 
 use grafton_visca::{
-    camera::{profiles::GenericVisca, CameraConfig},
-    runtime::TokioRuntime,
-    CameraId, Error,
+    config::CameraConfig, profiles::GenericVisca, r#async::CameraSession, runtime::TokioRuntime,
+    types::CameraId, Error,
 };
 
 #[derive(Debug)]
@@ -75,18 +74,20 @@ async fn main() -> Result<(), Error> {
     println!("Camera ID: {}", args.camera_id);
 
     let config = CameraConfig::<GenericVisca>::serial(args.port.clone(), 9600)
-        .try_camera_id(args.camera_id)?;
+        .with_camera_id(CameraId::new(args.camera_id)?);
     let runtime = TokioRuntime::from_current()?;
-    // Serial retains the multi-target session path; select the configured
-    // VISCA address explicitly after opening the shared bus.
-    let session = config.open_serial_async(runtime).await.map_err(|error| {
-        error.context(format!(
-            "failed to open VISCA camera {} on serial port {}",
-            args.camera_id, args.port
-        ))
-    })?;
+    // A single-camera serial configuration returns the same typed session
+    // shape as TCP and UDP; SessionConfig supports a shared multi-target bus.
+    let session = CameraSession::connect(&config, runtime)
+        .await
+        .map_err(|error| {
+            error.with_context(format!(
+                "failed to open VISCA camera {} on serial port {}",
+                args.camera_id, args.port
+            ))
+        })?;
 
-    let camera = session.camera_for::<GenericVisca>(CameraId::new(args.camera_id)?)?;
+    let camera = session.camera();
     println!("Serial camera session established; running read-only inquiries.");
     let inquiry_result = async {
         let version = camera
@@ -98,7 +99,7 @@ async fn main() -> Result<(), Error> {
 
         let power = camera
             .power()
-            .state()
+            .status()
             .await
             .map_err(|error| error.with_context("serial power inquiry failed"))?;
         println!("Power: {power:?}");

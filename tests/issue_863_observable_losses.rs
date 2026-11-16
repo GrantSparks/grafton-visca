@@ -6,7 +6,7 @@
     feature = "runtime-smol"
 ))]
 
-use grafton_visca::{profiles::GenericVisca, request::builtin::FocusModeCommand, SessionConfig};
+use grafton_visca::{config::SessionConfig, profiles::GenericVisca};
 use grafton_visca_test_support::{
     facade_matrix,
     fake_camera::{frames, FakeCamera},
@@ -19,11 +19,11 @@ facade_matrix! {
         });
         let session = open!(peer, SessionConfig::from_compile_time::<GenericVisca>().unwrap())
             .unwrap();
-        let camera = session.camera::<GenericVisca>().unwrap();
+        let camera = session.camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
         let fast = wait!(session.subscribe_diagnostics(128)).unwrap();
         let mut delivered = 0;
         for _ in 0..40 {
-            wait!(camera.execute(&FocusModeCommand::Manual)).unwrap();
+            wait!(camera.execute(&grafton_visca::command::focus::SetMode::new(grafton_visca::types::FocusMode::Manual))).unwrap();
             // A control response follows the terminal diagnostic on the owner.
             let metrics = wait!(session.metrics()).unwrap();
             delivered += std::iter::from_fn(|| fast.try_recv()).count();
@@ -35,7 +35,7 @@ facade_matrix! {
 
         // Events produced with no subscribers are not delivery losses.
         for _ in 0..40 {
-            wait!(camera.execute(&FocusModeCommand::Manual)).unwrap();
+            wait!(camera.execute(&grafton_visca::command::focus::SetMode::new(grafton_visca::types::FocusMode::Manual))).unwrap();
         }
         let metrics = wait!(session.metrics()).unwrap();
         assert_eq!(metrics.dropped_staged_diagnostics, 0);
@@ -43,7 +43,7 @@ facade_matrix! {
 
         let slow = wait!(session.subscribe_diagnostics(1)).unwrap();
         assert!(slow.try_recv().is_none(), "a subscription does not replay history");
-        wait!(camera.execute(&FocusModeCommand::Manual)).unwrap();
+        wait!(camera.execute(&grafton_visca::command::focus::SetMode::new(grafton_visca::types::FocusMode::Manual))).unwrap();
         let metrics = wait!(session.metrics()).unwrap();
         assert_eq!(metrics.dropped_staged_diagnostics, 0);
         assert!(metrics.dropped_diagnostic_events > 0);

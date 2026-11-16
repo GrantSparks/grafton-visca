@@ -7,8 +7,8 @@
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, CameraConfig},
-    transport::{TcpKeepaliveConfig, TransportConfig},
+    blocking::CameraSession, config::CameraConfig, profiles::PtzOpticsG2,
+    transport::TcpKeepaliveConfig, transport::TransportConfig,
 };
 
 #[derive(Clone, Copy)]
@@ -32,11 +32,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         TransportKind::Tcp => CameraConfig::<PtzOpticsG2>::tcp(&address),
         TransportKind::Udp => CameraConfig::<PtzOpticsG2>::udp(&address),
     }
-    .transport_config(transport_config(kind));
+    .with_transport_config(transport_config(kind));
 
-    let session = config.open()?;
+    let session = CameraSession::connect(&config)?;
     let camera = session.camera();
-    let state = camera.power().state()?;
+    let state = camera.power().status()?;
     println!("Power: {state:?}");
     session.close()?;
     Ok(())
@@ -45,14 +45,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Start from the transport's own defaults and adjust only the timeouts and
 /// keepalive.
 fn transport_config(kind: TransportKind) -> TransportConfig {
-    let mut config = match kind {
+    let config = match kind {
         TransportKind::Tcp => TransportConfig::for_tcp(),
         TransportKind::Udp => TransportConfig::for_udp(),
     };
-    config.connect_timeout = Duration::from_secs(3);
-    config.read_timeout = Duration::from_secs(2);
-    config.write_timeout = Duration::from_secs(2);
-    config.tcp_keepalive = matches!(kind, TransportKind::Tcp)
-        .then(|| TcpKeepaliveConfig::new(Duration::from_secs(30)));
     config
+        .with_connect_timeout(Duration::from_secs(3))
+        .with_read_timeout(Duration::from_secs(2))
+        .with_write_timeout(Duration::from_secs(2))
+        .with_tcp_keepalive(
+            matches!(kind, TransportKind::Tcp)
+                .then(|| TcpKeepaliveConfig::new(Duration::from_secs(30))),
+        )
 }

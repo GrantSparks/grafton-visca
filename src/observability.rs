@@ -15,6 +15,13 @@ use crate::{state_cache::StateKey, CameraId, ErrorKind};
 
 /// The externally observable state of one owner session.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum SessionStatus {
     /// The owner accepts work.
@@ -34,6 +41,13 @@ pub enum SessionStatus {
 /// immutable session admission policy.  A snapshot contains only scalar data
 /// and therefore does not clone any subscriber queue.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub struct MetricsSnapshot {
     /// Requests admitted into authoritative engine state.
@@ -126,10 +140,18 @@ pub struct MetricsSnapshot {
 
 /// Opaque identity for one diagnostic request lifecycle.
 ///
-/// The value is intentionally not constructible, inspectable, or convertible
-/// to a number by callers.  It is useful only for equality and correlation of
-/// events from one subscription.
+/// The Rust value has no public constructor or numeric accessor. With serde,
+/// its numeric form can be stored and restored for equality and correlation of
+/// events from one subscription. A restored identity grants no lifecycle
+/// authority; observing or cancelling work requires the corresponding handle.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct DiagnosticId(u64);
 
 #[cfg(any(feature = "blocking", feature = "async"))]
@@ -147,6 +169,13 @@ impl fmt::Debug for DiagnosticId {
 
 /// Request class carried by a diagnostic event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum DiagnosticLane {
     /// A command or operation request.
@@ -157,6 +186,13 @@ pub enum DiagnosticLane {
 
 /// Protocol phase without private timestamps, sockets, or transmission IDs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum DiagnosticPhase {
     /// Waiting in the owner ready queue.
@@ -180,6 +216,13 @@ pub enum DiagnosticPhase {
 
 /// Sanitized response category from one received frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum DiagnosticResponse {
     /// A VISCA acknowledgement was received.
@@ -205,8 +248,15 @@ pub enum DiagnosticResponse {
 /// Which of a request's own protocol deadlines expired.
 ///
 /// Cancellation deadlines are not reported here; they arrive as a
-/// [`DiagnosticEvent::CancellationObserved`] instead.
+/// [`crate::observability::DiagnosticEvent::CancellationObserved`] instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum DiagnosticDeadline {
     /// The acknowledgement deadline for a sent command expired.
@@ -219,6 +269,13 @@ pub enum DiagnosticDeadline {
 
 /// Sanitized terminal outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum DiagnosticOutcome {
     /// A raw plain fire-and-forget write reached the local transport. This is
@@ -236,6 +293,13 @@ pub enum DiagnosticOutcome {
 
 /// Sanitized cancellation observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum DiagnosticCancellation {
     /// Cancellation was recorded by the engine.
@@ -250,6 +314,13 @@ pub enum DiagnosticCancellation {
 
 /// Sanitized reason for an ignored engine input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum DiagnosticIgnoreReason {
     /// The request identity was not present.
@@ -280,6 +351,13 @@ pub enum DiagnosticIgnoreReason {
 
 /// A bounded, sanitized owner event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum DiagnosticEvent {
     /// A request entered authoritative owner state.
@@ -347,8 +425,8 @@ pub enum DiagnosticEvent {
     /// A request's own protocol deadline expired.
     ///
     /// `will_retry` is the scheduler's decision for this exact expiry, so a
-    /// subscriber never has to infer it from a [`DiagnosticEvent::Transition`]
-    /// and the absence of a following [`DiagnosticEvent::RetryScheduled`].
+    /// subscriber never has to infer it from a [`crate::observability::DiagnosticEvent::Transition`]
+    /// and the absence of a following [`crate::observability::DiagnosticEvent::RetryScheduled`].
     #[non_exhaustive]
     DeadlineExpired {
         /// Opaque request lifecycle identity.
@@ -424,7 +502,7 @@ pub enum DiagnosticEvent {
 /// counter.
 #[cfg(any(feature = "blocking", feature = "async"))]
 #[derive(Debug)]
-pub struct DiagnosticSubscription {
+pub(crate) struct DiagnosticSubscription {
     pub(crate) inner: crate::runtime::owner::DiagnosticSubscription,
 }
 
@@ -436,14 +514,19 @@ impl DiagnosticSubscription {
 
     /// Receives one event without waiting.  Empty and disconnected queues both
     /// return `None`.
-    pub fn try_recv(&self) -> Option<DiagnosticEvent> {
+    pub(crate) fn try_recv(&self) -> Option<DiagnosticEvent> {
         self.inner.try_recv()
     }
 
     /// Receives one event asynchronously under the selected executor.
     #[cfg(feature = "async")]
-    pub async fn recv(&self) -> Result<DiagnosticEvent, Error> {
+    pub(crate) async fn recv(&self) -> Result<DiagnosticEvent, Error> {
         self.inner.recv_async().await
+    }
+
+    #[cfg(feature = "blocking")]
+    pub(crate) fn recv_blocking(&self) -> Result<DiagnosticEvent, Error> {
+        self.inner.recv_blocking()
     }
 
     /// Waits up to `timeout` for one event on the calling thread.
@@ -454,11 +537,88 @@ impl DiagnosticSubscription {
     /// [`Error::RuntimeShutdown`]; peer closure, poison and owner failure keep
     /// their original cause.
     #[cfg(feature = "blocking")]
-    pub fn recv_timeout(
+    pub(crate) fn recv_timeout(
         &self,
         timeout: std::time::Duration,
     ) -> Result<Option<DiagnosticEvent>, Error> {
         self.inner.recv_timeout(timeout)
+    }
+}
+
+/// One reusable diagnostic deadline, bound to the session's selected executor.
+#[cfg(feature = "async")]
+pub(crate) struct DiagnosticWait {
+    clock: crate::runtime::owner::BoundClock,
+    // A mutex preserves Sync without holding a guard across an await. Timed
+    // reads require &mut self and access the timer through get_mut().
+    timer: std::sync::Mutex<std::pin::Pin<Box<dyn crate::executor::ResettableTimer>>>,
+}
+
+#[cfg(feature = "async")]
+impl DiagnosticWait {
+    pub(crate) fn new(clock: crate::runtime::owner::BoundClock) -> Self {
+        let timer = clock.diagnostic_timer(clock.now());
+        Self {
+            clock,
+            timer: std::sync::Mutex::new(timer),
+        }
+    }
+
+    pub(crate) async fn recv_with_timeout(
+        &mut self,
+        subscription: &DiagnosticSubscription,
+        timeout: std::time::Duration,
+    ) -> crate::Result<Option<DiagnosticEvent>> {
+        use std::{
+            future::{poll_fn, Future},
+            pin::pin,
+            task::Poll,
+        };
+        let Some(deadline) = self.clock.now().checked_add(timeout) else {
+            return subscription.recv().await.map(Some);
+        };
+        let timer = self
+            .timer
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        timer.as_mut().reset(deadline);
+        let armed = DiagnosticTimerArm {
+            timer,
+            clock: &self.clock,
+        };
+        let mut receive = pin!(subscription.recv());
+        poll_fn(|context| {
+            if let Poll::Ready(event) = receive.as_mut().poll(context) {
+                return Poll::Ready(event.map(Some));
+            }
+            if armed.timer.as_mut().poll(context).is_ready() {
+                // A queued event or terminal cause at the deadline takes
+                // precedence over an otherwise empty observation window.
+                return match receive.as_mut().poll(context) {
+                    Poll::Ready(event) => Poll::Ready(event.map(Some)),
+                    Poll::Pending => Poll::Ready(Ok(None)),
+                };
+            }
+            Poll::Pending
+        })
+        .await
+    }
+}
+
+#[cfg(feature = "async")]
+struct DiagnosticTimerArm<'a> {
+    timer: &'a mut std::pin::Pin<Box<dyn crate::executor::ResettableTimer>>,
+    clock: &'a crate::runtime::owner::BoundClock,
+}
+
+#[cfg(feature = "async")]
+impl Drop for DiagnosticTimerArm<'_> {
+    fn drop(&mut self) {
+        // A completed or abandoned receive must not retain an armed virtual
+        // deadline or the caller's waker. Reuse the existing timer storage.
+        self.timer.as_mut().reset(self.clock.now());
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        let _ = std::future::Future::poll(self.timer.as_mut(), &mut context);
     }
 }
 
@@ -520,5 +680,103 @@ mod diagnostic_size_tests {
     #[test]
     fn sanitized_events_fit_in_sixteen_byte_subscriber_slots() {
         assert!(size_of::<super::DiagnosticEvent>() <= 16);
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod portable_data_tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_events_round_trip_as_closed_sanitized_records() -> Result<(), serde_json::Error> {
+        let event = DiagnosticEvent::DeadlineExpired {
+            id: DiagnosticId(42),
+            target: CameraId::CAMERA_3,
+            deadline: DiagnosticDeadline::InquiryReply,
+            will_retry: true,
+        };
+        let json = serde_json::json!({
+            "deadline_expired": {
+                "id": 42, "target": 3, "deadline": "inquiry_reply", "will_retry": true
+            }
+        });
+        assert_eq!(serde_json::to_value(event)?, json);
+        assert_eq!(serde_json::from_value::<DiagnosticEvent>(json)?, event);
+        assert!(
+            serde_json::from_value::<DiagnosticEvent>(serde_json::json!({
+                "deadline_expired": {
+                    "id": 42, "target": 0, "deadline": "inquiry_reply", "will_retry": true
+                }
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<DiagnosticEvent>(serde_json::json!({
+                "ignored": {"reason": "unknown_request", "wire_bytes": [144, 81, 255]}
+            }))
+            .is_err()
+        );
+        let terminal = DiagnosticOutcome::Failed(ErrorKind::Unconfirmed);
+        assert_eq!(
+            serde_json::to_value(terminal)?,
+            serde_json::json!({"failed":"unconfirmed"})
+        );
+        assert_eq!(
+            serde_json::to_value(DiagnosticId(u64::MAX))?,
+            serde_json::json!(u64::MAX)
+        );
+        assert_eq!(format!("{:?}", DiagnosticId(42)), "DiagnosticId(..)");
+        Ok(())
+    }
+
+    #[test]
+    fn metric_snapshots_keep_full_counters_and_session_state() -> Result<(), serde_json::Error> {
+        let snapshot = MetricsSnapshot {
+            admitted: u64::MAX,
+            active: 2,
+            pending: 3,
+            session: SessionStatus::Poisoned,
+            ..MetricsSnapshot::default()
+        };
+        let mut json = serde_json::to_value(snapshot)?;
+        assert_eq!(json["admitted"], u64::MAX);
+        assert_eq!(json["session"], "poisoned");
+        assert_eq!(
+            serde_json::from_value::<MetricsSnapshot>(json.clone())?,
+            snapshot
+        );
+        json["private_queue"] = serde_json::json!([]);
+        assert!(serde_json::from_value::<MetricsSnapshot>(json).is_err());
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    fn diagnostic_schema_and_typescript_describe_sanitized_payloads() {
+        let schema = schemars::schema_for!(MetricsSnapshot);
+        assert_eq!(schema.as_value()["additionalProperties"], false);
+        assert_eq!(
+            schema.as_value()["properties"]["admitted"]["type"],
+            "integer"
+        );
+        let config = ts_rs::Config::default();
+        assert_eq!(
+            <DiagnosticId as ts_rs::TS>::decl(&config),
+            "type DiagnosticId = bigint;"
+        );
+        let event = <DiagnosticEvent as ts_rs::TS>::decl(&config)
+            .lines()
+            .filter(|line| {
+                let line = line.trim_start();
+                !line.starts_with('*') && !line.starts_with("/**")
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(event.contains("\"deadline_expired\": { id: DiagnosticId, target: CameraId, deadline: DiagnosticDeadline, will_retry: boolean,"));
+        assert!(!event.contains("socket"));
+        assert!(!event.contains("timestamp"));
     }
 }

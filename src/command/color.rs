@@ -109,7 +109,6 @@ impl HueCommand {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum ColorTemperature {
     /// Reset color temperature to default value.
     Reset,
@@ -168,7 +167,6 @@ pub(crate) fn decode_color_temperature(value: u16) -> crate::Result<crate::types
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum RedGain {
     /// Reset red gain to default value.
     Reset,
@@ -198,7 +196,6 @@ step_command_encoder! {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum BlueGain {
     /// Reset blue gain to default value.
     Reset,

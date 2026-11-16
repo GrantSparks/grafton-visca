@@ -2,7 +2,10 @@
 #![cfg(feature = "serde")]
 #![allow(clippy::expect_used)]
 
-use grafton_visca::{profiles::PtzOpticsG2, OperationalTuning, ProfileSpec, ProfileTiming};
+use grafton_visca::{
+    config::OperationalTuning,
+    profiles::{ProfileSpec, ProfileTiming, PtzOpticsG2},
+};
 use serde_json::{json, Value};
 #[cfg(feature = "schemars")]
 use std::collections::BTreeSet;
@@ -120,18 +123,38 @@ fn schema_requires_every_profile_fact_and_closes_every_object() {
                         Some(&json!(false)),
                         "{path}"
                     );
-                    let actual: BTreeSet<_> = fields
-                        .get("required")
-                        .and_then(Value::as_array)
-                        .expect("required properties")
-                        .iter()
-                        .map(|v| v.as_str().expect("key"))
-                        .collect();
-                    assert_eq!(
-                        actual,
-                        properties.keys().map(String::as_str).collect(),
-                        "{path}"
-                    );
+                    if path == "/$defs/ProfileEncodings" {
+                        // This is a sparse selection map: grants make entries
+                        // mandatory during ProfileSpec validation. Its key set
+                        // stays closed, while an empty grant set uses {}.
+                        assert_eq!(
+                            properties
+                                .keys()
+                                .map(String::as_str)
+                                .collect::<BTreeSet<_>>(),
+                            BTreeSet::from(["one_push_white_balance", "preset_recall_speed"]),
+                            "{path}"
+                        );
+                        assert!(
+                            fields.get("required").is_none_or(|required| {
+                                required.as_array().is_some_and(Vec::is_empty)
+                            }),
+                            "{path}: standalone selections remain optional"
+                        );
+                    } else {
+                        let actual: BTreeSet<_> = fields
+                            .get("required")
+                            .and_then(Value::as_array)
+                            .unwrap_or_else(|| panic!("{path}: required properties"))
+                            .iter()
+                            .map(|v| v.as_str().expect("key"))
+                            .collect();
+                        assert_eq!(
+                            actual,
+                            properties.keys().map(String::as_str).collect(),
+                            "{path}"
+                        );
+                    }
                 }
                 for (key, child) in fields {
                     check(child, &format!("{path}/{key}"), objects);

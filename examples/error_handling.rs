@@ -13,10 +13,8 @@ mod support;
 use std::{env, io, time::Duration};
 
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, CameraConfig},
-    runtime::TokioRuntime,
-    transport::TransportConfig,
-    Error, Recovery,
+    config::CameraConfig, error::Recovery, profiles::PtzOpticsG2, r#async::CameraSession,
+    runtime::TokioRuntime, transport::TransportConfig, Error,
 };
 
 use support::finish_session;
@@ -95,16 +93,15 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
     println!("\nConnection check:");
     println!("  Address: {address}");
 
-    let config = CameraConfig::<PtzOpticsG2>::tcp(address).transport_config({
-        let mut config = TransportConfig::for_tcp();
-        config.connect_timeout = Duration::from_secs(3);
-        config.read_timeout = Duration::from_secs(2);
-        config.write_timeout = Duration::from_secs(2);
-        config
-    });
+    let config = CameraConfig::<PtzOpticsG2>::tcp(address).with_transport_config(
+        TransportConfig::for_tcp()
+            .with_connect_timeout(Duration::from_secs(3))
+            .with_read_timeout(Duration::from_secs(2))
+            .with_write_timeout(Duration::from_secs(2)),
+    );
 
     let runtime = TokioRuntime::from_current()?;
-    let session = match config.open_async(runtime).await {
+    let session = match CameraSession::connect(&config, runtime).await {
         Ok(session) => session,
         Err(error) => {
             println!("  Connection failed: {error}");
@@ -114,7 +111,7 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
     };
 
     let camera = session.camera();
-    let inquiry_result = camera.power().state().await;
+    let inquiry_result = camera.power().status().await;
     match &inquiry_result {
         Ok(status) => println!("  Connected. Power status is {status:?}."),
         Err(error) => println!("  Connected, but power inquiry failed: {error}"),

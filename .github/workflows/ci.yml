@@ -188,7 +188,6 @@ jobs:
           set -euo pipefail
           cargo check --examples --no-default-features
           cargo check --examples --no-default-features --features blocking
-          cargo check --examples --no-default-features --features blocking,dyn-api
           cargo check --examples --no-default-features --features runtime-tokio
           cargo check --examples --no-default-features --features runtime-smol
           cargo check --examples --all-features
@@ -197,10 +196,12 @@ jobs:
           set -euo pipefail
           cargo run --example type_safe_commands --no-default-features
           cargo run --example runtime_agnostic --no-default-features --features async
-          cargo run --example custom_request --no-default-features --features blocking,dyn-api
+          cargo run --example custom_request --no-default-features --features blocking
           cargo run --example multi_camera --no-default-features --features blocking
           cargo run --example recovery --no-default-features --features blocking
           cargo run --example cancellation_blocking --no-default-features --features blocking
+          # Exercises export/check for every registered ID, strict JSON and CLI errors.
+          cargo test --example profile_spec --no-default-features --features serde
       - name: Build strict documentation and run doctests
         env:
           RUSTDOCFLAGS: "-D warnings"
@@ -209,13 +210,13 @@ jobs:
           cargo doc --workspace --all-features --no-deps
           # Keep this blocking-free surface strict: all-features makes
           # blocking-only intra-doc links resolve and would mask their cfg.
-          cargo doc --no-default-features --features runtime-tokio,dyn-api --no-deps
+          cargo doc --no-default-features --features runtime-tokio --no-deps
           cargo test --doc --no-default-features
           cargo test --doc --no-default-features --features async
           # Default features compile the README quick start through the
           # cfg(doctest) README gate in src/lib.rs.
           cargo test --doc
-          cargo test --doc --no-default-features --features blocking,dyn-api
+          cargo test --doc --no-default-features --features blocking
           cargo test --doc --all-features
 
   lint:
@@ -238,7 +239,7 @@ jobs:
       - env:
           RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --workspace --all-features --no-deps
-      - name: Removed and facade-less feature selections are rejected
+      - name: Removed feature selections are rejected
         run: bash .github/scripts/test-all-features.sh rejections
 
   fuzz:
@@ -313,6 +314,7 @@ jobs:
           python3 .github/scripts/validate-change-record.py "${base}" "${head}"
           bash .github/scripts/test-validate-change-record.sh
           bash .github/scripts/test-check-public-api.sh
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/test-check-public-layout.py
       - name: Check clean-checkout, hardware, and registry-payload gates
         run: |
           bash .github/scripts/test-validate-release.sh
@@ -380,14 +382,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Three surfaces, not seven. `blocking` is a strict superset of the bare
-        # `--no-default-features` surface and `tokio-dyn` is a strict superset of
-        # the `async` surface, so those two legs subsume four of the retired
-        # ones; `all-features` covers the rest (including the smol adapter,
-        # whose items mirror the tokio ones). See CONTRIBUTING.md.
+        # Blocking covers the bare no-default surface. Async selects Tokio and
+        # covers runtime-neutral async; all-features covers the remaining
+        # adapters and integrations. The comparator reads each source revision's
+        # manifest to retain dyn-api when required by an older base.
         include:
           - name: blocking
-          - name: tokio-dyn
+          - name: async
           - name: all-features
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -422,6 +423,23 @@ jobs:
           fi
           base="$(git merge-base "${API_BASE_REF}" HEAD)"
           bash .github/scripts/check-public-api.sh "${base}" "${{ matrix.name }}"
+      - name: Check canonical public paths and duplicate exports
+        shell: bash
+        run: |
+          set -euo pipefail
+          surface="${{ matrix.name }}"
+          case "${surface}" in
+            blocking) flags=(--no-default-features --features blocking) ;;
+            async) flags=(--no-default-features --features runtime-tokio) ;;
+            all-features) flags=(--all-features) ;;
+            *) exit 2 ;;
+          esac
+          output="target/public-api/${surface}/layout"
+          CARGO_TARGET_DIR="${output}" cargo +nightly-2026-08-26 rustdoc --lib "${flags[@]}" -- \
+            -Z unstable-options --output-format json --document-private-items --document-hidden-items
+          python3 .github/scripts/check-public-layout.py \
+            "${output}/doc/grafton_visca.json" --surface "${surface}" \
+            --report "target/public-api/${surface}/layout-report.json"
       - name: Upload API listings and review diff
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -430,6 +448,7 @@ jobs:
           path: |
             target/public-api/${{ matrix.name }}/*.txt
             target/public-api/${{ matrix.name }}/*.diff
+            target/public-api/${{ matrix.name }}/layout-report.json
           if-no-files-found: ignore
 
   downstream:

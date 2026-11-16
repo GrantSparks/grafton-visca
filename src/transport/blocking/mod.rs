@@ -190,7 +190,7 @@ mod helper_tests {
             .expect_err("a write claiming more than it was given is rejected");
         assert!(matches!(
             error,
-            Error::Io(ref io_error) if io_error.kind() == ErrorKind::InvalidData
+            Error::Io { source: ref io_error } if io_error.kind() == ErrorKind::InvalidData
         ));
     }
 
@@ -202,7 +202,7 @@ mod helper_tests {
         };
         assert!(matches!(
             write(&mut io, b"VISCA", Duration::from_secs(1)),
-            Err(Error::Io(ref io_error)) if io_error.kind() == ErrorKind::WriteZero
+            Err(Error::Io { source: ref io_error }) if io_error.kind() == ErrorKind::WriteZero
         ));
     }
 

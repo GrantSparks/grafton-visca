@@ -4,14 +4,13 @@
 
 use grafton_visca::{
     capabilities::{CapabilityRange, PanTiltWireCodec},
+    config::{MountPosition, TargetRegistration},
     profiles::{
-        GenericVisca, NearusBRC300, ProfileId, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
+        GenericVisca, NearusBrc300, ProfileId, ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3,
+        SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
     },
-    request::builtin::{PanTiltAbsolute, PanTiltRelative},
-    types::{PanSpeed, TiltSpeed},
-    units::Degrees,
-    CameraId, MountPosition, ProfileSpec, Request, TargetRegistration,
+    request::Request,
+    types::{CameraId, Degrees, PanSpeed, TiltSpeed},
 };
 use proptest::prelude::*;
 
@@ -19,12 +18,12 @@ fn targets() -> Vec<TargetRegistration> {
     let profiles = [
         ProfileSpec::from_compile_time::<PtzOpticsG2>(),
         ProfileSpec::from_compile_time::<PtzOpticsG3>(),
-        ProfileSpec::from_compile_time::<PtzOptics30X>(),
-        ProfileSpec::from_compile_time::<SonyFR7>(),
-        ProfileSpec::from_compile_time::<SonyBRCH900>(),
-        ProfileSpec::from_compile_time::<SonyEVIH100>(),
-        ProfileSpec::from_compile_time::<SonyBRC300>(),
-        ProfileSpec::from_compile_time::<NearusBRC300>(),
+        ProfileSpec::from_compile_time::<PtzOptics30x>(),
+        ProfileSpec::from_compile_time::<SonyFr7>(),
+        ProfileSpec::from_compile_time::<SonyBrcH900>(),
+        ProfileSpec::from_compile_time::<SonyEviH100>(),
+        ProfileSpec::from_compile_time::<SonyBrc300>(),
+        ProfileSpec::from_compile_time::<NearusBrc300>(),
         ProfileSpec::from_compile_time::<GenericVisca>(),
     ];
     assert_eq!(
@@ -41,7 +40,7 @@ fn targets() -> Vec<TargetRegistration> {
     targets.push(
         TargetRegistration::new(
             CameraId::CAMERA_1,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         )
         .expect("FR7 target")
         .with_mount(MountPosition::Ceiling)
@@ -87,24 +86,32 @@ fn words<R: Request>(request: &R, target: &TargetRegistration) -> (i32, i32) {
 }
 
 fn relative(target: &TargetRegistration, pan: f32, tilt: f32) -> (i32, i32) {
-    let request = PanTiltRelative::for_target(
-        Degrees::new(pan).expect("valid degrees"),
-        Degrees::new(tilt).expect("valid degrees"),
-        PanSpeed::new(1).expect("speed"),
-        TiltSpeed::new(1).expect("speed"),
+    let request = grafton_visca::command::pan_tilt::Relative::for_target(
         target,
+        grafton_visca::types::PanTiltPosition {
+            pan: Degrees::new(pan).expect("valid degrees"),
+            tilt: Degrees::new(tilt).expect("valid degrees"),
+        },
+        grafton_visca::types::PanTiltSpeed {
+            pan: PanSpeed::new(1).expect("speed"),
+            tilt: TiltSpeed::new(1).expect("speed"),
+        },
     )
     .expect("reachable offset");
     words(&request, target)
 }
 
 fn absolute(target: &TargetRegistration, pan: f32, tilt: f32) -> (i32, i32) {
-    let request = PanTiltAbsolute::for_target(
-        Degrees::new(pan).expect("valid degrees"),
-        Degrees::new(tilt).expect("valid degrees"),
-        PanSpeed::new(1).expect("speed"),
-        TiltSpeed::new(1).expect("speed"),
+    let request = grafton_visca::command::pan_tilt::Absolute::for_target(
         target,
+        grafton_visca::types::PanTiltPosition {
+            pan: Degrees::new(pan).expect("valid degrees"),
+            tilt: Degrees::new(tilt).expect("valid degrees"),
+        },
+        grafton_visca::types::PanTiltSpeed {
+            pan: PanSpeed::new(1).expect("speed"),
+            tilt: TiltSpeed::new(1).expect("speed"),
+        },
     )
     .expect("reachable absolute point");
     words(&request, target)
@@ -148,12 +155,17 @@ fn every_builtin_span_boundary_encodes_and_one_more_unit_is_refused() {
             } else {
                 (pan + pan.signum(), 0)
             };
-            let result = PanTiltRelative::for_target(
-                Degrees::new(conversion.pan_degrees(outside_pan)).expect("valid degrees"),
-                Degrees::new(conversion.tilt_degrees(outside_tilt)).expect("valid degrees"),
-                PanSpeed::new(1).expect("speed"),
-                TiltSpeed::new(1).expect("speed"),
+            let result = grafton_visca::command::pan_tilt::Relative::for_target(
                 &target,
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(conversion.pan_degrees(outside_pan)).expect("valid degrees"),
+                    tilt: Degrees::new(conversion.tilt_degrees(outside_tilt))
+                        .expect("valid degrees"),
+                },
+                grafton_visca::types::PanTiltSpeed {
+                    pan: PanSpeed::new(1).expect("speed"),
+                    tilt: TiltSpeed::new(1).expect("speed"),
+                },
             );
             assert!(
                 matches!(result, Err(grafton_visca::Error::InvalidParameter { .. })),
@@ -228,7 +240,10 @@ proptest! {
 ))]
 mod facades {
     use grafton_visca::{
-        profiles::PtzOpticsG2, types::SpeedLevel, units::Degrees, Error, SessionConfig,
+        config::SessionConfig,
+        profiles::PtzOpticsG2,
+        types::{Degrees, SpeedLevel},
+        Error,
     };
     use grafton_visca_test_support::{
         facade_matrix,
@@ -251,35 +266,42 @@ mod facades {
         fn g2_out_of_absolute_range_relative_move_reaches_the_registered_target() {
             let fake = camera();
             let session = open!(fake, SessionConfig::from_compile_time::<PtzOpticsG2>().expect("G2 config")).expect("session");
-            let view = session.camera::<PtzOpticsG2>().expect("G2 view");
-            let error = wait!(view.pan_tilt().absolute(Degrees::new(0.0).expect("valid degrees"), Degrees::new(-45.0).expect("valid degrees"), SpeedLevel::Slowest)).expect_err("absolute refusal");
+            let view = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 view");
+            let error = wait!(view.pan_tilt().absolute(grafton_visca::types::PanTiltPosition { pan: Degrees::new(0.0).expect("valid degrees"), tilt: Degrees::new(-45.0).expect("valid degrees") }, SpeedLevel::Slowest)).expect_err("absolute refusal");
             assert!(matches!(error, Error::InvalidParameter { .. }));
             assert_eq!(fake.write_count(), 0);
-            let mut operation = wait!(view.pan_tilt().relative(Degrees::new(0.0).expect("valid degrees"), Degrees::new(-45.0).expect("valid degrees"), SpeedLevel::Slowest)).expect("relative admission");
+            let mut operation = wait!(view.pan_tilt().relative(grafton_visca::types::PanTiltPosition { pan: Degrees::new(0.0).expect("valid degrees"), tilt: Degrees::new(-45.0).expect("valid degrees") }, SpeedLevel::Slowest)).expect("relative admission");
             wait!(operation.applied()).expect("relative applied");
             assert_eq!(fake.take_only_payload(), RELATIVE);
             wait!(session.close()).expect("close");
         }
     }
 
-    #[cfg(all(feature = "dyn-api", feature = "runtime-tokio"))]
+    #[cfg(all(
+        any(feature = "async", feature = "blocking"),
+        feature = "runtime-tokio"
+    ))]
     #[tokio::test(start_paused = true)]
     async fn dynamic_g2_uses_the_same_relative_span_and_signed_words() {
-        use grafton_visca::{Session, TokioExecutor};
+        use grafton_visca::{r#async::Session, runtime::TokioExecutor};
         let fake = camera();
         let session = Session::open(
             fake.async_wire(),
-            SessionConfig::from_compile_time::<PtzOpticsG2>().expect("G2 config"),
+            &SessionConfig::from_compile_time::<PtzOpticsG2>().expect("G2 config"),
             TokioExecutor::from_current().expect("Tokio executor"),
         )
         .await
         .expect("session");
-        let view = session.camera_dyn().expect("dynamic view");
+        let view = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic view");
         let error = view
             .pan_tilt()
             .absolute(
-                Degrees::new(0.0).expect("valid degrees"),
-                Degrees::new(-45.0).expect("valid degrees"),
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(0.0).expect("valid degrees"),
+                    tilt: Degrees::new(-45.0).expect("valid degrees"),
+                },
                 SpeedLevel::Slowest,
             )
             .await
@@ -289,8 +311,10 @@ mod facades {
         let mut operation = view
             .pan_tilt()
             .relative(
-                Degrees::new(0.0).expect("valid degrees"),
-                Degrees::new(-45.0).expect("valid degrees"),
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(0.0).expect("valid degrees"),
+                    tilt: Degrees::new(-45.0).expect("valid degrees"),
+                },
                 SpeedLevel::Slowest,
             )
             .await

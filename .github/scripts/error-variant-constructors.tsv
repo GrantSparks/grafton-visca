@@ -4,19 +4,19 @@ ConnectionClosed	src/error.rs	Self::ConnectionClosed { source }
 CommandPending	src/command/response/types.rs	Response::CmdAck { .. } => Err(Error::CommandPending)
 InvalidResponse	src/command/response/types.rs	Response::Unknown { data, .. } => Err(Error::InvalidResponse {
 FeatureNotSupported	src/prepared.rs	crate::capabilities::InquirySupport::None ) { return Err(Error::FeatureNotSupported {
-Io	src/error.rs	Self::Io(Arc::new(err))
+Io	src/error.rs	Self::Io { source: Arc::new(err), }
 SyntaxError	src/error.rs	0x02 => Self::SyntaxError,
 CommandBufferFull	src/error.rs	0x03 => Self::CommandBufferFull,
-CommandCanceled	src/error.rs	0x04 => Self::CommandCanceled,
+CommandCancelled	src/error.rs	0x04 => Self::CommandCancelled,
 NoSocket	src/error.rs	0x05 => Self::NoSocket,
 CommandNotExecutable	src/error.rs	0x41 => Self::CommandNotExecutable,
 InvalidResponseFormat	src/command/response/payload.rs	let Some(padding) = N.checked_sub(digits) else { return Err(Error::InvalidResponseFormat);
 InvalidResponseLength	src/error.rs	Self::InvalidResponseLength { expected, actual: payload.len(),
 UnexpectedResponseType	src/command/inquiry_structs.rs	Response::Error(e) => Err(e), _ => Err(Error::UnexpectedResponseType),
-Unknown	src/error.rs	_ => Self::Unknown(code),
-InvalidRequest	src/raw.rs	if bytes.len() < 2 { return Err(Error::InvalidRequest(
+Unknown	src/error.rs	_ => Self::Unknown { code },
+InvalidRequest	src/raw.rs	if bytes.len() < 2 { return Err(Error::InvalidRequest { reason:
 MessageLengthError	src/error.rs	0x01 => Self::MessageLengthError,
-ParseError	src/error.rs	Self::ParseError(Cow::Owned(err.to_string()))
+ParseError	src/error.rs	Self::ParseError { reason: Cow::Owned(err.to_string()), }
 TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
 InvalidParameter	src/macros/public.rs	crate::Error::InvalidParameter { parameter, value: ::std::borrow::Cow::Borrowed(
 BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))
@@ -29,8 +29,8 @@ CancellationObservationFailed	src/error.rs	Self::CancellationObservationFailed {
 ObservationTimeout	src/runtime/owner/mod.rs	Error::ObservationTimeout {
 ControlReserveExhausted	src/runtime/owner/mod.rs	return Err(Error::ControlReserveExhausted {
 MaxRetriesExceeded	src/transport/serial/handshake.rs	self.fail(Error::MaxRetriesExceeded);
-NotSupported	src/runtime/owner/adapter.rs	if identity.addressing() != AddressingMode::Serial { return Err(Error::NotSupported);
-InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState(format!("blocking owner worker cannot call {call} on its own session").into(),));
+CancellationNotSupported	src/runtime/engine/lifecycle.rs	let refused = || CancellationDecision::Refused(crate::Error::CancellationNotSupported);
+InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState { reason: format!("blocking owner worker cannot call {call} on its own session").into(), });
 OwnerTerminated	src/runtime/owner/boundary.rs	fn missing_terminal_error() -> Error { Error::OwnerTerminated }
 DiagnosticSubscriberLimit	src/runtime/owner/mod.rs	return Err(Error::DiagnosticSubscriberLimit {
 RuntimeShutdown	src/runtime/engine/mod.rs	self.terminate_session( SessionState::Shutdown, Error::RuntimeShutdown, now, effects, )
@@ -44,7 +44,7 @@ RuntimeQueueFull	src/runtime/engine/mod.rs	return Err(Error::RuntimeQueueFull {
 StreamPoisoned	src/error.rs	Self::StreamPoisoned { source }
 InvalidCameraId	src/camera_id.rs	error = Error::InvalidCameraId { id: value }
 ResponseTooLarge	src/error.rs	Self::ResponseTooLarge { max_size }
-InquiryNotCancelable	src/runtime/engine/mod.rs	CancellationDecision::Refused(Error::InquiryNotCancelable)
+InquiryNotCancellable	src/runtime/engine/mod.rs	CancellationDecision::Refused(Error::InquiryNotCancellable)
 InvalidAddress	src/transport/address.rs	Error::InvalidAddress { reason: reason.into(), }
 UnsupportedTransport	src/runtime/owner/adapter.rs	return Err(Error::UnsupportedTransport {
 MissingRuntime	src/executor.rs	.map_err(|_| Error::MissingRuntime)

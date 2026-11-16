@@ -1,6 +1,8 @@
 #![cfg(feature = "blocking")]
 //! Targeted hardware experiments for the rc.3 bench findings (PTZOptics G2,
 //! Raw VISCA over TCP). Ignored by default; each needs `VISCA_CAMERA_IP`.
+//! `VISCA_PROFILE` selects the runtime `snake_case` id (default `ptzoptics_g2`);
+//! these original bench assertions remain unchanged for the selected camera.
 //!
 //! - `e1_manual_focus_halt` (`VISCA_HW_ALLOW_SETTINGS=1`): switch to manual
 //!   focus, run the owner halt, restore auto focus. Discriminates whether the
@@ -17,9 +19,10 @@ use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use grafton_visca::blocking::{Camera, Connect};
-use grafton_visca::camera::profiles::PtzOpticsG2;
+use grafton_visca::blocking::Camera;
+use grafton_visca::profiles::AnyProfile;
 use grafton_visca::Error;
+use grafton_visca_test_support::hardware;
 
 struct Hw(Instant);
 
@@ -41,13 +44,16 @@ fn address(hw: &Hw) -> Option<String> {
 
 /// Restores auto focus on drop, so a failed step never leaves manual focus.
 struct AutoFocusGuard<'a> {
-    camera: &'a Camera<PtzOpticsG2>,
+    camera: &'a Camera<AnyProfile>,
     hw: &'a Hw,
 }
 
 impl Drop for AutoFocusGuard<'_> {
     fn drop(&mut self) {
-        let restore = self.camera.focus().auto();
+        let restore = self
+            .camera
+            .focus()
+            .set_mode(grafton_visca::types::FocusMode::Auto);
         self.hw.log(format_args!("restore.focus_auto={restore:?}"));
         let mode = self.camera.focus().mode();
         self.hw.log(format_args!("RESTORED focus_mode={mode:?}"));
@@ -63,20 +69,25 @@ fn e1_manual_focus_halt() {
         hw.log("SKIP VISCA_HW_ALLOW_SETTINGS!=1");
         return;
     }
-    let session = Connect::open_tcp::<PtzOpticsG2>(address).expect("open TCP session");
+    let session = grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+        &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(address)),
+    )
+    .expect("open TCP session");
     let camera = session.camera();
     let original = camera.focus().mode();
     hw.log(format_args!("focus_mode.original={original:?}"));
     {
         let _guard = AutoFocusGuard { camera, hw: &hw };
-        let manual = camera.focus().manual();
+        let manual = camera
+            .focus()
+            .set_mode(grafton_visca::types::FocusMode::Manual);
         hw.log(format_args!("focus_manual.applied={manual:?}"));
         hw.log(format_args!(
             "focus_mode.during={:?}",
             camera.focus().mode()
         ));
         let started = Instant::now();
-        let report = camera.motion().stop_all_motion();
+        let report = camera.motion().stop_all();
         hw.log(format_args!(
             "halt.elapsed_ms={} report={report:?}",
             started.elapsed().as_millis()
@@ -104,14 +115,23 @@ fn e5_stale_stream_reply_binding() {
     assert!(!flag.exists(), "fault flag must not exist before the test");
 
     let truth = {
-        let fresh = Connect::open_tcp::<PtzOpticsG2>(address.clone()).expect("open truth");
+        let fresh = grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+            &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(
+                address.clone(),
+            )),
+        )
+        .expect("open truth");
         let mode = fresh.camera().white_balance().mode();
         let _ = fresh.close();
         mode
     };
     hw.log(format_args!("truth.white_balance_mode={truth:?}"));
 
-    let session = Connect::open_tcp::<PtzOpticsG2>(address.clone()).expect("open TCP session");
+    let session =
+        grafton_visca::blocking::CameraSession::<AnyProfile>::connect(&hardware::camera_config(
+            grafton_visca::config::TransportOptions::tcp(address.clone()),
+        ))
+        .expect("open TCP session");
     let camera = session.camera();
     hw.log(format_args!(
         "before_fault.white_balance_mode={:?}",
@@ -126,7 +146,7 @@ fn e5_stale_stream_reply_binding() {
     hw.log("fault.flag_seen");
 
     let started = Instant::now();
-    let power = camera.power().state();
+    let power = camera.power().status();
     hw.log(format_args!(
         "during_fault.power elapsed_ms={} result={power:?}",
         started.elapsed().as_millis()

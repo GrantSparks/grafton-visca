@@ -1,6 +1,5 @@
 use grafton_visca::{
-    command::{ExposureMode, InquiryData},
-    Error, Inquiry, ViscaInquiry,
+    __macro_support::InquiryData, request::Inquiry, types::ExposureMode, Error, ViscaInquiry,
 };
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
@@ -35,6 +34,12 @@ fn main() {
         ModeInquiry.decoder().decode(&[0x00]).unwrap(),
         ExposureMode::Auto
     );
-    assert_eq!(NibbleInquiry.decoder().decode(&[0x00, 0x00, 0x00, 0x05]).unwrap(), 5);
+    assert_eq!(
+        NibbleInquiry
+            .decoder()
+            .decode(&[0x00, 0x00, 0x00, 0x05])
+            .unwrap(),
+        5
+    );
     assert!(CustomInquiry.decoder().decode(&[0xA5]).unwrap());
 }

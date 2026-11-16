@@ -1,14 +1,31 @@
-//! Tests for inquiry response parsing with golden test data.
-//!
-//! This module tests the parsing of VISCA inquiry responses using
-//! real-world response patterns from PTZ cameras.
+//! Golden full-frame inquiry replies through the public frame parser and typed decoders.
 
-use grafton_visca::command::{InquiryData, InquiryKind, Response};
+use grafton_visca::{
+    command::{exposure, focus, image, pan_tilt, power, tally, white_balance, zoom},
+    profiles::{GenericVisca, ProfileSpec, SonyFr7},
+    request::Inquiry,
+    types::{AutoWhiteBalanceSensitivity, ImageFlipMode, WhiteBalanceMode},
+    wire::{Nibbles, Payload, Response, WireValue},
+    Error,
+};
+
+fn payload(frame: &[u8]) -> Result<&[u8], Error> {
+    // Validate framing before passing the data field to the query's decoder.
+    Response::parse(frame)?;
+    if frame.get(1) != Some(&0x50) {
+        return Err(Error::UnexpectedResponseType);
+    }
+    frame
+        .get(2..frame.len().saturating_sub(1))
+        .ok_or(Error::InvalidResponseFormat)
+}
+
+fn decode<I: Inquiry>(query: I, frame: &[u8]) -> Result<I::Response, Error> {
+    query.decoder().decode(payload(frame)?)
+}
 
 #[test]
 fn white_balance_mode_inquiry_preserves_existing_values_and_decodes_fr7_atw() {
-    use grafton_visca::command::WhiteBalanceMode;
-
     for (wire, expected) in [
         (0x00, WhiteBalanceMode::Auto),
         (0x01, WhiteBalanceMode::Indoor),
@@ -18,651 +35,344 @@ fn white_balance_mode_inquiry_preserves_existing_values_and_decodes_fr7_atw() {
         (0x05, WhiteBalanceMode::Manual),
         (0x20, WhiteBalanceMode::ColorTemperature),
     ] {
-        let response =
-            Response::parse_with_type(&[0x90, 0x50, wire, 0xff], &InquiryKind::WhiteBalanceMode)
-                .expect("supported white-balance mode must decode");
-        assert!(matches!(
-            response,
-            Response::Inquiry(InquiryData::WhiteBalanceMode { mode }) if mode == expected
-        ));
+        assert_eq!(
+            decode(white_balance::ModeInquiry, &[0x90, 0x50, wire, 0xff]).expect("supported mode"),
+            expected
+        );
     }
 }
 
 #[test]
 fn sony_fr7_profile_path_advertises_and_decodes_atw() {
-    use grafton_visca::{
-        command::WhiteBalanceMode,
-        profiles::{GenericVisca, SonyFR7},
-        ProfileSpec,
-    };
-
-    let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
-    assert!(
-        fr7.capabilities()
-            .white_balance
-            .as_ref()
-            .expect("white-balance domain")
-            .modes
-            .contains(&WhiteBalanceMode::Atw),
-        "the FR7 registry advertises its typed ATW wire value"
+    let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7");
+    let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic");
+    assert!(fr7
+        .capabilities()
+        .white_balance
+        .as_ref()
+        .expect("WB")
+        .modes
+        .contains(&WhiteBalanceMode::Atw));
+    assert!(!generic
+        .capabilities()
+        .white_balance
+        .as_ref()
+        .expect("WB")
+        .modes
+        .contains(&WhiteBalanceMode::Atw));
+    assert_eq!(
+        white_balance::ModeInquiry
+            .decoder_for_profile(&fr7)
+            .decode(payload(&[0x90, 0x50, 0x04, 0xff]).expect("frame"))
+            .expect("FR7 ATW"),
+        WhiteBalanceMode::Atw
     );
-    let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic VISCA profile");
-    assert!(
-        !generic
-            .capabilities()
-            .white_balance
-            .as_ref()
-            .expect("white-balance domain")
-            .modes
-            .contains(&WhiteBalanceMode::Atw),
-        "ATW remains an FR7-specific advertised mode"
-    );
-
-    let response = Response::parse_with_profile::<SonyFR7>(
-        &[0x90, 0x50, 0x04, 0xff],
-        &InquiryKind::WhiteBalanceMode,
-    )
-    .expect("the Sony FR7 ATW inquiry reply must decode");
-    assert!(matches!(
-        response,
-        Response::Inquiry(InquiryData::WhiteBalanceMode {
-            mode: WhiteBalanceMode::Atw
-        })
-    ));
 }
 
 #[test]
 fn test_parse_power_inquiry_responses() {
-    // Power On response
-    let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Power);
-    assert!(
-        result.is_ok(),
-        "Failed to parse power on response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Power { status }) => {
-            assert!(status.is_on(), "Power should be on");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-
-    // Power Off response
-    let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Power);
-    assert!(
-        result.is_ok(),
-        "Failed to parse power off response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Power { status }) => {
-            assert!(!status.is_on(), "Power should be off");
-        }
-        _ => panic!("Unexpected response type"),
-    }
+    assert!(decode(power::StatusInquiry, &[0x90, 0x50, 0x02, 0xff])
+        .expect("power on")
+        .is_on());
+    assert!(!decode(power::StatusInquiry, &[0x90, 0x50, 0x03, 0xff])
+        .expect("power off")
+        .is_on());
 }
 
 #[test]
 fn test_parse_pan_tilt_position_inquiry() {
-    // Standard position
-    let data = vec![
-        0x90, 0x50, 0x00, 0x01, 0x02, 0x03, 0x00, 0x04, 0x05, 0x06, 0xFF,
+    let profile =
+        ProfileSpec::from_compile_time::<GenericVisca>().expect("standard coordinate profile");
+    let decoder = pan_tilt::PositionInquiry.decoder_for_profile(&profile);
+    let standard = [0x90, 0x50, 0, 1, 2, 3, 0, 4, 5, 6, 0xff];
+    let position = decoder
+        .decode(payload(&standard).expect("frame"))
+        .expect("position");
+    assert_eq!(position.raw_values(), (0x0123, 0x0456));
+    let negative = [
+        0x90, 0x50, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0e, 0x0d, 0xff,
     ];
-    let result = Response::parse_with_type(&data, &InquiryKind::PanTiltPosition);
-    assert!(
-        result.is_ok(),
-        "Failed to parse pan/tilt response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
-            assert_eq!(pan, 0x0123, "Pan position mismatch");
-            assert_eq!(tilt, 0x0456, "Tilt position mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-
-    // Negative positions
-    let data = vec![
-        0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0E, 0x0D, 0xFF,
-    ];
-    let result = Response::parse_with_type(&data, &InquiryKind::PanTiltPosition);
-    assert!(
-        result.is_ok(),
-        "Failed to parse negative pan/tilt: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
-            assert_eq!(pan, -1, "Pan should be -1");
-            assert_eq!(tilt, -19, "Tilt should be -19");
-        }
-        _ => panic!("Unexpected response type"),
-    }
+    let position = decoder
+        .decode(payload(&negative).expect("frame"))
+        .expect("negative position");
+    assert_eq!(position.raw_values(), (-1, -19));
 }
 
 #[test]
 fn test_parse_zoom_position_inquiry() {
-    let data = vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::ZoomPosition);
-    assert!(
-        result.is_ok(),
-        "Failed to parse zoom response: {:?}",
-        result
+    assert_eq!(
+        decode(zoom::PositionInquiry, &[0x90, 0x50, 1, 2, 3, 4, 0xff])
+            .expect("zoom")
+            .value(),
+        0x1234
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::ZoomPosition { position }) => {
-            assert_eq!(position, 0x1234, "Zoom position mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-
-    // Max zoom position
-    let data = vec![0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::ZoomPosition);
-    assert!(result.is_ok(), "Failed to parse max zoom: {:?}", result);
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::ZoomPosition { position }) => {
-            assert_eq!(position, 0xFFFF, "Should be max zoom");
-        }
-        _ => panic!("Unexpected response type"),
-    }
+    let raw_maximum = [0x90, 0x50, 0x0f, 0x0f, 0x0f, 0x0f, 0xff];
+    let raw_payload = payload(&raw_maximum).expect("valid 16-bit reply frame");
+    assert_eq!(
+        Nibbles::<4>::try_from(Payload::new(raw_payload))
+            .expect("four nibbles")
+            .u16_quad(0),
+        Some(0xffff)
+    );
+    assert!(
+        decode(zoom::PositionInquiry, &raw_maximum).is_err(),
+        "raw 16-bit maximum exceeds the checked position domain"
+    );
+    assert_eq!(
+        decode(
+            zoom::PositionInquiry,
+            &[0x90, 0x50, 0x07, 0x0f, 0x0f, 0x0f, 0xff]
+        )
+        .expect("maximum checked zoom")
+        .value(),
+        0x7fff
+    );
 }
 
 #[test]
 fn test_parse_focus_position_inquiry() {
-    let data = vec![0x90, 0x50, 0x05, 0x06, 0x07, 0x08, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::FocusPosition);
-    assert!(
-        result.is_ok(),
-        "Failed to parse focus response: {:?}",
-        result
+    assert_eq!(
+        decode(focus::PositionInquiry, &[0x90, 0x50, 5, 6, 7, 8, 0xff])
+            .expect("focus")
+            .value(),
+        0x5678
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::FocusPosition { position }) => {
-            assert_eq!(position, 0x5678, "Focus position mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_backlight_inquiry() {
-    let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Backlight);
-    assert!(
-        result.is_ok(),
-        "Failed to parse backlight response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Backlight { status }) => {
-            assert!(status, "Backlight should be on");
-        }
-        _ => panic!("Unexpected response type"),
-    }
+    assert!(decode(
+        exposure::BacklightCompensationInquiry,
+        &[0x90, 0x50, 2, 0xff]
+    )
+    .expect("backlight on"));
 }
 
 #[test]
 fn test_parse_image_flip_inquiry() {
-    // Both flips on
-    let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::FlipState);
-    assert!(
-        result.is_ok(),
-        "Failed to parse image flip response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::FlipState { state }) => {
-            assert!(
-                matches!(
-                    state,
-                    grafton_visca::command::ImageFlipMode::Vertical
-                        | grafton_visca::command::ImageFlipMode::Both
-                ),
-                "Vertical flip should be on"
-            );
-            assert!(
-                matches!(
-                    state,
-                    grafton_visca::command::ImageFlipMode::Horizontal
-                        | grafton_visca::command::ImageFlipMode::Both
-                ),
-                "Horizontal flip should be on"
-            );
-        }
-        _ => panic!("Unexpected response type"),
-    }
-
-    // Only vertical flip
-    let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::FlipState);
-    assert!(
-        result.is_ok(),
-        "Failed to parse image flip response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::FlipState { state }) => {
-            assert!(
-                matches!(
-                    state,
-                    grafton_visca::command::ImageFlipMode::Vertical
-                        | grafton_visca::command::ImageFlipMode::Both
-                ),
-                "Vertical flip should be on"
-            );
-            assert!(
-                matches!(
-                    state,
-                    grafton_visca::command::ImageFlipMode::Off
-                        | grafton_visca::command::ImageFlipMode::Vertical
-                ),
-                "Horizontal flip should be off"
-            );
-        }
-        _ => panic!("Unexpected response type"),
-    }
+    let both = decode(image::FlipModeInquiry, &[0x90, 0x50, 3, 0xff]).expect("both flips");
+    assert!(matches!(
+        both,
+        ImageFlipMode::Vertical | ImageFlipMode::Both
+    ));
+    assert!(matches!(
+        both,
+        ImageFlipMode::Horizontal | ImageFlipMode::Both
+    ));
+    let vertical = decode(image::FlipModeInquiry, &[0x90, 0x50, 2, 0xff]).expect("vertical only");
+    assert!(matches!(
+        vertical,
+        ImageFlipMode::Vertical | ImageFlipMode::Both
+    ));
+    assert!(matches!(
+        vertical,
+        ImageFlipMode::Off | ImageFlipMode::Vertical
+    ));
 }
 
 #[test]
 fn test_parse_brightness_inquiry() {
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Brightness);
-    assert!(
-        result.is_ok(),
-        "Failed to parse brightness response: {:?}",
-        result
+    assert_eq!(
+        decode(
+            exposure::BrightnessInquiry,
+            &[0x90, 0x50, 0x0, 0x0, 0x0, 0x8, 0xff]
+        )
+        .expect("brightness response")
+        .value(),
+        8
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Brightness { position }) => {
-            assert_eq!(position, 0x08, "Brightness position mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_gain_level_inquiry() {
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x05, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Gain);
-    assert!(
-        result.is_ok(),
-        "Failed to parse gain response: {:?}",
-        result
+    assert_eq!(
+        decode(
+            exposure::GainInquiry,
+            &[0x90, 0x50, 0x0, 0x0, 0x0, 0x5, 0xff]
+        )
+        .expect("gain_level response")
+        .value(),
+        5
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Gain { gain }) => {
-            assert_eq!(gain, 0x05, "Gain value mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_contrast_inquiry() {
-    // Response format: y0 50 00 00 0p 0q FF where pq = position
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0C, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Contrast);
-    assert!(
-        result.is_ok(),
-        "Failed to parse contrast response: {:?}",
-        result
+    assert_eq!(
+        decode(
+            image::ContrastInquiry,
+            &[0x90, 0x50, 0x0, 0x0, 0x0, 0xc, 0xff]
+        )
+        .expect("contrast response")
+        .value(),
+        12
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Contrast { level }) => {
-            assert_eq!(level, 0x0C, "Contrast value mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_luminance_inquiry() {
-    // Response format: y0 50 00 00 0p 0q FF where pq = position
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Luminance);
-    assert!(
-        result.is_ok(),
-        "Failed to parse luminance response: {:?}",
-        result
+    assert_eq!(
+        decode(
+            image::LuminanceInquiry,
+            &[0x90, 0x50, 0x0, 0x0, 0x0, 0x7, 0xff]
+        )
+        .expect("luminance response")
+        .value(),
+        7
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Luminance { level }) => {
-            assert_eq!(level, 0x07, "Luminance value mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_sharpness_position_inquiry() {
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::SharpnessPosition);
-    assert!(
-        result.is_ok(),
-        "Failed to parse sharpness response: {:?}",
-        result
+    assert_eq!(
+        decode(
+            image::SharpnessInquiry,
+            &[0x90, 0x50, 0x0, 0x0, 0x0, 0x8, 0xff]
+        )
+        .expect("sharpness_position response")
+        .value(),
+        8
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::SharpnessPosition { position }) => {
-            assert_eq!(position, 0x08, "Sharpness position mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_iris_inquiry() {
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0A, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Iris);
-    assert!(
-        result.is_ok(),
-        "Failed to parse iris response: {:?}",
-        result
+    assert_eq!(
+        decode(
+            exposure::IrisInquiry,
+            &[0x90, 0x50, 0x0, 0x0, 0x0, 0xa, 0xff]
+        )
+        .expect("iris response")
+        .value(),
+        10
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Iris { position }) => {
-            assert_eq!(position, 0x0A, "Iris position mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_iris_inquiry_preserves_both_position_nibbles() {
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x01, 0x0E, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Iris);
-    assert!(
-        result.is_ok(),
-        "Failed to parse multi-nibble iris response: {:?}",
-        result
+    assert_eq!(
+        decode(
+            exposure::IrisInquiry,
+            &[0x90, 0x50, 0x0, 0x0, 0x1, 0xe, 0xff]
+        )
+        .expect("iris_inquiry_preserves_both_position_nibbles response")
+        .value(),
+        30
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Iris { position }) => {
-            assert_eq!(position, 0x1E, "Iris position mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_shutter_inquiry() {
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Shutter);
-    assert!(
-        result.is_ok(),
-        "Failed to parse shutter response: {:?}",
-        result
+    assert_eq!(
+        decode(
+            exposure::ShutterInquiry,
+            &[0x90, 0x50, 0x0, 0x0, 0x0, 0x7, 0xff]
+        )
+        .expect("shutter response")
+        .value(),
+        7
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Shutter { position }) => {
-            assert_eq!(position, 0x07, "Shutter position mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_noise_reduction_2d_inquiry() {
-    let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::NoiseReduction2D);
-    assert!(
-        result.is_ok(),
-        "Failed to parse 2D NR response: {:?}",
-        result
+    assert_eq!(
+        decode(image::NoiseReduction2dInquiry, &[0x90, 0x50, 0x3, 0xff])
+            .expect("noise_reduction_2d response")
+            .to_wire(),
+        3
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::NoiseReduction2D { level }) => {
-            assert_eq!(level, 0x03, "2D NR level mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_noise_reduction_3d_inquiry() {
-    let data = vec![0x90, 0x50, 0x05, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::NoiseReduction3D);
-    assert!(
-        result.is_ok(),
-        "Failed to parse 3D NR response: {:?}",
-        result
+    assert_eq!(
+        decode(image::NoiseReduction3dInquiry, &[0x90, 0x50, 0x5, 0xff])
+            .expect("noise_reduction_3d response")
+            .to_wire(),
+        5
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::NoiseReduction3D { level }) => {
-            assert_eq!(level, 0x05, "3D NR level mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-}
-
-#[test]
-fn test_parse_noise_reduction_3d_inquiry_full_public_domain() {
-    for wire in 0x00..=0x08 {
-        let response =
-            Response::parse_with_type(&[0x90, 0x50, wire, 0xFF], &InquiryKind::NoiseReduction3D)
-                .expect("every public 3D NR level must parse");
-
-        assert!(matches!(
-            response,
-            Response::Inquiry(InquiryData::NoiseReduction3D { level }) if level == wire
-        ));
-    }
 }
 
 #[test]
 fn test_parse_saturation_inquiry() {
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0A, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Saturation);
-    assert!(
-        result.is_ok(),
-        "Failed to parse saturation response: {:?}",
-        result
+    assert_eq!(
+        decode(
+            image::SaturationInquiry,
+            &[0x90, 0x50, 0x0, 0x0, 0x0, 0xa, 0xff]
+        )
+        .expect("saturation response")
+        .value(),
+        10
     );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Saturation { level }) => {
-            assert_eq!(level, 0x0A, "Saturation level mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
 }
 
 #[test]
 fn test_parse_hue_inquiry() {
-    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Hue);
-    assert!(result.is_ok(), "Failed to parse hue response: {:?}", result);
+    assert_eq!(
+        decode(image::HueInquiry, &[0x90, 0x50, 0x0, 0x0, 0x0, 0x7, 0xff])
+            .expect("hue response")
+            .value(),
+        7
+    );
+}
 
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Hue { hue }) => {
-            assert_eq!(hue, 0x07, "Hue value mismatch");
-        }
-        _ => panic!("Unexpected response type"),
+#[test]
+fn test_parse_noise_reduction_3d_inquiry_full_public_domain() {
+    for wire in 0..=8 {
+        assert_eq!(
+            decode(image::NoiseReduction3dInquiry, &[0x90, 0x50, wire, 0xff])
+                .expect("public level domain")
+                .to_wire(),
+            wire
+        );
     }
 }
 
 #[test]
 fn test_parse_auto_white_balance_sensitivity_inquiry() {
-    use grafton_visca::command::AutoWhiteBalanceSensitivity;
-
-    // Test High sensitivity (0x00)
-    let data = vec![0x90, 0x50, 0x00, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::AutoWhiteBalanceSensitivity);
-    assert!(
-        result.is_ok(),
-        "Failed to parse AWB sensitivity High response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::AutoWhiteBalanceSensitivity { sensitivity }) => {
-            assert_eq!(
-                sensitivity,
-                AutoWhiteBalanceSensitivity::High,
-                "Should be High sensitivity"
-            );
-        }
-        _ => panic!("Unexpected response type"),
+    for (frame, expected) in [
+        ([0x90, 0x50, 0x00, 0xff], AutoWhiteBalanceSensitivity::High),
+        (
+            [0x90, 0x50, 0x01, 0xff],
+            AutoWhiteBalanceSensitivity::Normal,
+        ),
+        ([0x90, 0x50, 0x02, 0xff], AutoWhiteBalanceSensitivity::Low),
+    ] {
+        assert_eq!(
+            decode(white_balance::SensitivityInquiry, &frame).expect("AWB sensitivity"),
+            expected
+        );
     }
-
-    // Test Normal sensitivity (0x01)
-    let data = vec![0x90, 0x50, 0x01, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::AutoWhiteBalanceSensitivity);
-    assert!(
-        result.is_ok(),
-        "Failed to parse AWB sensitivity Normal response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::AutoWhiteBalanceSensitivity { sensitivity }) => {
-            assert_eq!(
-                sensitivity,
-                AutoWhiteBalanceSensitivity::Normal,
-                "Should be Normal sensitivity"
-            );
-        }
-        _ => panic!("Unexpected response type"),
-    }
-
-    // Test Low sensitivity (0x02)
-    let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::AutoWhiteBalanceSensitivity);
-    assert!(
-        result.is_ok(),
-        "Failed to parse AWB sensitivity Low response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::AutoWhiteBalanceSensitivity { sensitivity }) => {
-            assert_eq!(
-                sensitivity,
-                AutoWhiteBalanceSensitivity::Low,
-                "Should be Low sensitivity"
-            );
-        }
-        _ => panic!("Unexpected response type"),
-    }
-
-    // Test invalid value
-    let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::AutoWhiteBalanceSensitivity);
-    assert!(
-        result.is_err(),
-        "Should fail with invalid AWB sensitivity value"
-    );
+    assert!(decode(white_balance::SensitivityInquiry, &[0x90, 0x50, 0x03, 0xff]).is_err());
 }
 
 #[test]
 fn test_parse_tally_red_inquiry() {
-    // Tally Red On (baseline VISCA)
-    let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::TallyRed);
-    assert!(
-        result.is_ok(),
-        "Failed to parse tally red on response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::TallyRed { on }) => {
-            assert!(on, "Tally red should be on");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-
-    // Tally Red Off
-    let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::TallyRed);
-    assert!(
-        result.is_ok(),
-        "Failed to parse tally red off response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::TallyRed { on }) => {
-            assert!(!on, "Tally red should be off");
-        }
-        _ => panic!("Unexpected response type"),
-    }
+    assert!(decode(tally::RedInquiry, &[0x90, 0x50, 2, 0xff]).expect("red on"));
+    assert!(!decode(tally::RedInquiry, &[0x90, 0x50, 3, 0xff]).expect("red off"));
 }
 
 #[test]
 fn test_parse_tally_green_inquiry() {
-    // Tally Green On (Sony FR7)
-    let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::TallyGreen);
-    assert!(
-        result.is_ok(),
-        "Failed to parse tally green on response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::TallyGreen { on }) => {
-            assert!(on, "Tally green should be on");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-
-    // Tally Green Off
-    let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::TallyGreen);
-    assert!(
-        result.is_ok(),
-        "Failed to parse tally green off response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::TallyGreen { on }) => {
-            assert!(!on, "Tally green should be off");
-        }
-        _ => panic!("Unexpected response type"),
-    }
+    assert!(decode(tally::GreenInquiry, &[0x90, 0x50, 2, 0xff]).expect("green on"));
+    assert!(!decode(tally::GreenInquiry, &[0x90, 0x50, 3, 0xff]).expect("green off"));
 }
 
 #[test]
 fn test_error_handling() {
-    // Test missing terminator
-    let data = vec![0x90, 0x50, 0x02];
-    let result = Response::parse_with_type(&data, &InquiryKind::Power);
-    assert!(result.is_err(), "Should fail without terminator");
-
-    // Test insufficient data for pan/tilt
-    let data = vec![0x90, 0x50, 0x00, 0x01, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::PanTiltPosition);
-    assert!(result.is_err(), "Should fail with insufficient data");
-
-    // Test empty data
-    let data = vec![];
-    let result = Response::parse_with_type(&data, &InquiryKind::Power);
-    assert!(result.is_err(), "Should fail with empty data");
+    assert!(
+        decode(power::StatusInquiry, &[0x90, 0x50, 2]).is_err(),
+        "missing terminator"
+    );
+    let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("profile");
+    let short = [0x90, 0x50, 0, 1, 0xff];
+    assert!(
+        pan_tilt::PositionInquiry
+            .decoder_for_profile(&profile)
+            .decode(payload(&short).expect("well-formed frame"))
+            .is_err(),
+        "insufficient coordinate data"
+    );
+    assert!(decode(power::StatusInquiry, &[]).is_err(), "empty frame");
 }

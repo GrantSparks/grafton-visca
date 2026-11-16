@@ -17,6 +17,7 @@ use crate::{
     },
     error::Error,
     macros::consolidated::visca_command,
+    wire::WireValue,
     CameraId, ViscaSocket,
 };
 
@@ -80,7 +81,11 @@ pub(crate) struct CommandCancelCommand {
 
 impl WireEncode for CommandCancelCommand {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        write_frame(camera_id, &[&[self.socket.as_cancel_byte()]], buffer)
+        write_frame(
+            camera_id,
+            &[&[system::COMMAND_CANCEL | self.socket.to_wire()]],
+            buffer,
+        )
     }
 }
 

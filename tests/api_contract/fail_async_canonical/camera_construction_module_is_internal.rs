@@ -3,8 +3,8 @@
 // `camera::convenience` fixture, whose module does not exist in 2.0.
 
 fn main() {
-    let _ = core::any::TypeId::of::<grafton_visca::camera::construction::Connect>();
+    use grafton_visca::camera::construction;
 }
 
 //~ E0603
-//~ "module `construction` is private"
+//~ "module `camera` is private"

@@ -25,8 +25,10 @@ use std::{
 };
 
 use grafton_visca::{
-    camera::{MotionQuery, MovementTolerance},
-    AffectedAxes, Error, ProfileSpec, SessionConfig,
+    config::SessionConfig,
+    profiles::ProfileSpec,
+    types::{AffectedAxes, MotionQuery, MovementTolerance},
+    Error,
 };
 
 use fake_camera::FakeCamera;
@@ -127,7 +129,7 @@ facade_matrix! {
         let zoom = ZoomCamera::new(true);
         let session = open!(zoom.camera, config()).expect("session");
         let moving = wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>()
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera")
             .motion()
             .is_moving(creeping_zoom_query(WINDOW)))
@@ -141,7 +143,7 @@ facade_matrix! {
         let zoom = ZoomCamera::new(false);
         let session = open!(zoom.camera, config()).expect("session");
         let moving = wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>()
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera")
             .motion()
             .is_moving(creeping_zoom_query(WINDOW)))
@@ -155,7 +157,7 @@ facade_matrix! {
         let zoom = ZoomCamera::new(true);
         let session = open!(zoom.camera, config()).expect("session");
         let result = wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>()
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera")
             .motion()
             .is_moving(creeping_zoom_query(Duration::ZERO)));
@@ -163,12 +165,12 @@ facade_matrix! {
         session.shutdown().expect("shutdown");
     }
 
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     fn dynamic_motion_observes_creep_across_the_window() {
         let zoom = ZoomCamera::new(true);
         let session = open!(zoom.camera, config()).expect("session");
         let moving = wait!(session
-            .camera_dyn()
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("dynamic camera")
             .motion()
             .is_moving(creeping_zoom_query(WINDOW)))

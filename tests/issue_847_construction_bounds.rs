@@ -5,7 +5,7 @@
     feature = "runtime-smol"
 ))]
 
-use grafton_visca::{profiles::GenericVisca, Error, SessionConfig};
+use grafton_visca::{config::SessionConfig, profiles::GenericVisca, Error};
 use grafton_visca_test_support::{facade_matrix, fake_camera::FakeCamera};
 use std::num::NonZeroUsize;
 
@@ -16,7 +16,7 @@ facade_matrix! {
             let config = SessionConfig::from_compile_time::<GenericVisca>().expect("profile")
                 .with_admission_capacity(NonZeroUsize::new(capacity).expect("nonzero"));
             let error = open!(camera, config).expect_err("unrepresentable capacity");
-            assert!(matches!(error, Error::InvalidRequest(_)), "{error:?}");
+            assert!(matches!(error, Error::InvalidRequest { .. }), "{error:?}");
             assert_eq!(camera.config_reads(), 0);
             assert_eq!(camera.write_count(), 0);
             assert_eq!(camera.receive_calls(), 0);
@@ -28,7 +28,7 @@ facade_matrix! {
         let config = SessionConfig::from_compile_time::<GenericVisca>().expect("profile")
             .with_admission_capacity(NonZeroUsize::new(1_048_576).expect("nonzero"));
         let session = open!(camera, config).expect("large representable capacity");
-        let view = session.camera::<GenericVisca>().expect("camera");
+        let view = session.camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
         wait!(view.power().on()).expect("command");
         session.shutdown().expect("shutdown");
     }

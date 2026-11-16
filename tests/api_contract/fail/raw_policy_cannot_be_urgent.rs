@@ -1,7 +1,13 @@
-use grafton_visca::{raw::CommandPolicy, CommandCategory, ControlClass, RetryClass};
+use grafton_visca::{
+    profiles::CommandTimeoutClass, raw::CommandPolicy, request::ControlClass, request::RetryClass,
+};
 
 fn main() {
-    let _ = CommandPolicy::new(CommandCategory::Quick, RetryClass::Never, ControlClass::Urgent);
+    let _ = CommandPolicy::new(
+        CommandTimeoutClass::Quick,
+        RetryClass::Never,
+        ControlClass::Urgent,
+    );
 }
 
 //~ E0308

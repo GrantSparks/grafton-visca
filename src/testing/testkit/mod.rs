@@ -5,18 +5,6 @@
 
 #![cfg(feature = "test-utils")]
 
-pub mod scripted_transport;
+mod scripted_transport;
 
-#[cfg(feature = "async")]
-pub use scripted_transport::ScriptedTransport;
-
-#[cfg(feature = "blocking")]
-pub use scripted_transport::ScriptedBlockingTransport;
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-pub use crate::testing::manual_clock::{ClockJoinHandle, ClockParticipant, ManualClock};
-#[cfg(feature = "async")]
-pub use crate::testing::manual_clock::{
-    LocalExecutor, ManualClockExecutor, ManualClockTimer, TaskJoin,
-};
-pub use scripted_transport::{helpers, Step};
+testkit_utility_exports!(exports);

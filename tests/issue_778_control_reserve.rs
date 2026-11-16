@@ -27,17 +27,17 @@ use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 use std::{num::NonZeroUsize, time::Duration};
 
 use grafton_visca::{
-    completion::AppliedOnly,
-    profile::ProfileSpec,
-    request::builtin::{ZoomDrive, ZoomStop},
-    Error, OperationalTuning, SessionConfig,
+    config::{OperationalTuning, SessionConfig},
+    operation::AppliedOnly,
+    profiles::ProfileSpec,
+    Error,
 };
 #[cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     feature = "async",
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-use grafton_visca::{Executor, Session};
+use grafton_visca::{r#async::Session, runtime::Executor};
 
 use fake_camera::{frames, FakeCamera, WAIT_BUDGET, ZOOM_STOP, ZOOM_TELE};
 use profile_fixtures::NonDefaultCompileTimeProfile as Raw;
@@ -51,20 +51,20 @@ use profile_fixtures::NonDefaultCompileTimeProfile as Raw;
 fn saturated_config() -> SessionConfig {
     SessionConfig::new(ProfileSpec::from_compile_time::<Raw>().expect("raw three-axis profile"))
         .with_admission_capacity(NonZeroUsize::MIN)
-        .with_tuning(OperationalTuning::new().ack_timeout(WAIT_BUDGET))
+        .with_tuning(OperationalTuning::new().with_ack_timeout(WAIT_BUDGET))
 }
 
 facade_matrix! {
     fn stop_passes_a_saturated_session() {
         let fake = FakeCamera::silent();
         let session = open!(fake, saturated_config()).expect("owner session");
-        let camera = session.camera::<Raw>().expect("raw camera");
+        let camera = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("raw camera");
 
         // The running zoom holds the session's only ordinary slot. Its ACK is
         // answered after the owner writes it and read before the STOP is
         // submitted, so the zoom is executing on socket one when the STOP is
         // written.
-        let mut zoom = wait!(camera.submit::<AppliedOnly, _>(&ZoomDrive::Tele))
+        let mut zoom = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele))
             .expect("ordinary zoom admitted");
         wait_for_writes!(fake, 1);
         fake.push(frames::ack(1));
@@ -74,14 +74,14 @@ facade_matrix! {
             Err(Error::ObservationTimeout { .. })
         ));
 
-        let refused = wait!(camera.submit::<AppliedOnly, _>(&ZoomDrive::Wide))
+        let refused = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide))
             .expect_err("ordinary admission is full");
         assert!(matches!(
             refused,
             Error::RuntimeQueueFull { capacity: 1, .. }
         ));
 
-        let mut stop = wait!(camera.submit::<AppliedOnly, _>(&ZoomStop))
+        let mut stop = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
             .expect("the typed STOP uses camera 1's control reserve");
         wait_for_writes!(fake, 2);
         fake.push(frames::ack(2));
@@ -103,18 +103,20 @@ facade_matrix! {
 /// The dynamic projection reaches the same reserve. The blocking dynamic
 /// camera has no `submit_applied`, so this scenario is async-only.
 #[cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     feature = "async",
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 async fn dyn_stop_passes_a_saturated_session<E: Executor>(executor: E) {
     let fake = FakeCamera::silent();
-    let session = Session::open(fake.async_wire(), saturated_config(), executor.clone())
+    let session = Session::open(fake.async_wire(), &saturated_config(), executor.clone())
         .await
         .expect("owner session");
-    let camera = session.camera_dyn().expect("dynamic camera");
+    let camera = session
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("dynamic camera");
     let zoom = camera
-        .submit_applied(&ZoomDrive::Tele)
+        .submit(&grafton_visca::command::zoom::Tele)
         .await
         .expect("ordinary zoom admitted");
     fake.wait_for_writes_async(&executor, 1).await;
@@ -122,11 +124,11 @@ async fn dyn_stop_passes_a_saturated_session<E: Executor>(executor: E) {
     fake.wait_for_reads_async(&executor, 1).await;
 
     assert!(matches!(
-        camera.submit_applied(&ZoomDrive::Wide).await,
+        camera.submit(&grafton_visca::command::zoom::Wide).await,
         Err(Error::RuntimeQueueFull { capacity: 1, .. })
     ));
     let mut stop = camera
-        .submit_applied(&ZoomStop)
+        .submit(&grafton_visca::command::zoom::Stop)
         .await
         .expect("the typed STOP uses camera 1's control reserve");
     fake.wait_for_writes_async(&executor, 2).await;
@@ -139,7 +141,7 @@ async fn dyn_stop_passes_a_saturated_session<E: Executor>(executor: E) {
 }
 
 #[cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     feature = "async",
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]

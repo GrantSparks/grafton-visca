@@ -13,9 +13,12 @@
 use grafton_visca_test_support::{fake_camera, runtime_matrix};
 
 use grafton_visca::{
+    config::SessionConfig,
     profiles::PtzOpticsG2,
+    r#async::Session,
+    runtime::Executor,
     transport::{AsyncTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
-    Error, Executor, Session, SessionConfig,
+    Error,
 };
 
 use fake_camera::FakeCamera;
@@ -72,7 +75,7 @@ async fn close_waits_for_transport_drop<E: Executor>(executor: E) {
     let camera = FakeCamera::silent();
     let session = Session::open(
         camera.async_wire(),
-        SessionConfig::from_compile_time::<PtzOpticsG2>().expect("session config"),
+        &SessionConfig::from_compile_time::<PtzOpticsG2>().expect("session config"),
         executor.clone(),
     )
     .await
@@ -100,7 +103,7 @@ async fn close_waits_for_transport_drop<E: Executor>(executor: E) {
     // The endpoint can be acquired immediately after the barrier resolves.
     let reopened = Session::open(
         camera.async_wire(),
-        SessionConfig::from_compile_time::<PtzOpticsG2>().expect("session config"),
+        &SessionConfig::from_compile_time::<PtzOpticsG2>().expect("session config"),
         executor,
     )
     .await
@@ -121,7 +124,7 @@ async fn close_reports_transport_winner<E: Executor>(executor: E) {
     };
     let session = Session::open(
         transport,
-        SessionConfig::from_compile_time::<PtzOpticsG2>().expect("session config"),
+        &SessionConfig::from_compile_time::<PtzOpticsG2>().expect("session config"),
         executor.clone(),
     )
     .await
