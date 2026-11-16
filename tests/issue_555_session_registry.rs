@@ -418,6 +418,43 @@ mod async_registry {
         assert_eq!(fake.receive_calls(), 0);
     }
 
+    async fn multi_target_connect_rejects_before_dns_or_socket<
+        E: grafton_visca::runtime::Runtime,
+    >(
+        executor: E,
+    ) {
+        use grafton_visca::config::TransportOptions;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("local listener");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking listener");
+        let address = listener.local_addr().expect("listener address").to_string();
+        for transport in [
+            TransportOptions::tcp(&address),
+            TransportOptions::udp(&address),
+            TransportOptions::tcp("does-not-resolve.invalid"),
+            TransportOptions::udp("does-not-resolve.invalid"),
+        ] {
+            let error = grafton_visca::r#async::Session::connect(
+                &multi_config().with_transport(transport),
+                executor.clone(),
+            )
+            .await
+            .expect_err("multi-target IP preflight");
+            assert!(matches!(
+                error,
+                Error::FeatureNotSupported {
+                    feature: "multiple VISCA targets over TCP or UDP",
+                    ..
+                }
+            ));
+        }
+        assert_eq!(
+            listener.accept().expect_err("no connection opened").kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
     async fn unsupported_multi_target_topologies_do_not_write_or_read<
         E: grafton_visca::runtime::Executor,
     >(
@@ -547,6 +584,7 @@ mod async_registry {
         empty_registry_fails_before_transport_config_or_io,
         custom_serial_opt_in_reads_config_and_starts,
         unsupported_multi_target_topologies_do_not_write_or_read,
+        multi_target_connect_rejects_before_dns_or_socket,
         mixed_envelopes_and_custom_ip_fail_before_io,
         strictest_profile_pacing_is_shared_by_all_targets,
     );
@@ -642,6 +680,38 @@ mod blocking_registry {
         let writes = fake.writes();
         assert_eq!(writes[0][0], (0x80 | CameraId::CAMERA_2.value()));
         assert_eq!(writes[1][0], (0x80 | CameraId::CAMERA_1.value()));
+    }
+
+    #[test]
+    fn blocking_multi_target_connect_rejects_before_dns_or_socket() {
+        use grafton_visca::config::TransportOptions;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("local listener");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking listener");
+        let address = listener.local_addr().expect("listener address").to_string();
+        for transport in [
+            TransportOptions::tcp(&address),
+            TransportOptions::udp(&address),
+            TransportOptions::tcp("does-not-resolve.invalid"),
+            TransportOptions::udp("does-not-resolve.invalid"),
+        ] {
+            let error = grafton_visca::blocking::Session::connect(
+                &multi_config().with_transport(transport),
+            )
+            .expect_err("multi-target IP preflight");
+            assert!(matches!(
+                error,
+                Error::FeatureNotSupported {
+                    feature: "multiple VISCA targets over TCP or UDP",
+                    ..
+                }
+            ));
+        }
+        assert_eq!(
+            listener.accept().expect_err("no connection opened").kind(),
+            std::io::ErrorKind::WouldBlock
+        );
     }
 
     #[test]

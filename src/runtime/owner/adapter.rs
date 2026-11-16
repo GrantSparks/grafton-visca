@@ -252,12 +252,6 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             });
         }
         seen[*target] = true;
-        if profile.envelope() != first_profile.envelope() {
-            return Err(Error::InvalidRequest {
-                reason: "registered session profiles require one wire envelope".into(),
-            });
-        }
-
         let timing = profile.timing();
         baseline.command_spacing = baseline.command_spacing.max(timing.command_spacing());
         baseline.inquiry_spacing = baseline.inquiry_spacing.max(timing.inquiry_spacing());
@@ -547,13 +541,9 @@ impl AdapterFraming {
     where
         T: HasTransportConfig,
     {
-        // Identity is read before configuration or I/O. It is the single
-        // authority for profile compatibility, topology and failure policy.
+        // ValidatedSessionConfig proved profile compatibility and topology
+        // before adapter construction; identity also supplies framing policy.
         let identity = transport.identity();
-        for (_, profile) in profiles {
-            validate_profile_transport(profile, identity)?;
-        }
-        validate_profile_registry_topology(profiles, identity)?;
         let config = *transport.transport_config();
         let policy = owner_policy_for_targets_with_tuning(
             profiles,
@@ -1023,10 +1013,15 @@ pub(crate) fn validate_profile_transport(
 /// spawning an actor or touching transport I/O. Custom transports explicitly
 /// declare serial addressing in their identity to authorize several targets.
 pub(crate) fn validate_profile_registry_topology(
-    profiles: &[(TargetSlot, &ProfileSpec)],
+    profiles: &PerTarget<Option<&ProfileSpec>>,
     identity: TransportIdentity<'_>,
 ) -> Result<(), Error> {
-    if profiles.len() <= 1 {
+    if profiles
+        .iter()
+        .filter(|(_, profile)| profile.is_some())
+        .count()
+        <= 1
+    {
         return Ok(());
     }
     if matches!(identity, TransportIdentity::Tcp | TransportIdentity::Udp) {
@@ -1036,7 +1031,8 @@ pub(crate) fn validate_profile_registry_topology(
     }
     if profiles
         .iter()
-        .any(|(_, profile)| profile.envelope() != ProfileEnvelope::RawVisca)
+        .filter_map(|(_, profile)| *profile)
+        .any(|profile| profile.envelope() != ProfileEnvelope::RawVisca)
     {
         return Err(Error::FeatureNotSupported {
             feature: "multiple VISCA targets with Sony encapsulation",
@@ -1066,26 +1062,30 @@ mod tests {
     fn unsupported_topologies_remain_nonfatal_feature_errors() {
         let raw = ProfileSpec::from_compile_time::<GenericVisca>().expect("raw profile");
         let sony = ProfileSpec::from_compile_time::<SonyFr7>().expect("Sony profile");
-        let raw_targets = [(TargetSlot::CAMERA_1, &raw), (TargetSlot::CAMERA_2, &raw)];
-        let sony_targets = [(TargetSlot::CAMERA_1, &sony), (TargetSlot::CAMERA_2, &sony)];
+        let raw_targets = PerTarget::from_fn(|target| {
+            (target == TargetSlot::CAMERA_1 || target == TargetSlot::CAMERA_2).then_some(&raw)
+        });
+        let sony_targets = PerTarget::from_fn(|target| {
+            (target == TargetSlot::CAMERA_1 || target == TargetSlot::CAMERA_2).then_some(&sony)
+        });
         for (profiles, identity, reason) in [
             (
-                &raw_targets[..],
+                &raw_targets,
                 TransportIdentity::Tcp,
                 "multiple VISCA targets over TCP or UDP",
             ),
             (
-                &raw_targets[..],
+                &raw_targets,
                 TransportIdentity::Udp,
                 "multiple VISCA targets over TCP or UDP",
             ),
             (
-                &sony_targets[..],
+                &sony_targets,
                 TransportIdentity::Serial { bus: None },
                 "multiple VISCA targets with Sony encapsulation",
             ),
             (
-                &raw_targets[..],
+                &raw_targets,
                 TransportIdentity::Custom {
                     semantics: SendSemantics::Stream,
                     addressing: AddressingMode::Ip,

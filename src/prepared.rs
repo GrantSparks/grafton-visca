@@ -1953,6 +1953,13 @@ mod tests {
         let mut no_inquiry = baseline.capabilities().clone();
         no_inquiry.profile_id = None;
         no_inquiry.inquiry_support = InquirySupport::None;
+        no_inquiry.typed_support = no_inquiry
+            .typed_support
+            .iter()
+            .filter(|surface| !crate::command::surface::is_inquiry_only_surface(*surface))
+            .fold(TypedSupportSet::EMPTY, |grants, surface| {
+                grants.union(TypedSupportSet::from_surface(surface))
+            });
         let no_inquiry = runtime_profile(&baseline, no_inquiry, true, None, AffectedAxes::PAN_TILT);
         assert!(prepare_inquiry(
             &CountingInquiry,

@@ -1593,6 +1593,24 @@ impl ProfileFacts {
         }
         self.capabilities.validate_domains()?;
         self.encodings.validate(self.capabilities.typed_support)?;
+        if self.capabilities.inquiry_support == capabilities::InquirySupport::None {
+            let inquiries = self
+                .capabilities
+                .typed_support
+                .iter()
+                .filter(|surface| crate::command::surface::is_inquiry_only_surface(*surface))
+                .map(|surface| format!("{surface:?}"))
+                .collect::<Vec<_>>();
+            if !inquiries.is_empty() {
+                return Err(invalid_profile_fields(
+                    &["capabilities.typed_support", "capabilities.inquiry_support"],
+                    format_args!(
+                        "inquiry-only typed support {} requires profile inquiry support",
+                        inquiries.join(", ")
+                    ),
+                ));
+            }
+        }
         for surface in self.capabilities.typed_support.iter() {
             if !self.capabilities.surface_metadata(surface).permits() {
                 return Err(invalid_profile_fields(
@@ -2888,6 +2906,70 @@ mod tests {
             .position_inquiries(None)
             .build()
             .is_ok());
+    }
+
+    #[test]
+    fn inquiry_only_grants_require_profile_inquiry_support() {
+        let mut caps = Capabilities::runtime_baseline("Version fixture", 1).expect("baseline");
+        caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::VersionInquiry);
+        assert!(!caps
+            .surface_metadata(TypedSupportSurface::VersionInquiry)
+            .permits());
+        let error = conservative_runtime_builder(caps.clone())
+            .build()
+            .expect_err("an inquiry grant cannot override no inquiry support")
+            .to_string();
+        for field in [
+            "capabilities.typed_support",
+            "capabilities.inquiry_support",
+            "VersionInquiry",
+        ] {
+            assert!(error.contains(field), "{error}");
+        }
+        for support in [
+            capabilities::InquirySupport::Partial,
+            capabilities::InquirySupport::Full,
+        ] {
+            caps.inquiry_support = support;
+            assert!(caps
+                .surface_metadata(TypedSupportSurface::VersionInquiry)
+                .permits());
+            conservative_runtime_builder(caps.clone())
+                .build()
+                .expect("inquiry support");
+        }
+    }
+
+    #[test]
+    fn discovery_requires_inquiry_support_for_every_inquiry_only_grant() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+        let mut caps = profile.capabilities().clone();
+        caps.inquiry_support = capabilities::InquirySupport::None;
+        for surface in caps.typed_support.iter() {
+            if crate::command::surface::is_inquiry_only_surface(surface) {
+                assert!(!caps.surface_metadata(surface).permits(), "{surface:?}");
+            }
+        }
+        assert!(caps.supports(TypedSupportSurface::DirectZoom));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn persisted_inquiry_only_grants_cannot_disable_profile_inquiry_support() {
+        let mut caps = Capabilities::runtime_baseline("Version fixture", 1).expect("baseline");
+        caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::VersionInquiry);
+        caps.inquiry_support = capabilities::InquirySupport::Full;
+        let profile = conservative_runtime_builder(caps)
+            .build()
+            .expect("valid inquiries");
+        let mut json = serde_json::to_value(profile).expect("serialize");
+        json["capabilities"]["inquiry_support"] =
+            serde_json::to_value(capabilities::InquirySupport::None).expect("none");
+        let error = serde_json::from_value::<ProfileSpec>(json)
+            .expect_err("contradictory persisted spec")
+            .to_string();
+        assert!(error.contains("capabilities.typed_support"), "{error}");
+        assert!(error.contains("capabilities.inquiry_support"), "{error}");
     }
 
     #[test]

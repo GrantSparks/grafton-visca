@@ -152,6 +152,11 @@ impl Capabilities {
     pub(crate) fn surface_metadata(&self, surface: TypedSupportSurface) -> SurfaceMetadata {
         use SurfaceMetadata::{Dedicated, ParentDomain};
         use TypedSupportSurface as S;
+        if self.inquiry_support == InquirySupport::None
+            && crate::command::surface::is_inquiry_only_surface(surface)
+        {
+            return ParentDomain(false);
+        }
         let exposure = self.exposure.as_ref();
         let focus = self.focus.as_ref();
         let white_balance = self.white_balance.as_ref();

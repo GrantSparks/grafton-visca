@@ -631,6 +631,28 @@ pub(crate) const fn row_gate(command: BuiltinCommand) -> RowGate {
     }
 }
 
+/// Whether a typed grant exclusively enables inquiries. Derive command grants
+/// from the ledger, so new surfaces cannot bypass inquiry-support validation.
+pub(crate) const fn is_inquiry_only_surface(
+    surface: crate::capabilities::TypedSupportSurface,
+) -> bool {
+    const COMMAND_SURFACES: TypedSupportSet = {
+        let mut surfaces = TypedSupportSet::EMPTY;
+        let mut index = 0;
+        while index < BuiltinCommand::ALL.len() {
+            match row_gate(BuiltinCommand::ALL[index]) {
+                RowGate::Typed(required) | RowGate::DomainAndTyped(_, required) => {
+                    surfaces = surfaces.union(required);
+                }
+                RowGate::Always | RowGate::Domain(_) => {}
+            }
+            index += 1;
+        }
+        surfaces
+    };
+    !COMMAND_SURFACES.contains(surface)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
