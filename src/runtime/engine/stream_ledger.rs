@@ -583,7 +583,9 @@ fn settle(
         Verdict::Reject => reject(queue, &dispute, answered),
         Verdict::Untrack => {}
     }
-    pin(queue, tracked.as_ref());
+    // Callers update pins after their whole ledger mutation. In particular,
+    // Touched inside answer must not coalesce candidates while that same
+    // frame is still being resolved.
 }
 
 /// How a first-answer frame resolved.
@@ -711,6 +713,7 @@ impl StreamLedger {
                 DisputeEvent::Unwritten { command },
                 &mut answered,
             );
+            pin(queue, state.dispute.as_ref());
         }
         queue.retain(|entry| !unwritten(entry));
         for entry in queue
@@ -1031,6 +1034,7 @@ impl StreamLedger {
             DisputeEvent::Completion { order: entry.order },
             &mut answered,
         );
+        pin(queue, state.dispute.as_ref());
         take_in(queue, entry.order);
         Some((entry, answered))
     }
@@ -1070,6 +1074,7 @@ impl StreamLedger {
                 DisputeEvent::Touched,
                 &mut Answered::default(),
             );
+            pin(&mut state.queue, state.dispute.as_ref());
         }
         true
     }
@@ -1376,10 +1381,18 @@ fn accept(queue: &mut Queue, dispute: &Dispute, answered: &mut Answered) {
         let before = queue
             .iter()
             .find(|entry| entry.order == step.order)
-            .map(|entry| entry.members);
+            .map_or(0, |entry| entry.members);
         take_in(queue, step.order);
+        let after = queue
+            .iter()
+            .find(|entry| entry.order == step.order)
+            .map_or(0, |entry| entry.members);
+        debug_assert_eq!(
+            after,
+            before.saturating_sub(1),
+            "one disputed frame pays exactly one member"
+        );
         if let Some(entry) = queue.iter_mut().find(|entry| entry.order == step.order) {
-            debug_assert_eq!(Some(entry.members + 1), before);
             entry.disputed = false;
             entry.pinned = false;
         }
@@ -1688,6 +1701,23 @@ mod tests {
             assert!(matches!(own.resolved, Resolved::Live(entry) if entry.request == request(99)));
             ledger.check_disputes().unwrap();
         }
+    }
+
+    #[test]
+    fn the_dispute_audit_detects_a_member_lost_without_a_frame() {
+        let mut ledger = owed(&[Owes::Completion, Owes::Ack, Owes::Ack]);
+        ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+        ledger.check_disputes().unwrap();
+        ledger
+            .queue_mut(TARGET)
+            .iter_mut()
+            .find(|entry| entry.owes == Owes::Ack)
+            .unwrap()
+            .members -= 1;
+        assert_eq!(
+            ledger.check_disputes(),
+            Err("a dispute run lost a member without an assigned frame")
+        );
     }
 
     #[test]

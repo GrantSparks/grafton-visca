@@ -503,3 +503,181 @@ facade_matrix! {
         session.shutdown().expect("shutdown");
     }
 }
+
+#[cfg(all(feature = "blocking", feature = "test-utils"))]
+mod dispute_regressions {
+    use std::time::Duration;
+
+    use grafton_visca::{
+        config::SessionConfig,
+        operation::AppliedOnly,
+        profiles::{AnyProfile, CommandTimeoutClass, CommandTimeouts, ProfileSpec, ProfileTiming},
+        raw::{AppliedOnlyRequest, OperationPolicy, OperationReplyShape},
+        request::{RetryClass, SubmissionClass},
+        testing::testkit::{ManualClock, ScriptedBlockingTransport, Step},
+        types::{AffectedAxes, CameraId},
+        Error,
+    };
+    use grafton_visca_test_support::profile_fixtures::{
+        session_config, NonDefaultCompileTimeProfile,
+    };
+
+    fn completion_only(timeout: CommandTimeoutClass) -> AppliedOnlyRequest {
+        AppliedOnlyRequest::with_policy(
+            [0x81, 0x01, 0x04, 0x07, 0x00, 0xff],
+            AffectedAxes::ZOOM,
+            OperationPolicy::new(timeout, RetryClass::Never, SubmissionClass::Normal)
+                .with_reply_shape(OperationReplyShape::CompletionOnly),
+        )
+        .expect("completion-only request")
+    }
+
+    fn wait_for_writes(clock: &ManualClock, wire: &ScriptedBlockingTransport, count: usize) {
+        assert!(
+            clock
+                .wait_until(clock.now() + Duration::from_secs(10), || {
+                    (wire.sent().len() >= count).then_some(())
+                })
+                .is_some(),
+            "waiting for write {count}"
+        );
+    }
+
+    #[test]
+    fn accepted_dispute_keeps_the_second_stop_answer_away_from_a_later_operation() {
+        let clock = ManualClock::new();
+        let participant = clock.enter();
+        let wire = ScriptedBlockingTransport::new([
+            Step::on_send(None, vec![]),
+            Step::on_send(None, vec![]),
+            Step::on_send(None, vec![]),
+            Step::after(
+                Duration::from_millis(150),
+                vec![vec![0x90, 0x60, 0x41, 0xff], vec![0x90, 0x50, 0xff]],
+            ),
+            Step::on_send(None, vec![vec![0x90, 0x41, 0xff], vec![0x90, 0x51, 0xff]]),
+        ])
+        .on_clock(&clock);
+        let probe = wire.clone();
+        let session = clock
+            .open_blocking_session(&participant, wire, session_config())
+            .expect("session");
+        let camera = session
+            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+            .expect("camera");
+        let mut command = camera
+            .submit::<AppliedOnly, _>(&completion_only(CommandTimeoutClass::Quick))
+            .expect("command");
+        wait_for_writes(&clock, &probe, 1);
+        let mut first = camera
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
+            .expect("first STOP");
+        wait_for_writes(&clock, &probe, 2);
+        let mut second = camera
+            .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
+            .expect("second STOP");
+        wait_for_writes(&clock, &probe, 3);
+        assert!(matches!(
+            first.applied(),
+            Err(Error::UnsequencedCommandUnconfirmed)
+        ));
+        assert!(matches!(
+            second.applied(),
+            Err(Error::UnsequencedCommandUnconfirmed)
+        ));
+        command.applied().expect("completion proves acceptance");
+        let mut later = camera
+            .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
+            .expect("later STOP");
+        assert!(matches!(
+            later.applied(),
+            Err(Error::UnsequencedCommandUnconfirmed)
+        ));
+        assert_eq!(probe.sent().len(), 4);
+        session.close().expect("owner closes");
+    }
+
+    #[test]
+    fn socketless_disputed_ack_never_proves_the_completion_only_command_applied() {
+        let clock = ManualClock::new();
+        let participant = clock.enter();
+        let wire = ScriptedBlockingTransport::new([
+            Step::on_send(None, vec![]),
+            Step::on_send(None, vec![vec![0x90, 0x60, 0x41, 0xff]]),
+            Step::on_send(None, vec![vec![0x90, 0x40, 0xff], vec![0x90, 0x50, 0xff]]),
+        ])
+        .on_clock(&clock);
+        let probe = wire.clone();
+        // A halt's budget includes a ten-second retry floor. This long
+        // virtual ACK window makes its half-budget bypass happen while the
+        // first STOP is still live, so the ACK really is disputed.
+        let base =
+            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>().expect("profile");
+        let spec = ProfileSpec::builder(base.capabilities().clone())
+            .transports(base.transports())
+            .envelope(base.envelope())
+            .timing(
+                ProfileTiming::builder()
+                    .ack_timeout(Duration::from_secs(20))
+                    .command_timeouts(
+                        CommandTimeouts::DEFAULT
+                            .with_quick_timeout(Duration::from_millis(40))
+                            .with_movement_timeout(Duration::from_millis(20)),
+                    )
+                    .inquiry_timeout(Duration::from_secs(1))
+                    .cancellation_timeout(Duration::from_secs(1))
+                    .ambiguity_timeout(Duration::from_secs(1))
+                    .busy_timeout(Duration::ZERO)
+                    .raw_inquiry_reply_skew(Duration::ZERO)
+                    .inquiry_spacing(Duration::ZERO)
+                    .command_spacing(Duration::ZERO)
+                    .build()
+                    .expect("short STOP timing"),
+            )
+            .maximum_command_sockets(2)
+            .supports_operation_complete(false)
+            .supports_command_cancel(true)
+            .position_inquiries(base.position_inquiries())
+            .build()
+            .expect("short STOP profile");
+        let config = SessionConfig::new(spec);
+        let session = clock
+            .open_blocking_session(&participant, wire, config)
+            .expect("session");
+        let diagnostics = session.subscribe_diagnostics(64).expect("diagnostics");
+        let camera = session
+            .camera::<AnyProfile>(CameraId::CAMERA_1)
+            .expect("camera");
+        let mut command = camera
+            .submit::<AppliedOnly, _>(&completion_only(CommandTimeoutClass::LongRunning))
+            .expect("command");
+        wait_for_writes(&clock, &probe, 1);
+        let mut first = camera
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
+            .expect("first STOP");
+        wait_for_writes(&clock, &probe, 2);
+        loop {
+            if matches!(
+                diagnostics.recv().expect("first rejection"),
+                grafton_visca::observability::DiagnosticEvent::FrameReceived { .. }
+            ) {
+                break;
+            }
+        }
+        assert!(matches!(
+            first.applied_with_timeout(Duration::ZERO),
+            Err(Error::ObservationTimeout { .. })
+        ));
+        let _halt = camera.motion().stop_all().expect("halt transaction");
+        assert!(probe.sent().len() >= 3);
+        assert!(matches!(
+            command.applied_with_timeout(Duration::from_millis(1)),
+            Err(Error::ObservationTimeout { .. })
+        ));
+        assert!(matches!(
+            first.applied(),
+            Err(Error::UnsequencedCommandUnconfirmed)
+        ));
+        session.close().expect("owner closes");
+    }
+}
