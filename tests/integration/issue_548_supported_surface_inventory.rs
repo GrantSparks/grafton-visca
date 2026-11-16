@@ -5,8 +5,10 @@
 //! command/method correctness is compiled and tested inside the crate; this
 //! integration test must not rebuild that registry by parsing its tokens.
 
+#[allow(unused_imports)]
 pub use grafton_visca::Error;
 pub mod error {
+    #[allow(unused_imports)]
     pub use grafton_visca::Error;
 }
 
@@ -279,7 +281,7 @@ fn static_noun_and_control_inventory_is_closed() {
         grafton_visca_test_support::profile_fixtures::OptionalSurfacesTypedSupport,
     >();
 
-    let noun_tokens = source_scan::production_tokens(include_str!("../src/noun_table.rs"));
+    let noun_tokens = source_scan::production_tokens(include_str!("../../src/noun_table.rs"));
     let source_names: Vec<_> = noun_tokens
         .windows(3)
         .filter(|tokens| {
@@ -294,7 +296,7 @@ fn static_noun_and_control_inventory_is_closed() {
     compiled_names.push("MotionAccessor".to_owned());
     assert_same_names(source_names, compiled_names, "compiled static nouns");
 
-    let surface = declarations(include_str!("../src/command/surface.rs"));
+    let surface = declarations(include_str!("../../src/command/surface.rs"));
     assert!(surface.contains("pub(crate) const fn surface_entry"));
     // No second command inventory: canonical noun rows project their exact
     // protocol identities, and the const index checks their ledger classes.
@@ -324,7 +326,7 @@ fn runtime_profile_control_inventory_uses_the_native_accessors() {
         let _: Option<MotionAccessor<'static>> = None;
     }
 
-    let noun_tokens = source_scan::production_tokens(include_str!("../src/noun_table.rs"));
+    let noun_tokens = source_scan::production_tokens(include_str!("../../src/noun_table.rs"));
     let legacy_methods: Vec<_> = noun_tokens
         .windows(2)
         .filter(|tokens| tokens[1] == "(" && tokens[0].ends_with("_op"))
@@ -338,7 +340,7 @@ fn runtime_profile_control_inventory_uses_the_native_accessors() {
 
 #[test]
 fn ecosystem_derive_test_and_extension_inventory_is_documented() {
-    let inventory = include_str!("../docs/architecture_inventory.md");
+    let inventory = include_str!("../../docs/architecture_inventory.md");
     for required in [
         "blocking",
         "async",
@@ -397,7 +399,7 @@ fn downstream_derive_inventory_compiles_and_preserves_behavior() {
 
 /// Every `name = value` entry of the manifest's `[features]` table.
 fn manifest_feature_table() -> Vec<(&'static str, &'static str)> {
-    let manifest = include_str!("../Cargo.toml");
+    let manifest = include_str!("../../Cargo.toml");
     let mut in_features = false;
     let mut entries = Vec::new();
     for line in manifest.lines() {

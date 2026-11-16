@@ -90,7 +90,7 @@ We maintain high code quality standards:
 
 ## Public API Conventions
 
-These conventions are normative for public changes. `tests/api_conventions.rs`
+These conventions are normative for public changes. `tests/integration/api_conventions.rs`
 and the public-path, facade-parity, value and compile-contract gates enforce
 this grammar; update the declarations and their reviewed contracts together.
 
@@ -106,7 +106,7 @@ this grammar; update the declarations and their reviewed contracts together.
    `mode()` / `set_mode(Mode)`; a sub-feature uses `p_mode()` /
    `set_p_mode(PMode)`. Single steps are `p_up`, `p_down`, `p_reset`; counted
    steps are `p_up_by(steps)` and `p_down_by(steps)`; toggles are `toggle_p`.
-   Other actions use the closed verb list in `tests/api_conventions.rs`, such
+   Other actions use the closed verb list in `tests/integration/api_conventions.rs`, such
    as `on`, `standby`, `home`, `stop`, `drive`, `recall`, `store`, `clear`,
    `one_push`, `navigate`, `enter`, `back` and `stop_all`. Do not introduce
    `enable_*`, `disable_*`, `*_on`, `*_off`, `increase_*`, `decrease_*`,
@@ -462,6 +462,27 @@ with `blocking_wire()`/`async_wire()`, the shared reply frames and wait
 helpers); scenarios that run on several facades or runtimes use its
 `facade_matrix!`/`runtime_matrix!` macros. A hand-written transport stays
 local only with a `// Local fake:` comment.
+
+Behavioral suites live as modules under `tests/integration/`, so each feature
+leg links one behavioral test executable. `tests/allocation/` shares one
+thread-local counting allocator and stays in a separate process to isolate
+measurements. `tests/api_stability_test/` and `tests/no_default_smoke/` remain
+separate because dedicated matrix legs select exactly those workloads. The
+suite module name remains part of every libtest name:
+
+```bash
+cargo test --test integration issue_555_observability::
+cargo test --features test-utils --test allocation issue_548_allocation_baselines::
+```
+
+Keep new suites under the appropriate target and declare them in its
+`main.rs`; add a separate target only when its process state or matrix
+selection requires it. `tests/common/` helpers are compiled once per target.
+When moving suites, preserve each feature leg's executable test inventory:
+run `.github/scripts/check-integration-test-equivalence.py capture OUTPUT`
+on each checkout, then its `compare BEFORE/inventory.json AFTER/inventory.json`
+mode. The `measure` mode records cold and incremental build timings and
+integration executable bytes in an empty target directory for each checkout.
 
 ### Running Tests
 

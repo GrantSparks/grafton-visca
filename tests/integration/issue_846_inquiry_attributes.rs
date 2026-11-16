@@ -1,6 +1,6 @@
 //! Typed selector decoding must agree with the variant accepted by the derive.
 
-include!("api_contract/pass/visca_inquiry_parser_attributes.rs");
+include!("../api_contract/pass/visca_inquiry_parser_attributes.rs");
 
 #[test]
 fn typed_mode_nibble_and_explicit_variant_decoders_share_their_payload() {

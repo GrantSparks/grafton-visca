@@ -11,10 +11,6 @@
     all(feature = "async", feature = "runtime-tokio")
 ))]
 
-#[cfg(all(feature = "async", feature = "runtime-tokio"))]
-#[path = "common/profile_encodings.rs"]
-mod profile_encodings;
-
 use grafton_visca_test_support::fake_camera;
 
 use fake_camera::{frames, FakeCamera};
@@ -380,7 +376,7 @@ mod runtime_profile_surface {
         capabilities.model_name = "NR runtime profile".into();
         capabilities.typed_support = transform_typed_support(capabilities.typed_support);
 
-        crate::profile_encodings::with_source_encodings(
+        crate::common::profile_encodings::with_source_encodings(
             ProfileSpec::builder(capabilities)
                 .transports(source.transports())
                 .envelope(source.envelope())

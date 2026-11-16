@@ -26,9 +26,6 @@
 #![cfg(feature = "serde")]
 #![allow(clippy::expect_used)]
 
-#[path = "common/profile_encodings.rs"]
-mod profile_encodings;
-
 use grafton_visca::{
     capabilities::TypedSupportSurface,
     profiles::{
@@ -38,11 +35,11 @@ use grafton_visca::{
     Error,
 };
 
-const RC2_SONY_FR7: &str = include_str!("fixtures/issue_795_rc2_profile_specs/sony_fr7.json");
+const RC2_SONY_FR7: &str = include_str!("../fixtures/issue_795_rc2_profile_specs/sony_fr7.json");
 const RC2_GENERIC_VISCA: &str =
-    include_str!("fixtures/issue_795_rc2_profile_specs/generic_visca.json");
+    include_str!("../fixtures/issue_795_rc2_profile_specs/generic_visca.json");
 const RC2_PTZ_OPTICS_G2: &str =
-    include_str!("fixtures/issue_795_rc2_profile_specs/ptz_optics_g2.json");
+    include_str!("../fixtures/issue_795_rc2_profile_specs/ptz_optics_g2.json");
 
 /// Pins the fixture to the 2.0.0-rc.2 shape: current required fields are
 /// absent, removed fields are present, and `missing_tag` is a typed-support
@@ -229,7 +226,7 @@ fn stale_builtin_typed_support_keeps_the_invalid_request_variant() {
     capabilities.typed_support = capabilities
         .typed_support
         .without(TypedSupportSurface::VersionInquiry);
-    let error = crate::profile_encodings::with_source_encodings(
+    let error = crate::common::profile_encodings::with_source_encodings(
         ProfileSpec::builder(capabilities)
             .transports(current.transports())
             .envelope(current.envelope())

@@ -21,7 +21,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-const TRACE: &str = include_str!("fixtures/issue_542/protocol/correlation-routing.trace");
+const TRACE: &str = include_str!("../fixtures/issue_542/protocol/correlation-routing.trace");
 const FORMAT: &str = "issue-542-protocol-correlation/v3";
 
 const NORMATIVE_CLAUSES: &[&str] = &[

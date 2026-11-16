@@ -1,62 +1,10 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::{
-    alloc::{GlobalAlloc, Layout, System},
-    cell::Cell,
-    sync::Mutex,
-};
-
 use grafton_visca::{
     request::Request, types::CameraId, wire::VISCA_TERMINATOR, Error, ViscaInquiry,
 };
 
-struct CountingAllocator;
-
-static ALLOCATION_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-thread_local! {
-    static COUNTING_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
-    static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
-}
-
-#[global_allocator]
-static GLOBAL: CountingAllocator = CountingAllocator;
-
-unsafe impl GlobalAlloc for CountingAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if COUNTING_ALLOCATIONS.try_with(Cell::get).unwrap_or(false) {
-            let _ = ALLOCATION_COUNT.try_with(|count| {
-                count.set(count.get().saturating_add(1));
-            });
-        }
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(ptr, layout) }
-    }
-}
-
-struct AllocationCountingGuard;
-
-impl Drop for AllocationCountingGuard {
-    fn drop(&mut self) {
-        let _ = COUNTING_ALLOCATIONS.try_with(|counting| counting.set(false));
-    }
-}
-
-fn allocations_during(f: impl FnOnce()) -> usize {
-    let _guard = ALLOCATION_TEST_LOCK.lock().unwrap();
-    ALLOCATION_COUNT.with(|count| count.set(0));
-    COUNTING_ALLOCATIONS.with(|counting| counting.set(true));
-
-    {
-        let _counting_guard = AllocationCountingGuard;
-        f();
-    }
-
-    ALLOCATION_COUNT.with(Cell::get)
-}
+use crate::counting::{allocations_during, ALLOCATION_TEST_LOCK};
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
 #[visca(opcode = 0x47, response = ZoomPosition)]

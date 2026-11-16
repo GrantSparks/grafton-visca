@@ -15,8 +15,7 @@ use grafton_visca::{
 };
 use grafton_visca_test_support::fake_camera::FakeCamera;
 
-#[path = "common/counting_executor.rs"]
-mod counting_executor;
+use crate::common::counting_executor;
 use counting_executor::CountingExecutor;
 
 #[test]

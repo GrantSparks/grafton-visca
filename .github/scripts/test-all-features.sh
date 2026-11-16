@@ -316,7 +316,7 @@ expect_unknown_feature() {
 # camera type and require no extra feature. These live-compiler checks run in
 # `rejections` mode and in the full `test` run; the manifest inventory is also
 # pinned by `ecosystem_feature_inventory_matches_cargo_manifest` in
-# `tests/issue_548_supported_surface_inventory.rs`.
+# `tests/integration/issue_548_supported_surface_inventory.rs`.
 run_rejections() {
     expect_unknown_feature "mode-async" &&
         expect_unknown_feature "async-core" &&

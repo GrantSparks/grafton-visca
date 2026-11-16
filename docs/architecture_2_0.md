@@ -945,7 +945,7 @@ configured `read_timeout` has elapsed
 without data, and the coordinator paces an eagerly idle or faulting transport
 while every other source stays selectable.
 
-Measured cost and latency (`tests/blocking_worker_resources.rs`, release
+Measured cost and latency (`tests/integration/blocking_worker_resources.rs`, release
 build, UDP loopback, 4-core Linux VM, October 2026; the harness is ignored by
 default because the figures depend on the host):
 

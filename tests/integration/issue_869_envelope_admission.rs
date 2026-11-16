@@ -12,9 +12,6 @@
 ))]
 #![allow(clippy::expect_used)]
 
-#[path = "common/profile_encodings.rs"]
-mod profile_encodings;
-
 use grafton_visca::{
     config::{OperationalTuning, SessionConfig, TransportKind},
     observability::SessionStatus,
@@ -54,7 +51,7 @@ fn sony_profile() -> ProfileSpec {
             .capabilities()
             .clone();
     capabilities.profile_id = None;
-    crate::profile_encodings::with_source_encodings(
+    crate::common::profile_encodings::with_source_encodings(
         ProfileSpec::builder(capabilities)
             .transports(TransportCompatibility::new().with_tcp(5678).with_udp(52381))
             .envelope(ProfileEnvelope::SonyEncapsulated)

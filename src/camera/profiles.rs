@@ -352,7 +352,7 @@ mod tests {
 
     /// Every profile belongs to exactly the group that lists it. The literal
     /// membership is pinned once, in the closed inventory of
-    /// `tests/issue_548_supported_surface_inventory.rs`.
+    /// `tests/integration/issue_548_supported_surface_inventory.rs`.
     #[test]
     fn every_profile_is_listed_by_exactly_its_group() {
         for profile in ProfileId::all() {

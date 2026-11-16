@@ -5,9 +5,6 @@
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 
-#[path = "common/profile_encodings.rs"]
-mod profile_encodings;
-
 use grafton_visca_test_support::{fake_camera, runtime_matrix};
 
 use std::time::Duration;
@@ -50,7 +47,7 @@ fn runtime_with_capabilities(
     capabilities: Capabilities,
 ) -> ProfileSpec {
     let timing: ProfileTiming = static_profile.timing();
-    crate::profile_encodings::with_source_encodings(
+    crate::common::profile_encodings::with_source_encodings(
         ProfileSpec::builder(capabilities)
             .transports(static_profile.transports())
             .envelope(static_profile.envelope())

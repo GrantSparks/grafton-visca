@@ -9,8 +9,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-#[path = "common/profile_encodings.rs"]
-mod profile_encodings;
+use crate::common::profile_encodings;
 
 use grafton_visca_test_support::patterns;
 

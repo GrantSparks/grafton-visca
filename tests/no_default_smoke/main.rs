@@ -1,3 +1,6 @@
+//! The pure-domain matrix leg selects only this smoke suite alongside library tests.
+//! This separate target preserves that leg's exact workload.
+//!
 //! No-default coverage guard for the pure protocol surface.
 //!
 //! The owner facades are intentionally absent when no feature is selected.
@@ -62,12 +65,12 @@ fn no_default_pure_request_profile_smoke_and_facade_inventory() {
     for (label, source, floor) in [
         (
             "src/runtime/engine/tests.rs",
-            include_str!("../src/runtime/engine/tests.rs"),
+            include_str!("../../src/runtime/engine/tests.rs"),
             40_usize,
         ),
         (
-            "tests/issue_551_request_contract.rs",
-            include_str!("issue_551_request_contract.rs"),
+            "tests/integration/issue_551_request_contract.rs",
+            include_str!("../integration/issue_551_request_contract.rs"),
             3,
         ),
     ] {

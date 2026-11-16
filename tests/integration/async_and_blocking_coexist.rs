@@ -143,7 +143,7 @@ mod runtime_coexistence {
     };
     use grafton_visca_test_support::runtime_matrix;
 
-    use crate::fake_camera::FakeCamera;
+    use super::fake_camera::FakeCamera;
 
     async fn blocking_and_async_owners_open_use_and_close<E: Executor>(executor: E) {
         let blocking = BlockingSession::open(

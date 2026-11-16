@@ -40,7 +40,7 @@ mod async_standard {
         Error,
     };
 
-    use crate::fake_camera::{AsyncWire, FakeCamera};
+    use super::fake_camera::{AsyncWire, FakeCamera};
 
     #[cfg(feature = "runtime-tokio")]
     use grafton_visca::config::OperationalTuning;
@@ -546,7 +546,7 @@ mod blocking_standard {
         Error,
     };
 
-    use crate::fake_camera::{BlockingWire, FakeCamera};
+    use super::fake_camera::{BlockingWire, FakeCamera};
 
     /// A camera that answers every command with ACK and completion, behind a
     /// wire that reports serial addressing and stream semantics.

@@ -1,3 +1,6 @@
+//! Compile contracts have a dedicated matrix leg that selects this target by name.
+//! This separate target preserves that leg's exact workload.
+//!
 //! Public API contracts for the owner-backed 2.0 surface.
 //!
 //! The detailed noun, request, lifecycle, construction, observability, and
@@ -5,7 +8,7 @@
 //! the feature matrix and the root exports honest without importing any of
 //! the removed 1.x mode, client, control-trait, or runtime-handle vocabulary.
 
-#[path = "common/profile_encodings.rs"]
+#[path = "../common/profile_encodings.rs"]
 mod profile_encodings;
 
 use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};

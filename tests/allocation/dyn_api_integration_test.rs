@@ -16,17 +16,9 @@
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 
-#[path = "common/profile_encodings.rs"]
-mod profile_encodings;
-
 use grafton_visca_test_support::{fake_camera, runtime_matrix};
 
-use std::{
-    alloc::{GlobalAlloc, Layout, System},
-    cell::Cell,
-    sync::Mutex,
-    time::Duration,
-};
+use std::time::Duration;
 
 use grafton_visca::{
     capabilities::TypedSupportSurface,
@@ -43,56 +35,7 @@ use grafton_visca::{
 
 use fake_camera::{frames, AsyncWire, FakeCamera};
 
-/// Count future construction allocations for both profile representations.
-/// Neither native facade allocates before its future is polled.
-struct CountingAllocator;
-
-static ALLOCATION_LOCK: Mutex<()> = Mutex::new(());
-
-thread_local! {
-    static COUNT_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
-    static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
-}
-
-#[global_allocator]
-static GLOBAL: CountingAllocator = CountingAllocator;
-
-unsafe impl GlobalAlloc for CountingAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if COUNT_ALLOCATIONS.try_with(Cell::get).unwrap_or(false) {
-            let _ = ALLOCATION_COUNT.try_with(|count| {
-                count.set(count.get().saturating_add(1));
-            });
-        }
-        // SAFETY: this allocator forwards the original layout and pointer to
-        // the platform allocator unchanged.
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        // SAFETY: `pointer` and `layout` came from `System::alloc` above.
-        unsafe { System.dealloc(pointer, layout) }
-    }
-}
-
-struct AllocationGuard;
-
-impl Drop for AllocationGuard {
-    fn drop(&mut self) {
-        let _ = COUNT_ALLOCATIONS.try_with(|counting| counting.set(false));
-    }
-}
-
-fn allocations_during(action: impl FnOnce()) -> usize {
-    let _lock = ALLOCATION_LOCK.lock().expect("allocation lock");
-    ALLOCATION_COUNT.with(|count| count.set(0));
-    COUNT_ALLOCATIONS.with(|counting| counting.set(true));
-    {
-        let _guard = AllocationGuard;
-        action();
-    }
-    ALLOCATION_COUNT.with(Cell::get)
-}
+use crate::counting::allocations_during;
 
 fn profile() -> ProfileSpec {
     ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PtzOptics G2 profile")

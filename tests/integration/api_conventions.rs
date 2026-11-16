@@ -2,7 +2,7 @@
 //!
 //! The library includes this file and invokes `api_convention_tests!`; keeping
 //! the test definitions inside that macro grants access to private metadata
-//! without introducing a public testing API. Its standalone Cargo integration
+//! without introducing a public testing API. Its module in the Cargo integration
 //! target contains no executed tests; the checks run in the library unit suite.
 
 #![allow(unused_macros, unused_imports)]
