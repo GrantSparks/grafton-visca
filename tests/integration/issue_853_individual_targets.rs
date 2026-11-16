@@ -62,7 +62,7 @@ facade_matrix! {
         for id in 1..=7 {
             let target = grafton_visca::types::IndividualCameraId::new(id).unwrap();
             let view = session.camera::<PtzOpticsG2>(target).unwrap();
-            assert_eq!(view.state_cache().target(), target.into());
+            assert_eq!(view.state_cache().target(), target);
             wait!(view.streaming().set_multicast(true)).expect("target-local applied effect");
             for check in 1..=7 {
                 let cache = session

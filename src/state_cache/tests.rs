@@ -103,8 +103,8 @@ fn noun_views_keep_their_target_and_outlive_the_temporary_cache() {
     let tally = StateCache::from_registry(Arc::clone(&registry), TargetSlot::CAMERA_2).tally();
     let cloned = tally.clone();
     drop(cache);
-    assert_eq!(tally.cache.target(), CameraId::CAMERA_2);
-    assert_eq!(cloned.cache.target(), CameraId::CAMERA_2);
+    assert_eq!(tally.cache.target(), crate::IndividualCameraId::CAMERA_2);
+    assert_eq!(cloned.cache.target(), crate::IndividualCameraId::CAMERA_2);
     assert_eq!(tally.mode(), None);
     assert_eq!(cloned.brightness(), None);
 }

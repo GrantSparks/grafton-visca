@@ -5,10 +5,7 @@
 //! makes its key unknown. Cloned views share the same fixed table.
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-use crate::{
-    target::{PerTarget, TargetSlot},
-    CameraId,
-};
+use crate::target::{PerTarget, TargetSlot};
 #[cfg(any(feature = "blocking", feature = "async"))]
 use std::{
     ops::{Index, IndexMut},
@@ -260,8 +257,8 @@ impl StateCache {
     }
     /// Returns the individual target addressed by this view.
     #[must_use]
-    pub const fn target(&self) -> CameraId {
-        self.target.camera()
+    pub const fn target(&self) -> crate::IndividualCameraId {
+        self.target.individual_camera()
     }
     /// Returns the current typed entry for a write-only key.
     #[must_use]

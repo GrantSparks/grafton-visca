@@ -25,7 +25,7 @@ facade_matrix! {
             if commands != 1 { answer.reply(frames::complete(1)); }
         });
         let session = open!(fake, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
-        let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).unwrap();
         let mut second = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide)).unwrap();
         wait!(second.applied()).unwrap();
@@ -47,7 +47,7 @@ facade_matrix! {
             }
         });
         let session = open!(fake, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
-        let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).unwrap();
         let mut second = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide)).unwrap();
         wait_for_reads!(fake, 2);

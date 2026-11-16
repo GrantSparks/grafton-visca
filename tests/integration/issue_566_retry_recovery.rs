@@ -298,7 +298,7 @@ facade_matrix! {
     fn a_sony_lost_ack_then_rejections_requires_reconciliation() {
         let camera = scripted(vec![Vec::new()], vec![frames::buffer_full()]);
         let session = open!(camera, sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
         let mut operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("submission");
         let error = wait!(operation.applied_with_timeout(Duration::from_secs(60)))
             .expect_err("exhausted retries retain the first possible effect");
@@ -314,7 +314,7 @@ facade_matrix! {
     fn cancelling_a_sony_lost_ack_backoff_is_unconfirmed() {
         let camera = FakeCamera::silent();
         let session = open!(camera, sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
         let mut operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("submission");
         wait_for_writes!(camera, 1);
         pause!(sony_fr7_timing().ack_timeout() + Duration::from_millis(1));
