@@ -11,10 +11,7 @@ use std::{
     time::Duration,
 };
 
-#[cfg(any(feature = "test-utils", feature = "runtime-tokio"))]
 use crate::testing::frames;
-#[cfg(not(any(feature = "test-utils", feature = "runtime-tokio")))]
-use crate::wire::VISCA_TERMINATOR;
 use crate::{
     error::ErrorKind,
     observability::SessionStatus,
@@ -22,10 +19,6 @@ use crate::{
     transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
     Error,
 };
-#[cfg(not(any(feature = "test-utils", feature = "runtime-tokio")))]
-#[allow(dead_code)]
-#[path = "../../../testing/frames.rs"]
-mod frames;
 
 // Keep the existing synthetic profile in this lib-test crate's type universe.
 // External test-support depends on the separately compiled library instance.

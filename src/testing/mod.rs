@@ -40,9 +40,9 @@ pub(crate) mod testkit_metadata {
 // The reply frames shared by the testkit helpers, the simulator, and (through
 // `#[path]`) the integration suite's fake camera. Every test build that compiles
 // this module also compiles `frame_tests`, which pins each frame.
-#[cfg(any(feature = "test-utils", all(test, feature = "runtime-tokio")))]
+#[cfg(any(test, feature = "test-utils"))]
 pub(crate) mod frames;
-#[cfg(any(feature = "test-utils", all(test, feature = "runtime-tokio")))]
+#[cfg(any(test, feature = "test-utils"))]
 use crate::command::VISCA_TERMINATOR;
 
 #[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
@@ -83,7 +83,7 @@ pub mod receive;
 #[cfg(all(feature = "test-utils", feature = "blocking"))]
 pub mod fuzz;
 
-#[cfg(all(test, any(feature = "test-utils", feature = "runtime-tokio")))]
+#[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic)]
 mod frame_tests {
     //! Pins the reply frames against the crate's own reply decoder, and the

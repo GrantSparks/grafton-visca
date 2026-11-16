@@ -21,10 +21,7 @@ use std::{
 };
 
 use crate::config::SessionConfig;
-#[cfg(any(feature = "test-utils", feature = "runtime-tokio"))]
 use crate::testing::frames;
-#[cfg(not(any(feature = "test-utils", feature = "runtime-tokio")))]
-use crate::wire::VISCA_TERMINATOR;
 use crate::{
     observability::{MetricsSnapshot, SessionStatus},
     operation::AppliedOnly,
@@ -32,10 +29,6 @@ use crate::{
     transport::{HasTransportConfig, ReceiveOutcome, TransportConfig},
     Error,
 };
-#[cfg(not(any(feature = "test-utils", feature = "runtime-tokio")))]
-#[allow(dead_code)]
-#[path = "../../../testing/frames.rs"]
-mod frames;
 
 fn sony_session_config() -> SessionConfig {
     SessionConfig::from_compile_time::<SonyFr7>().expect("Sony FR7 profile")
