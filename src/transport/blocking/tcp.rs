@@ -60,6 +60,8 @@ impl Tcp {
             options,
             resolve_blocking(&endpoint, deadline)?,
             deadline,
+            TcpStream::connect_timeout,
+            Instant::now,
         )?;
         Ok(Self { stream, config })
     }
@@ -71,10 +73,12 @@ fn connect_resolved(
     options: TcpConnectionConfig,
     addresses: Vec<SocketAddr>,
     deadline: Deadline,
+    mut connect: impl FnMut(&SocketAddr, Duration) -> std::io::Result<TcpStream>,
+    mut now: impl FnMut() -> Instant,
 ) -> Result<TcpStream, Error> {
     let mut attempts = TcpAttempts::new(addresses, deadline);
-    while let Some((address, remaining)) = attempts.next_attempt(Instant::now()) {
-        match TcpStream::connect_timeout(&address, remaining) {
+    while let Some((address, remaining)) = attempts.next_attempt(now()) {
+        match connect(&address, remaining) {
             Ok(stream) => {
                 socket_setup(
                     endpoint,
@@ -85,7 +89,7 @@ fn connect_resolved(
             Err(error) => attempts.failed(AttemptFailure::from_socket(error)),
         }
     }
-    Err(attempts.into_error(endpoint, Instant::now()))
+    Err(attempts.into_error(endpoint, now()))
 }
 
 impl HasTransportConfig for Tcp {
@@ -185,23 +189,84 @@ mod tests {
     }
     #[test]
     fn an_unroutable_first_address_does_not_hide_the_next_refusal() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("reserve local port");
-        let refused = listener.local_addr().expect("local port");
-        drop(listener);
+        let addresses = [
+            "192.0.2.1:5678".parse().expect("test-net address"),
+            "127.0.0.1:9".parse().expect("local address"),
+        ];
         let options = TcpConnectionConfig::from(
             TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(800)),
         );
-        let deadline = connect_deadline(Instant::now(), options.connect_timeout).expect("budget");
+        let started = Instant::now();
+        let clock = std::cell::Cell::new(started);
+        let deadline = connect_deadline(started, options.connect_timeout).expect("budget");
+        let mut tried = Vec::new();
+        // Inject OS verdicts and time into the production connector loop.
+        // Windows can spend a short budget before a closed local port reports
+        // refusal, which correctly yields Timeout instead of this case's
+        // conclusive ConnectionRefused. The first attempt spends exactly its
+        // share here; the second refusal arrives within the total budget.
         let error = connect_resolved(
             "camera.test:5678",
             options,
-            vec!["192.0.2.1:5678".parse().expect("test-net address"), refused],
+            addresses.to_vec(),
             deadline,
+            |address, budget| {
+                tried.push((*address, budget));
+                Err(if *address == addresses[0] {
+                    clock.set(clock.get() + budget);
+                    ErrorKind::TimedOut.into()
+                } else {
+                    ErrorKind::ConnectionRefused.into()
+                })
+            },
+            || clock.get(),
         )
         .expect_err("both addresses fail");
-        assert!(
-            matches!(error, Error::ConnectionFailed { source, .. } if source.kind() == ErrorKind::ConnectionRefused)
+        assert_eq!(
+            tried,
+            [
+                (addresses[0], Duration::from_millis(400)),
+                (addresses[1], Duration::from_millis(400)),
+            ]
         );
+        assert!(
+            matches!(&error, Error::ConnectionFailed { source, .. } if source.kind() == ErrorKind::ConnectionRefused),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn only_expired_attempts_keep_the_blocking_timeout_contract() {
+        let addresses = [
+            "192.0.2.1:5678".parse().expect("first address"),
+            "192.0.2.2:5678".parse().expect("second address"),
+        ];
+        let options = TcpConnectionConfig::from(
+            TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(800)),
+        );
+        for spend_shares in [false, true] {
+            let started = Instant::now();
+            let clock = std::cell::Cell::new(started);
+            let deadline = connect_deadline(started, options.connect_timeout).expect("budget");
+            let mut tried = Vec::new();
+            let error = connect_resolved(
+                "camera.test:5678",
+                options,
+                addresses.to_vec(),
+                deadline,
+                |address, budget| {
+                    tried.push(*address);
+                    if spend_shares {
+                        clock.set(clock.get() + budget);
+                    }
+                    Err(ErrorKind::TimedOut.into())
+                },
+                || clock.get(),
+            )
+            .expect_err("both shares expire");
+            assert_eq!(tried, addresses);
+            assert!(matches!(error, Error::Timeout { .. }), "{error:?}");
+        }
     }
 
     #[test]
