@@ -111,7 +111,7 @@ fn ready_and_backoff_have_no_active_attempt() {
                 .lifecycle()
                 .previous_attempt()
                 .unwrap();
-            engine.promote_retry(id, previous, start, &mut Decision::new());
+            engine.promote_retry(id, previous, start, &mut Decision::new(&mut Vec::new()));
         }
         let entry = engine.entry(id).unwrap();
         assert!(entry.lifecycle().attempt().is_none());

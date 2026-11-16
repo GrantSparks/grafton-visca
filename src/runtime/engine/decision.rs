@@ -1,4 +1,4 @@
-//! Boundary-local effects and deferred frame evidence, returned by value.
+//! Boundary-local evidence and effects appended into owner-owned storage.
 //!
 //! A decision never survives an external-input or scheduler boundary. Each
 //! ledger target can settle its one tracked dispute, and the current frame
@@ -25,17 +25,23 @@ impl DeferredEvidence {
     }
 }
 
-#[derive(Debug, Default)]
-pub(super) struct Decision {
-    effects: Vec<Effect>,
+#[derive(Debug)]
+pub(super) struct Decision<'a> {
+    effects: &'a mut Vec<Effect>,
+    start: usize,
     deferred: DeferredEvidence,
 }
-impl Decision {
-    pub(super) fn new() -> Self {
-        Self::default()
+impl<'a> Decision<'a> {
+    pub(super) fn new(effects: &'a mut Vec<Effect>) -> Self {
+        let start = effects.len();
+        Self {
+            effects,
+            start,
+            deferred: DeferredEvidence::default(),
+        }
     }
     pub(super) fn insert(&mut self, index: usize, effect: Effect) {
-        self.effects.insert(index, effect);
+        self.effects.insert(self.start + index, effect);
     }
     pub(super) fn has_deferred(&self) -> bool {
         !self.deferred.is_empty()
@@ -47,10 +53,10 @@ impl Decision {
         self.effects.push(effect);
     }
     pub(super) fn len(&self) -> usize {
-        self.effects.len()
+        self.effects.len() - self.start
     }
     pub(super) fn as_slice(&self) -> &[Effect] {
-        &self.effects
+        &self.effects[self.start..]
     }
     pub(super) fn defer_frames(&mut self, frames: RetroFrames) {
         self.deferred.retro.extend(frames);
@@ -66,12 +72,6 @@ impl Decision {
     pub(super) fn take_deferred(&mut self) -> DeferredEvidence {
         std::mem::take(&mut self.deferred)
     }
-
-    /// The caller completes deferred evidence before extracting outward effects.
-    /// Keep extraction at the engine's single finalization method.
-    pub(super) fn into_effects(self) -> Vec<Effect> {
-        self.effects
-    }
 }
 
 #[cfg(test)]
@@ -82,7 +82,8 @@ mod tests {
 
     #[test]
     fn all_target_disputes_and_socketless_candidates_remain_inline() {
-        let mut decision = Decision::new();
+        let mut sink = Vec::new();
+        let mut decision = Decision::new(&mut sink);
         for index in 1..=MAX_TURN_RETRO_FRAMES {
             decision.defer_frame(Retro {
                 request: RequestId::from_nonzero(

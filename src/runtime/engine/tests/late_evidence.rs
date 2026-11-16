@@ -66,7 +66,7 @@ fn sony_late_ack_adopts_acceptance_before_any_retry_write() {
             };
             if waiting == 2 {
                 at = ready_at;
-                engine.run_due(at, &mut Decision::new());
+                engine.run_due(at, &mut Decision::new(&mut Vec::new()));
                 assert!(matches!(phase_of(&engine, id), Some(Phase::Ready)));
             }
         }
@@ -127,7 +127,7 @@ fn sony_late_completion_applies_each_unacknowledged_retry_path() {
             };
             if ready {
                 at = ready_at;
-                engine.run_due(at, &mut Decision::new());
+                engine.run_due(at, &mut Decision::new(&mut Vec::new()));
             }
             let completed = engine.handle(complete(EnvelopeKind::Sony, Some(ViscaSocket::S1)), at);
             assert_applied(&completed, id);

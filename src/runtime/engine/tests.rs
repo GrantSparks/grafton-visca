@@ -17,6 +17,7 @@ mod admission_verdict;
 mod audit_rules;
 mod cancellation_holds;
 mod due_actions;
+mod effects_sink;
 mod entry_table;
 mod inquiry_shape_reservations;
 mod inquiry_shapes;
@@ -4559,9 +4560,11 @@ fn active_transmissions(
 }
 
 fn due_effects(engine: &mut ProtocolEngine, now: Instant) -> Vec<Effect> {
-    let mut decision = Decision::new();
+    let mut sink = Vec::new();
+    let mut decision = Decision::new(&mut sink);
     engine.run_due(now, &mut decision);
-    engine.finish_decision(now, decision)
+    engine.finish_decision(now, decision);
+    sink
 }
 
 fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
@@ -6638,9 +6641,11 @@ fn sequenced_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
             }),
         )
         .unwrap();
-    let mut decision = Decision::new();
+    let mut sink = Vec::new();
+    let mut decision = Decision::new(&mut sink);
     engine.ack(third_id, Some(ViscaSocket::S1), start, &mut decision);
-    let effects = engine.finish_decision(start, decision);
+    engine.finish_decision(start, decision);
+    let effects = sink;
     assert_eq!(
         ignored_reasons(&effects),
         vec![IgnoreReason::SocketConflict]

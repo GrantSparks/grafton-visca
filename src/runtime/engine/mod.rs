@@ -531,8 +531,15 @@ impl ProtocolEngine {
         EngineMethods::assert_input_boundary(self)
     }
 
+    // Collecting compatibility wrappers become test-only with the owner migration.
     pub(crate) fn handle(&mut self, input: Input, now: Instant) -> Vec<Effect> {
-        EngineMethods::handle(self, input, now)
+        let mut effects = Vec::new();
+        self.handle_into(input, now, &mut effects);
+        effects
+    }
+
+    pub(crate) fn handle_into(&mut self, input: Input, now: Instant, effects: &mut Vec<Effect>) {
+        EngineMethods::handle_into(self, input, now, effects);
     }
 
     pub(crate) fn handle_turn(
@@ -541,7 +548,19 @@ impl ProtocolEngine {
         now: Instant,
         engine_turn: EngineTurn,
     ) -> Vec<Effect> {
-        EngineMethods::handle_turn(self, input, now, engine_turn)
+        let mut effects = Vec::new();
+        self.handle_turn_into(input, now, engine_turn, &mut effects);
+        effects
+    }
+
+    pub(crate) fn handle_turn_into(
+        &mut self,
+        input: Input,
+        now: Instant,
+        engine_turn: EngineTurn,
+        effects: &mut Vec<Effect>,
+    ) {
+        EngineMethods::handle_turn_into(self, input, now, engine_turn, effects);
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> InputTurn {
@@ -549,7 +568,18 @@ impl ProtocolEngine {
     }
 
     pub(crate) fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
-        EngineMethods::handle_in_turn(self, turn, input)
+        let mut effects = Vec::new();
+        self.handle_in_turn_into(turn, input, &mut effects);
+        effects
+    }
+
+    pub(crate) fn handle_in_turn_into(
+        &mut self,
+        turn: &InputTurn,
+        input: Input,
+        effects: &mut Vec<Effect>,
+    ) {
+        EngineMethods::handle_in_turn_into(self, turn, input, effects);
     }
 
     pub(crate) fn admit_in_turn(
@@ -566,7 +596,18 @@ impl ProtocolEngine {
         turn: &InputTurn,
         id: RequestId,
     ) -> (Vec<Effect>, Result<(), Error>) {
-        EngineMethods::cancel_in_turn(self, turn, id)
+        let mut effects = Vec::new();
+        let result = self.cancel_in_turn_into(turn, id, &mut effects);
+        (effects, result)
+    }
+
+    pub(crate) fn cancel_in_turn_into(
+        &mut self,
+        turn: &InputTurn,
+        id: RequestId,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), Error> {
+        EngineMethods::cancel_in_turn_into(self, turn, id, effects)
     }
 
     pub(crate) fn finish_input_turn(
@@ -574,16 +615,35 @@ impl ProtocolEngine {
         input_turn: InputTurn,
         engine_turn: EngineTurn,
     ) -> Vec<Effect> {
-        EngineMethods::finish_input_turn(self, input_turn, engine_turn)
+        let mut effects = Vec::new();
+        self.finish_input_turn_into(input_turn, engine_turn, &mut effects);
+        effects
+    }
+
+    pub(crate) fn finish_input_turn_into(
+        &mut self,
+        input_turn: InputTurn,
+        engine_turn: EngineTurn,
+        effects: &mut Vec<Effect>,
+    ) {
+        EngineMethods::finish_input_turn_into(self, input_turn, engine_turn, effects);
     }
 
     pub(crate) fn advance(&mut self, now: Instant) -> Vec<Effect> {
-        EngineMethods::advance(self, now)
+        let mut effects = Vec::new();
+        self.advance_into(now, &mut effects);
+        effects
+    }
+
+    pub(crate) fn advance_into(&mut self, now: Instant, effects: &mut Vec<Effect>) {
+        EngineMethods::advance_into(self, now, effects);
     }
 
     #[cfg(test)]
     pub(crate) fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> Vec<Effect> {
-        EngineMethods::advance_turn(self, now, turn)
+        let mut effects = Vec::new();
+        EngineMethods::advance_turn_into(self, now, turn, &mut effects);
+        effects
     }
 
     pub(crate) fn halt_in_turn(
@@ -593,7 +653,20 @@ impl ProtocolEngine {
         axes: crate::AffectedAxes,
         cutoff: u64,
     ) -> Vec<Effect> {
-        EngineMethods::halt_in_turn(self, turn, target, axes, cutoff)
+        let mut effects = Vec::new();
+        self.halt_in_turn_into(turn, target, axes, cutoff, &mut effects);
+        effects
+    }
+
+    pub(crate) fn halt_in_turn_into(
+        &mut self,
+        turn: &InputTurn,
+        target: TargetSlot,
+        axes: crate::AffectedAxes,
+        cutoff: u64,
+        effects: &mut Vec<Effect>,
+    ) {
+        EngineMethods::halt_in_turn_into(self, turn, target, axes, cutoff, effects);
     }
 
     pub(crate) fn expire_unwritten_halt(
@@ -602,7 +675,19 @@ impl ProtocolEngine {
         transmission: TransmissionId,
         now: Instant,
     ) -> Option<Vec<Effect>> {
-        EngineMethods::expire_unwritten_halt(self, request, transmission, now)
+        let mut effects = Vec::new();
+        self.expire_unwritten_halt_into(request, transmission, now, &mut effects)
+            .then_some(effects)
+    }
+
+    pub(crate) fn expire_unwritten_halt_into(
+        &mut self,
+        request: RequestId,
+        transmission: TransmissionId,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) -> bool {
+        EngineMethods::expire_unwritten_halt_into(self, request, transmission, now, effects)
     }
 
     pub(crate) fn raw_correlation_releases_due(&self, now: Instant) -> RawCorrelationReleaseSet {
@@ -867,32 +952,31 @@ trait EngineMethods: EngineAccess {
     }
 
     /// Applies one ordered external input first, then all work due at `now`.
-    fn handle(&mut self, input: Input, now: Instant) -> Vec<Effect> {
-        self.handle_turn(input, now, EngineTurn::Complete)
+    fn handle_into(&mut self, input: Input, now: Instant, effects: &mut Vec<Effect>) {
+        self.handle_turn_into(input, now, EngineTurn::Complete, effects);
     }
 
-    /// Applies one ordered external input and completes it under `turn`.
-    ///
-    /// This is the single runtime-neutral entry point for the scheduler
-    /// boundaries needed by both owner shells. The ordinary [`Self::handle`]
-    /// convenience path selects [`EngineTurn::Complete`].
-    /// Every returned transmit must be written and completed before applying
-    /// another input or running due work; both owners share this write-first
-    /// contract.
-    fn handle_turn(&mut self, input: Input, now: Instant, engine_turn: EngineTurn) -> Vec<Effect> {
+    /// Apply one external input and append its complete turn to the owner's sink.
+    /// Every emitted transmit must be written and completed before another input.
+    fn handle_turn_into(
+        &mut self,
+        input: Input,
+        now: Instant,
+        engine_turn: EngineTurn,
+        effects: &mut Vec<Effect>,
+    ) {
         let input_turn = self.begin_input_turn(now);
-        let mut effects = self.handle_in_turn(&input_turn, input);
-        effects.extend(self.finish_input_turn(input_turn, engine_turn));
-        effects
+        self.handle_in_turn_into(&input_turn, input, effects);
+        self.finish_input_turn_into(input_turn, engine_turn, effects);
     }
 
     /// Starts an ordered external-input turn at one owner-sampled instant.
     ///
     /// The owner must fully drain the effects returned for one input before it
     /// applies the next input in the turn. Any identified transmission result
-    /// produced by that draining is applied with [`Self::handle_in_turn`] and
+    /// produced by that draining is applied with [`Self::handle_in_turn_into`] and
     /// the same token. Once every frame in wire order is applied, the owner
-    /// calls [`Self::finish_input_turn`] exactly once with the selected
+    /// calls [`Self::finish_input_turn_into`] exactly once with the selected
     /// [`EngineTurn`] boundary.
     fn begin_input_turn(&self, now: Instant) -> InputTurn {
         InputTurn { now }
@@ -903,17 +987,18 @@ trait EngineMethods: EngineAccess {
     /// This is the recursive input seam for an active [`InputTurn`]. Effects
     /// remain in the exact order produced by this input; the owner drains them
     /// before passing the next wire frame.
-    fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
+    fn handle_in_turn_into(&mut self, turn: &InputTurn, input: Input, sink: &mut Vec<Effect>) {
         if !matches!(input, Input::TransmissionFinished { .. }) {
             self.debug_assert_input_boundary();
         }
         #[cfg(test)]
         if let Input::Cancel { id } = input {
-            return self.cancel_in_turn(turn, id).0;
+            let _ = self.cancel_in_turn_into(turn, id, sink);
+            return;
         }
-        let mut effects = Decision::new();
+        let mut effects = Decision::new(sink);
         self.apply_input(input, turn.now, &mut effects);
-        self.finish_decision(turn.now, effects)
+        self.finish_decision(turn.now, effects);
     }
 
     /// Returns the admission verdict inside the caller's sampled input turn.
@@ -932,15 +1017,17 @@ trait EngineMethods: EngineAccess {
 
     /// Applies cancellation in an input turn and returns synchronous refusal
     /// directly, so the owner does not need a parallel refusal latch.
-    fn cancel_in_turn(
+    fn cancel_in_turn_into(
         &mut self,
         turn: &InputTurn,
         id: RequestId,
-    ) -> (Vec<Effect>, Result<(), Error>) {
+        sink: &mut Vec<Effect>,
+    ) -> Result<(), Error> {
         self.debug_assert_input_boundary();
-        let mut effects = Decision::new();
+        let mut effects = Decision::new(sink);
         let result = self.cancel(id, turn.now, &mut effects);
-        (self.finish_decision(turn.now, effects), result)
+        self.finish_decision(turn.now, effects);
+        result
     }
 
     /// Ends an ordered input turn, then runs due work, pending cancellation,
@@ -949,8 +1036,13 @@ trait EngineMethods: EngineAccess {
     /// External inputs at the turn timestamp therefore win over deadlines at
     /// that same timestamp, while frame and recursively produced effect order
     /// remains owner-controlled and deterministic.
-    fn finish_input_turn(&mut self, input_turn: InputTurn, engine_turn: EngineTurn) -> Vec<Effect> {
-        let mut effects = Decision::new();
+    fn finish_input_turn_into(
+        &mut self,
+        input_turn: InputTurn,
+        engine_turn: EngineTurn,
+        sink: &mut Vec<Effect>,
+    ) {
+        let mut effects = Decision::new(sink);
         if engine_turn.runs_due() {
             self.run_due(input_turn.now, &mut effects);
             self.drain_pending_cancellations(input_turn.now, &mut effects);
@@ -959,12 +1051,11 @@ trait EngineMethods: EngineAccess {
         self.finish_decision(input_turn.now, effects)
     }
 
-    fn finish_decision(&mut self, now: Instant, mut decision: Decision) -> Vec<Effect> {
+    fn finish_decision(&mut self, now: Instant, mut decision: Decision<'_>) {
         while decision.has_deferred() {
             self.apply_retro(now, &mut decision);
         }
         self.debug_assert_invariants();
-        decision.into_effects()
     }
 
     fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Decision) {
@@ -1020,13 +1111,13 @@ trait EngineMethods: EngineAccess {
     }
 
     /// Runs due internal work, pending cancellation, and ordinary dispatch.
-    fn advance(&mut self, now: Instant) -> Vec<Effect> {
-        self.advance_turn(now, EngineTurn::Complete)
+    fn advance_into(&mut self, now: Instant, sink: &mut Vec<Effect>) {
+        self.advance_turn_into(now, EngineTurn::Complete, sink);
     }
 
     /// Runs the scheduler work selected by `turn` at `now`.
-    fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> Vec<Effect> {
-        let mut effects = Decision::new();
+    fn advance_turn_into(&mut self, now: Instant, turn: EngineTurn, sink: &mut Vec<Effect>) {
+        let mut effects = Decision::new(sink);
         if turn.runs_due() {
             self.run_due(now, &mut effects);
             self.drain_pending_cancellations(now, &mut effects);
@@ -1087,16 +1178,16 @@ trait EngineMethods: EngineAccess {
     /// Establish a one-time owner halt fence without dispatching or discarding
     /// correlation for writes already in flight. Ready/retry work is terminal;
     /// future retry decisions consult the same bounded fence table.
-    fn halt_in_turn(
+    fn halt_in_turn_into(
         &mut self,
         turn: &InputTurn,
         target: TargetSlot,
         axes: crate::AffectedAxes,
         cutoff: u64,
-    ) -> Vec<Effect> {
-        let effects = self.halt_inner(target, axes, cutoff, turn.now);
+        sink: &mut Vec<Effect>,
+    ) {
+        self.halt_inner(target, axes, cutoff, turn.now, sink);
         self.debug_assert_invariants();
-        effects
     }
 
     fn halt_inner(
@@ -1105,7 +1196,8 @@ trait EngineMethods: EngineAccess {
         axes: crate::AffectedAxes,
         cutoff: u64,
         now: Instant,
-    ) -> Vec<Effect> {
+        sink: &mut Vec<Effect>,
+    ) {
         let fences = &mut self.targets[target].motion_fences;
         for (index, fence) in fences.iter_mut().enumerate() {
             if axes.bits() & (1 << index) != 0 {
@@ -1121,7 +1213,7 @@ trait EngineMethods: EngineAccess {
                 .then_some((*id, entry.certainty(AttemptEvidence::Unwritten)))
             })
             .collect();
-        let mut effects = Decision::new();
+        let mut effects = Decision::new(sink);
         for (id, certainty) in ids {
             // A queued or backed-off request is not on the wire. It can have
             // affected the camera only through an earlier attempt that the
@@ -1141,15 +1233,16 @@ trait EngineMethods: EngineAccess {
 
     /// A staged write is still unsent. Expire an overdue halt STOP here,
     /// without fabricating a transport failure or poisoning a healthy stream.
-    fn expire_unwritten_halt(
+    fn expire_unwritten_halt_into(
         &mut self,
         request: RequestId,
         transmission: TransmissionId,
         now: Instant,
-    ) -> Option<Vec<Effect>> {
-        let effects = self.expire_unwritten_halt_inner(request, transmission, now);
+        sink: &mut Vec<Effect>,
+    ) -> bool {
+        let expired = self.expire_unwritten_halt_inner(request, transmission, now, sink);
         self.debug_assert_invariants();
-        effects
+        expired
     }
 
     fn expire_unwritten_halt_inner(
@@ -1157,15 +1250,18 @@ trait EngineMethods: EngineAccess {
         request: RequestId,
         transmission: TransmissionId,
         now: Instant,
-    ) -> Option<Vec<Effect>> {
+        sink: &mut Vec<Effect>,
+    ) -> bool {
         let Some(owner) = self.transmission_owner(request, transmission) else {
-            return Some(vec![Effect::Ignored(IgnoreReason::StaleTransmission)]);
+            sink.push(Effect::Ignored(IgnoreReason::StaleTransmission));
+            return true;
         };
         if owner.kind != CorrelationKind::Request {
-            return None;
+            return false;
         }
         let Some(entry) = self.entries.get(&owner.request) else {
-            return Some(vec![Effect::Ignored(IgnoreReason::StaleTransmission)]);
+            sink.push(Effect::Ignored(IgnoreReason::StaleTransmission));
+            return true;
         };
         if entry
             .request
@@ -1173,12 +1269,10 @@ trait EngineMethods: EngineAccess {
             .dispatch_deadline
             .is_none_or(|deadline| now < deadline)
         {
-            return None;
+            return false;
         }
-        // The staged write never left; only an earlier attempt that the camera
-        // did not conclusively reject can have had an effect.
         let certainty = entry.certainty(AttemptEvidence::Unwritten);
-        let mut effects = Decision::new();
+        let mut effects = Decision::new(sink);
         self.finish_observed(
             owner.request,
             Error::timeout(FailureStage::Terminal, certainty),
@@ -1188,7 +1282,8 @@ trait EngineMethods: EngineAccess {
         );
         // A STOP that never left may decide a dispute naming it.
         self.apply_retro(now, &mut effects);
-        Some(self.finish_decision(now, effects))
+        self.finish_decision(now, effects);
+        true
     }
 
     fn motion_superseded(&self, context: &RequestContext) -> Option<crate::AffectedAxes> {
