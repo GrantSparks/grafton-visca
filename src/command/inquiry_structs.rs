@@ -35,10 +35,10 @@ use super::response::{BoolConvention, Nibbles, Payload, Response};
 use super::white_balance_wire::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
 use crate::command::bytes::constants::{
     color, exposure as exposure_wire, flip, focus as focus_wire, gain, image as image_wire,
-    menu as menu_wire, motion_sync as motion_sync_wire, nd_filter as nd_filter_wire,
-    pan_tilt as pan_tilt_wire, power as power_wire, sony_fr7_exposure, sony_fr7_image,
-    sony_fr7_presets, sony_fr7_white_balance, streaming as streaming_wire, system as system_wire,
-    tally as tally_wire, white_balance as white_balance_wire, zoom as zoom_wire,
+    menu as menu_wire, nd_filter as nd_filter_wire, pan_tilt as pan_tilt_wire, power as power_wire,
+    sony_fr7_exposure, sony_fr7_image, sony_fr7_presets, sony_fr7_white_balance,
+    streaming as streaming_wire, system as system_wire, tally as tally_wire,
+    white_balance as white_balance_wire, zoom as zoom_wire,
 };
 use crate::command::bytes::FrameWriter;
 use crate::command::surface::{inquiry_kind_gate, RowGate};
@@ -1826,27 +1826,6 @@ define_builtin_inquiries! {
 
 
 
-        /// The motion sync mode setting.
-        MotionSyncMode {
-            /// Current motion sync mode setting.
-            mode: bool,
-        } => |payload| Ok(InquiryData::MotionSyncMode {
-            mode: payload.parse_bool("motion sync mode", crate::command::motion_sync_wire::SetMotionSyncMode::CONVENTION)?,
-        });
-        shape: crate::PayloadShape::Bytes(1);
-        commands [
-            /// Inquiry command to get the motion sync mode setting.
-            MotionSyncModeInquiry {
-                bytes: motion_sync_wire::MODE_INQUIRY,
-                source: Source::Unsourced,
-                boolean: None,
-                typed: (bool, { mode } => Ok(mode)),
-                query: BuiltinInquiryQuery::Queryable,
-                vendor_specific: true,
-                rationale: None,
-            }
-        ]
-
         /// The uSB audio state.
         UsbAudio {
             /// Whether USB audio is enabled.
@@ -3149,7 +3128,6 @@ mod wire_decoder_regression_tests {
             InquiryKind::FocusMode,
             InquiryKind::MenuOpenClose,
             InquiryKind::AutoWhiteBalanceSensitivity,
-            InquiryKind::MotionSyncMode,
             InquiryKind::UsbAudio,
             InquiryKind::TallyRed,
             InquiryKind::TallyGreen,

@@ -389,7 +389,6 @@ fn noun_surfaces(camera: &Camera<AnyProfile>) {
     future::<Operation<Targeted>>(camera.nd_filter().density_up());
     future::<Operation<Targeted>>(camera.nd_filter().density_down());
     future::<()>(camera.nd_filter().set_auto(true));
-    future::<bool>(camera.motion_sync().enabled());
     future::<()>(camera.motion_sync().set_enabled(true));
     future::<()>(camera.motion_sync().set_speed(MotionSyncSpeed::MIN));
     future::<bool>(camera.menu().visible());

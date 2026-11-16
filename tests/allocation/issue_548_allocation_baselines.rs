@@ -291,10 +291,6 @@ assert_generated_inquiry_inventory!(
         "nd_filter.preset",
         grafton_visca::command::nd_filter::PresetInquiry
     ),
-    (
-        "motion_sync.enabled",
-        grafton_visca::command::motion_sync::EnabledInquiry
-    ),
     ("menu.visible", grafton_visca::command::menu::VisibleInquiry),
     (
         "streaming.usb_audio",

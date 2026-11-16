@@ -78,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   encoding. Generic VISCA optical normalization uses its sourced `0x4000`
   endpoint (#965).
 
+- Source packet checks distinguish pan/tilt STOP from drive and validate exact
+  Push AF and menu selectors. The unsourced motion-sync readback is removed;
+  custom integrations provide an evidenced inquiry and decoder (#969).
+
 - Built-in typed camera views reuse their validated profile identity and grants
   without allocating; custom profiles retain complete fact comparison (#958).
 

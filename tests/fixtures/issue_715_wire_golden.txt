@@ -511,7 +511,6 @@ ImageFlipInquiry	81 09 04 66 FF
 IrisInquiry	81 09 04 4B FF
 LuminanceInquiry	81 09 04 A1 FF
 MenuOpenCloseInquiry	81 09 06 06 FF
-MotionSyncModeInquiry	81 09 04 56 FF
 NdFilterInquiry	81 09 7E 04 42 FF
 NdFilterPresetInquiry	81 09 7E 01 53 FF
 NoiseReduction2DInquiry	81 09 04 53 FF

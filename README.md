@@ -228,7 +228,7 @@ regenerated when upgrading from the flat capability record.
 | `image()` | `PtzOpticsG2`: 30/54; `PtzOpticsG3`: 30/54; `PtzOptics30x`: 30/54; `SonyFr7`: 28/54; `SonyBrcH900`: 0/54; `SonyEviH100`: 13/54; `SonyBrc300`: 2/54; `NearusBrc300`: 2/54; `GenericVisca`: 0/54 |
 | `tally()` | `PtzOpticsG2`: 0/6; `PtzOpticsG3`: 0/6; `PtzOptics30x`: 0/6; `SonyFr7`: 4/6; `SonyBrcH900`: 0/6; `SonyEviH100`: 0/6; `SonyBrc300`: 0/6; `NearusBrc300`: 0/6; `GenericVisca`: 0/6 |
 | `nd_filter()` | `PtzOpticsG2`: 0/7; `PtzOpticsG3`: 0/7; `PtzOptics30x`: 0/7; `SonyFr7`: 7/7; `SonyBrcH900`: 0/7; `SonyEviH100`: 0/7; `SonyBrc300`: 0/7; `NearusBrc300`: 0/7; `GenericVisca`: 0/7 |
-| `motion_sync()` | `PtzOpticsG2`: 0/3; `PtzOpticsG3`: 0/3; `PtzOptics30x`: 0/3; `SonyFr7`: 0/3; `SonyBrcH900`: 0/3; `SonyEviH100`: 0/3; `SonyBrc300`: 0/3; `NearusBrc300`: 0/3; `GenericVisca`: 0/3 |
+| `motion_sync()` | `PtzOpticsG2`: 0/2; `PtzOpticsG3`: 0/2; `PtzOptics30x`: 0/2; `SonyFr7`: 0/2; `SonyBrcH900`: 0/2; `SonyEviH100`: 0/2; `SonyBrc300`: 0/2; `NearusBrc300`: 0/2; `GenericVisca`: 0/2 |
 | `menu()` | `PtzOpticsG2`: 4/7; `PtzOpticsG3`: 4/7; `PtzOptics30x`: 4/7; `SonyFr7`: 5/7; `SonyBrcH900`: 2/7; `SonyEviH100`: 1/7; `SonyBrc300`: 1/7; `NearusBrc300`: 1/7; `GenericVisca`: 1/7 |
 | `streaming()` | `PtzOpticsG2`: 4/4; `PtzOpticsG3`: 2/4; `PtzOptics30x`: 4/4; `SonyFr7`: 0/4; `SonyBrcH900`: 0/4; `SonyEviH100`: 0/4; `SonyBrc300`: 0/4; `NearusBrc300`: 0/4; `GenericVisca`: 0/4 |
 | `motion()` | `PtzOpticsG2`: 3/3; `PtzOpticsG3`: 3/3; `PtzOptics30x`: 3/3; `SonyFr7`: 3/3; `SonyBrcH900`: 3/3; `SonyEviH100`: 3/3; `SonyBrc300`: 3/3; `NearusBrc300`: 3/3; `GenericVisca`: 3/3 |

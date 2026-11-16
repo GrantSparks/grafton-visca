@@ -1538,15 +1538,8 @@ macro_rules! noun_table {
                 accessor: MotionSyncAccessor,
                 getter: motion_sync,
                 gate: [typed HasMotionSync],
-                doc: "Motion-sync commands and inquiries.",
+                doc: "Motion-sync settings; readback requires a custom inquiry.",
             };
-            /// Reads whether synchronized preset movement is enabled.
-            ///
-            /// `true` enables synchronized preset-recall movement and `false` disables it.
-            /// This boolean is supported through the selected profile's `MotionSync`
-            /// grant; it does not itself select a speed or start movement.
-            inquiry [EnabledInquiry] enabled() -> bool
-                = [command::motion_sync::EnabledInquiry];
             /// Enables or disables synchronized preset movement.
             ///
             /// `true` enables synchronized preset-recall movement and `false` disables it.

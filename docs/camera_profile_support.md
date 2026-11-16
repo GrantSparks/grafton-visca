@@ -356,7 +356,7 @@ full public impact is visible in the documentation diff.
 | Menu | `HasDirectMenu` | `menu().direct`, `menu().toggle_visible` |
 | ND filter | `HasNdFilter` | `nd_filter().density`, `nd_filter().preset`, `nd_filter().set_mode`, `nd_filter().set_density`, `nd_filter().density_up`, `nd_filter().density_down`, `nd_filter().set_auto` |
 | Variable speed | `HasPanTiltSpeedMode` | `pan_tilt().set_speed_mode` |
-| Motion Sync | `HasMotionSync` | `motion_sync().enabled`, `motion_sync().set_enabled`, `motion_sync().set_speed` |
+| Motion Sync | `HasMotionSync` | `motion_sync().set_enabled`, `motion_sync().set_speed` |
 | Focus | `HasFocusZoneInquiry` | `focus().zone` |
 | Streaming | `HasUsbAudio` | `streaming().usb_audio`, `streaming().set_usb_audio` |
 | Exposure | `HasAntiFlicker` | `exposure().set_anti_flicker`, `exposure().anti_flicker` |
@@ -639,7 +639,6 @@ full public impact is visible in the documentation diff.
 | `nd_filter().density_up` | `HasNdFilter` | `Operation<Targeted>` | `SonyFr7` |
 | `nd_filter().density_down` | `HasNdFilter` | `Operation<Targeted>` | `SonyFr7` |
 | `nd_filter().set_auto` | `HasNdFilter` | `()` | `SonyFr7` |
-| `motion_sync().enabled` | `HasMotionSync` | `bool` | No built-in profile |
 | `motion_sync().set_enabled` | `HasMotionSync` | `()` | No built-in profile |
 | `motion_sync().set_speed` | `HasMotionSync` | `()` | No built-in profile |
 | `menu().visible` | `HasMenu`, `HasMenuDisplayInquiry` | `bool` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900` |

@@ -513,27 +513,4 @@ mod tests {
             Response::parse_with_type(invalid_exp_comp, &InquiryKind::ExposureCompensation);
         assert!(matches!(response, Err(Error::InvalidResponseLength { .. })));
     }
-
-    #[test]
-    fn test_parse_motion_sync_mode_response() {
-        // Test MotionSyncMode On (0x02)
-        let response_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncMode);
-        match response {
-            Ok(Response::Inquiry(InquiryData::MotionSyncMode { mode })) => {
-                assert!(mode);
-            }
-            _ => panic!("Expected MotionSyncMode inquiry response"),
-        }
-
-        // Test MotionSyncMode Off (0x03)
-        let response_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncMode);
-        match response {
-            Ok(Response::Inquiry(InquiryData::MotionSyncMode { mode })) => {
-                assert!(!mode);
-            }
-            _ => panic!("Expected MotionSyncMode inquiry response"),
-        }
-    }
 }
