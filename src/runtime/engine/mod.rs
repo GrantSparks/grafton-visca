@@ -3565,67 +3565,6 @@ trait EngineMethods: EngineAccess {
         }
     }
 
-    /// An ACK that binds to no live request names `socket`: the camera put
-    /// another command there, so a command the engine still indexes there
-    /// lost its completion and has ended (#721). It is released now and
-    /// ended with the frame's other effects.
-    fn displace_stale_socket_owner(
-        &mut self,
-        target: TargetSlot,
-        socket: Option<ViscaSocket>,
-        effects: &mut Decision,
-    ) {
-        if let Some(stale) = socket.and_then(|socket| self.socket_owner(target, socket)) {
-            self.release_attempt_ownership(stale);
-            effects.displace(stale);
-        }
-    }
-
-    /// Holds the socket an owed ACK assigned: the camera is executing the
-    /// owing command there. Its completion or error naming the socket (or an
-    /// ACK naming it for another command) releases the hold; until then an
-    /// error naming it is never taken for a later command's rejection, and a
-    /// socketless completion is not taken for a live successor's.
-    fn hold_owed_command_socket(
-        &mut self,
-        target: TargetSlot,
-        requested: Option<ViscaSocket>,
-        debt: Outstanding,
-        now: Instant,
-    ) {
-        let Standing::Owed { completion, .. } = debt.standing else {
-            return;
-        };
-        let socket = requested.or_else(|| {
-            [ViscaSocket::S1, ViscaSocket::S2]
-                .into_iter()
-                .take(self.command_sockets(target))
-                .find(|socket| {
-                    self.socket_owner(target, *socket).is_none()
-                        && self
-                            .raw_hold(target, RawHoldScope::Socket(*socket))
-                            .is_none()
-                })
-        });
-        if let Some(socket) = socket.filter(|socket| self.socket_owner(target, *socket).is_none()) {
-            match self.split().1 {
-                CorrelationState::RawDatagram(holds) => holds.extend(
-                    target,
-                    RawHoldScope::Socket(socket),
-                    add_duration(now, completion),
-                    Some(debt.request),
-                ),
-                CorrelationState::RawStream(stream) => stream.holds.extend(
-                    target,
-                    StreamScope::Socket(socket),
-                    add_duration(now, completion),
-                    Some(debt.request),
-                ),
-                CorrelationState::Sequenced => {}
-            }
-        }
-    }
-
     /// The error a latched lane gives `request` instead of writing it, if its
     /// target's lane is latched for that kind of request.
     ///

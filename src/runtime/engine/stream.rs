@@ -194,7 +194,6 @@ impl StreamContext<'_> {
             && !self.stream.ledger.owes_completion(target)
             && self.raw_socket_hold_count(target) == 0
             && self.raw_hold(target, RawHoldScope::AllResponses).is_none()
-            && self.raw_hold(target, RawHoldScope::PreAck).is_none()
         {
             if let Some(owner) = self.sole_socket_holder(target) {
                 if !requests.contains(&owner) {
@@ -251,7 +250,15 @@ impl StreamContext<'_> {
                     Resolved::Live(entry) => Some(entry.request),
                     Resolved::Debt(debt) => {
                         self.displace_stale_socket_owner(target, *socket, effects);
-                        self.hold_owed_command_socket(target, *socket, debt, now);
+                        if let Standing::Owed { completion, .. } = debt.standing {
+                            self.hold_executing_socket(
+                                target,
+                                *socket,
+                                completion,
+                                Some(debt.request),
+                                now,
+                            );
+                        }
                         None
                     }
                     // Bound to neither candidate, the ACK still shows that
@@ -341,9 +348,7 @@ impl StreamContext<'_> {
                         .take_stream_answer(target, Answer::Completion, evidence, now, effects)?
                         .ok();
                 }
-                if self.raw_hold(target, RawHoldScope::AllResponses).is_some()
-                    || self.raw_hold(target, RawHoldScope::PreAck).is_some()
-                {
+                if self.raw_hold(target, RawHoldScope::AllResponses).is_some() {
                     return None;
                 }
                 match (holders, held.as_slice()) {
@@ -645,10 +650,6 @@ impl StreamContext<'_> {
         candidates: &[Outstanding; 2],
         now: Instant,
     ) {
-        let Some(socket) = socket.filter(|socket| self.socket_owner(target, *socket).is_none())
-        else {
-            return;
-        };
         let completion = candidates
             .iter()
             .filter_map(|candidate| match candidate.standing {
@@ -660,11 +661,54 @@ impl StreamContext<'_> {
             })
             .max();
         if let Some(completion) = completion {
+            self.hold_executing_socket(target, socket, completion, None, now);
+        }
+    }
+
+    /// An ACK that binds to no live request names `socket`: the camera put
+    /// another command there, so a command the engine still indexes there
+    /// lost its completion and has ended (#721). It is released now and
+    /// ended with the frame's other effects.
+    fn displace_stale_socket_owner(
+        &mut self,
+        target: TargetSlot,
+        socket: Option<ViscaSocket>,
+        effects: &mut Decision,
+    ) {
+        if let Some(stale) = socket.and_then(|socket| self.socket_owner(target, socket)) {
+            self.release_attempt_ownership(stale);
+            effects.displace(stale);
+        }
+    }
+
+    /// Holds the executing command's named socket, or the first free unheld
+    /// socket for a compatibility ACK with no socket nibble. Owed and disputed
+    /// ACK evidence must apply the same rule.
+    fn hold_executing_socket(
+        &mut self,
+        target: TargetSlot,
+        requested: Option<ViscaSocket>,
+        completion: Duration,
+        owner: Option<RequestId>,
+        now: Instant,
+    ) {
+        let socket = requested.or_else(|| {
+            [ViscaSocket::S1, ViscaSocket::S2]
+                .into_iter()
+                .take(self.command_sockets(target))
+                .find(|socket| {
+                    self.socket_owner(target, *socket).is_none()
+                        && self
+                            .raw_hold(target, RawHoldScope::Socket(*socket))
+                            .is_none()
+                })
+        });
+        if let Some(socket) = socket.filter(|socket| self.socket_owner(target, *socket).is_none()) {
             self.stream.holds.extend(
                 target,
                 StreamScope::Socket(socket),
                 add_duration(now, completion),
-                None,
+                owner,
             );
         }
     }

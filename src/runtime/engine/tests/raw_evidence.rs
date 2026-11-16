@@ -2850,3 +2850,89 @@ fn late_ack_preserves_its_socket_against_successor_errors_and_socketless_complet
         engine.assert_invariants().unwrap();
     }
 }
+
+#[test]
+fn a_socketless_disputed_ack_holds_a_free_socket_and_preserves_uncertainty() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let (completion_only, first_stop, _) = disputed(&mut engine, now);
+    let mut request = stop_command(1);
+    request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
+    let (_, second_stop) = admit(&mut engine, 4, request, now);
+    let at = now + Duration::from_millis(10);
+    let written = engine.advance(at);
+    assert_eq!(request_transmit(&written).1, second_stop);
+    send_ok(&mut engine, &written, None, at);
+    let acked = engine.handle_turn(
+        frame(1, None, DecodedResponse::Ack { socket: None }),
+        at,
+        EngineTurn::InputOnly,
+    );
+    assert!(terminal_id(&acked).is_none());
+    assert_eq!(socket_of(&engine, first_stop), None);
+    assert_eq!(socket_of(&engine, second_stop), None);
+    assert!(engine
+        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
+        .is_some());
+    let completed = engine.handle_turn(socketless_completion(1), at, EngineTurn::InputOnly);
+    assert!(terminal_outcome(&completed, completion_only).is_none());
+    assert!(terminal_outcome(&completed, first_stop).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+/// Only camera-to-host delivery stalls: both STOP writes have left and their
+/// deadlines expire before a rejection and the older command's completion
+/// arrive between the two STOP answers.
+#[test]
+fn accepting_a_dispute_preserves_the_second_stop_debt_in_the_engine() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let mut co = command_with_reply_shape_and_retry(
+        1,
+        CancellationPolicy::Supported,
+        ReplyShape::CompletionOnly,
+        no_not_executable_retry(),
+    );
+    co.context_mut().timeout.completion = NonZeroDuration::new(Duration::from_secs(2)).unwrap();
+    let (written, completion_only) = admit(&mut engine, 1, co, now);
+    send_ok(&mut engine, &written, None, now);
+    let (written, first_stop) = admit(&mut engine, 2, stop_command(1), now);
+    send_ok(&mut engine, &written, None, now);
+    let mut stop = stop_command(1);
+    stop.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
+    let (_, second_stop) = admit(&mut engine, 3, stop, now);
+    let at = now + Duration::from_millis(10);
+    let written = engine.advance(at);
+    assert_eq!(request_transmit(&written).1, second_stop);
+    send_ok(&mut engine, &written, None, at);
+    let (_, later) = run_until_terminal(&mut engine, first_stop, at);
+    let (second_ended, later) = run_until_terminal(&mut engine, second_stop, later);
+    assert!(phase_of(&engine, first_stop).is_none());
+    assert!(matches!(
+        terminal_failure(&second_ended, second_stop),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert!(engine
+        .correlation
+        .ledger()
+        .entries()
+        .any(|(_, entry)| entry.owes == Owes::Ack && entry.members == 2));
+    let rejected = engine.handle_turn(socketless_error(1, 0x41), later, EngineTurn::InputOnly);
+    assert!(terminal_id(&rejected).is_none());
+    let proved = engine.handle_turn(socketless_completion(1), later, EngineTurn::InputOnly);
+    assert!(matches!(
+        terminal_outcome(&proved, completion_only),
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+    ));
+    assert_eq!(raw_owed(&engine, 1), 1);
+    let (written, successor) = admit(&mut engine, 4, stop_command(1), later);
+    send_ok(&mut engine, &written, None, later);
+    let paid = engine.handle_turn(ack(1, ViscaSocket::S1), later, EngineTurn::InputOnly);
+    assert!(terminal_outcome(&paid, successor).is_none());
+    assert_eq!(socket_of(&engine, successor), None);
+    assert_eq!(raw_owed(&engine, 1), 0);
+    let completed =
+        engine.handle_turn(completion(1, ViscaSocket::S1), later, EngineTurn::InputOnly);
+    assert!(terminal_outcome(&completed, successor).is_none());
+    engine.assert_invariants().unwrap();
+}
