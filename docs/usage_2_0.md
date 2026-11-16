@@ -391,6 +391,14 @@ rejected with `Error::InvalidParameter` before any inquiry, and a window that
 cannot elapse within the observation deadline returns `Error::Timeout`, never
 `false`.
 
+`IdleWait` uses private fields with `axes()`, `timeout()`, `tolerance()` and
+`interval()` getters and the corresponding `with_*` methods. Its sampling
+interval must be positive: a zero interval returns `Error::InvalidParameter`
+before any inquiry and is refused when deserializing a policy. `settled()`,
+`wait_until_idle` and `is_moving` accept a position reply delivered by the
+owner exactly at the observation deadline. A caller that resumes later still
+uses that timely evidence; replies delivered after the deadline time out.
+
 Async noun futures borrow the temporary accessor. A direct call such as
 `camera.motion().stop_all().await` is fine; bind each accessor before a
 macro retains several futures:

@@ -87,6 +87,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   predecessor retains sequence-based completion and its original deadline;
   cancellation is refused instead of targeting its successor (#963).
 
+- Motion idle waits require a positive sampling interval before I/O and during
+  deserialization. `IdleWait` exposes private fields through getters and
+  `with_*` setters. All position-based observations accept replies delivered
+  by the owner at the deadline, even when the caller resumes later (#967).
+
 - Built-in typed camera views reuse their validated profile identity and grants
   without allocating; custom profiles retain complete fact comparison (#958).
 

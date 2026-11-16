@@ -15,12 +15,15 @@ use grafton_visca::{
     config::SessionConfig,
     profiles::{ProfileSpec, PtzOpticsG2, SonyEviH100, SonyFr7},
     types::{
-        AffectedAxes, Degrees, IdleWait, ImageFlipMode, MotionQuery, MotionSyncSpeed, NdFilterMode,
+        AffectedAxes, Degrees, ImageFlipMode, MotionQuery, MotionSyncSpeed, NdFilterMode,
         NdiQuality, PanSpeed, PanTiltDirection, PanTiltLimitCorner, PanTiltSpeedMode, PresetSpeed,
         TiltSpeed, UnitInterval, ZoomDomain, ZoomPosition,
     },
     Error,
 };
+
+#[cfg(feature = "test-utils")]
+use grafton_visca::types::IdleWait;
 
 use fake_camera::{frames, FakeCamera};
 use profile_fixtures::{CombinedZoomTypedSupport, MotionSyncTypedSupport};
@@ -405,16 +408,26 @@ fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
     session.shutdown().expect("shutdown");
 }
 
+#[cfg(feature = "test-utils")]
 #[test]
 fn named_idle_wait_presets_poll_only_their_own_axis() {
-    let (session, fake) = ptz_session();
+    let clock = grafton_visca::testing::testkit::ManualClock::new();
+    let participant = clock.enter();
+    let fake = recording_camera();
+    let session = clock
+        .open_blocking_session(
+            &participant,
+            fake.blocking_wire().on_clock(&clock),
+            SessionConfig::from_compile_time::<PtzOpticsG2>().expect("PTZOptics config"),
+        )
+        .expect("manual-clock session");
     let camera = session
         .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
 
     camera
         .motion()
-        .wait_until_idle(IdleWait::for_zoom().with_interval(Duration::ZERO))
+        .wait_until_idle(IdleWait::for_zoom().with_interval(Duration::from_millis(25)))
         .expect("zoom idle wait");
     let frames = fake.take_payloads();
     assert!(!frames.is_empty());
@@ -427,7 +440,9 @@ fn named_idle_wait_presets_poll_only_their_own_axis() {
 
     camera
         .motion()
-        .wait_until_idle(IdleWait::from(Duration::from_secs(30)).with_interval(Duration::ZERO))
+        .wait_until_idle(
+            IdleWait::from(Duration::from_secs(30)).with_interval(Duration::from_millis(25)),
+        )
         .expect("duration idle wait");
     let frames = fake.take_payloads();
     assert!(frames

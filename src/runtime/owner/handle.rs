@@ -20,6 +20,35 @@
 //! - `next_observation(terminal, cancellation, deadline)`: the one race every
 //!   receipt wait uses.
 
+/// Generates every sampled axis from the same declaration as its preparation.
+macro_rules! sample_positions {
+    (
+        async: [$($async:tt)*],
+        await: $await:tt;
+        $($axis:ident, $field:ident => $inquiry:ident;)*
+    ) => {
+        /// Samples exactly the prepared position inquiries, in axis order,
+        /// accepting each reply according to its owner delivery instant.
+        $($async)* fn sample_positions(
+            &self,
+            queries: &mut crate::prepared::PositionQueryPlan,
+            tolerance: crate::camera::MovementTolerance,
+            deadline: std::time::Instant,
+        ) -> Result<bool, crate::Error> {
+            let mut moving = false;
+            $(if let Some(query) = &mut queries.$field {
+                let value = super::handle::sample_positions!(@read self, query, deadline, $await)?;
+                moving |= query.record(value, tolerance);
+            })*
+            Ok(moving)
+        }
+    };
+    (@read $owner:ident, $query:ident, $deadline:ident, [$($await:tt)*]) => {
+        $owner.sample($query, $deadline) $($await)*
+    };
+}
+pub(super) use sample_positions;
+
 /// Expands the shared owner-handle methods and receipt waits for one shell.
 ///
 /// `handle` is the shell's handle type, `async` is `[async]` or `[]`, `await`
@@ -41,8 +70,8 @@ macro_rules! owner_handle_methods {
                 super::receipt::observer_deadline(self.now(), timeout)
             }
 
-            /// Rechecks the owner clock at every admission and sample
-            /// boundary. Equality with the deadline is already too late for
+            /// Checks the owner clock before another inquiry admission.
+            /// Equality with the deadline is already too late for
             /// another inquiry to be enqueued.
             fn ensure_before(&self, deadline: std::time::Instant) -> Result<(), crate::Error> {
                 if self.now() >= deadline {
@@ -386,11 +415,11 @@ macro_rules! owner_handle_methods {
                 wait: crate::camera::IdleWait,
                 queries: &crate::prepared::PositionQueryPlan,
             ) -> Result<(), crate::Error> {
-                let deadline = self.deadline_after(wait.timeout)?;
+                let deadline = self.deadline_after(wait.timeout())?;
                 let poll = super::receipt::PositionPoll {
                     queries,
-                    tolerance: wait.tolerance,
-                    interval: wait.interval,
+                    tolerance: wait.tolerance(),
+                    interval: wait.interval(),
                 };
                 self.poll_settlement(poll, deadline) $($await)*
             }
@@ -422,41 +451,16 @@ macro_rules! owner_handle_methods {
                 window.observe_final(moving, started_at)
             }
 
-            /// Samples exactly the prepared position inquiries, in axis
-            /// order, before one absolute deadline.
-            $($async)* fn sample_positions(
-                &self,
-                queries: &mut crate::prepared::PositionQueryPlan,
-                tolerance: crate::camera::MovementTolerance,
-                deadline: std::time::Instant,
-            ) -> Result<bool, crate::Error> {
-                let mut moving = false;
-                if let Some(query) = &mut queries.pan_tilt {
-                    let value = self.sample(query, deadline) $($await)* ?;
-                    moving |= query.record(value, tolerance);
-                }
-                if let Some(query) = &mut queries.zoom {
-                    let value = self.sample(query, deadline) $($await)* ?;
-                    moving |= query.record(value, tolerance);
-                }
-                if let Some(query) = &mut queries.focus {
-                    let value = self.sample(query, deadline) $($await)* ?;
-                    moving |= query.record(value, tolerance);
-                }
-                if let Some(query) = &mut queries.iris {
-                    let value = self.sample(query, deadline) $($await)* ?;
-                    moving |= query.record(value, tolerance);
-                }
-                if let Some(query) = &mut queries.nd_filter {
-                    let value = self.sample(query, deadline) $($await)* ?;
-                    moving |= query.record(value, tolerance);
-                }
-                Ok(moving)
-            }
+            crate::position_inquiries::settlement_inquiries!(
+                super::handle::sample_positions,
+                async: [$($async)*],
+                await: [$($await)*];
+            );
 
-            /// One position inquiry, admitted and answered strictly before
-            /// `deadline`. Caller-deadline failures become query timeouts;
-            /// other failures retain their exact verdict.
+            /// One position inquiry, admitted before `deadline` and delivered
+            /// by the owner no later than it. Caller wake time does not change
+            /// whether the delivered evidence is timely. Deadline failures become
+            /// query timeouts; other failures retain their exact verdict.
             $($async)* fn sample<R>(
                 &self,
                 query: &crate::prepared::PositionQuery<R>,
@@ -476,9 +480,7 @@ macro_rules! owner_handle_methods {
                 let receipt = self
                     .submit_inquiry_until(query.instantiate(), deadline)
                     $($await)* ?;
-                let value = receipt.wait_until(deadline) $($await)* ?;
-                self.ensure_before(deadline)?;
-                Ok(value)
+                receipt.wait_until(deadline) $($await)*
             }
 
             /// Waits until `verdict` can be read from an operation's

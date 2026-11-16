@@ -54,7 +54,7 @@ facade_matrix! {
         ).decode(&POSITION[2..12]).expect("R7 raw position words");
         assert_eq!((raw.pan, raw.tilt), (40103, 46000));
         assert!(!wait!(camera.motion().is_moving(MotionQuery::new(AffectedAxes::PAN_TILT))).expect("FR7 motion observation"));
-        wait!(camera.motion().wait_until_idle(IdleWait::new(AffectedAxes::PAN_TILT, Duration::from_secs(5)).with_interval(Duration::ZERO))).expect("FR7 idle polling");
+        wait!(camera.motion().wait_until_idle(IdleWait::new(AffectedAxes::PAN_TILT, Duration::from_secs(5)).with_interval(Duration::from_millis(25)))).expect("FR7 idle polling");
         wait!(camera.pan_tilt().set_limit(PanTiltLimitCorner::UpRight, grafton_visca::types::PanTiltPosition { pan: Degrees::new(-170.0).expect("valid degrees"), tilt: Degrees::new(195.0).expect("valid degrees") })).expect("FR7 limit set");
         wait!(camera.pan_tilt().clear_limit(PanTiltLimitCorner::UpRight)).expect("FR7 limit clear");
         let mut operation = wait!(camera.pan_tilt().relative(grafton_visca::types::PanTiltPosition { pan: Degrees::new(200.0).expect("valid degrees"), tilt: Degrees::new(-35.0).expect("valid degrees") }, SpeedLevel::Slowest)).expect("full-span relative move");

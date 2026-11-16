@@ -1,16 +1,17 @@
 //! The inquiry selected to poll each physical axis during settlement.
 //!
-//! This declaration generates both the validation gates below and the typed
-//! position-query plan in `prepared`, so a gate cannot drift from the inquiry
-//! that preparation actually submits.
+//! This declaration generates the validation gates below, the typed
+//! position-query plan in `prepared`, and the owner sampling loop, so a gate
+//! or prepared axis cannot drift from the inquiry actually sampled.
 
 use crate::{
     capabilities::Capabilities, command::surface::RowGate, requests::AffectedAxis, AffectedAxes,
 };
 
 macro_rules! settlement_inquiries {
-    ($consumer:ident) => {
+    ($consumer:path $(, $($context:tt)*)?) => {
         $consumer! {
+            $($($context)*)?
             PanTilt, pan_tilt => PanTiltPositionInquiry;
             Zoom, zoom => ZoomPositionInquiry;
             Focus, focus => FocusPositionInquiry;

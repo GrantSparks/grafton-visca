@@ -46,6 +46,7 @@ use crate::{
 };
 
 mod cancellation_and_budget;
+mod position_sampling;
 mod reentry;
 
 const ACK: &[u8] = &[0x90, 0x41, 0xff];

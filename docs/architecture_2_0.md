@@ -1519,6 +1519,12 @@ failure is that error), whichever order the owner emitted the two slots in;
 only without an on-time terminal does an on-time cancellation-slot error answer.
 Delivery timestamps use the injected owner clock, not inferred wire arrival.
 The owner passes each delivery instant explicitly; owner state holds no current instant.
+Position samples use this same inclusive delivery deadline: `settled()`,
+`wait_until_idle` and `is_moving` accept a reply delivered exactly at their
+deadline even if their caller resumes later. Admission of another inquiry
+still requires time strictly before the deadline. Idle sampling intervals must
+be positive; a zero interval is refused before I/O and when deserializing an
+`IdleWait` policy.
 Late outcomes remain cached for a subsequent borrowing wait. A `cancel` after the
 owner stopped still answers from an outcome delivered before it stopped.
 
