@@ -12,7 +12,8 @@
 //!   poisons the session and names its transport cause;
 //! * socketless ACK and completion frames complete a command;
 //! * a malformed datagram is discarded and a later valid reply still applies;
-//! * an ACK naming an occupied socket falls back to the other free socket;
+//! * an ACK reusing an occupied socket preserves sequence completion and targets
+//!   cancellation at that named socket;
 //! * replies answered from inside the write are matched on the first read pump.
 //!
 //! Every scenario runs on the blocking facade and on the async facade under
@@ -452,12 +453,10 @@ facade_matrix! {
         session.shutdown().expect("owner shutdown");
     }
 
-    /// A sequence-correlated Sony camera may name a socket another request
-    /// still owns. Because the second command is already uniquely identified by
-    /// its sequence, the owner falls back to the target's other free socket
-    /// instead of dropping the ACK. The cancellation wire below proves that the
-    /// fallback assigned S2 while the first command still owns S1.
-    fn ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket() {
+    /// A Sony ACK reusing a locally occupied socket displaces the stale owner.
+    /// Its late completion still applies by sequence, while cancellation of the
+    /// successor targets the socket the camera actually named (#963).
+    fn ack_reusing_a_socket_preserves_late_completion_and_targets_its_cancel() {
         let mut writes = 0usize;
         let mut previous_sequence = None;
         let camera = FakeCamera::new(move |write, answer| {
@@ -467,11 +466,10 @@ facade_matrix! {
                 1 => {
                     answer.reply(frames::sony_reply(sequence, &frames::ack(1)));
                 }
-                // The camera answers the second command with occupied S1. The
-                // uniquely identified request must fall back to free S2. The
-                // previous-sequence completion then settles only the first
-                // command; leave the second live so its cancel wire exposes the
-                // assignment.
+                // The second command owns camera-named S1. Its ACK displaces
+                // the first command's local socket claim, but the first's late
+                // completion still applies by its sequence. Keep the second
+                // live so its cancel wire proves that S1 was retained.
                 2 => {
                     let previous: u32 =
                         previous_sequence.expect("the first write carried a sequence");
@@ -480,7 +478,7 @@ facade_matrix! {
                         .reply(frames::sony_reply(previous, &frames::complete(1)));
                 }
                 _ => {
-                    answer.reply(frames::sony_reply(sequence, &frames::canceled(2)));
+                    answer.reply(frames::sony_reply(sequence, &frames::canceled(1)));
                 }
             }
             previous_sequence = Some(sequence);
@@ -492,10 +490,14 @@ facade_matrix! {
         let mut second =
             wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)).expect("second submission");
 
-        wait!(first.applied()).expect("first operation applied");
+        wait!(first.applied()).expect("the displaced operation completes by sequence");
+        assert_eq!(
+            wait!(first.cancel()).expect("late completion stays cached"),
+            CancellationOutcome::Completed
+        );
         assert_eq!(
             wait!(second.cancel_with_timeout(Duration::from_secs(1)))
-                .expect("the fallback-assigned socket must accept cancellation"),
+                .expect("the camera-named socket must accept cancellation"),
             CancellationOutcome::Cancelled
         );
 
@@ -503,8 +505,8 @@ facade_matrix! {
         assert_eq!(writes.len(), 3, "two commands and one socket cancellation");
         assert_eq!(
             &writes[2][8..],
-            &[0x81, 0x22, 0xff],
-            "an occupied S1 ACK must assign the second command to free S2"
+            &[0x81, 0x21, 0xff],
+            "a reused S1 ACK must bind the second command to camera-named S1"
         );
 
         session.shutdown().expect("owner shutdown");
