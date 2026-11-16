@@ -3,11 +3,10 @@
 This is a local, reproducible downstream contract fixture for the
 `2.0.0-rc.3` surface. Its grafton-visca feature set matches the Synemantic
 native migration candidate: Tokio plus the async and Tokio-serial facades,
-with serde, schemars, and ts-rs; Synemantic keeps its own erased camera facade
-and does not enable grafton-visca's `dyn-api` feature. It checks the
-owner-backed Tokio constructor's `Send` contract, noun access, profile
-lowering, and the schema/serialization surface without requiring a camera or a
-private sibling checkout.
+with serde, schemars, and ts-rs. Synemantic keeps its own erased camera facade.
+The fixture checks the owner-backed Tokio constructor's `Send` contract, noun
+access, profile lowering, and the schema/serialization surface without requiring
+a camera or a private sibling checkout.
 
 The BRC-300 assertion is deliberately concrete: its source-backed base image
 noun is required by Synemantic's profile-specific adapter. The picture-effect

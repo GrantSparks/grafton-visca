@@ -274,8 +274,8 @@ fn inherent_self_type(header: &str) -> Option<String> {
 /// parameter (name and type) and its return type, up to its `where` clause
 /// or body. Only what legitimately differs between the facades is
 /// normalized away: whitespace, the `async` keyword (whose futures resolve to
-/// the same value), `crate::`/facade module paths, the `Result` alias
-/// spelling, and each facade's own name for its runtime-profile camera.
+/// the same value), `crate::`/facade module paths, and the `Result` alias
+/// spelling.
 fn signature_shape(signature: &str) -> String {
     let start = signature
         .find("fn ")
@@ -298,10 +298,7 @@ fn signature_shape(signature: &str) -> String {
     for path in ["crate::", "blocking::", "async_session::", "operation::"] {
         shape = shape.replace(path, "");
     }
-    // Each facade names its own runtime-profile camera.
-    shape = shape
-        .replace("camera::CameraConfig", "CameraConfig")
-        .replace("BlockingDynSessionCamera", "DynSessionCamera");
+    shape = shape.replace("camera::CameraConfig", "CameraConfig");
     shape
         .replace("( ", "(")
         .replace(", )", ")")
