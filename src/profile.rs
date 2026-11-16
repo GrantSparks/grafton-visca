@@ -2957,6 +2957,40 @@ mod tests {
     }
 
     #[test]
+    fn a_shared_digital_zoom_range_grants_control_without_inquiries() {
+        let mut caps = Capabilities::runtime_baseline("Digital zoom control", 1).expect("baseline");
+        caps.zoom = Some(capabilities::ZoomCaps {
+            optical_max: 0x4000,
+            digital_max: Some(0x7000),
+            speed: capabilities::CapabilityRange::<u8>::new(0, 7),
+            direct: true,
+            variable: false,
+            optical_ratio: None,
+        });
+        caps.typed_support = TypedSupportSet::from_surfaces(&[
+            TypedSupportSurface::DirectZoom,
+            TypedSupportSurface::DigitalZoomRange,
+        ]);
+        assert_eq!(caps.inquiry_support, capabilities::InquirySupport::None);
+        assert!(caps
+            .surface_metadata(TypedSupportSurface::DigitalZoomRange)
+            .permits());
+        let profile = conservative_runtime_builder(caps)
+            .supports_operation_complete(true)
+            .build()
+            .expect("command-only digital zoom profile");
+        let target =
+            crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile).expect("target");
+        let request = crate::command::zoom::SetNormalized::for_target(
+            &target,
+            crate::UnitInterval::MAX,
+            crate::ZoomDomain::OpticalPlusDigital,
+        )
+        .expect("combined normalized control does not require inquiries");
+        crate::Request::validate_for_target(&request, &target).expect("control admission");
+    }
+
+    #[test]
     fn discovery_requires_inquiry_support_for_every_inquiry_only_grant() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
         let mut caps = profile.capabilities().clone();

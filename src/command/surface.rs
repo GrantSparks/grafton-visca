@@ -631,8 +631,9 @@ pub(crate) const fn row_gate(command: BuiltinCommand) -> RowGate {
     }
 }
 
-/// Whether a typed grant exclusively enables inquiries. Derive command grants
-/// from the ledger, so new surfaces cannot bypass inquiry-support validation.
+/// Whether a typed grant exclusively enables inquiries. Both sides come from
+/// canonical surfaces: a qualifier absent from command row gates is not itself
+/// an inquiry permission (for example, the shared digital-zoom range).
 pub(crate) const fn is_inquiry_only_surface(
     surface: crate::capabilities::TypedSupportSurface,
 ) -> bool {
@@ -650,12 +651,45 @@ pub(crate) const fn is_inquiry_only_surface(
         }
         surfaces
     };
-    !COMMAND_SURFACES.contains(surface)
+    const INQUIRY_SURFACES: TypedSupportSet = {
+        let mut surfaces = TypedSupportSet::EMPTY;
+        let mut index = 0;
+        while index < QUERY_SURFACES.len() {
+            if let Some(query) = QUERY_SURFACES[index] {
+                match query.gate {
+                    RowGate::Typed(required) | RowGate::DomainAndTyped(_, required) => {
+                        surfaces = surfaces.union(required);
+                    }
+                    RowGate::Always | RowGate::Domain(_) => {}
+                }
+            }
+            index += 1;
+        }
+        surfaces
+    };
+    INQUIRY_SURFACES.contains(surface) && !COMMAND_SURFACES.contains(surface)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inquiry_only_permissions_exclude_command_and_shared_range_grants() {
+        use crate::capabilities::TypedSupportSurface as S;
+        for inquiry in [
+            S::VersionInquiry,
+            S::MenuDisplayInquiry,
+            S::ColorTemperatureInquiry,
+            S::FocusZoneInquiry,
+            S::PresetRecallSpeedInquiry,
+        ] {
+            assert!(is_inquiry_only_surface(inquiry), "{inquiry:?}");
+        }
+        for command in [S::DigitalZoomRange, S::DirectZoom, S::ExposureMode] {
+            assert!(!is_inquiry_only_surface(command), "{command:?}");
+        }
+    }
 
     #[test]
     fn refining_gates_retain_the_domain_and_every_marker() {
