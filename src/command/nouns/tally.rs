@@ -214,14 +214,16 @@ mod tests {
 
     #[test]
     fn merged_tally_setters_preserve_every_literal_packet_and_selected_row() {
-        for (enabled, red, green) in [
+        for (enabled, code, red, green) in [
             (
                 true,
+                0x02,
                 BuiltinCommand::TallyRedOn,
                 BuiltinCommand::TallyGreenOn,
             ),
             (
                 false,
+                0x03,
                 BuiltinCommand::TallyRedOff,
                 BuiltinCommand::TallyGreenOff,
             ),
@@ -230,7 +232,6 @@ mod tests {
             let green_request = SetGreen::new(enabled);
             assert_eq!(red_request.ledger_row(), red);
             assert_eq!(green_request.ledger_row(), green);
-            let code = if enabled { 2 } else { 3 };
             assert_eq!(
                 wire(&red_request),
                 vec![0x81, 1, 0x7E, 1, 0x0A, 0, code, 0xFF]

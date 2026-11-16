@@ -41,12 +41,12 @@ pub enum Fr7ZoomHighResolution {
 impl WireEncode for Fr7ZoomHighResolution {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         let (direction, speed) = match *self {
-            Self::Tele(speed) => (2, speed),
-            Self::Wide(speed) => (3, speed),
+            Self::Tele(speed) => (Step::Up, speed),
+            Self::Wide(speed) => (Step::Down, speed),
         };
         FrameWriter::new(camera_id, buffer)
             .bytes(&sony_fr7_zoom::HIGH_RESOLUTION_DRIVE)
-            .byte(direction)
+            .byte(direction.byte())
             .nibbles::<4>(speed.value())
             .finish()
     }

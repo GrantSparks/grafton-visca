@@ -12,18 +12,18 @@ use crate::{
     Error,
 };
 
-visca_command! {
+crate::macros::consolidated::on_off_command! {
     /// Menu display control command.
     ///
     /// Toggles the camera's on-screen menu display on or off.
     ///
     /// VISCA format: `81 01 06 06 0p FF` where p = 2 (On) or 3 (Off)
+    #[derive(Debug, Copy, Clone)]
     pub struct SetMenuDisplay {
-        on: bool,
+        pub on: bool,
     };
     prefix = menu::MENU;
-    param = if *on { 0x02 } else { 0x03 };
-    max_param_size = 1;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
 impl SetMenuDisplay {

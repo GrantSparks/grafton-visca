@@ -120,15 +120,15 @@ impl GammaCommand {
     }
 }
 
-visca_command! {
+crate::macros::consolidated::on_off_command! {
         /// Backlight compensation command.
     ///
     /// Enables or disables backlight compensation, which helps properly expose
     /// subjects that are backlit (have a bright light source behind them).
-    pub struct BacklightCommand { enabled: bool };
+    #[derive(Debug, Copy, Clone)]
+    pub struct BacklightCommand { pub enabled: bool };
     prefix = image::BACKLIGHT;
-    param = if *enabled { 0x02 } else { 0x03 };
-    max_param_size = 1;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
 impl BacklightCommand {

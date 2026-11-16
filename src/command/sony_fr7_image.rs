@@ -9,7 +9,7 @@ use crate::wire::WireValue;
 
 use crate::{
     command::{
-        bytes::{constants::sony_fr7_image, FrameWriter},
+        bytes::{constants::sony_fr7_image, FrameWriter, Step},
         encode::WireEncode,
         response::{Nibbles, Payload},
     },
@@ -85,8 +85,8 @@ macro_rules! black_control {
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 let frame = FrameWriter::new(camera_id, buffer);
                 match *self {
-                    Self::Up(step) => frame.bytes(&$step).byte(2).nibbles::<2>(step.value()),
-                    Self::Down(step) => frame.bytes(&$step).byte(3).nibbles::<2>(step.value()),
+                    Self::Up(step) => frame.bytes(&$step).byte(Step::Up.byte()).nibbles::<2>(step.value()),
+                    Self::Down(step) => frame.bytes(&$step).byte(Step::Down.byte()).nibbles::<2>(step.value()),
                     Self::Direct(level) => frame.bytes(&$direct).nibbles::<4>(level.to_wire()),
                 }
                 .finish()
@@ -108,47 +108,11 @@ black_control! {
     Fr7BlueBlack, step = sony_fr7_image::BLUE_BLACK_STEP, direct = sony_fr7_image::BLUE_BLACK_DIRECT
 }
 
-macro_rules! boolean_setting {
-    ($(#[$doc:meta])* $name:ident, $prefix:expr) => {
-        $(#[$doc])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(deny_unknown_fields))]
-        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        pub struct $name {
-            enabled: bool,
-        }
-
-        impl $name {
-            /// Creates an enable or disable command.
-            #[must_use]
-            pub const fn new(enabled: bool) -> Self {
-                Self { enabled }
-            }
-
-            /// Returns the requested enablement state.
-            #[must_use]
-            #[cfg(test)]
-            pub const fn enabled(self) -> bool {
-                self.enabled
-            }
-        }
-
-        impl WireEncode for $name {
-            fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-                FrameWriter::new(camera_id, buffer)
-                    .bytes(&$prefix)
-                    .byte(if self.enabled { 2 } else { 3 })
-                    .finish()
-            }
-        }
-    };
-}
-
-boolean_setting! {
+crate::macros::consolidated::on_off_command! {
     /// Enables or disables FR7 detail processing (R7 p. 16).
     Fr7DetailSetting, sony_fr7_image::DETAIL_SETTING
 }
-boolean_setting! {
+crate::macros::consolidated::on_off_command! {
     /// Enables or disables the FR7 knee (R7 p. 16).
     Fr7KneeSetting, sony_fr7_image::KNEE_SETTING
 }

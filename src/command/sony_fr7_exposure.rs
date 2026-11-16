@@ -10,7 +10,7 @@ use crate::{
     command::{
         bytes::{
             constants::{exposure, sony_fr7_exposure},
-            FrameWriter,
+            FrameWriter, Step,
         },
         encode::WireEncode,
         response::{Nibbles, Payload},
@@ -70,58 +70,22 @@ impl WireEncode for Fr7AeLevel {
         FrameWriter::new(camera_id, buffer)
             .bytes(&exposure::COMPENSATION_STEP)
             .byte(match self {
-                Self::Up => 2,
-                Self::Down => 3,
+                Self::Up => Step::Up.byte(),
+                Self::Down => Step::Down.byte(),
             })
             .finish()
     }
 }
 
-macro_rules! automatic_control {
-    ($(#[$doc:meta])* $name:ident, $prefix:expr) => {
-        $(#[$doc])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(deny_unknown_fields))]
-        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        pub struct $name {
-            enabled: bool,
-        }
-
-        impl $name {
-            /// Creates an enable or disable command.
-            #[must_use]
-            pub const fn new(enabled: bool) -> Self {
-                Self { enabled }
-            }
-
-            /// Returns the requested enablement state.
-            #[must_use]
-            #[cfg(test)]
-            pub const fn enabled(self) -> bool {
-                self.enabled
-            }
-        }
-
-        impl WireEncode for $name {
-            fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-                FrameWriter::new(camera_id, buffer)
-                    .bytes(&$prefix)
-                    .byte(if self.enabled { 2 } else { 3 })
-                    .finish()
-            }
-        }
-    };
-}
-
-automatic_control! {
+crate::macros::consolidated::on_off_command! {
     /// Enables or disables FR7 automatic gain control (R7 p. 14).
     Fr7AutoGain, sony_fr7_exposure::AUTO_GAIN
 }
-automatic_control! {
+crate::macros::consolidated::on_off_command! {
     /// Enables or disables the FR7 automatic shutter (R7 p. 14).
     Fr7AutoShutter, sony_fr7_exposure::AUTO_SHUTTER
 }
-automatic_control! {
+crate::macros::consolidated::on_off_command! {
     /// Enables or disables FR7 automatic iris control (R7 p. 14).
     Fr7AutoIris, sony_fr7_exposure::AUTO_IRIS
 }
@@ -134,7 +98,7 @@ automatic_control! {
 pub struct IrisStep(u8);
 
 macro_rules! iris_adjustment {
-    ($(#[$doc:meta])* $name:ident, $direction:literal) => {
+    ($(#[$doc:meta])* $name:ident, $direction:expr) => {
         $(#[$doc])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(deny_unknown_fields))]
@@ -175,14 +139,14 @@ iris_adjustment! {
     ///
     /// This moves the lens iris toward a brighter exposure. R7 provides no
     /// iris-position inquiry with which to observe an absolute target.
-    Fr7IrisUp, 2
+    Fr7IrisUp, Step::Up.byte()
 }
 iris_adjustment! {
     /// Closes the FR7 iris by the requested relative count (R7 p. 14).
     ///
     /// This moves the lens iris toward a darker exposure. R7 provides no
     /// iris-position inquiry with which to observe an absolute target.
-    Fr7IrisDown, 3
+    Fr7IrisDown, Step::Down.byte()
 }
 
 pub(crate) fn decode_ae_level(payload: Payload<'_>) -> Result<AeLevel, Error> {

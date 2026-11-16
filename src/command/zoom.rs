@@ -78,13 +78,17 @@ impl WireEncode for Zoom {
     }
 }
 
-/// Command to control digital zoom.
-///
-/// This command enables or disables digital zoom capability.
-/// When enabled, zoom can continue past the optical zoom limit using digital processing.
-#[derive(Debug, Copy, Clone)]
-pub struct DigitalZoom {
-    enabled: bool,
+crate::macros::consolidated::on_off_command! {
+    /// Command to control digital zoom.
+    ///
+    /// This command enables or disables digital zoom capability.
+    /// When enabled, zoom can continue past the optical zoom limit using digital processing.
+    #[derive(Debug, Copy, Clone)]
+    pub struct DigitalZoom {
+        enabled: bool,
+    };
+    prefix = zoom::DIGITAL;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
 impl DigitalZoom {
@@ -97,19 +101,6 @@ impl DigitalZoom {
     #[must_use]
     pub const fn enabled(self) -> bool {
         self.enabled
-    }
-}
-
-impl WireEncode for DigitalZoom {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        FrameWriter::new(camera_id, buffer)
-            .bytes(&zoom::DIGITAL)
-            .byte(if self.enabled { 0x02 } else { 0x03 })
-            .finish()
     }
 }
 

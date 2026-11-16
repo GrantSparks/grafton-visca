@@ -445,6 +445,26 @@ fn representative_typed_requests_encode_without_heap_allocation() {
     assert_request_encoding_does_not_allocate("preset set", &preset);
     assert_request_encoding_does_not_allocate("preset reset", &reset);
     assert_request_encoding_does_not_allocate(
+        "shared on/off encoder",
+        &grafton_visca::command::image::SetFlip::new(true),
+    );
+    assert_request_encoding_does_not_allocate(
+        "FR7 shared on/off encoder",
+        &grafton_visca::command::exposure::SetAutoGain::new(false),
+    );
+    assert_request_encoding_does_not_allocate(
+        "value-enum operand",
+        &grafton_visca::command::streaming::SetNdiQuality::new(
+            grafton_visca::types::NdiQuality::High,
+        ),
+    );
+    let duration = grafton_visca::command::presets::SetSeparateDuration::new(
+        PresetNumber::MIN,
+        std::time::Duration::from_millis(1200),
+    )
+    .expect("checked preset duration");
+    assert_request_encoding_does_not_allocate("checked preset duration", &duration);
+    assert_request_encoding_does_not_allocate(
         "power inquiry",
         &grafton_visca::command::power::StatusInquiry,
     );

@@ -50,6 +50,16 @@ pub enum BoolConvention {
     OnIs02,
 }
 
+impl BoolConvention {
+    /// Encodes an on/off state using this register's sourced polarity.
+    pub(crate) const fn to_wire(self, on: bool) -> u8 {
+        match (self, on) {
+            (Self::OnIs02, true) | (Self::OnIs03, false) => 0x02,
+            (Self::OnIs02, false) | (Self::OnIs03, true) => 0x03,
+        }
+    }
+}
+
 /// Zero-copy view of unvalidated VISCA reply payload bytes.
 ///
 /// [`Self::new`] retains raw bytes without checking their shape or nibble values.
@@ -138,11 +148,9 @@ impl<'a> Payload<'a> {
             return Err(Error::invalid_response_length(1, self.0));
         }
         let byte = self.0[0];
-        match (byte, convention) {
-            (0x02, BoolConvention::OnIs03) => Ok(false),
-            (0x03, BoolConvention::OnIs03) => Ok(true),
-            (0x02, BoolConvention::OnIs02) => Ok(true),
-            (0x03, BoolConvention::OnIs02) => Ok(false),
+        match byte {
+            value if value == convention.to_wire(true) => Ok(true),
+            value if value == convention.to_wire(false) => Ok(false),
             _ => Err(Error::invalid_response(
                 format!("{param_name}: 0x02 or 0x03"),
                 vec![byte],
@@ -477,6 +485,25 @@ mod tests {
     // =========================================================================
     // BoolConvention and parse_bool tests
     // =========================================================================
+
+    #[test]
+    fn boolean_encoding_and_decoding_share_each_sourced_convention() {
+        for (convention, on, off) in [
+            (BoolConvention::OnIs02, 0x02, 0x03),
+            (BoolConvention::OnIs03, 0x03, 0x02),
+        ] {
+            for (enabled, expected) in [(true, on), (false, off)] {
+                let byte = convention.to_wire(enabled);
+                assert_eq!(byte, expected);
+                assert_eq!(
+                    Payload::new(&[byte])
+                        .parse_bool("round trip", convention)
+                        .unwrap(),
+                    enabled,
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_parse_bool_register_specific_opposite_convention() {

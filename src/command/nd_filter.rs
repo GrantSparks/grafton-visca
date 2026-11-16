@@ -14,7 +14,7 @@ use crate::wire::WireValue;
 
 use crate::{
     command::{
-        bytes::{constants::nd_filter, FrameWriter},
+        bytes::{constants::nd_filter, FrameWriter, Step},
         encode::WireEncode,
     },
     error::Error,
@@ -119,12 +119,22 @@ impl NdFilterDensity {
 }
 
 /// ND filter step adjustment direction.
-#[crate::value_enum]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NdFilterStep {
     /// Increase ND by one step (more density).
-    Up = 2,
+    Up,
     /// Decrease ND by one step (less density).
-    Down = 3,
+    Down,
+}
+
+impl NdFilterStep {
+    /// Reuses the shared step codes without admitting reset as an ND step.
+    const fn byte(self) -> u8 {
+        match self {
+            Self::Up => Step::Up.byte(),
+            Self::Down => Step::Down.byte(),
+        }
+    }
 }
 
 /// ND filter step adjustment command.
@@ -147,7 +157,7 @@ impl WireEncode for NdFilterStepCommand {
     ) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&nd_filter::STEP)
-            .byte(self.direction.to_wire())
+            .byte(self.direction.byte())
             .finish()
     }
 }
@@ -159,17 +169,21 @@ impl NdFilterStepCommand {
     }
 }
 
-/// Auto ND filter control.
-///
-/// # Sony FR7 Specific
-/// Command: `8x 01 7E 04 53 0p FF`
-/// - p = 02 (Auto ND On)
-/// - p = 03 (Auto ND Off)
-///   When Auto ND is On, the camera automatically engages the ND filter
-///   to maintain exposure (like auto-iris, but using ND).
-#[derive(Debug, Clone, Copy)]
-pub struct AutoNdCommand {
-    enabled: bool,
+crate::macros::consolidated::on_off_command! {
+    /// Auto ND filter control.
+    ///
+    /// # Sony FR7 Specific
+    /// Command: `8x 01 7E 04 53 0p FF`
+    /// - p = 02 (Auto ND On)
+    /// - p = 03 (Auto ND Off)
+    ///   When Auto ND is On, the camera automatically engages the ND filter
+    ///   to maintain exposure (like auto-iris, but using ND).
+    #[derive(Debug, Clone, Copy)]
+    pub struct AutoNdCommand {
+        enabled: bool,
+    };
+    prefix = nd_filter::AUTO;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
 impl AutoNdCommand {
@@ -182,19 +196,6 @@ impl AutoNdCommand {
     #[must_use]
     pub const fn enabled(self) -> bool {
         self.enabled
-    }
-}
-
-impl WireEncode for AutoNdCommand {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        FrameWriter::new(camera_id, buffer)
-            .bytes(&nd_filter::AUTO)
-            .byte(if self.enabled { 0x02 } else { 0x03 })
-            .finish()
     }
 }
 

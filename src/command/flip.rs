@@ -2,36 +2,36 @@
 //!
 //! This module provides commands for controlling image orientation.
 
-use crate::{command::bytes::constants::flip, macros::consolidated::visca_command};
+use crate::command::bytes::constants::flip;
 
-visca_command! {
+crate::macros::consolidated::on_off_command! {
     /// Command to control image flip.
     ///
     /// This command flips the image vertically (upside down).
-    pub struct ImageFlip { flip: bool };
+    #[derive(Debug, Copy, Clone)]
+    pub struct ImageFlip { pub flip: bool };
     prefix = flip::VERTICAL;
-    param = if *flip { 0x02 } else { 0x03 };
-    max_param_size = 1;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
-visca_command! {
+crate::macros::consolidated::on_off_command! {
     /// Command to control horizontal flip (mirror).
     ///
     /// This command flips the image horizontally (left-right mirror).
-    pub struct HorizontalFlip { on: bool };
+    #[derive(Debug, Copy, Clone)]
+    pub struct HorizontalFlip { pub on: bool };
     prefix = flip::HORIZONTAL;
-    param = if *on { 0x02 } else { 0x03 };
-    max_param_size = 1;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
-visca_command! {
+crate::macros::consolidated::on_off_command! {
     /// Command to control image freeze.
     ///
     /// This command freezes the current image frame.
-    pub struct ImageFreeze { on: bool };
+    #[derive(Debug, Copy, Clone)]
+    pub struct ImageFreeze { pub on: bool };
     prefix = flip::FREEZE;
-    param = if *on { 0x02 } else { 0x03 };
-    max_param_size = 1;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
 impl ImageFreeze {

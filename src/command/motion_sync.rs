@@ -13,32 +13,23 @@ use crate::{
     types::MotionSyncSpeed,
 };
 
-/// Command to control Motion Sync mode (on/off).
-///
-/// PtzOptics-specific command that enables or disables synchronized movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SetMotionSyncMode {
-    /// The motion sync mode to set.
-    pub mode: bool,
+crate::macros::consolidated::on_off_command! {
+    /// Command to control Motion Sync mode (on/off).
+    ///
+    /// PtzOptics-specific command that enables or disables synchronized movement.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct SetMotionSyncMode {
+        /// The motion sync mode to set.
+        pub mode: bool,
+    };
+    prefix = motion_sync::MODE;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
 impl SetMotionSyncMode {
     /// Creates a new motion sync mode command.
     pub const fn new(mode: bool) -> Self {
         Self { mode }
-    }
-}
-
-impl WireEncode for SetMotionSyncMode {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        FrameWriter::new(camera_id, buffer)
-            .bytes(&motion_sync::MODE)
-            .byte(if self.mode { 0x02 } else { 0x03 })
-            .finish()
     }
 }
 

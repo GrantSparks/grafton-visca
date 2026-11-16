@@ -3,6 +3,8 @@
 //! This module contains vendor-specific commands for controlling network and streaming features
 //! on PtzOptics Ndi cameras. These are not part of the baseline VISCA standard.
 
+use crate::wire::WireValue;
+
 use crate::{
     command::bytes::{constants::streaming, FrameWriter},
     macros::consolidated::visca_command,
@@ -34,44 +36,20 @@ impl crate::command::encode::WireEncode for MulticastStreamingCommand {
     ) -> Result<usize, crate::Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&streaming::MULTICAST)
+            // R1's multicast register uses 01=on, 02=off rather than the
+            // standard VISCA 02/03 boolean convention.
             .byte(if self.enabled { 0x01 } else { 0x02 })
             .finish()
     }
 }
 
 visca_command! {
-        /// Internal Ndi quality command
-    pub struct NdiQualityCommandInternal { quality: NdiQuality };
+    /// Ndi streaming quality control command.
+    #[derive(PartialEq, Eq)]
+    pub struct SetNdiQuality { quality: NdiQuality };
     prefix = streaming::NDI_QUALITY;
-    param = match *quality {
-        NdiQuality::High => 0x01,
-        NdiQuality::Medium => 0x02,
-        NdiQuality::Low => 0x03,
-        NdiQuality::Off => 0x04,
-    };
+    param = (*quality).to_wire();
     max_param_size = 1;
-}
-
-/// Ndi streaming quality control command
-///
-/// Vendor-specific command for PtzOptics Ndi cameras to set the Ndi stream bandwidth/quality
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SetNdiQuality {
-    /// The Ndi quality setting to apply
-    pub quality: NdiQuality,
-}
-
-impl crate::command::encode::WireEncode for SetNdiQuality {
-    fn write_into(
-        &self,
-        camera_id: crate::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::Error> {
-        let internal = NdiQualityCommandInternal {
-            quality: self.quality,
-        };
-        internal.write_into(camera_id, buffer)
-    }
 }
 
 impl SetNdiQuality {
@@ -81,10 +59,14 @@ impl SetNdiQuality {
     }
 }
 
-/// Enables or disables USB audio output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UsbAudioCommand {
-    enabled: bool,
+crate::macros::consolidated::on_off_command! {
+    /// Enables or disables USB audio output.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct UsbAudioCommand {
+        enabled: bool,
+    };
+    prefix = streaming::USB_AUDIO;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
 impl UsbAudioCommand {
@@ -95,19 +77,6 @@ impl UsbAudioCommand {
     /// Returns the requested USB audio state.
     pub const fn enabled(self) -> bool {
         self.enabled
-    }
-}
-
-impl crate::command::encode::WireEncode for UsbAudioCommand {
-    fn write_into(
-        &self,
-        camera_id: crate::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::Error> {
-        FrameWriter::new(camera_id, buffer)
-            .bytes(&streaming::USB_AUDIO)
-            .byte(if self.enabled { 0x02 } else { 0x03 })
-            .finish()
     }
 }
 

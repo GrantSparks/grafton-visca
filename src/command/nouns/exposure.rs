@@ -592,7 +592,7 @@ mod tests {
 
     #[test]
     fn boolean_setters_keep_the_original_selected_ledger_rows() {
-        for enabled in [false, true] {
+        for (enabled, code) in [(false, 0x03), (true, 0x02)] {
             let spotlight = SetSpotlight::new(enabled);
             assert_eq!(spotlight.enabled(), enabled);
             assert_eq!(
@@ -603,10 +603,7 @@ mod tests {
                     BuiltinCommand::SpotlightOff
                 }
             );
-            assert_eq!(
-                packet(&spotlight),
-                [0x81, 1, 4, 0x3a, if enabled { 2 } else { 3 }, 0xff]
-            );
+            assert_eq!(packet(&spotlight), [0x81, 1, 4, 0x3a, code, 0xff]);
             let slow = SetAutoSlowShutter::new(enabled);
             assert_eq!(slow.enabled(), enabled);
             assert_eq!(
@@ -617,10 +614,7 @@ mod tests {
                     BuiltinCommand::AutoSlowShutterOff
                 }
             );
-            assert_eq!(
-                packet(&slow),
-                [0x81, 1, 4, 0x5a, if enabled { 2 } else { 3 }, 0xff]
-            );
+            assert_eq!(packet(&slow), [0x81, 1, 4, 0x5a, code, 0xff]);
             let compensation = SetCompensationEnabled::new(enabled);
             assert_eq!(compensation.enabled(), enabled);
             assert_eq!(
