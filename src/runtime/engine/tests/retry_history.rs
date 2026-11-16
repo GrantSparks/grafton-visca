@@ -295,10 +295,12 @@ fn physical_write_evidence_invalidates_without_mutating_retry_history() {
                 Certainty::Unconfirmed
             );
         } else {
-            assert!(matches!(
-                terminal_failure(&effects, id),
-                Some(Error::CommandBufferFull)
-            ));
+            assert!(matches!(terminal_failure(&effects, id),
+                Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::CommandBufferFull)));
+            assert_eq!(
+                terminal_failure(&effects, id).unwrap().recovery(),
+                crate::Recovery::Reconcile
+            );
         }
         engine.assert_invariants().unwrap();
     }

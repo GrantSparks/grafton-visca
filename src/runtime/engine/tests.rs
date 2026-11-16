@@ -8331,8 +8331,8 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         engine.assert_invariants().unwrap();
     }
 
-    // The late-result ordering applies equally to `Err`: it cannot replace a
-    // retry cause retained by a prior Sony attempt or schedule another retry.
+    // A failed write has its own certainty-bearing terminal even after the
+    // budget; its actual transport cause is retained and no retry is scheduled.
     {
         let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
         let admission = engine.handle(
@@ -8378,7 +8378,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         );
         assert!(matches!(
             terminal_failure(&late, id),
-            Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::CommandBufferFull)
+            Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::TransportError { .. })
         ));
         assert!(!late.iter().any(|effect| matches!(
             effect,

@@ -592,6 +592,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tokio and smol sessions. A socket-option failure tries the next resolved
   address within the same connection budget (#972).
 
+- Failed datagram writes retain the same certainty and correlation protection
+  inside and after the retry budget. Raw commands require reconciliation and
+  hold late replies away from successors; Sony commands preserve the transport
+  cause in `RequestUnconfirmed`, and raw inquiries retain their reply-skew hold
+  (#968).
+
 - Sony retry exhaustion, budget expiry and cancellation retain uncertainty from
   an earlier lost ACK even after a later camera rejection. Terminal failures
   preserve their exact cause in `RequestUnconfirmed` and require reconciliation;

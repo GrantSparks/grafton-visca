@@ -437,7 +437,10 @@ fn submission_succeeds_at_admission_and_a_failed_write_is_the_outcome() {
     let receipt = owner
         .submit_command(focus_manual())
         .expect("admission does not wait for the write");
-    assert!(matches!(receipt.wait(), Err(Error::TransportError { .. })));
+    assert!(matches!(
+        receipt.wait(),
+        Err(Error::UnsequencedCommandUnconfirmed)
+    ));
     owner.close().unwrap();
 }
 

@@ -2105,18 +2105,11 @@ trait EngineMethods: EngineAccess {
         };
         match result {
             WriteOutcome::NotSent(error) => self.transmission_not_sent(owner, error, now, effects),
-            // A failed stream send has an unknowable parser position even if
-            // its result outlives this request's total budget.
-            WriteOutcome::Failed(error) if self.policy.transport == TransportKind::Stream => {
-                self.failed_transmission(owner, error, now, effects);
-            }
-            WriteOutcome::Failed(error) => {
-                if !self.write_result_after_total_budget(owner, false, now, effects) {
-                    self.failed_transmission(owner, error, now, effects);
-                }
-            }
+            // Failure means bytes may have left. Its certainty and correlation
+            // treatment cannot depend on when the write result is delivered.
+            WriteOutcome::Failed(error) => self.failed_transmission(owner, error, now, effects),
             WriteOutcome::Sent(meta) => {
-                if !self.write_result_after_total_budget(owner, true, now, effects) {
+                if !self.write_result_after_total_budget(owner, now, effects) {
                     self.successful_transmission(owner, meta, now, effects);
                 }
             }
@@ -2159,11 +2152,11 @@ trait EngineMethods: EngineAccess {
     ///
     /// An input sampled exactly at the deadline remains input-first, but a
     /// result sampled strictly later is outside the request's total budget.
-    /// This ordering covers `Ok` and datagram `Err`: once the result is late, a
-    /// raw command write can no longer prove whether the camera observed the
-    /// frame, while a Sony write must not register a sequence. A compatible stream `Err` is handled first by
-    /// [`Self::failed_transmission`], because no per-request boundary can make
-    /// an unknowable stream position safe. Cancellation writes deliberately
+    /// Once a successful result is late, a raw command write can no longer
+    /// prove whether the camera observed the frame, while a Sony write must
+    /// not register a sequence. Failed writes always use the same evidence-led
+    /// [`Self::failed_transmission`] path, independent of this budget.
+    /// Cancellation writes deliberately
     /// bypass this guard because their ambiguity window, rather than the
     /// request retry budget, owns the active cancellation lifecycle.
     ///
@@ -2173,7 +2166,6 @@ trait EngineMethods: EngineAccess {
     fn write_result_after_total_budget(
         &mut self,
         owner: TransmissionOwner,
-        written: bool,
         now: Instant,
         effects: &mut Decision,
     ) -> bool {
@@ -2204,9 +2196,7 @@ trait EngineMethods: EngineAccess {
                 .unwrap_or_else(|| terminal_timeout(entry)),
             AttemptEvidence::Written,
         );
-        if written {
-            self.mark_stream_answer_written(owner.request, false);
-        }
+        self.mark_stream_answer_written(owner.request, false);
 
         if raw_active_command {
             // Remove the active transmission and retain raw correlation through its ambiguity window (or poisons in strict
@@ -2224,10 +2214,10 @@ trait EngineMethods: EngineAccess {
             // cannot bind to an overlapping successor. A successful stream
             // write proves the bytes entered the stream, so there the reply
             // is owed instead (`retire_stream_answers`).
-            if !(written && self.mode().is_stream()) {
+            if !self.mode().is_stream() {
                 self.quarantine_raw_inquiry_correlation(owner.request, now);
             }
-            // A late Sony result — including a late transport error — cannot
+            // A late successful Sony result cannot
             // extend the budget or mutate correlation. Preserve the prior
             // retry cause when there is one, matching ordinary budget expiry.
             self.finish_observed(owner.request, error, AttemptEvidence::Written, now, effects);
@@ -2353,9 +2343,11 @@ trait EngineMethods: EngineAccess {
 
     /// Applies one failed transport write.
     ///
-    /// **Datagram**: exactly one request fails, with its own transport error,
-    /// and the session keeps running. A datagram is framed by its own boundary,
-    /// so a failed write cannot corrupt any other transmission.
+    /// **Datagram**: exactly one request fails and the session keeps running.
+    /// The write may have reached the camera. Raw commands therefore retain
+    /// an inert correlation hold and finish unconfirmed (or poison under the
+    /// strict opt-in); raw inquiries retain their reply-skew hold. Sony command
+    /// errors retain their transport cause under an unconfirmed terminal.
     ///
     /// **Stream**: the session is poisoned. This is a deliberate, explicit
     /// policy rather than an accident. Public transport sends return
@@ -2392,7 +2384,28 @@ trait EngineMethods: EngineAccess {
         }
         match owner.write {
             ActiveWrite::Request { .. } => {
-                self.finish_observed(owner.request, error, AttemptEvidence::Written, now, effects);
+                let raw_command = self.mode().is_raw()
+                    && self
+                        .entries
+                        .get(&owner.request)
+                        .is_some_and(|entry| entry.reply_family() != SendingReply::Inquiry);
+                if raw_command {
+                    self.terminate_unconfirmed_raw(
+                        owner.request,
+                        UnconfirmedScope::Lifecycle,
+                        now,
+                        effects,
+                    );
+                } else {
+                    self.quarantine_raw_inquiry_correlation(owner.request, now);
+                    self.finish_terminal_error(
+                        owner.request,
+                        error,
+                        AttemptEvidence::Written,
+                        now,
+                        effects,
+                    );
+                }
             }
             ActiveWrite::Cancellation(write) => {
                 self.failed_cancellation_transmission(owner.request, write, error, now, effects);

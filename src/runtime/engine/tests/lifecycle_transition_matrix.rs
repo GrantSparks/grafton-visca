@@ -76,7 +76,6 @@ enum Expected {
     Live(State),
     Applied,
     Cancelled,
-    WriteFailure,
     SyntaxFailure,
     AfterAckFailure,
     Unconfirmed,
@@ -86,7 +85,7 @@ enum Expected {
 
 use Expected::{
     AfterAckFailure, Applied, Cancelled, InquiryTimeout, Live, SyntaxFailure, Unconfirmed,
-    UnwrittenBudgetTimeout, WriteFailure,
+    UnwrittenBudgetTimeout,
 };
 use State::{
     AwaitingAck, AwaitingCancellationResolution, AwaitingCompletion, AwaitingReply, Backoff,
@@ -114,7 +113,7 @@ const EXPECTED: [[Expected; 9]; 8] = [
     [
         Live(Sending),
         Live(AwaitingAck),
-        WriteFailure,
+        Unconfirmed,
         Live(Sending),
         Live(Sending),
         Live(Sending),
@@ -427,9 +426,6 @@ fn assert_expected(fixture: &Fixture, effects: &[Effect], expected: Expected) {
             &protocol_outcome,
             RuntimeOutcome::Command(CommandOutcome::Cancelled)
         ),
-        WriteFailure => {
-            matches!(&protocol_outcome, RuntimeOutcome::Command(CommandOutcome::Failed(Error::TransportError { source: message, .. })) if message.to_string().ends_with("matrix write failed"))
-        }
         SyntaxFailure => matches!(
             &protocol_outcome,
             RuntimeOutcome::Command(CommandOutcome::Failed(Error::SyntaxError))

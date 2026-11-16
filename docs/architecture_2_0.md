@@ -1126,7 +1126,7 @@ terminal verdict. Delivery moves the result into that slot (#903).
 | Successful command send (`NoReply`, plain raw only) | Finish the plain `execute()` after the local write succeeds; this is not protocol application and cannot create an operation handle. Retain the bounded broad `AllResponses` hold before same-target raw response-bearing command or inquiry work may start; a STOP is never held by it (#795). Another `NoReply` may write and extend that key. |
 | Successful inquiry send | Record any Sony sequence and transition to `AwaitingReply`. Raw ownership derives from entries and decoder-declared payload legality: one staged/live inquiry per overlapping class, with disjoint inquiries and socket-owned commands allowed to coexist. |
 | Write refused before I/O (`NotSent`) | Fail only this logical request with its preparation cause in `TransmissionNotSent`. Certainty is `NotAccepted` unless an earlier attempt may have taken effect, when it remains `Unconfirmed`; retain that attempt's owed answers and holds. No write-failure counter increments and the stream remains usable. |
-| Failed command send, datagram transport | Terminally fail that one request. OS send failures retain their typed cause under `TransportError`; an explicit write timeout keeps its timeout context. Every other entry keeps running (#869). |
+| Failed request send, datagram transport (`Failed`) | Bytes may have reached the camera, regardless of whether the result arrives inside or after the retry budget. Raw commands finish `UnsequencedCommandUnconfirmed` with a `PreAck`/`AllResponses` hold (or poison under `strict_unconfirmed_poison`); raw inquiries retain their reply-skew hold and fail conclusively. Sony commands retain the exact transport cause in `RequestUnconfirmed` (`Terminal`/`Unconfirmed`, `Reconcile`). Other requests remain live (#968). |
 | Cancellation write refused before I/O | Drop its unwritten ledger entry and fail the cancellation observation. Keep the acknowledged operation, socket and original deadline live; a later completion still applies it (#869). |
 | Failed inquiry terminal | Wrap the exact source in `InquiryFailed` with `Terminal` / `FailedConclusively`; the source still determines whether the session must be reopened. This covers arbitrary custom transport verdicts without reporting an uncertain inquiry effect (#868). |
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
@@ -1435,8 +1435,8 @@ an idle no-data receive (it consumed nothing), which makes the advertised knob
 live on the async surface rather than inert. Every write is raced against
 `write_timeout`; if it elapses the write is abandoned as a failure — a stream
 write that can no longer be confirmed poisons the session, a datagram write
-fails only its own request — so a stalled peer can never park the actor and
-block `close()`. The blocking owner cannot preempt arbitrary synchronous code,
+fails only its own request with unconfirmed effect and retained correlation
+protection. A stalled peer can never park the actor and block `close()`. The blocking owner cannot preempt arbitrary synchronous code,
 so `BlockingTransport` exposes only deadline-bearing reads and writes and
 requires implementations to return within the supplied bound. Built-in TCP,
 UDP, and serial transports install that bound at the OS/device layer, and

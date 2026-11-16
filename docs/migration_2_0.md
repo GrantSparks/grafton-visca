@@ -1390,7 +1390,7 @@ outcomes most likely to cause an incorrect reconnect or retry loop:
 | A typed STOP finds its camera's control reserve and ordinary admission both full | `ControlReserveExhausted` (`Recovery::Resubmit { .. }`) | `false` | Back off briefly; earlier stops for that camera are still pending. Ordinary saturation alone no longer rejects a STOP (D26). |
 | Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`Recovery::WaitAgain`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
 | An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `Recovery::Resubmit { .. }`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
-| A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
+| A possibly sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (failed write, ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
 | Raw-VISCA over a stream: a camera's earlier inquiry timed out after it was written and its owed reply has not arrived within the profile's ambiguity window | `InquiryCorrelationLost { camera }` (`Recovery::Abandon`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live and other cameras work. That camera's inquiries reopen when the owed reply arrives or the camera answers a later command (proving the reply will never come); close and reopen the session to recover them sooner. |
 | Raw-VISCA over a stream: a camera's earlier command ended unconfirmed before its ACK and its owed answer has not arrived within that command's ambiguity window | `CommandCorrelationLost { camera }` (`Recovery::Abandon`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live; STOPs and inquiries to that camera still work. Ordinary and `NoReply` commands resume when the owed answer arrives or the camera answers a later inquiry or STOP; close and reopen the session to recover them sooner. A `CompletionOnly` command also fails this way behind a `NoReply` command the camera has answered nothing since, past that command's window (#795). |
 | The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
@@ -1430,8 +1430,10 @@ async read or write could block indefinitely. The async owner now bounds each
 one: a read that outlasts `read_timeout` is treated as an idle no-data receive
 (nothing consumed, no request penalized), and a write that outlasts
 `write_timeout` is abandoned as a send failure — a stream write poisons, a
-datagram write fails only its own request — so a stalled peer can no longer hang
-`close()`. The defaults are unchanged (5 s each). If your async application set
+datagram write fails only its own request. A failed datagram command may have
+reached the camera: reconcile its state before resubmitting. Raw commands
+retain a correlation hold and Sony commands retain the exact transport cause
+under `RequestUnconfirmed`. A stalled peer can no longer hang `close()`. The defaults are unchanged (5 s each). If your async application set
 either knob expecting it to matter, it now does; if it relied on async
 reads/writes never timing out, set the value you want explicitly. A custom
 `AsyncTransport` should be cancellation-safe (a timed-out read/write future is

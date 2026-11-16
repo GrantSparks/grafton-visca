@@ -586,8 +586,8 @@ pub enum Error {
     #[error("Cancellation could not be confirmed")]
     CancellationUnconfirmed,
 
-    /// An unsequenced command on a raw-VISCA envelope was successfully sent,
-    /// but its ACK or completion outcome became unknowable — a lost
+    /// An unsequenced command on a raw-VISCA envelope may have been sent,
+    /// but its ACK or completion outcome became unknowable — a failed write, a lost
     /// ACK/completion datagram, an expired cancellation-ambiguity window, or a
     /// spent retry budget while an attempt was in `Sending`, `AwaitingAck`,
     /// `AwaitingCompletion`, or `Executing`.

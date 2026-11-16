@@ -243,8 +243,8 @@ facade_matrix! {
     }
 
     /// A failed datagram write fails exactly one command and the session keeps
-    /// running: a datagram is framed by its own boundary, so the owner reports
-    /// an operation-scoped transport failure with the original OS cause.
+    /// running. Sony retains the original transport cause while reporting that
+    /// the attempted write may have reached the camera (#968).
     fn datagram_write_failure_fails_one_command_and_keeps_the_session() {
         let mut writes = 0usize;
         let camera = FakeCamera::visca(move |_, answer| {
@@ -255,16 +255,19 @@ facade_matrix! {
                 answer.reply(frames::ack(1)).reply(frames::complete(1));
             }
         });
-        let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
+        let session = open!(Rig::datagram(&camera), sony_session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let mut failing = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
             .expect("the submission is admitted before its write");
         let error = wait!(failing.applied()).expect_err("the first write fails on the wire");
-        let Error::TransportError { source, .. } = &error else {
-            panic!("the failed datagram write is operation-scoped, got {error:?}");
+        let Error::RequestUnconfirmed { source: terminal_cause, .. } = &error else {
+            panic!("the failed datagram write retains physical uncertainty, got {error:?}");
+        };
+        let Error::TransportError { source, .. } = terminal_cause.as_ref() else {
+            panic!("the original transport cause is retained, got {terminal_cause:?}");
         };
         let Error::Io { source: cause } = source.as_ref() else {
             panic!("the transport wrapper must preserve the original OS error, got {source:?}");
@@ -272,19 +275,23 @@ facade_matrix! {
         assert_eq!(cause.kind(), std::io::ErrorKind::ConnectionRefused);
         let original = std::error::Error::source(&error)
             .and_then(std::error::Error::source)
+            .and_then(std::error::Error::source)
             .and_then(|cause| cause.downcast_ref::<Arc<std::io::Error>>())
             .expect("the public source chain retains the OS error");
         assert!(Arc::ptr_eq(original, cause), "the original shared cause is retained");
         assert_eq!(original.kind(), std::io::ErrorKind::ConnectionRefused);
-        assert_eq!(error.kind(), ErrorKind::Transport);
+        assert_eq!(error.kind(), ErrorKind::Unconfirmed);
         assert_eq!(
             error.failure_context(),
-            None,
-            "normalizing an OS error must not invent request uncertainty"
+            Some(grafton_visca::error::FailureContext::new(
+                grafton_visca::error::FailureStage::Terminal,
+                grafton_visca::error::Certainty::Unconfirmed,
+            )),
+            "a failed write may have reached the camera"
         );
         assert_eq!(
             error.recovery(),
-            Recovery::Resubmit { after: Duration::from_millis(50) }
+            Recovery::Reconcile
         );
         assert!(
             !error.requires_new_session(),
@@ -305,6 +312,27 @@ facade_matrix! {
 
         session.shutdown().expect("owner shutdown");
     }
+
+    /// Issue #968: a failed raw datagram has no sequence with which to safely
+    /// distinguish a delayed reply from the next request's response.
+    fn a_failed_raw_datagram_requires_reconciliation_and_the_session_survives() {
+        let mut writes = 0;
+        let camera = FakeCamera::visca(move |_, answer| {
+            writes += 1;
+            if writes == 1 { answer.fail_send(connection_refused()); }
+            else { answer.reply(frames::ack(1)).reply(frames::complete(1)); }
+        });
+        let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
+        let view = session.camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1).expect("camera view");
+        let mut operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("admission");
+        let error = wait!(operation.applied()).expect_err("a failed write may have applied");
+        assert!(matches!(error, Error::UnsequencedCommandUnconfirmed), "{error:?}");
+        assert_eq!(error.recovery(), Recovery::Reconcile);
+        wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)).expect("subsequent admission").applied()).expect("session remains live");
+        assert_eq!(camera.take_payloads(), vec![ZOOM_STOP.to_vec(), FOCUS_STOP.to_vec()]);
+        session.shutdown().expect("shutdown");
+    }
+
 
     /// A failed *stream* write is a session verdict on purpose: the byte-stream
     /// position becomes unknowable, so every affected caller must learn that a

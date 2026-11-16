@@ -468,10 +468,12 @@ datagram is one bad datagram: nothing else was consumed and the next datagram
 frames independently, so it is discarded while the session keeps running.
 
 Writes are classified by transport too. A failed datagram write fails exactly
-one request, with its own transport error, and the session continues; because
-the session survives, an error value that claims a replacement session is
-required is normalized to a plain per-request transport error, and the receive
-side stays the authority on session death. A failed stream write poisons the
+one request and the session continues. Bytes may have reached the camera:
+raw commands report `UnsequencedCommandUnconfirmed` and retain an inert
+correlation hold, while Sony commands report `RequestUnconfirmed` with the
+exact transport cause. Both require reconciliation; the strict raw policy
+poisons instead. Raw inquiries fail conclusively and retain their reply-skew
+hold. These rules are independent of the retry budget. A failed stream write poisons the
 session: no transport trait in this crate reports how many bytes of a frame
 reached the wire, so a partial write must be assumed and the byte-stream
 position treated as unknowable. The exact transport cause is carried in the
