@@ -12332,7 +12332,7 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
 
 fn declared_motion(target: u8, axes: crate::AffectedAxes, order: u64) -> RuntimeRequest {
     let mut request = command(target, CancellationPolicy::Supported);
-    request.context_mut().motion = Some(MotionEffect { axes, stop: false });
+    request.context_mut().motion = Some(MotionEffect { axes });
     request.context_mut().submission_order = order;
     request
 }

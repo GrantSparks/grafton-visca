@@ -1299,14 +1299,30 @@ impl ProfileSpec {
     /// supports. Each one gets a control-reserve admission slot (D26, #778).
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn typed_stop_paths(&self) -> u8 {
-        [
-            AffectedAxes::PAN_TILT,
-            AffectedAxes::ZOOM,
-            AffectedAxes::FOCUS,
-        ]
-        .into_iter()
-        .filter(|axes| self.supports_axes(*axes))
-        .fold(0, |paths, _| paths + 1)
+        use crate::command::semantics::{
+            BuiltinAxisSelection, BuiltinCommand, BuiltinRequestClass,
+        };
+        let mut covered = 0;
+        let mut paths = 0;
+        for row in BuiltinCommand::ALL {
+            if let BuiltinRequestClass::AppliedOnly {
+                axes: BuiltinAxisSelection::Exact(stop_axes),
+                stop: true,
+            } = row.classification()
+            {
+                // Different encodings of the same STOP share one reserve
+                // path, so FR7's two zoom forms do not reserve twice.
+                if covered & stop_axes.bits() != stop_axes.bits()
+                    && crate::command::surface::row_gate(*row)
+                        .validate(self, "typed STOP")
+                        .is_ok()
+                {
+                    paths += 1;
+                    covered |= stop_axes.bits();
+                }
+            }
+        }
+        paths
     }
 
     /// Validates operational overrides without changing profile safety facts.

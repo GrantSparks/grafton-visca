@@ -737,7 +737,7 @@ trait EngineMethods: EngineAccess {
     }
     fn pre_ack_bypass_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
         entry.reply_family() == SendingReply::AckThenCompletion
-            && entry.request.context().control.class == ControlClass::Urgent
+            && entry.request.context().is_stop()
             && (!self.mode().is_raw() || occupancy.targets[target].unacknowledged == 0)
     }
     fn used_capacity_in(&self, target: TargetSlot, occupancy: &Occupancy) -> usize {
@@ -771,7 +771,7 @@ trait EngineMethods: EngineAccess {
         let state = &occupancy.targets[target];
         let urgent_bypass = raw
             && entry.reply_family() != SendingReply::Inquiry
-            && entry.request.context().control.class == ControlClass::Urgent
+            && entry.request.context().is_stop()
             && !(self.mode().is_stream() && self.mode().ledger().forbids_crossing(target))
             && state.urgent_bypass(entry, self.mode().is_stream());
         (raw && state.unacknowledged > 0 && !urgent_bypass)
@@ -1161,7 +1161,7 @@ trait EngineMethods: EngineAccess {
                 }
             }
             AdmissionSlot::ControlReserve => {
-                if request.context().control.class != ControlClass::Urgent {
+                if !request.context().is_stop() {
                     return Err(Error::InvalidState {
                         reason: "only an urgent request may hold a control-reserve slot".into(),
                     });
@@ -1292,7 +1292,7 @@ trait EngineMethods: EngineAccess {
     }
 
     fn motion_superseded(&self, context: &RequestContext) -> Option<crate::AffectedAxes> {
-        let motion = context.motion.filter(|motion| !motion.stop)?;
+        let motion = context.motion.filter(|_| !context.is_stop())?;
         let fences = self.targets[context.target].motion_fences;
         fences
             .iter()
@@ -1600,13 +1600,12 @@ trait EngineMethods: EngineAccess {
         // Urgent controls retain command-to-command physical pacing, but an
         // inquiry does not start their safety-lane clock (#712). Ordinary work
         // keeps the established session-wide pacing floor.
-        let last_spacing_write = if entry.reply_family() != SendingReply::Inquiry
-            && entry.request.context().control.class == ControlClass::Urgent
-        {
-            self.last_command_sent
-        } else {
-            self.last_request_sent
-        };
+        let last_spacing_write =
+            if entry.reply_family() != SendingReply::Inquiry && entry.request.context().is_stop() {
+                self.last_command_sent
+            } else {
+                self.last_request_sent
+            };
         let mut at = last_spacing_write.map_or(entry.submitted_at, |last| {
             add_duration(last, request_spacing)
         });
@@ -1849,7 +1848,7 @@ trait EngineMethods: EngineAccess {
     #[cfg(test)]
     fn raw_preack_hold_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
         entry.reply_family() == SendingReply::AckThenCompletion
-            && entry.request.context().control.class == ControlClass::Urgent
+            && entry.request.context().is_stop()
             && self.raw_unacknowledged_command_count(target) == 0
     }
 
@@ -1936,7 +1935,7 @@ trait EngineMethods: EngineAccess {
     fn raw_urgent_gate_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
         self.mode().is_raw()
             && entry.reply_family() != SendingReply::Inquiry
-            && entry.request.context().control.class == ControlClass::Urgent
+            && entry.request.context().is_stop()
             && self.raw_unacknowledged_command_count(target) == 1
             // A disputed STOP's own answer must stay decisive, and behind a
             // `CompletionOnly` command that may still be rejected any dispute
@@ -3594,9 +3593,7 @@ trait EngineMethods: EngineAccess {
         // rejection until write order settles it, and that could not be told
         // from the owed answer (nor, at the debt cap, be owed at all).
         let command_lane = !request.is_inquiry()
-            && (completion_only
-                || family == SendingReply::NoReply
-                || context.control.class != ControlClass::Urgent);
+            && (completion_only || family == SendingReply::NoReply || !context.is_stop());
         // A `CompletionOnly` command's socketless rejection could not be told
         // from a `NoReply` command's still owed past its window.
         let rejection_latched = completion_only && self.mode().ledger().rejection_latched(target);
@@ -4917,8 +4914,7 @@ trait EngineMethods: EngineAccess {
             }
         }
         if self.entries.values().any(|entry| {
-            entry.slot == AdmissionSlot::ControlReserve
-                && entry.request.context().control.class != ControlClass::Urgent
+            entry.slot == AdmissionSlot::ControlReserve && !entry.request.context().is_stop()
         }) {
             return Err("a non-urgent entry holds a control-reserve slot".into());
         }
@@ -5012,7 +5008,7 @@ trait EngineMethods: EngineAccess {
                 }
                 let target = entry.request.context().target;
                 unacknowledged[target] = unacknowledged[target].saturating_add(1);
-                if entry.request.context().control.class == ControlClass::Urgent {
+                if entry.request.context().is_stop() {
                     urgent[target] = urgent[target].saturating_add(1);
                 }
                 if entry.reply_family() != SendingReply::AckThenCompletion {
@@ -5115,7 +5111,7 @@ const fn superseded_context(certainty: Certainty) -> FailureContext {
 /// keeps from being written (#795).
 fn urgent_stop(entry: &Entry) -> bool {
     entry.reply_family() != SendingReply::Inquiry
-        && entry.request.context().control.class == ControlClass::Urgent
+        && entry.request.context().is_stop()
         && entry.reply_family() == SendingReply::AckThenCompletion
 }
 

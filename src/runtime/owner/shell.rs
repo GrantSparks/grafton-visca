@@ -1285,7 +1285,6 @@ mod tests {
                 requires_extended_pan_tilt_speed: false,
                 motion: Some(MotionEffect {
                     axes: crate::AffectedAxes::ZOOM,
-                    stop,
                 }),
                 submission_order: 0,
                 dispatch_deadline: None,

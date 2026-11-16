@@ -1075,7 +1075,6 @@ mod metrics {
         let mut request = command(retrying());
         request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
             axes: AffectedAxes::PAN_TILT,
-            stop: false,
         });
         request.context_mut().submission_order = 1;
         let (mut observation, _) = admit_observation(&mut state, request, earlier);
@@ -1193,7 +1192,6 @@ mod metrics {
         let mut request = command(retrying());
         request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
             axes: AffectedAxes::PAN_TILT,
-            stop: false,
         });
         request.context_mut().submission_order = 1;
         let (mut original, _) = admit_observation(&mut state, request.clone(), now);
@@ -1312,7 +1310,6 @@ mod metrics {
         let mut motion = command(retrying());
         motion.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
             axes: AffectedAxes::PAN_TILT,
-            stop: false,
         });
         motion.context_mut().submission_order = order;
         let _ = state.engine.halt_in_turn(

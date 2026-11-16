@@ -306,14 +306,21 @@ impl SetRecallSpeed {
         target: &TargetRegistration,
         speed: types::PresetSpeed,
     ) -> crate::Result<Self> {
+        let request = Self::selected_for_target(target, speed)?;
+        request.validate_for_target(target)?;
+        Ok(request)
+    }
+
+    pub(crate) fn selected_for_target(
+        target: &TargetRegistration,
+        speed: types::PresetSpeed,
+    ) -> crate::Result<Self> {
         let encoding = target.profile().encodings().preset_recall_speed().ok_or(
             crate::Error::FeatureNotSupported {
                 feature: "preset recall speed encoding",
             },
         )?;
-        let request = Self { speed, encoding };
-        request.validate_for_target(target)?;
-        Ok(request)
+        Ok(Self { speed, encoding })
     }
 
     /// Returns the requested recall speed.
@@ -360,153 +367,21 @@ impl SetRecallSpeed {
         }
         Ok(())
     }
-
-    #[cfg(test)]
-    const fn selected_row(&self) -> crate::command::semantics::BuiltinCommand {
-        use crate::{capabilities::PresetRecallSpeedEncoding, command::semantics::BuiltinCommand};
-        match self.encoding {
-            PresetRecallSpeedEncoding::PtzOptics => BuiltinCommand::PresetRecallSpeed,
-            PresetRecallSpeedEncoding::SonyFr7 => BuiltinCommand::Fr7SetCommonPresetSpeed,
-        }
-    }
 }
 
-impl Request for SetRecallSpeed {
-    type Class = crate::request::PlainClass;
-    const MAX_SIZE: usize = <sony_fr7_presets::Fr7SetCommonPresetSpeed as Request>::MAX_SIZE;
-    const TIMEOUT_CLASS: crate::TimeoutClass =
-        <preset_wire::PresetRecallSpeedCommand as Request>::TIMEOUT_CLASS;
-    const RETRY_CLASS: crate::RetryClass =
-        <preset_wire::PresetRecallSpeedCommand as Request>::RETRY_CLASS;
-    const CONTROL_CLASS: crate::ControlClass =
-        <preset_wire::PresetRecallSpeedCommand as Request>::CONTROL_CLASS;
-
-    fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
-        use crate::capabilities::PresetRecallSpeedEncoding;
-        match self.encoding {
-            PresetRecallSpeedEncoding::PtzOptics => Request::write_into(
-                &preset_wire::PresetRecallSpeedCommand::new(self.speed),
-                camera_id,
-                buffer,
-            ),
-            PresetRecallSpeedEncoding::SonyFr7 => Request::write_into(
-                &sony_fr7_presets::Fr7SetCommonPresetSpeed::new(self.speed),
-                camera_id,
-                buffer,
-            ),
-        }
-    }
-
-    #[allow(private_interfaces)]
-    fn write_for_target(
-        &self,
-        target: &TargetRegistration,
-        buffer: &mut [u8],
-        authority: crate::requests::RequestContractAuthority,
-    ) -> crate::Result<usize> {
-        self.validate_for_target(target)?;
-        use crate::capabilities::PresetRecallSpeedEncoding;
-        match self.encoding {
-            PresetRecallSpeedEncoding::PtzOptics => Request::write_for_target(
-                &preset_wire::PresetRecallSpeedCommand::new(self.speed),
-                target,
-                buffer,
-                authority,
-            ),
-            PresetRecallSpeedEncoding::SonyFr7 => Request::write_for_target(
-                &sony_fr7_presets::Fr7SetCommonPresetSpeed::new(self.speed),
-                target,
-                buffer,
-                authority,
-            ),
-        }
-    }
-
-    fn validate_for_target(&self, target: &TargetRegistration) -> crate::Result<()> {
-        self.validate_encoding(target)?;
-        use crate::capabilities::PresetRecallSpeedEncoding;
-        match self.encoding {
-            PresetRecallSpeedEncoding::PtzOptics => Request::validate_for_target(
-                &preset_wire::PresetRecallSpeedCommand::new(self.speed),
-                target,
-            ),
-            PresetRecallSpeedEncoding::SonyFr7 => Request::validate_for_target(
-                &sony_fr7_presets::Fr7SetCommonPresetSpeed::new(self.speed),
-                target,
-            ),
-        }
-    }
-
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    #[allow(private_interfaces)]
-    fn applied_state_projection(
-        &self,
-        _authority: crate::requests::AppliedStateAuthority,
-    ) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        <RecallSpeedProjection as crate::request::builtin_contract::BuiltinStateProjection<Self>>::project(self)
-    }
-}
-
-/// The two historical registers have different reviewed cache contracts.
-/// Preserve that distinction when the logical setting chooses an encoding.
-pub(crate) struct RecallSpeedProjection;
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-impl crate::request::builtin_contract::BuiltinStateProjection<SetRecallSpeed>
-    for RecallSpeedProjection
-{
-    fn project(
-        request: &SetRecallSpeed,
-    ) -> Option<crate::request::builtin_contract::AppliedStateProjection> {
-        use crate::{
-            capabilities::PresetRecallSpeedEncoding, command::semantics::BuiltinRequestContract,
-            request::builtin_contract::BuiltinStateProjection,
-        };
-        match request.encoding {
-            PresetRecallSpeedEncoding::PtzOptics => <<preset_wire::PresetRecallSpeedCommand as BuiltinRequestContract>::State as BuiltinStateProjection<preset_wire::PresetRecallSpeedCommand>>::project(&preset_wire::PresetRecallSpeedCommand::new(request.speed)),
-            PresetRecallSpeedEncoding::SonyFr7 => <<sony_fr7_presets::Fr7SetCommonPresetSpeed as BuiltinRequestContract>::State as BuiltinStateProjection<sony_fr7_presets::Fr7SetCommonPresetSpeed>>::project(&sony_fr7_presets::Fr7SetCommonPresetSpeed::new(request.speed)),
-        }
-    }
-}
-
-#[cfg(all(test, any(feature = "blocking", feature = "async")))]
-impl crate::request::builtin_contract::StateDescriptor for RecallSpeedProjection {
-    const KEY: Option<crate::StateKey> = None;
-    const BY_ROW: &'static [(
-        crate::command::semantics::BuiltinCommand,
-        Option<crate::StateKey>,
-    )] = &[
-        (
-            crate::command::semantics::BuiltinCommand::PresetRecallSpeed,
-            Some(crate::StateKey::PresetsRecallSpeed),
+forward_request!(SetRecallSpeed, preset_wire::PresetRecallSpeedCommand, Plain;
+    select |request, target| (request.encoding) default (request.encoding) {
+        crate::capabilities::PresetRecallSpeedEncoding::PtzOptics => (
+            preset_wire::PresetRecallSpeedCommand, PresetRecallSpeed,
+            preset_wire::PresetRecallSpeedCommand::new(request.speed)
         ),
-        (
-            crate::command::semantics::BuiltinCommand::Fr7SetCommonPresetSpeed,
-            None,
+        crate::capabilities::PresetRecallSpeedEncoding::SonyFr7 => (
+            sony_fr7_presets::Fr7SetCommonPresetSpeed, Fr7SetCommonPresetSpeed,
+            sony_fr7_presets::Fr7SetCommonPresetSpeed::new(request.speed)
         ),
-    ];
-}
-
-impl crate::command::semantics::BuiltinRequestContract for SetRecallSpeed {
-    const LEDGER_ROW: crate::command::semantics::BuiltinCommand =
-        crate::command::semantics::BuiltinCommand::PresetRecallSpeed;
-    const LEDGER_ROWS: &'static [crate::command::semantics::BuiltinCommand] = &[
-        crate::command::semantics::BuiltinCommand::PresetRecallSpeed,
-        crate::command::semantics::BuiltinCommand::Fr7SetCommonPresetSpeed,
-    ];
-    type State = RecallSpeedProjection;
-    #[cfg(test)]
-    fn selected_ledger_row(&self) -> crate::command::semantics::BuiltinCommand {
-        self.selected_row()
     }
-}
-
-const _: () =
-    <SetRecallSpeed as crate::command::semantics::BuiltinRequestContract>::CLASS_MATCHES_ROW;
-const _: () = assert!(matches!(
-    crate::command::semantics::BuiltinCommand::Fr7SetCommonPresetSpeed.classification(),
-    crate::command::semantics::BuiltinRequestClass::Plain { .. },
-));
+    validate = |request, target| request.validate_encoding(target)
+);
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]

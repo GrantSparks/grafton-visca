@@ -37,6 +37,7 @@ pub(crate) mod builtin;
 
 #[cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
 pub(crate) mod builtin_contract;
+pub(crate) mod builtin_policy;
 
 pub use crate::requests::{
     ControlClass, Inquiry, OperationCommand, PayloadShape, PlainCommand, Request, ResponseDecoder,

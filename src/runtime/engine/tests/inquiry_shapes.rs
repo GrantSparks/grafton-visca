@@ -643,7 +643,6 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
         let mut request = urgent_command(target, CancellationPolicy::Supported);
         request.context_mut().motion = Some(MotionEffect {
             axes: crate::AffectedAxes::PAN_TILT,
-            stop: true,
         });
         request
     }

@@ -19,7 +19,6 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Admis
             request.context_mut().submission_order = 1;
             request.context_mut().motion = Some(MotionEffect {
                 axes: crate::AffectedAxes::ZOOM,
-                stop: false,
             });
             let turn = engine.begin_input_turn(now);
             engine.halt_in_turn(&turn, camera(1), crate::AffectedAxes::ZOOM, 1);

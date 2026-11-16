@@ -357,11 +357,10 @@ impl RetryPolicy {
     };
 }
 
-/// Immutable motion semantics. Only trusted typed STOPs set `stop`.
+/// Immutable physical axes affected by a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MotionEffect {
     pub(crate) axes: crate::AffectedAxes,
-    pub(crate) stop: bool,
 }
 
 /// Every immutable protocol policy carried by an admitted request.
@@ -382,6 +381,11 @@ pub(crate) struct RequestContext {
 }
 
 impl RequestContext {
+    /// Urgent admission authority belongs only to reviewed typed STOPs.
+    pub(crate) const fn is_stop(self) -> bool {
+        matches!(self.control.class, ControlClass::Urgent)
+    }
+
     /// Checks the completed per-request policy at its actual admission instant,
     /// without reading another clock or revalidating the session's tuning.
     pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {

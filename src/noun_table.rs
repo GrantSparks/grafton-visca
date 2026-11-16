@@ -399,7 +399,7 @@ macro_rules! noun_table {
             /// the encoding and range: PTZOptics uses levels `1..=24` (R1 command table), while FR7 common speed
             /// uses `1..=50` (R7 p. 19). These are speed levels rather than degrees per second.
             plain [SetRecallSpeed] set_recall_speed(speed: types::PresetSpeed) -> command::presets::SetRecallSpeed where HasPresetRecallSpeed
-                = [with_target |target| command::presets::SetRecallSpeed::for_target(target, speed)];
+                = [with_target |target| command::presets::SetRecallSpeed::selected_for_target(target, speed)];
             /// Stores the current camera state in a preset slot. The registered profile's preset domain validates
             /// the zero-based number before I/O.
             ///

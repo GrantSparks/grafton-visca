@@ -478,6 +478,35 @@ mod tests {
         session.core(profile)
     }
 
+    #[test]
+    fn selected_noun_calls_validate_their_value_once() {
+        use crate::request::builtin::{request_validation_count, reset_request_validation_count};
+        for (profile, step) in [
+            (
+                ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap(),
+                helpers::auto_respond_step(),
+            ),
+            (
+                ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().unwrap(),
+                helpers::sony_auto_respond_step(),
+            ),
+        ] {
+            let transport = ScriptedBlockingTransport::new([step.clone(), step]);
+            let session = Session::open(transport, &SessionConfig::new(profile)).unwrap();
+            let camera = session.camera::<AnyProfile>(CameraId::CAMERA_1).unwrap();
+            reset_request_validation_count();
+            camera
+                .presets()
+                .set_recall_speed(crate::types::PresetSpeed::new(12).unwrap())
+                .unwrap();
+            assert_eq!(request_validation_count(), 1, "set_recall_speed");
+            reset_request_validation_count();
+            camera.white_balance().one_push().unwrap();
+            assert_eq!(request_validation_count(), 1, "one_push");
+            session.shutdown().unwrap();
+        }
+    }
+
     /// Two views taken from the same session drive its one owned transport,
     /// and an operation submitted through either of them is applied rather
     /// than merely being constructed.
