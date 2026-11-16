@@ -26,11 +26,10 @@
 use grafton_visca_test_support::fake_camera;
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    completion::AppliedOnly,
-    profile::ProfileSpec,
-    profiles::GenericVisca,
-    request::builtin::ZoomStop,
+    blocking::Session,
+    config::SessionConfig,
+    operation::AppliedOnly,
+    profiles::{GenericVisca, ProfileSpec},
     transport::{AddressingMode, BufferConfig, SendSemantics, TransportConfig},
 };
 
@@ -49,12 +48,12 @@ fn stream_camera(addressing: AddressingMode, reads: Vec<Vec<u8>>) -> BlockingWir
     let config = {
         let mut config = TransportConfig::default();
 
-        config.buffer_config = {
+        config = config.with_buffer_config({
             let mut config = BufferConfig::default();
-            config.recv_buffer_size = 1024;
-            config.max_buffer_size = 8192;
+            config = config.with_recv_buffer_size(1024);
+            config = config.with_max_buffer_size(8192);
             config
-        };
+        });
         config
     };
     let mut script = Some(reads);
@@ -79,12 +78,14 @@ const COMPLETION: &[u8] = &[0x90, 0x51, 0xff];
 /// Run one command against a stream camera scripted with `reads`, asserting the
 /// command is applied and the session stayed usable.
 fn command_settles_over_stream(addressing: AddressingMode, reads: Vec<Vec<u8>>) {
-    let session = Session::open(stream_camera(addressing, reads), generic_session_config())
+    let session = Session::open(stream_camera(addressing, reads), &generic_session_config())
         .expect("owner session");
-    let camera = session.camera::<GenericVisca>().expect("camera view");
+    let camera = session
+        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera view");
 
     camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("submission")
         .applied()
         .expect("the command settles and the stream session stays usable");
@@ -165,11 +166,13 @@ fn a_discarded_malformed_stream_frame_increments_the_published_metric() {
             COMPLETION.to_vec(),
         ],
     );
-    let session = Session::open(transport, generic_session_config()).expect("owner session");
-    let camera = session.camera::<GenericVisca>().expect("camera view");
+    let session = Session::open(transport, &generic_session_config()).expect("owner session");
+    let camera = session
+        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera view");
 
     camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("submission")
         .applied()
         .expect("the command settles despite the malformed frame");
@@ -252,11 +255,13 @@ fn stream_unbounded_garbage_without_a_boundary_still_poisons() {
     // position, which is a real loss the session must not survive silently.
     let garbage: Vec<Vec<u8>> = (0..10).map(|_| vec![0x00_u8; 1024]).collect();
     let transport = stream_camera(AddressingMode::Ip, garbage);
-    let session = Session::open(transport, generic_session_config()).expect("owner session");
-    let camera = session.camera::<GenericVisca>().expect("camera view");
+    let session = Session::open(transport, &generic_session_config()).expect("owner session");
+    let camera = session
+        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera view");
 
     let error = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("submission")
         .applied()
         .expect_err("a stream that lost its framing position must poison");

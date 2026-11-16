@@ -1036,8 +1036,8 @@ fn keep_earliest(next: &mut Option<Instant>, at: Instant) {
 }
 
 fn response_deadline(now: Instant, delay: Duration) -> Result<Instant, Error> {
-    now.checked_add(delay).ok_or_else(|| {
-        Error::InvalidRequest("simulator response delay cannot be represented by the clock".into())
+    now.checked_add(delay).ok_or_else(|| Error::InvalidRequest {
+        reason: "simulator response delay cannot be represented by the clock".into(),
     })
 }
 
@@ -1050,10 +1050,11 @@ impl AsyncTransport for ViscaCameraSimulator {
         let camera = match data.first() {
             Some(address @ 0x81..=0x87) => address & 0x07,
             _ => {
-                return Err(Error::InvalidRequest(
-                    "the simulator requires an individual VISCA camera address (1 through 7)"
-                        .into(),
-                ));
+                return Err(Error::InvalidRequest {
+                    reason:
+                        "the simulator requires an individual VISCA camera address (1 through 7)"
+                            .into(),
+                });
             }
         };
         if data.last() != Some(&VISCA_TERMINATOR) || data.len() < 3 {

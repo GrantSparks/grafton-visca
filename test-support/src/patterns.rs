@@ -4,7 +4,7 @@
 //! specification, not a value recomputed with the encoder under test. They are
 //! consumed by `tests/issue_633_golden_wire_bytes.rs`, which compares them
 //! byte-for-byte against the bytes the public request encoders produce for
-//! [`CameraId::CAMERA_1`](grafton_visca::CameraId::CAMERA_1).
+//! [`CameraId::CAMERA_1`](grafton_visca::types::CameraId::CAMERA_1).
 //!
 //! Keep the pan/tilt speed fields asymmetric (`0x18` pan, `0x14` tilt) so a
 //! transposition of the two speed bytes is visible, and keep the pan and tilt

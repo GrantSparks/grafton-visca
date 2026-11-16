@@ -13,9 +13,8 @@ mod support;
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, IdleWait},
-    runtime::TokioRuntime,
-    AffectedAxes, Camera, Connect, Error,
+    profiles::PtzOpticsG2, r#async::Camera, r#async::CameraSession, runtime::TokioRuntime,
+    types::AffectedAxes, types::IdleWait, Error,
 };
 
 use support::finish_session;
@@ -27,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
         .unwrap_or_else(|| "192.168.0.110".to_owned());
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address, runtime).await?;
     let result = concurrent_work(session.camera()).await;
     finish_session(result, session.close().await)?;
     Ok(())
@@ -55,7 +54,7 @@ async fn read_and_move(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
             let mut operation = movement_camera.zoom().tele().await?;
             operation.applied().await
         },
-        power.state(),
+        power.status(),
     );
     report("zoom movement", movement)?;
     println!("Power: {:?}", power?);

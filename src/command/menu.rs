@@ -74,7 +74,7 @@ impl crate::command::encode::WireEncode for MenuNavigate {
 /// # Safety
 ///
 /// With the menu closed, this is a continuous physical pan/tilt drive.
-/// Send an explicit STOP or call `stop_all_motion()` to end the movement.
+/// Send an explicit STOP or call `stop_all()` to end the movement.
 ///
 /// VISCA format: `81 01 06 01 VV WW XX YY FF` where:
 /// - VV = Pan speed (0x0E for menu)
@@ -94,7 +94,7 @@ impl MenuNavigate {
 
 /// Menu action type.
 #[crate::value_enum]
-pub enum MenuAction {
+pub(crate) enum MenuAction {
     /// Select/Enter the current menu item
     Select = 5,
     /// Cancel/Back to previous menu
@@ -117,7 +117,7 @@ visca_command! {
 
 impl PerformMenuAction {
     /// Create a new menu action command.
-    pub fn new(action: MenuAction) -> Self {
+    pub const fn new(action: MenuAction) -> Self {
         Self { action }
     }
 }

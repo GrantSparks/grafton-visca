@@ -1,6 +1,6 @@
-use grafton_visca::{blocking::Camera, profiles::SonyFR7, types::IrisStep};
+use grafton_visca::{blocking::Camera, profiles::SonyFr7, types::IrisStep};
 
-fn invalid(camera: &Camera<SonyFR7>) {
+fn invalid(camera: &Camera<SonyFr7>) {
     let mut iris = camera.exposure().iris_up_by(IrisStep::MIN).unwrap();
     let _ = iris.settled();
 }

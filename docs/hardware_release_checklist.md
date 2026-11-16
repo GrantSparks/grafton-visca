@@ -59,7 +59,7 @@ through the blocking and Tokio APIs, on a Linux x86_64 host with
 
 | Camera | Model | Firmware (SOC / ARM) | Profile |
 | --- | --- | --- | --- |
-| cam1 | PT30X-NDI G2 | 6.3.32 / 6.3.51THI | `PtzOptics30X` in the HW-05 wire-row runs, `PtzOpticsG2` elsewhere |
+| cam1 | PT30X-NDI G2 | 6.3.32 / 6.3.51THI | `PtzOptics30x` in the HW-05 wire-row runs, `PtzOpticsG2` elsewhere |
 | cam2, cam3 | PT20X-NDI G2 | 6.3.22 / 6.3.76THI | `PtzOpticsG2` |
 | cam4, cam5 | PT12X-NDI G2 | 6.3.62 / 6.4.18SHI | `PtzOpticsG2` |
 
@@ -71,7 +71,7 @@ through the blocking and Tokio APIs, on a Linux x86_64 host with
 | HW-02 | Blocking and Tokio Raw serial startup and timeout behavior, including attribution with at least two registered addresses | Not verified — accepted known limitation (no Raw serial adapter or serial camera on the bench) | No serial hardware available | Maintainer decision 2026-10-07 (#753): accepted known limitation for 2.0; covered by software tests only |
 | HW-03 | Representative Sony UDP envelope and sequence-numbered command and inquiry flow | Not verified — accepted known limitation (no Sony camera on the bench) | No Sony camera available | Maintainer decision 2026-10-07 (#753): accepted known limitation for 2.0; covered by software tests only |
 | HW-04 | Movement cancellation and owner halt: queued/retry fencing, independently dispatched STOPs and partial reports, then physical-rest observation, disconnect and recovery on representative Raw paths (the Sony path belongs to HW-03) | Pass | PTZOptics G2 bench, all five cameras (firmware as HW-01); disconnect, e1 and e5 runs on cam4 (PT12X-NDI G2 6.3.62/6.4.18SHI) | Halt idle report, halt fences queued motion, async G2 cancel refused then STOP 15/15; recovery after TCP reset and after silent drop; e1 manual-focus halt; e5 stale-reply contract at `6eba1696` (27 correlation refusals, 0 wrong values, then 8 correct answers on the same session) ([P3 runs](https://github.com/GrantSparks/grafton-visca/issues/795#issuecomment-6901340424)) |
-| HW-05 | Representative high-risk corrected and profile-specific wire rows, with exact firmware and a complete transcript | Pass | PTZOptics G2 bench, all five cameras (firmware as HW-01); cam1 with `PtzOptics30X`, cam2-cam5 with `PtzOpticsG2` | Corrected inquiries, NR level zero, focus zone, shutter round trip, direct zoom positions, absolute pan/tilt small offset 30/30; tilt polarity 5/5, with a visible ~9° UP move confirmed physically UP by the operator on all five ([P2 runs](https://github.com/GrantSparks/grafton-visca/issues/795#issuecomment-6901340424)) |
+| HW-05 | Representative high-risk corrected and profile-specific wire rows, with exact firmware and a complete transcript | Pass | PTZOptics G2 bench, all five cameras (firmware as HW-01); cam1 with `PtzOptics30x`, cam2-cam5 with `PtzOpticsG2` | Corrected inquiries, NR level zero, focus zone, shutter round trip, direct zoom positions, absolute pan/tilt small offset 30/30; tilt polarity 5/5, with a visible ~9° UP move confirmed physically UP by the operator on all five ([P2 runs](https://github.com/GrantSparks/grafton-visca/issues/795#issuecomment-6901340424)) |
 
 ## FR7 pan/tilt verification
 

@@ -33,17 +33,17 @@ mod async_standard {
     };
 
     use grafton_visca::{
-        camera::{CameraConfig, Connect},
-        profiles::{PtzOpticsG2, SonyFR7},
-        runtime::Runtime,
+        config::CameraConfig,
+        profiles::{PtzOpticsG2, SonyFr7},
+        runtime::{Executor, Runtime},
         transport::{AddressingMode, BufferConfig, TransportConfig},
-        Error, Executor,
+        Error,
     };
 
     use crate::fake_camera::{AsyncWire, FakeCamera};
 
     #[cfg(feature = "runtime-tokio")]
-    use grafton_visca::OperationalTuning;
+    use grafton_visca::config::OperationalTuning;
 
     #[cfg(feature = "runtime-tokio")]
     use grafton_visca::transport::TcpKeepaliveConfig;
@@ -189,35 +189,42 @@ mod async_standard {
     async fn standard_paths<E: Executor>(executor: E) {
         let runtime = ProbeRuntime::new(executor);
         let calls = runtime.calls();
-        let session = Connect::open_tcp::<PtzOpticsG2, _>("camera.local", runtime.clone())
-            .await
-            .expect("fake TCP owner session");
+        let session = grafton_visca::r#async::CameraSession::<PtzOpticsG2>::connect_tcp(
+            "camera.local",
+            runtime.clone(),
+        )
+        .await
+        .expect("fake TCP owner session");
         assert_eq!(
             assert_one_call(&calls, Kind::Tcp, "camera.local:5678")
                 .config
-                .buffer_config,
-            BufferConfig::for_raw_ip()
+                .buffer_config(),
+            BufferConfig::for_tcp()
         );
         session.shutdown().expect("shutdown");
 
         let calls = runtime.calls();
-        let session = CameraConfig::<PtzOpticsG2>::udp("camera.local")
-            .open_async(runtime.clone())
-            .await
-            .expect("fake UDP owner session");
+        let session = grafton_visca::r#async::CameraSession::connect(
+            &CameraConfig::<PtzOpticsG2>::udp("camera.local"),
+            runtime.clone(),
+        )
+        .await
+        .expect("fake UDP owner session");
         assert_eq!(
             assert_one_call(&calls, Kind::Udp, "camera.local:1259")
                 .config
-                .buffer_config,
+                .buffer_config(),
             BufferConfig::for_udp()
         );
         session.shutdown().expect("shutdown");
 
         let calls = runtime.calls();
-        let session = CameraConfig::<SonyFR7>::udp("camera.local")
-            .open_async(runtime.clone())
-            .await
-            .expect("fake Sony UDP owner session");
+        let session = grafton_visca::r#async::CameraSession::connect(
+            &CameraConfig::<SonyFr7>::udp("camera.local"),
+            runtime.clone(),
+        )
+        .await
+        .expect("fake Sony UDP owner session");
         assert_one_call(&calls, Kind::Udp, "camera.local:52381");
         session.shutdown().expect("shutdown");
     }
@@ -225,18 +232,22 @@ mod async_standard {
     async fn bracketed_ipv6_endpoint_and_ambiguous_ipv6_rejection<E: Executor>(executor: E) {
         let runtime = ProbeRuntime::new(executor);
         let calls = runtime.calls();
-        let session = CameraConfig::<PtzOpticsG2>::tcp("[2001:db8::1]:5678")
-            .open_async(runtime.clone())
-            .await
-            .expect("fake bracketed IPv6 owner session");
+        let session = grafton_visca::r#async::CameraSession::connect(
+            &CameraConfig::<PtzOpticsG2>::tcp("[2001:db8::1]:5678"),
+            runtime.clone(),
+        )
+        .await
+        .expect("fake bracketed IPv6 owner session");
         assert_one_call(&calls, Kind::Tcp, "[2001:db8::1]:5678");
         session.shutdown().expect("shutdown");
 
         let calls = runtime.calls();
-        let error = CameraConfig::<PtzOpticsG2>::tcp("2001:db8::1")
-            .open_async(runtime.clone())
-            .await
-            .expect_err("ambiguous unbracketed IPv6 must be rejected");
+        let error = grafton_visca::r#async::CameraSession::connect(
+            &CameraConfig::<PtzOpticsG2>::tcp("2001:db8::1"),
+            runtime.clone(),
+        )
+        .await
+        .expect_err("ambiguous unbracketed IPv6 must be rejected");
         assert!(matches!(error, Error::InvalidAddress { .. }));
         assert!(calls.lock().expect("calls lock").is_empty());
     }
@@ -254,77 +265,99 @@ mod async_standard {
         );
         let calls = runtime.calls();
 
-        let error = CameraConfig::<SonyFR7>::new()
-            .transport(grafton_visca::camera::TransportOptions::tcp(
+        let error = grafton_visca::r#async::CameraSession::connect(
+            &grafton_visca::config::CameraConfig::new(
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<SonyFr7>()
+                    .expect("source profile"),
+                grafton_visca::config::TransportOptions::Custom,
+            )
+            .into_typed::<SonyFr7>()
+            .expect("typed config")
+            .with_transport(grafton_visca::config::TransportOptions::tcp(
                 "does-not-resolve.invalid",
-            ))
-            .open_async(runtime.clone())
-            .await
-            .expect_err("unsupported Sony TCP must be rejected in preflight");
+            )),
+            runtime.clone(),
+        )
+        .await
+        .expect_err("unsupported Sony TCP must be rejected in preflight");
         assert!(matches!(error, Error::UnsupportedTransport { .. }));
         assert!(calls.lock().expect("calls lock").is_empty());
 
-        let error = CameraConfig::<PtzOpticsG2>::tcp("does-not-resolve.invalid")
-            .with_tuning(OperationalTuning::new().quick_timeout(Duration::from_secs(1)))
-            .open_async(runtime.clone())
-            .await
-            .expect_err("a category timeout below the profile floor must fail in preflight");
-        assert!(matches!(error, Error::InvalidRequest(_)));
+        let error = grafton_visca::r#async::CameraSession::connect(
+            &CameraConfig::<PtzOpticsG2>::tcp("does-not-resolve.invalid")
+                .with_tuning(OperationalTuning::new().with_quick_timeout(Duration::from_secs(1))),
+            runtime.clone(),
+        )
+        .await
+        .expect_err("a category timeout below the profile floor must fail in preflight");
+        assert!(matches!(error, Error::InvalidRequest { .. }));
         assert!(calls.lock().expect("calls lock").is_empty());
 
-        let error = Connect::open_udp::<PtzOpticsG2, _>("invalid:address:format", runtime.clone())
-            .await
-            .expect_err("invalid endpoint must be rejected before DNS");
+        let error = grafton_visca::r#async::CameraSession::<PtzOpticsG2>::connect_udp(
+            "invalid:address:format",
+            runtime.clone(),
+        )
+        .await
+        .expect_err("invalid endpoint must be rejected before DNS");
         assert!(matches!(error, Error::InvalidAddress { .. }));
         assert!(calls.lock().expect("calls lock").is_empty());
 
         let transport_config = {
             let mut config = TransportConfig::default();
-            config.connect_timeout = Duration::from_millis(17);
-            config.read_timeout = Duration::from_millis(19);
-            config.write_timeout = Duration::from_millis(23);
-            config.buffer_config = {
+            config = config.with_connect_timeout(Duration::from_millis(17));
+            config = config.with_read_timeout(Duration::from_millis(19));
+            config = config.with_write_timeout(Duration::from_millis(23));
+            config = config.with_buffer_config({
                 let mut config = BufferConfig::default();
-                config.recv_buffer_size = 31;
-                config.max_buffer_size = 37;
+                config = config.with_recv_buffer_size(31);
+                config = config.with_max_buffer_size(37);
                 config
-            };
-            config.tcp_nodelay = Some(false);
-            config.tcp_keepalive = Some(TcpKeepaliveConfig::new(Duration::from_secs(4)));
+            });
+            config = config.with_tcp_nodelay(Some(false));
+            config =
+                config.with_tcp_keepalive(Some(TcpKeepaliveConfig::new(Duration::from_secs(4))));
             config
         };
-        let session = CameraConfig::<PtzOpticsG2>::tcp("192.0.2.10:5678")
-            .transport_config(transport_config)
-            .open_async(runtime.clone())
-            .await
-            .expect("fake configured owner session");
+        let session = grafton_visca::r#async::CameraSession::connect(
+            &CameraConfig::<PtzOpticsG2>::tcp("192.0.2.10:5678")
+                .with_transport_config(transport_config),
+            runtime.clone(),
+        )
+        .await
+        .expect("fake configured owner session");
         let call = assert_one_call(&calls, Kind::Tcp, "192.0.2.10:5678");
-        assert_eq!(call.config.connect_timeout, Duration::from_millis(17));
-        assert_eq!(call.config.read_timeout, Duration::from_millis(19));
-        assert_eq!(call.config.write_timeout, Duration::from_millis(23));
-        assert_eq!(call.config.buffer_config, transport_config.buffer_config);
-        assert_eq!(call.config.tcp_nodelay, Some(false));
-        assert_eq!(call.config.tcp_keepalive, transport_config.tcp_keepalive);
+        assert_eq!(call.config.connect_timeout(), Duration::from_millis(17));
+        assert_eq!(call.config.read_timeout(), Duration::from_millis(19));
+        assert_eq!(call.config.write_timeout(), Duration::from_millis(23));
+        assert_eq!(
+            call.config.buffer_config(),
+            transport_config.buffer_config()
+        );
+        assert_eq!(call.config.tcp_nodelay(), Some(false));
+        assert_eq!(
+            call.config.tcp_keepalive(),
+            transport_config.tcp_keepalive()
+        );
         session.shutdown().expect("shutdown");
 
         let udp_config = {
             let mut config = TransportConfig::default();
-            config.connect_timeout = Duration::from_millis(31);
-            config.read_timeout = Duration::from_millis(37);
-            config.write_timeout = Duration::from_millis(41);
-            config.buffer_config = {
+            config = config.with_connect_timeout(Duration::from_millis(31));
+            config = config.with_read_timeout(Duration::from_millis(37));
+            config = config.with_write_timeout(Duration::from_millis(41));
+            config = config.with_buffer_config({
                 let mut config = BufferConfig::default();
-                config.recv_buffer_size = 43;
-                config.max_buffer_size = 53;
+                config = config.with_recv_buffer_size(43);
+                config = config.with_max_buffer_size(53);
                 config
-            };
-            config.ttl = Some(59);
+            });
+            config = config.with_ttl(Some(59));
 
             config
         };
         let udp_camera_config = CameraConfig::<PtzOpticsG2>::udp("192.0.2.11:1259")
             .with_admission_capacity(NonZeroUsize::new(61).expect("nonzero queue depth"))
-            .transport_config(udp_config);
+            .with_transport_config(udp_config);
         assert_eq!(
             udp_camera_config
                 .session_config()
@@ -332,16 +365,16 @@ mod async_standard {
                 .admission_capacity(),
             NonZeroUsize::new(61).expect("nonzero queue depth")
         );
-        let session = udp_camera_config
-            .open_async(runtime.clone())
-            .await
-            .expect("fake configured UDP owner session");
+        let session =
+            grafton_visca::r#async::CameraSession::connect(&udp_camera_config, runtime.clone())
+                .await
+                .expect("fake configured UDP owner session");
         let call = assert_one_call(&calls, Kind::Udp, "192.0.2.11:1259");
-        assert_eq!(call.config.connect_timeout, Duration::from_millis(31));
-        assert_eq!(call.config.read_timeout, Duration::from_millis(37));
-        assert_eq!(call.config.write_timeout, Duration::from_millis(41));
-        assert_eq!(call.config.buffer_config, udp_config.buffer_config);
-        assert_eq!(call.config.ttl, Some(59));
+        assert_eq!(call.config.connect_timeout(), Duration::from_millis(31));
+        assert_eq!(call.config.read_timeout(), Duration::from_millis(37));
+        assert_eq!(call.config.write_timeout(), Duration::from_millis(41));
+        assert_eq!(call.config.buffer_config(), udp_config.buffer_config());
+        assert_eq!(call.config.ttl(), Some(59));
 
         session.shutdown().expect("shutdown");
     }
@@ -358,8 +391,8 @@ mod async_standard {
             (
                 {
                     let mut config = BufferConfig::default();
-                    config.recv_buffer_size = 0;
-                    config.max_buffer_size = 64;
+                    config = config.with_recv_buffer_size(0);
+                    config = config.with_max_buffer_size(64);
                     config
                 },
                 "transport receive buffer must hold the largest VISCA reply (24 bytes)",
@@ -367,8 +400,8 @@ mod async_standard {
             (
                 {
                     let mut config = BufferConfig::default();
-                    config.recv_buffer_size = BufferConfig::MIN_RECV_BUFFER_SIZE - 1;
-                    config.max_buffer_size = 64;
+                    config = config.with_recv_buffer_size(BufferConfig::MIN_RECV_BUFFER_SIZE - 1);
+                    config = config.with_max_buffer_size(64);
                     config
                 },
                 "transport receive buffer must hold the largest VISCA reply (24 bytes)",
@@ -376,8 +409,8 @@ mod async_standard {
             (
                 {
                     let mut config = BufferConfig::default();
-                    config.recv_buffer_size = 64;
-                    config.max_buffer_size = 0;
+                    config = config.with_recv_buffer_size(64);
+                    config = config.with_max_buffer_size(0);
                     config
                 },
                 "transport maximum buffer must be non-zero",
@@ -385,8 +418,8 @@ mod async_standard {
             (
                 {
                     let mut config = BufferConfig::default();
-                    config.recv_buffer_size = 65;
-                    config.max_buffer_size = 64;
+                    config = config.with_recv_buffer_size(65);
+                    config = config.with_max_buffer_size(64);
                     config
                 },
                 "transport receive buffer cannot exceed maximum buffer",
@@ -396,18 +429,19 @@ mod async_standard {
                 CameraConfig::<PtzOpticsG2>::tcp("camera.local:5678"),
                 CameraConfig::<PtzOpticsG2>::udp("camera.local:1259"),
             ] {
-                let error = config
-                    .transport_config({
+                let error = grafton_visca::r#async::CameraSession::connect(
+                    &config.with_transport_config({
                         let mut config = TransportConfig::default();
-                        config.buffer_config = buffer_config;
+                        config = config.with_buffer_config(buffer_config);
                         config
-                    })
-                    .open_async(runtime.clone())
-                    .await
-                    .expect_err("invalid buffer bounds must fail in preflight");
+                    }),
+                    runtime.clone(),
+                )
+                .await
+                .expect_err("invalid buffer bounds must fail in preflight");
                 assert!(matches!(
                     error,
-                    Error::InvalidRequest(actual) if actual.as_ref() == message
+                    Error::InvalidRequest { reason: actual } if actual.as_ref() == message
                 ));
                 assert!(calls.lock().expect("calls lock").is_empty());
             }
@@ -422,8 +456,14 @@ mod async_standard {
         );
         let calls = runtime.calls();
 
-        let session = Connect::open::<PtzOpticsG2, _>(
-            grafton_visca::camera::TransportOptions::tcp("camera.local"),
+        let session = grafton_visca::r#async::CameraSession::<PtzOpticsG2>::connect(
+            &grafton_visca::config::CameraConfig::new(
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                    .expect("source profile"),
+                grafton_visca::config::TransportOptions::tcp("camera.local"),
+            )
+            .into_typed::<PtzOpticsG2>()
+            .expect("typed config"),
             runtime.clone(),
         )
         .await
@@ -431,8 +471,14 @@ mod async_standard {
         assert_one_call(&calls, Kind::Tcp, "camera.local:5678");
         session.shutdown().expect("shutdown");
 
-        let session = Connect::open::<PtzOpticsG2, _>(
-            grafton_visca::camera::TransportOptions::udp("camera.local"),
+        let session = grafton_visca::r#async::CameraSession::<PtzOpticsG2>::connect(
+            &grafton_visca::config::CameraConfig::new(
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                    .expect("source profile"),
+                grafton_visca::config::TransportOptions::udp("camera.local"),
+            )
+            .into_typed::<PtzOpticsG2>()
+            .expect("typed config"),
             runtime.clone(),
         )
         .await
@@ -440,8 +486,14 @@ mod async_standard {
         assert_one_call(&calls, Kind::Udp, "camera.local:1259");
         session.shutdown().expect("shutdown");
 
-        let error = Connect::open::<SonyFR7, _>(
-            grafton_visca::camera::TransportOptions::tcp("camera.local"),
+        let error = grafton_visca::r#async::CameraSession::<SonyFr7>::connect(
+            &grafton_visca::config::CameraConfig::new(
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<SonyFr7>()
+                    .expect("source profile"),
+                grafton_visca::config::TransportOptions::tcp("camera.local"),
+            )
+            .into_typed::<SonyFr7>()
+            .expect("typed config"),
             runtime,
         )
         .await
@@ -454,24 +506,28 @@ mod async_standard {
     #[tokio::test]
     async fn invalid_serial_buffer_bounds_fail_before_device_open() {
         let runtime = grafton_visca::runtime::TokioRuntime::from_current().expect("runtime");
-        let error =
-            CameraConfig::<PtzOpticsG2>::serial("grafton-visca-test-unopened-serial-device", 9_600)
-                .transport_config({
-                    let mut config = TransportConfig::default();
-                    config.buffer_config = {
-                        let mut config = BufferConfig::default();
-                        config.recv_buffer_size = 65;
-                        config.max_buffer_size = 64;
-                        config
-                    };
+        let error = grafton_visca::r#async::CameraSession::connect(
+            &CameraConfig::<PtzOpticsG2>::serial(
+                "grafton-visca-test-unopened-serial-device",
+                9_600,
+            )
+            .with_transport_config({
+                let mut config = TransportConfig::default();
+                config = config.with_buffer_config({
+                    let mut config = BufferConfig::default();
+                    config = config.with_recv_buffer_size(65);
+                    config = config.with_max_buffer_size(64);
                     config
-                })
-                .open_serial_async(runtime)
-                .await
-                .expect_err("invalid buffer bounds must fail before serial-device open");
+                });
+                config
+            }),
+            runtime,
+        )
+        .await
+        .expect_err("invalid buffer bounds must fail before serial-device open");
         assert!(matches!(
             error,
-            Error::InvalidRequest(actual)
+            Error::InvalidRequest { reason: actual }
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
     }
@@ -482,10 +538,12 @@ mod blocking_standard {
     use std::time::Duration;
 
     use grafton_visca::{
-        blocking::{CameraConfig, Session},
+        blocking::Session,
+        config::{CameraConfig, SessionConfig},
         profiles::PtzOpticsG2,
         transport::{AddressingMode, BufferConfig, SendSemantics, TransportConfig},
-        CameraId, Error, SessionConfig,
+        types::CameraId,
+        Error,
     };
 
     use crate::fake_camera::{BlockingWire, FakeCamera};
@@ -505,10 +563,11 @@ mod blocking_standard {
         let transport = serial_wire(TransportConfig::default());
         let config = SessionConfig::for_target(
             CameraId::CAMERA_1,
-            grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile"),
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                .expect("profile"),
         )
         .expect("target config");
-        let session = Session::open(transport, config).expect("custom blocking owner session");
+        let session = Session::open(transport, &config).expect("custom blocking owner session");
         session.shutdown().expect("shutdown");
     }
 
@@ -519,7 +578,7 @@ mod blocking_standard {
                 {
                     let mut config = TransportConfig::default();
 
-                    config.read_timeout = Duration::ZERO;
+                    config = config.with_read_timeout(Duration::ZERO);
                     config
                 },
                 "transport read timeout must be non-zero",
@@ -528,7 +587,7 @@ mod blocking_standard {
                 {
                     let mut config = TransportConfig::default();
 
-                    config.write_timeout = Duration::ZERO;
+                    config = config.with_write_timeout(Duration::ZERO);
                     config
                 },
                 "transport write timeout must be non-zero",
@@ -537,44 +596,46 @@ mod blocking_standard {
             let transport = serial_wire(transport_config);
             let config = SessionConfig::for_target(
                 CameraId::CAMERA_1,
-                grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile"),
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+                    .expect("profile"),
             )
             .expect("target config");
-            let error = Session::open(transport, config)
+            let error = Session::open(transport, &config)
                 .expect_err("invalid custom transport config must fail at construction");
             assert!(matches!(
                 error,
-                Error::InvalidRequest(actual) if actual.as_ref() == message
+                Error::InvalidRequest { reason: actual } if actual.as_ref() == message
             ));
         }
     }
 
     #[test]
     fn standard_blocking_preflight_does_not_open_socket() {
-        let error = CameraConfig::<PtzOpticsG2>::tcp("invalid:address:format")
-            .open()
-            .expect_err("invalid endpoint must fail before socket I/O");
+        let error = grafton_visca::blocking::CameraSession::connect(
+            &CameraConfig::<PtzOpticsG2>::tcp("invalid:address:format"),
+        )
+        .expect_err("invalid endpoint must fail before socket I/O");
         assert!(matches!(error, Error::InvalidAddress { .. }));
     }
 
     #[test]
     fn invalid_blocking_buffer_bounds_fail_before_socket_open() {
-        let error = CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1:1")
-            .transport_config({
+        let error = grafton_visca::blocking::CameraSession::connect(
+            &CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1:1").with_transport_config({
                 let mut config = TransportConfig::default();
-                config.buffer_config = {
+                config = config.with_buffer_config({
                     let mut config = BufferConfig::default();
-                    config.recv_buffer_size = 65;
-                    config.max_buffer_size = 64;
+                    config = config.with_recv_buffer_size(65);
+                    config = config.with_max_buffer_size(64);
                     config
-                };
+                });
                 config
-            })
-            .open()
-            .expect_err("invalid buffer bounds must fail before socket I/O");
+            }),
+        )
+        .expect_err("invalid buffer bounds must fail before socket I/O");
         assert!(matches!(
             error,
-            Error::InvalidRequest(actual)
+            Error::InvalidRequest { reason: actual }
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
     }
@@ -582,23 +643,26 @@ mod blocking_standard {
     #[cfg(feature = "transport-serial")]
     #[test]
     fn invalid_blocking_serial_buffer_bounds_fail_before_device_open() {
-        let error =
-            CameraConfig::<PtzOpticsG2>::serial("grafton-visca-test-unopened-serial-device", 9_600)
-                .transport_config({
-                    let mut config = TransportConfig::default();
-                    config.buffer_config = {
-                        let mut config = BufferConfig::default();
-                        config.recv_buffer_size = 65;
-                        config.max_buffer_size = 64;
-                        config
-                    };
+        let error = grafton_visca::blocking::CameraSession::connect(
+            &CameraConfig::<PtzOpticsG2>::serial(
+                "grafton-visca-test-unopened-serial-device",
+                9_600,
+            )
+            .with_transport_config({
+                let mut config = TransportConfig::default();
+                config = config.with_buffer_config({
+                    let mut config = BufferConfig::default();
+                    config = config.with_recv_buffer_size(65);
+                    config = config.with_max_buffer_size(64);
                     config
-                })
-                .open_serial()
-                .expect_err("invalid buffer bounds must fail before serial-device open");
+                });
+                config
+            }),
+        )
+        .expect_err("invalid buffer bounds must fail before serial-device open");
         assert!(matches!(
             error,
-            Error::InvalidRequest(actual)
+            Error::InvalidRequest { reason: actual }
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
     }
@@ -606,11 +670,11 @@ mod blocking_standard {
 
 #[cfg(all(feature = "async", feature = "blocking", feature = "runtime-tokio"))]
 mod coexistence {
-    async fn async_return_type(
-    ) -> grafton_visca::Result<grafton_visca::CameraSession<grafton_visca::profiles::PtzOpticsG2>>
-    {
+    async fn async_return_type() -> grafton_visca::Result<
+        grafton_visca::r#async::CameraSession<grafton_visca::profiles::PtzOpticsG2>,
+    > {
         let runtime = grafton_visca::runtime::TokioRuntime::from_current().expect("runtime");
-        grafton_visca::Connect::open_udp::<grafton_visca::profiles::PtzOpticsG2, _>(
+        grafton_visca::r#async::CameraSession::<grafton_visca::profiles::PtzOpticsG2>::connect_udp(
             "127.0.0.1:1259",
             runtime,
         )
@@ -620,16 +684,30 @@ mod coexistence {
     fn blocking_return_type() -> grafton_visca::Result<
         grafton_visca::blocking::CameraSession<grafton_visca::profiles::PtzOpticsG2>,
     > {
-        grafton_visca::blocking::Connect::open_udp::<grafton_visca::profiles::PtzOpticsG2>(
+        grafton_visca::blocking::CameraSession::<grafton_visca::profiles::PtzOpticsG2>::connect_udp(
             "127.0.0.1:1259",
         )
     }
 
     fn config_return_types() {
-        let _async_config =
-            grafton_visca::CameraConfig::<grafton_visca::profiles::PtzOpticsG2>::new();
-        let _blocking_config =
-            grafton_visca::blocking::CameraConfig::<grafton_visca::profiles::PtzOpticsG2>::new();
+        let _async_config = grafton_visca::config::CameraConfig::new(
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                grafton_visca::profiles::PtzOpticsG2,
+            >()
+            .expect("source profile"),
+            grafton_visca::config::TransportOptions::Custom,
+        )
+        .into_typed::<grafton_visca::profiles::PtzOpticsG2>()
+        .expect("typed config");
+        let _blocking_config = grafton_visca::config::CameraConfig::new(
+            grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                grafton_visca::profiles::PtzOpticsG2,
+            >()
+            .expect("source profile"),
+            grafton_visca::config::TransportOptions::Custom,
+        )
+        .into_typed::<grafton_visca::profiles::PtzOpticsG2>()
+        .expect("typed config");
         let _ = _async_config
             .session_config()
             .expect("async session config");

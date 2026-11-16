@@ -1,23 +1,13 @@
-//! Closed static camera-surface metadata for built-in requests.
+//! Canonical noun metadata projected onto the closed protocol ledger.
 //!
-//! [`crate::command::semantics::BuiltinCommand`] is the only command-row
-//! inventory.  This module adds no second list and makes no surface decision
-//! of its own: [`StaticNoun`], the exhaustive [`surface_entry`] match and the
-//! [`BuiltinInquiryGate`] of every built-in inquiry are generated from the
-//! `@noun` headers and rows of [`crate::noun_table`], which give each command
-//! its noun, method spelling and capability gate and each inquiry its gate.  A
-//! command without a noun-table row (or protocol exception) fails to build, and
-//! so does a typed built-in inquiry without one.  Each match arm's class is a
-//! named constant checked against the ledger by `registry_class`, so a row
-//! whose kind disagrees with its command fails const evaluation under
-//! `cargo check`.
+//! The noun table names public requests. Their exact `LEDGER_ROWS` describe
+//! the protocol identities they can encode; query wrappers supply their raw
+//! kind and source. Const evaluation proves exhaustive protocol coverage and
+//! compatible shared rows, then builds an indexed lookup for preparation.
 
 use crate::{capabilities::TypedSupportSet, noun_table::noun_table};
 
-use super::{
-    inquiry_structs::GeneratedInquiry,
-    semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind},
-};
+use super::semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind};
 
 /// The capability gate of one noun-table row, including both its typed noun
 /// header and any refining `where` marker.
@@ -34,6 +24,8 @@ pub(crate) enum RowGate {
     /// Every typed-support marker in the set is required: a typed noun's
     /// header plus a row's refining `where` marker, when either is present.
     Typed(TypedSupportSet),
+    /// A domain and every optional permission are required together.
+    DomainAndTyped(DomainGate, TypedSupportSet),
 }
 
 impl RowGate {
@@ -44,18 +36,22 @@ impl RowGate {
         feature: &'static str,
     ) -> crate::Result<()> {
         let denied = match self {
+            Self::DomainAndTyped(domain, surfaces) => {
+                Self::Domain(domain).validate(profile, feature)?;
+                return Self::Typed(surfaces).validate(profile, feature);
+            }
             Self::Always => return Ok(()),
             Self::Domain(domain) if domain.permits(profile) => return Ok(()),
             Self::Domain(_) => feature,
             Self::Typed(surfaces) => {
                 let Some(surface) = surfaces
                     .iter()
-                    .find(|surface| !profile.capabilities().permits_typed(*surface))
+                    .find(|surface| !profile.capabilities().supports(*surface))
                 else {
                     return Ok(());
                 };
                 if surface == crate::capabilities::TypedSupportSurface::ExposureMode {
-                    crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE
+                    crate::command::exposure_wire::SHARED_EXPOSURE_MODE_FEATURE
                 } else {
                     feature
                 }
@@ -69,6 +65,9 @@ impl RowGate {
         match (self, other) {
             (Self::Always, Self::Always) => true,
             (Self::Domain(left), Self::Domain(right)) => left as u8 == right as u8,
+            (Self::DomainAndTyped(ld, left), Self::DomainAndTyped(rd, right)) => {
+                ld as u8 == rd as u8 && left.contains_all(right) && right.contains_all(left)
+            }
             (Self::Typed(left), Self::Typed(right)) => {
                 left.contains_all(right) && right.contains_all(left)
             }
@@ -80,7 +79,7 @@ impl RowGate {
 /// The base-domain marker of a noun header's `[domain <Marker>]` gate.
 ///
 /// There is one variant per domain that some noun-table row inherits.  The
-/// `Image` noun is gated on `HasImageProcessing`, but every one of its rows
+/// `Image` noun is gated on `HasImage`, but every one of its rows
 /// narrows that with its own `where` marker, so it has no variant here. The exposure noun likewise refines every row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum DomainGate {
@@ -96,30 +95,31 @@ pub(crate) enum DomainGate {
     WhiteBalance,
     /// `HasPresets`.
     Presets,
-    /// `HasMenuControl`.
-    MenuControl,
+    /// `HasMenu`.
+    Menu,
+    /// Exposure domain.
+    Exposure,
+    /// Image processing domain.
+    Image,
 }
 
 impl DomainGate {
     /// Whether a runtime profile has the domain behind this marker.
     ///
-    /// The base-domain markers are blanket-implemented from the domain data
-    /// traits (`capabilities::profile_metadata`: `impl<T: Power> HasPower`,
-    /// ...), which the `Capabilities::has_*` flags mirror at runtime.  A
-    /// pan/tilt position can only be decoded through the profile's coordinate
-    /// conversion, so the pan/tilt domain also requires one.  A runtime
-    /// `ProfileSpec` cannot express "no menu", so basic OSD menu control stays
-    /// reachable on every profile.
+    /// Domain presence is represented once in the validated capability records.
+    /// Optional method grants are checked independently by `RowGate`.
     pub(crate) fn permits(self, profile: &crate::ProfileSpec) -> bool {
         let capabilities = profile.capabilities();
         match self {
-            Self::Power => capabilities.has_power(),
-            Self::Zoom => capabilities.has_zoom(),
-            Self::PanTilt => capabilities.has_pan_tilt(),
-            Self::Focus => capabilities.has_focus(),
-            Self::WhiteBalance => capabilities.has_white_balance(),
-            Self::Presets => capabilities.has_presets(),
-            Self::MenuControl => true,
+            Self::Power => capabilities.power.is_some(),
+            Self::Zoom => capabilities.zoom.is_some(),
+            Self::PanTilt => capabilities.pan_tilt.is_some(),
+            Self::Focus => capabilities.focus.is_some(),
+            Self::WhiteBalance => capabilities.white_balance.is_some(),
+            Self::Presets => capabilities.presets.is_some(),
+            Self::Menu => capabilities.menu.is_some(),
+            Self::Exposure => capabilities.exposure.is_some(),
+            Self::Image => capabilities.image.is_some(),
         }
     }
 }
@@ -136,18 +136,19 @@ pub(crate) trait BuiltinInquiryGate {
     const GATE: RowGate;
 }
 
-/// A domain or unconditional gate promises the row on every built-in. Typed
-/// refinements instead prove source coverage at each profile's grant site.
+/// Fixed domain requests require their original all-model evidence promise.
+/// Value families instead prove each admitted profile/value against its exact
+/// selected source row in the preparation-backed constructor inventory.
 const fn assert_domain_source(gate: RowGate, source: crate::source_evidence::Source) {
-    if matches!(gate, RowGate::Typed(_)) {
+    if matches!(gate, RowGate::Typed(_) | RowGate::DomainAndTyped(_, _)) {
         return;
     }
-    let models = crate::camera::profiles::ProfileId::all();
+    let models = crate::profiles::ProfileId::all();
     let mut index = 0;
     while index < models.len() {
         assert!(
             source.covers_model(Some(models[index])),
-            "a domain or unconditional noun row requires evidence for every built-in profile"
+            "a fixed domain or unconditional noun row requires evidence for every built-in profile"
         );
         index += 1;
     }
@@ -156,59 +157,57 @@ const fn assert_domain_source(gate: RowGate, source: crate::source_evidence::Sou
 /// Maps a base-domain marker to its [`DomainGate`].
 macro_rules! domain_gate {
     (HasPower) => {
-        DomainGate::Power
+        $crate::command::surface::DomainGate::Power
     };
     (HasZoom) => {
-        DomainGate::Zoom
+        $crate::command::surface::DomainGate::Zoom
     };
     (HasPanTilt) => {
-        DomainGate::PanTilt
+        $crate::command::surface::DomainGate::PanTilt
     };
     (HasFocus) => {
-        DomainGate::Focus
+        $crate::command::surface::DomainGate::Focus
     };
     (HasWhiteBalance) => {
-        DomainGate::WhiteBalance
+        $crate::command::surface::DomainGate::WhiteBalance
     };
     (HasPresets) => {
-        DomainGate::Presets
+        $crate::command::surface::DomainGate::Presets
     };
-    (HasMenuControl) => {
-        DomainGate::MenuControl
+    (HasMenu) => {
+        $crate::command::surface::DomainGate::Menu
     };
-    ($marker:ident) => {
-        compile_error!(concat!(
-            "a noun-table row inherits `",
-            stringify!($marker),
-            "`, which has no `DomainGate`: add a variant and its runtime check in `DomainGate::permits`",
-        ))
+    (HasExposure) => {
+        $crate::command::surface::DomainGate::Exposure
+    };
+    (HasImage) => {
+        $crate::command::surface::DomainGate::Image
     };
 }
+pub(crate) use domain_gate;
 
-/// The [`RowGate`] of one row: combine a typed noun header with its refining
-/// `where` marker, or inherit the noun gate when the row has no refinement.
-macro_rules! row_gate {
-    ([], [always]) => {
-        RowGate::Always
-    };
+/// Builds the full conjunction of noun-domain and method permissions.
+macro_rules! noun_row_gate {
+    ([], [always]) => { $crate::command::surface::RowGate::Always };
     ([], [domain $marker:ident]) => {
-        RowGate::Domain(domain_gate!($marker))
+        $crate::command::surface::RowGate::Domain($crate::command::surface::domain_gate!($marker))
     };
-    ([], [typed $marker:ident]) => {
-        RowGate::Typed(TypedSupportSet::from_surface(
-            $crate::capabilities::typed_surface!($marker),
-        ))
-    };
-    ([$gate:ident], [typed $base:ident]) => {
-        RowGate::Typed(TypedSupportSet::from_surfaces(&[
+    ([$($gate:ident),*], [typed $base:ident]) => {
+        $crate::command::surface::RowGate::Typed($crate::capabilities::TypedSupportSet::from_surfaces(&[
             $crate::capabilities::typed_surface!($base),
-            $crate::capabilities::typed_surface!($gate),
+            $($crate::capabilities::typed_surface!($gate),)*
         ]))
     };
-    ([$gate:ident], $base:tt) => {
-        RowGate::Typed(TypedSupportSet::from_surface(
-            $crate::capabilities::typed_surface!($gate),
-        ))
+    ([$($gate:ident),+], [domain $base:ident]) => {
+        $crate::command::surface::RowGate::DomainAndTyped(
+            $crate::command::surface::domain_gate!($base),
+            $crate::capabilities::TypedSupportSet::from_surfaces(&[$($crate::capabilities::typed_surface!($gate)),+]),
+        )
+    };
+    ([$($gate:ident),+], [always]) => {
+        $crate::command::surface::RowGate::Typed(
+            $crate::capabilities::TypedSupportSet::from_surfaces(&[$($crate::capabilities::typed_surface!($gate)),+]),
+        )
     };
 }
 
@@ -220,12 +219,15 @@ macro_rules! assert_typed_header {
         $assertion(
             $noun,
             $method,
-            row_gate!([], [typed $base]),
-            row_gate!($row, [typed $base]),
+            noun_row_gate!([], [typed $base]),
+            noun_row_gate!($row, [typed $base]),
         );
     };
     ($assertion:ident, $base:tt, $row:tt, $noun:expr, $method:expr) => {};
 }
+
+#[cfg(test)]
+pub(crate) use noun_row_gate;
 
 /// What kind of public surface disposition a built-in request has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -320,122 +322,100 @@ macro_rules! exception_disposition {
     };
 }
 
-/// Implements [`BuiltinInquiryGate`] for the request type of an `inquiry`
-/// row; every other row kind owns no inquiry.
-macro_rules! inquiry_gate {
-    (inquiry [$module:ident :: $request:ident :: new($($argument:expr),*)] $gate:tt $base:tt) => {
-        impl BuiltinInquiryGate for $module::$request {
-            const GATE: RowGate = row_gate!($gate, $base);
-        }
-        const _: () = assert_domain_source(row_gate!($gate, $base), <$module::$request>::SOURCE);
+/// Extracts a canonical query type while preserving one request-expression source.
+/// Constructors and physical reply mapping do not change its request identity.
+macro_rules! query_type {
+    ($consumer:ident, [$($arguments:tt)*], [mapped [$($request:tt)*] |$reply:ident, $profile:ident| $mapping:expr]) => {
+        query_type! {$consumer, [$($arguments)*], [$($request)*]}
     };
-    (inquiry [$($request:tt)*] $gate:tt $base:tt) => {
-        impl BuiltinInquiryGate for $($request)* {
-            const GATE: RowGate = row_gate!($gate, $base);
+    ($consumer:ident, [$($arguments:tt)*], [checked $($request:tt)*]) => {
+        query_type! {$consumer, [$($arguments)*], [$($request)*]}
+    };
+    ($consumer:ident, [$($arguments:tt)*], [with_target |$target:ident| $($request:tt)*]) => {
+        query_type! {$consumer, [$($arguments)*], [$($request)*]}
+    };
+    ($consumer:ident, [$($arguments:tt)*], [with_profile |$profile:ident| $($request:tt)*]) => {
+        query_type! {$consumer, [$($arguments)*], [$($request)*]}
+    };
+    ($consumer:ident, [$($arguments:tt)*], [$root:ident::$noun:ident::$request:ident::$constructor:ident($($value:tt)*)]) => {
+        $consumer! {[$($arguments)*], $root::$noun::$request}
+    };
+    ($consumer:ident, [$($arguments:tt)*], [$root:ident::$noun:ident::$request:ident]) => {
+        $consumer! {[$($arguments)*], $root::$noun::$request}
+    };
+}
+
+macro_rules! implement_query_gate {
+    ([$gate:tt $base:tt], $request:ty) => {
+        impl BuiltinInquiryGate for $request {
+            const GATE: RowGate = noun_row_gate!($gate, $base);
         }
-        const _: () = assert_domain_source(row_gate!($gate, $base), <$($request)*>::SOURCE);
+        const _: () = assert_domain_source(
+            noun_row_gate!($gate, $base),
+            <$request as crate::command::nouns::NounInquiryContract>::SOURCE,
+        );
+    };
+}
+
+macro_rules! inquiry_gate {
+    (inquiry $request:tt $gate:tt $base:tt) => {
+        query_type!(implement_query_gate, [$gate $base], $request);
     };
     ($kind:ident $request:tt $gate:tt $base:tt) => {};
 }
 
-/// Project the noun headers, every noun row and the protocol exceptions into
-/// [`StaticNoun`], the exhaustive [`surface_entry`] match and the inquiry
-/// gates.
-///
-/// The first arm normalizes each noun to its name, doc, base gate and rows
-/// (kind, optional command, method, bracketed row gate and bracketed request);
-/// the second emits the items.  Inquiry and convenience rows (`[]`) emit no
-/// match arm, and only inquiry rows emit a [`BuiltinInquiryGate`].  The match
-/// therefore has no wildcard and no second hand-written inventory: a missing
-/// row is a non-exhaustive match and a duplicate one an unreachable pattern.
-macro_rules! surface_registry {
-    (@items
-        $( $noun:ident $doc:literal $base:tt [
-            $( $kind:ident [$($command:ident)?] $method:ident $gate:tt $request:tt; )*
-        ] )*
-        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident; )*
-    ) => {
-        /// Static noun containing one target-facing built-in request.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub(crate) enum StaticNoun {
-            $( #[doc = $doc] $noun, )*
-        }
+#[derive(Clone, Copy)]
+struct CommandSurface {
+    rows: &'static [BuiltinCommand],
+    kind: BuiltinRequestKind,
+    disposition: StaticSurfaceDisposition,
+}
 
-        /// Derive the one surface row for a semantic command.
-        ///
-        /// This match is generated from the noun table, is exhaustive and
-        /// contains no default arm, so adding a command requires adding its
-        /// explicit owner row there.  `BuiltinCommand` remains the semantic
-        /// authority for classification.
-        #[must_use]
-        #[deny(unreachable_patterns)]
-        pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
-            match command {
-                $( $( $(
-                    BuiltinCommand::$command => {
-                        const CLASS: BuiltinRequestClass =
-                            registry_class(BuiltinCommand::$command, registry_class!($kind));
-                        const _: () = assert_domain_source(row_gate!($gate, $base), BuiltinCommand::$command.source());
-                        StaticSurfaceEntry {
-                            command: BuiltinCommand::$command,
-                            disposition: StaticSurfaceDisposition::Noun {
-                                noun: StaticNoun::$noun,
-                                method: stringify!($method),
-                                gate: row_gate!($gate, $base),
-                            },
-                            class: CLASS,
-                        }
-                    }
-                )? )* )*
-                $(
-                    BuiltinCommand::$excommand => {
-                        const CLASS: BuiltinRequestClass =
-                            registry_class(BuiltinCommand::$excommand, BuiltinRequestKind::Plain);
-                        StaticSurfaceEntry {
-                            command: BuiltinCommand::$excommand,
-                            disposition: exception_disposition!($exkind, stringify!($exmethod)),
-                            class: CLASS,
-                        }
-                    }
-                )*
-            }
-        }
+#[derive(Clone, Copy)]
+struct QuerySurface {
+    kind: crate::command::inquiry_structs::InquiryKind,
+    gate: RowGate,
+}
 
-        const _: () = {
-            use crate::command;
-
-            $( $( inquiry_gate!($kind $request $gate $base); )* )*
-        };
-
-        /// Every row of a typed noun must retain the accessor's bound, even
-        /// when the row also has its own refining marker.
-        #[cfg(test)]
-        #[test]
-        fn typed_noun_headers_are_required_by_every_row() {
-            fn assert_header(noun: &str, method: &str, header: RowGate, row: RowGate) {
-                if let RowGate::Typed(required) = header {
-                    let retained = match row {
-                        RowGate::Typed(actual) => actual.contains_all(required),
-                        RowGate::Always | RowGate::Domain(_) => false,
-                    };
-                    assert!(
-                        retained,
-                        "{noun}::{method} requires {row:?}, missing noun header {required:?}"
-                    );
-                }
-            }
-            $( $(
-                assert_typed_header!(
-                    assert_header,
-                    $base,
-                    $gate,
-                    stringify!($noun),
-                    stringify!($method)
-                );
-            )* )*
-        }
+macro_rules! command_surface {
+    (inquiry, $noun:ident, $method:ident, $request:ty, $gate:tt, $base:tt) => {
+        None
     };
+    ($kind:ident, $noun:ident, $method:ident, $request:ty, $gate:tt, $base:tt) => {
+        Some(CommandSurface {
+            rows: <$request as crate::command::semantics::BuiltinRequestContract>::LEDGER_ROWS,
+            kind: registry_class!($kind),
+            disposition: StaticSurfaceDisposition::Noun {
+                noun: StaticNoun::$noun,
+                method: stringify!($method),
+                gate: noun_row_gate!($gate, $base),
+            },
+        })
+    };
+}
 
+macro_rules! query_surface_entry {
+    ([$gate:tt $base:tt], $request:ty) => {
+        Some(QuerySurface {
+            kind: <$request as crate::command::nouns::NounInquiryContract>::KIND,
+            gate: noun_row_gate!($gate, $base),
+        })
+    };
+}
+
+macro_rules! query_surface {
+    // This is an explicit typed view over the same position packet. Its own
+    // wrapper gate is enforced separately; it cannot redefine the raw query.
+    (inquiry [NormalizedInquiry] $request:tt $gate:tt $base:tt) => { None };
+    (inquiry [$key:ident] $request:tt $gate:tt $base:tt) => {
+        query_type!(query_surface_entry, [$gate $base], $request)
+    };
+    ($kind:ident $key:tt $request:tt $gate:tt $base:tt) => { None };
+}
+
+/// Projects canonical request identities, their exact protocol-row inventories,
+/// and query provenance from the one noun table.
+macro_rules! surface_registry {
     (
         $(
             @noun $noun:ident {
@@ -447,19 +427,173 @@ macro_rules! surface_registry {
             };
             $(
                 $(#[$row_doc:meta])*
-                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$key:ident] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
         @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
-        surface_registry!(@items
-            $( $noun $doc $base [ $( $kind [$($command)?] $method [$($gate)?] [$($request)*]; )* ] )*
-            @exceptions; $( $exkind [$excommand] $exmethod; )*);
+        /// The noun accessor owning a canonical method.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub(crate) enum StaticNoun {
+            $( #[doc = $doc] $noun, )*
+        }
+
+        const COMMAND_SURFACES: &[Option<CommandSurface>] = {
+            use crate::command;
+            &[
+                $( $( command_surface!($kind, $noun, $method, $ret, [$($gate $(, $extra)*)?], $base), )* )*
+                $( Some(CommandSurface {
+                    rows: &[BuiltinCommand::$excommand],
+                    kind: BuiltinRequestKind::Plain,
+                    disposition: exception_disposition!($exkind, stringify!($exmethod)),
+                }), )*
+            ]
+        };
+
+        const QUERY_SURFACES: &[Option<QuerySurface>] = {
+            use crate::command;
+            &[$( $( query_surface!($kind [$key] [$($request)*] [$($gate $(, $extra)*)?] $base), )* )*]
+        };
+
+        const _: () = {
+            use crate::command;
+            $( $( inquiry_gate!($kind [$($request)*] [$($gate $(, $extra)*)?] $base); )* )*
+        };
+
+        #[cfg(test)]
+        #[test]
+        fn typed_noun_headers_are_required_by_every_row() {
+            fn assert_header(noun: &str, method: &str, header: RowGate, row: RowGate) {
+                if let RowGate::Typed(required) = header {
+                    let retained = match row {
+                        RowGate::Typed(actual) | RowGate::DomainAndTyped(_, actual) => actual.contains_all(required),
+                        RowGate::Always | RowGate::Domain(_) => false,
+                    };
+                    assert!(retained, "{noun}::{method} loses its noun header gate");
+                }
+            }
+            $( $( assert_typed_header!(assert_header, $base, [$($gate $(, $extra)*)?], stringify!($noun), stringify!($method)); )* )*
+        }
     };
 }
 
 noun_table!(surface_registry);
+
+/// Compiles the protocol projection once; request preparation performs one
+/// indexed lookup rather than searching canonical methods at runtime.
+#[allow(clippy::panic)]
+const fn build_surface_index() -> [StaticSurfaceEntry; BuiltinCommand::ALL.len()] {
+    let first = BuiltinCommand::ALL[0];
+    let mut index = [StaticSurfaceEntry {
+        command: first,
+        disposition: StaticSurfaceDisposition::InternalCancellation { method: "" },
+        class: first.classification(),
+    }; BuiltinCommand::ALL.len()];
+    let mut covered = [false; BuiltinCommand::ALL.len()];
+    let mut family = 0;
+    while family < COMMAND_SURFACES.len() {
+        if let Some(surface) = COMMAND_SURFACES[family] {
+            assert!(
+                !surface.rows.is_empty(),
+                "a canonical command declares no protocol rows"
+            );
+            let mut row_index = 0;
+            while row_index < surface.rows.len() {
+                let row = surface.rows[row_index];
+                let slot = row as usize;
+                let class = registry_class(row, surface.kind);
+                if let StaticSurfaceDisposition::Noun { gate, .. } = surface.disposition {
+                    if surface.rows.len() == 1 {
+                        assert_domain_source(gate, row.source());
+                    }
+                }
+                if covered[slot] {
+                    // A convenience method may reuse a canonical packet only
+                    // when its complete admission and lifecycle contracts agree.
+                    assert!(
+                        class.same_contract(index[slot].class),
+                        "shared protocol rows disagree on lifecycle"
+                    );
+                    match (index[slot].disposition, surface.disposition) {
+                        (
+                            StaticSurfaceDisposition::Noun { gate: left, .. },
+                            StaticSurfaceDisposition::Noun { gate: right, .. },
+                        ) => {
+                            assert!(
+                                left.same_as(right),
+                                "shared protocol rows disagree on capability gates"
+                            );
+                        }
+                        _ => panic!("a protocol exception is repeated or exposed as a noun method"),
+                    }
+                } else {
+                    covered[slot] = true;
+                    index[slot] = StaticSurfaceEntry {
+                        command: row,
+                        disposition: surface.disposition,
+                        class,
+                    };
+                }
+                row_index += 1;
+            }
+        }
+        family += 1;
+    }
+    let mut row = 0;
+    while row < covered.len() {
+        assert!(
+            BuiltinCommand::ALL[row] as usize == row,
+            "protocol row ordinals must be dense"
+        );
+        assert!(
+            covered[row],
+            "a protocol row has no canonical noun or exception request"
+        );
+        row += 1;
+    }
+    index
+}
+
+const SURFACE_INDEX: [StaticSurfaceEntry; BuiltinCommand::ALL.len()] = build_surface_index();
+
+/// The canonical surface of a protocol row, with aliases checked at compilation.
+pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
+    SURFACE_INDEX[command as usize]
+}
+
+/// The raw inquiry gate generated from canonical wrapper provenance.
+/// Every old inquiry-table row forces this lookup during const evaluation.
+#[allow(clippy::panic)]
+pub(crate) const fn inquiry_kind_gate_if_present(
+    kind: crate::command::inquiry_structs::InquiryKind,
+) -> Option<RowGate> {
+    let mut result = None;
+    let mut index = 0;
+    while index < QUERY_SURFACES.len() {
+        if let Some(query) = QUERY_SURFACES[index] {
+            if query.kind as usize == kind as usize {
+                assert!(
+                    result.is_none(),
+                    "a raw inquiry kind has multiple canonical owners"
+                );
+                result = Some(query.gate);
+            }
+        }
+        index += 1;
+    }
+    result
+}
+
+#[allow(clippy::panic)]
+pub(crate) const fn inquiry_kind_gate(
+    kind: crate::command::inquiry_structs::InquiryKind,
+) -> RowGate {
+    match inquiry_kind_gate_if_present(kind) {
+        Some(gate) => gate,
+        None => panic!("a raw inquiry kind has no canonical noun wrapper"),
+    }
+}
 
 /// Returns the full capability gate of one static command row.
 ///
@@ -478,6 +612,103 @@ pub(crate) const fn row_gate(command: BuiltinCommand) -> RowGate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refining_gates_retain_the_domain_and_every_marker() {
+        let actual = noun_row_gate!([HasDirectZoom, HasDigitalZoomRange], [domain HasZoom]);
+        assert_eq!(
+            actual,
+            RowGate::DomainAndTyped(
+                DomainGate::Zoom,
+                TypedSupportSet::from_surfaces(&[
+                    crate::capabilities::TypedSupportSurface::DirectZoom,
+                    crate::capabilities::TypedSupportSurface::DigitalZoomRange,
+                ])
+            )
+        );
+        let typed =
+            noun_row_gate!([HasDirectZoom, HasDigitalZoomRange], [typed HasHighResolutionZoom]);
+        assert_eq!(
+            typed,
+            RowGate::Typed(TypedSupportSet::from_surfaces(&[
+                crate::capabilities::TypedSupportSurface::HighResolutionZoom,
+                crate::capabilities::TypedSupportSurface::DirectZoom,
+                crate::capabilities::TypedSupportSurface::DigitalZoomRange,
+            ]))
+        );
+    }
+
+    #[test]
+    fn normalized_query_keeps_its_refining_gate_without_redefining_raw_position() {
+        use crate::command::{inquiry_structs::InquiryKind, zoom::NormalizedInquiry};
+        assert_eq!(
+            inquiry_kind_gate(InquiryKind::ZoomPosition),
+            RowGate::Domain(DomainGate::Zoom)
+        );
+        assert_eq!(
+            <NormalizedInquiry as BuiltinInquiryGate>::GATE,
+            RowGate::DomainAndTyped(
+                DomainGate::Zoom,
+                TypedSupportSet::from_surface(crate::capabilities::TypedSupportSurface::DirectZoom)
+            )
+        );
+    }
+
+    #[test]
+    fn declared_query_views_keep_their_own_gate_before_private_alias_fallback() {
+        use crate::command::inquiry_structs::{
+            ExposureCompensationInquiry, ExposureCompensationPositionInquiry, Fr7AeLevelInquiry,
+            GeneratedInquiry,
+        };
+        assert_eq!(
+            <Fr7AeLevelInquiry as GeneratedInquiry>::GATE,
+            <crate::command::exposure::AeLevelInquiry as BuiltinInquiryGate>::GATE
+        );
+        assert_ne!(
+            <Fr7AeLevelInquiry as GeneratedInquiry>::GATE,
+            <ExposureCompensationInquiry as GeneratedInquiry>::GATE
+        );
+        assert_eq!(
+            <ExposureCompensationPositionInquiry as GeneratedInquiry>::GATE,
+            <ExposureCompensationInquiry as GeneratedInquiry>::GATE
+        );
+    }
+
+    #[test]
+    fn query_type_projection_unwraps_fallible_and_mapped_construction() {
+        use crate::command;
+        macro_rules! name {
+            ([], $request:ty) => {
+                std::any::type_name::<$request>()
+            };
+        }
+        assert_eq!(
+            query_type!(
+                name,
+                [],
+                [
+                    mapped[with_target
+                        | target
+                        | command::zoom::NormalizedInquiry::for_target(target, domain)]
+                        | reply,
+                    profile | Ok(reply)
+                ]
+            ),
+            std::any::type_name::<command::zoom::NormalizedInquiry>()
+        );
+        assert_eq!(
+            query_type!(name, [], [checked command::presets::SeparateModeInquiry::new(preset)]),
+            std::any::type_name::<command::presets::SeparateModeInquiry>()
+        );
+        assert_eq!(
+            query_type!(
+                name,
+                [],
+                [with_profile | profile | command::zoom::PositionInquiry]
+            ),
+            std::any::type_name::<command::zoom::PositionInquiry>()
+        );
+    }
 
     #[test]
     fn surface_ledger_is_exhaustive_unique_and_class_balanced() {

@@ -8,6 +8,8 @@ use std::{num::NonZeroUsize, ops::RangeInclusive, time::Duration};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum FocusNearEnd {
     /// The source establishes raw positions but not their physical orientation.
     Unknown,
@@ -21,6 +23,8 @@ pub enum FocusNearEnd {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum EndpointQuantization {
     /// Degree bounds are the exact wire endpoints divided by the scale.
     Exact,
@@ -48,6 +52,8 @@ impl EndpointQuantization {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum TiltRanges {
     /// One unconditional tilt range.
     Single(CapabilityRange<i32>),
@@ -87,6 +93,7 @@ impl TiltRanges {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PanTiltCaps {
     /// Pan position bounds in wire units.
     pub pan_range: CapabilityRange<i32>,
@@ -103,15 +110,16 @@ pub struct PanTiltCaps {
     /// Whether both axes can move together.
     pub simultaneous: bool,
     /// Mechanical recovery time after preset movement.
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
     pub preset_recovery_time: Duration,
     /// Whether the variable-speed mode family is supported.
     pub variable_speed: bool,
     /// Supported motion-sync speeds, when available.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub motion_sync_speed_range: Option<CapabilityRange<u8>>,
 }
 
@@ -123,15 +131,16 @@ pub struct PanTiltCaps {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct ZoomCaps {
     /// Maximum optical position; the optical range starts at zero.
     pub optical_max: u16,
     /// Maximum digital position; its range starts at the optical maximum.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub digital_max: Option<u16>,
     /// Supported variable zoom speeds.
     pub speed: CapabilityRange<u8>,
@@ -142,10 +151,40 @@ pub struct ZoomCaps {
     /// Fixed lens magnification, or no fixed lens ratio.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub optical_ratio: Option<f32>,
+}
+
+impl ZoomCaps {
+    /// Converts a normalized position through a documented zoom domain.
+    pub fn position_at(
+        &self,
+        position: crate::units::UnitInterval,
+        domain: crate::ZoomDomain,
+    ) -> crate::Result<crate::types::ZoomPosition> {
+        crate::inquiry_conversions::zoom_from_normalized(
+            position,
+            domain,
+            self.optical_max,
+            self.digital_max,
+        )
+    }
+
+    /// Normalizes a raw position within the selected documented domain.
+    pub fn normalize(
+        &self,
+        position: crate::types::ZoomPosition,
+        domain: crate::ZoomDomain,
+    ) -> crate::Result<crate::units::UnitInterval> {
+        let max = crate::inquiry_conversions::zoom_domain_max(
+            domain,
+            self.optical_max,
+            self.digital_max,
+        )?;
+        CapabilityRange::<u16>::new(0, max).normalize(position.value())
+    }
 }
 
 /// Direction-free focus limits and source-backed refinements.
@@ -156,6 +195,7 @@ pub struct ZoomCaps {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct FocusCaps {
     /// Ordered focus bounds in wire units.
     pub range: CapabilityRange<u16>,
@@ -185,42 +225,43 @@ pub struct FocusCaps {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct ExposureCaps {
     /// Supported shared exposure modes.
     pub modes: Vec<ExposureMode>,
     /// Whether shared backlight compensation is supported.
-    pub backlight: bool,
+    pub backlight_compensation: bool,
     /// Whether the shared dynamic-range family is supported.
-    pub wdr: bool,
+    pub wide_dynamic_range: bool,
     /// Supported shared exposure compensation levels.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub compensation_range: Option<CapabilityRange<i8>>,
     /// Sourced shared iris positions, including gaps.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub iris_range: Option<CapabilityDomain<u16>>,
     /// Shared gain levels, absent for a different vendor gain family.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub gain_range: Option<CapabilityRange<u8>>,
     /// Exact exposure-time to shutter-code inventory.
     pub shutter_speeds: Vec<super::ShutterSpeedEntry>,
     /// Supported exposure brightness positions.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub brightness_range: Option<CapabilityDomain<u8>>,
 }
 
@@ -232,6 +273,7 @@ pub struct ExposureCaps {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct RgbGainRanges {
     /// Supported red gain levels.
     pub red: CapabilityRange<u8>,
@@ -247,6 +289,7 @@ pub struct RgbGainRanges {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct RgbTuningRanges {
     /// Supported red tuning levels.
     pub red: CapabilityRange<i8>,
@@ -262,6 +305,7 @@ pub struct RgbTuningRanges {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct WhiteBalanceCaps {
     /// Supported white-balance modes; a present domain has at least one mode.
     pub modes: Vec<WhiteBalanceMode>,
@@ -270,9 +314,9 @@ pub struct WhiteBalanceCaps {
     /// Supported direct color temperatures in Kelvin.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub color_temp_range: Option<CapabilityRange<u16>>,
     /// Physical Kelvin value selected by each color-temperature wire code.
     ///
@@ -281,16 +325,16 @@ pub struct WhiteBalanceCaps {
     /// Manual gain exists only with both channels.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub rgb_gain: Option<RgbGainRanges>,
     /// RGB tuning exists only with both channels.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub rgb_tuning: Option<RgbTuningRanges>,
 }
 
@@ -335,48 +379,49 @@ impl WhiteBalanceCaps {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct ImageCaps {
     /// Supported contrast levels.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub contrast_range: Option<CapabilityRange<u8>>,
     /// Supported sharpness levels.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub sharpness_range: Option<CapabilityRange<u8>>,
     /// Supported saturation levels.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub saturation_range: Option<CapabilityRange<u8>>,
     /// Supported hue levels.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub hue_range: Option<CapabilityRange<u8>>,
     /// Supported luminance levels.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub luminance_range: Option<CapabilityRange<u8>>,
     /// Supported gamma curves.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub gamma_range: Option<CapabilityRange<u8>>,
     /// Whether separate vertical image flip is documented.
     pub flip: bool,
@@ -396,6 +441,7 @@ pub struct ImageCaps {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PresetCaps {
     /// Highest memory number in the zero-based preset inventory.
     pub highest: u8,
@@ -404,22 +450,23 @@ pub struct PresetCaps {
     /// Supported shared recall speeds.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub recall_speed_range: Option<CapabilityRange<u8>>,
     /// Whether preset tours are supported.
     pub tour: bool,
     /// Whether preset thumbnails are supported.
     pub thumbnail: bool,
     /// Required delay after preset recall.
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
     pub recall_delay: Duration,
     /// Maximum name length; absence means names are unsupported.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub names: Option<NonZeroUsize>,
 }
 
@@ -431,15 +478,18 @@ pub struct PresetCaps {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PowerCaps {
     /// Documented nonzero power-on duration.
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
     pub on_time: Duration,
     /// Documented nonzero standby duration, when supported.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
+        serde(deserialize_with = "crate::profiles::required_option")
     )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number } | null"))]
     pub standby: Option<Duration>,
     /// Whether wake-on-LAN is supported.
     pub wake_on_lan: bool,
@@ -509,7 +559,7 @@ impl FocusCaps {
 impl super::Capabilities {
     /// Checks only constraints not already carried by the domain representation.
     pub(crate) fn validate_domains(&self) -> crate::Result<()> {
-        use crate::profile::invalid_profile_fields as invalid;
+        use crate::profiles::invalid_profile_fields as invalid;
         fn unique<T: PartialEq>(values: &[T]) -> bool {
             values
                 .iter()
@@ -524,7 +574,7 @@ impl super::Capabilities {
             if bounds.into_iter().all(permits) {
                 Ok(())
             } else {
-                Err(crate::profile::invalid_profile_fields(
+                Err(crate::profiles::invalid_profile_fields(
                     &[field],
                     "advertised capability ranges must fit their typed value domains",
                 ))
@@ -777,3 +827,16 @@ impl super::Capabilities {
         Ok(())
     }
 }
+
+/// Presence of the source-backed menu domain.
+///
+/// Individual menu controls and inquiries still require their own typed grants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub struct MenuCaps {}

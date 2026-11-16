@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- (#933) Community profile promotion tools: per-surface encoding families,
+  `profile_spec export` and `check`, JSON-aligned registry facts, and an ignored
+  read-only inquiry probe with a scripted report-schema test. Runtime hardware
+  suites select a registered profile through `ProfileId` and `AnyProfile`.
+
 - Sony FR7 exposes 17 sourced control families through static and dynamic
   nouns and canonical typed inquiries: AE-level adjustments, automatic
   gain/shutter/iris, counted iris movement, preset white and Memory A white
@@ -58,6 +63,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   draining periodic background tasks, and panicked task joins return an error.
 
 ### Changed
+
+- **BREAKING** (#932): Blocking and async cameras expose the same 249 canonical
+  noun methods and 246 request types. Runtime profiles use the normal
+  `Camera<AnyProfile>` surface with checks before I/O; the separate `dyn-api`
+  feature, erased camera traits, and their CI feature legs are removed.
+  Values, requests, operations, configurations, profiles, transports and wire
+  parsing each have one canonical topical path.
+
+- **BREAKING** (#932): Connections use inherent constructors, runtime arguments
+  come last, and stored configurations have private fields with `with_` setters
+  and getters. Errors use named payloads and consistent cancellation spelling.
+  Typed cache views use the same property types as setters, and profile grants
+  carry explicit selections for concepts with multiple encodings.
+
+- (#933) Support tables and inventories are generated from the live registries
+  with the shared `GRAFTON_VISCA_BLESS` helper. Explicit regeneration fails for
+  review and is refused in CI. The contributor guide and central PR checklist
+  cover evidence, encoding goldens and promotion of a custom JSON profile;
+  profile contributions add data and evidence to the existing API.
+
+- **BREAKING** (#932): Profile facts have one representation. Registry rows
+  generate validated `ProfileSpec` values directly; `CompileTimeProfile`
+  supplies `TYPED_SUPPORT`, an optional built-in `ID`, and `spec()`. Built-ins
+  resolve at runtime through `ProfileId::spec()`, while downstream profiles use
+  the same builder. Profile types, IDs and spec types live in `profiles`, with
+  word-cased model identifiers and explicit persisted `snake_case` IDs.
+
+- **BREAKING** (#932): Support markers and surfaces use concept names, with
+  one marker for each control/inquiry family and a separate inquiry marker only
+  where grants differ. Counted iris steps and automatic iris mode have distinct
+  grants; preset recall and separate-preset settings have distinct grants.
+  Domain markers come from optional record presence, including `MenuCaps`.
+  Runtime discovery uses `Capabilities::supports(TypedSupportSurface)` and
+  domain records. Static transport markers and runtime compatibility come from
+  the registry's single transport block. Existing source evidence and per-model
+  packet support are preserved.
 
 - **BREAKING** (#932): Checked scalar values use `#[value]`, and value enums
   use `#[value_enum]`. Both provide the shared comparison/hash, display and
@@ -434,6 +475,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receipts directly without per-STOP reply channels (#854, #902).
 
 ### Removed
+
+- **BREAKING** (#932): Removed metadata traits, their `Profile` supertrait,
+  public `*Ext` validation traits and `ValidationError`, blanket domain-marker
+  implementations, duplicate capability predicates/grant booleans, and repeated
+  transport constants/support helpers. White-balance mode permissions use the
+  profile's mode inventory. Explicit range/domain validation returns the
+  crate's `Error`; request preparation remains the admission boundary.
+
 
 - **BREAKING** (#932): Removed `visca_range_type!`, `ViscaValue`, `ViscaEnum`
   and the hidden declaration adapter, per-type public wire-codec methods,

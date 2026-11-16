@@ -1,7 +1,4 @@
-use grafton_visca::{
-    command::{InquiryKind, ViscaCommand},
-    CameraId, Error,
-};
+use grafton_visca::{__macro_support::InquiryKind, command::ViscaCommand, types::CameraId, Error};
 
 struct CustomCommand;
 
@@ -12,7 +9,7 @@ impl ViscaCommand for CustomCommand {
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         buffer[0] = 0x80 | camera_id.value();
-        buffer[1] = grafton_visca::command::VISCA_TERMINATOR;
+        buffer[1] = grafton_visca::wire::VISCA_TERMINATOR;
         Ok(Self::MAX_SIZE)
     }
 

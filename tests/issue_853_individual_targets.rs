@@ -7,10 +7,12 @@
 ))]
 
 use grafton_visca::{
-    profiles::PtzOpticsG2,
-    state_cache::StateEntry,
+    config::SessionConfig,
+    profiles::{ProfileSpec, PtzOpticsG2},
+    state_cache::{StateEntry, StateKey},
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    CameraId, Error, ProfileSpec, SessionConfig, StateKey,
+    types::CameraId,
+    Error,
 };
 use grafton_visca_test_support::{facade_matrix, fake_camera::FakeCamera};
 
@@ -55,21 +57,21 @@ facade_matrix! {
         let camera = SerialCamera::new();
         let mut config = SessionConfig::new(profile());
         for id in 2..=7 {
-            config.register_target(CameraId::new(id).unwrap(), profile()).unwrap();
+            config = config.with_target(CameraId::new(id).unwrap(), profile()).unwrap();
         }
         let session = open!(camera, config).expect("seven registered serial targets");
         for id in 1..=7 {
             let target = CameraId::new(id).unwrap();
-            let view = session.camera_for::<PtzOpticsG2>(target).unwrap();
+            let view = session.camera::<PtzOpticsG2>(target).unwrap();
             assert_eq!(view.state_cache().target(), target);
-            wait!(view.advanced().multicast_on()).expect("target-local applied effect");
+            wait!(view.streaming().set_multicast(true)).expect("target-local applied effect");
             for check in 1..=7 {
                 let cache = session
-                    .camera_for::<PtzOpticsG2>(CameraId::new(check).unwrap())
+                    .camera::<PtzOpticsG2>(CameraId::new(check).unwrap())
                     .unwrap()
                     .state_cache();
-                match cache.value(StateKey::MulticastStreaming) {
-                    StateEntry::Set(value) if check <= id => assert_eq!(value, grafton_visca::KnownState::MulticastStreaming(true)),
+                match cache.value(StateKey::StreamingMulticast) {
+                    StateEntry::Set(value) if check <= id => assert_eq!(value, grafton_visca::state_cache::KnownState::StreamingMulticast(true)),
                     StateEntry::Unknown if check > id => {}
                     state => panic!("finishing target {id} changed target {check}: {state:?}"),
                 }
@@ -83,20 +85,20 @@ facade_matrix! {
         let camera = SerialCamera::new();
         let session = open!(camera, SessionConfig::for_target(CameraId::CAMERA_7, profile()).unwrap())
             .expect("last individual target has an ordinary table slot");
-        let error = session.camera_for::<PtzOpticsG2>(CameraId::BROADCAST).unwrap_err();
-        assert!(matches!(error, Error::InvalidRequest(reason)
+        let error = session.camera::<PtzOpticsG2>(CameraId::BROADCAST).unwrap_err();
+        assert!(matches!(error, Error::InvalidRequest { reason }
             if reason == "a session target must be an individual camera"));
         assert!(matches!(
-            session.camera_for::<PtzOpticsG2>(CameraId::CAMERA_1),
-            Err(Error::InvalidRequest(_))
+            session.camera::<PtzOpticsG2>(CameraId::CAMERA_1),
+            Err(Error::InvalidRequest { .. })
         ));
-        #[cfg(feature = "dyn-api")]
+        #[cfg(any(feature = "async", feature = "blocking"))]
         {
-            assert!(matches!(session.camera_dyn_for(CameraId::BROADCAST), Err(Error::InvalidRequest(_))));
-            assert!(matches!(session.camera_dyn_for(CameraId::CAMERA_1), Err(Error::InvalidRequest(_))));
+            assert!(matches!(session.camera::<grafton_visca::profiles::AnyProfile>(CameraId::BROADCAST), Err(Error::InvalidRequest { .. })));
+            assert!(matches!(session.camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_1), Err(Error::InvalidRequest { .. })));
         }
         assert_eq!(camera.0.write_count(), 0);
-        assert_eq!(session.camera_for::<PtzOpticsG2>(CameraId::CAMERA_7).unwrap().target(), CameraId::CAMERA_7);
+        assert_eq!(session.camera::<PtzOpticsG2>(CameraId::CAMERA_7).unwrap().target(), CameraId::CAMERA_7);
         session.shutdown().unwrap();
     }
 }

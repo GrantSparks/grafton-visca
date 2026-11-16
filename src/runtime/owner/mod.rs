@@ -76,7 +76,7 @@ use std::{
 use bytes::BytesMut;
 
 use crate::{
-    command::{encode::WireEncode, system::CommandCancelCommand},
+    command::{encode::WireEncode, system_wire::CommandCancelCommand},
     target::{PerTarget, TargetSlot},
     StateKey,
 };
@@ -263,9 +263,9 @@ impl OwnerPolicy {
         tuning: crate::session_config::ValidatedTuning,
     ) -> Result<Self, Error> {
         if targets.iter().all(|(_, target)| target.is_none()) {
-            return Err(Error::InvalidRequest(
-                "owner target registry must contain at least one camera".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "owner target registry must contain at least one camera".into(),
+            });
         }
         // The read and write bounds start from the one transport default
         // (#799); the production builder lowers the caller's configured
@@ -585,7 +585,7 @@ impl OwnerReceive {
                 Error::WithContext { source, .. } => classify(source),
                 Error::TransportError { source, .. } => classify(source),
                 Error::Timeout { .. } => Class::Idle,
-                Error::Io(io)
+                Error::Io { source: io }
                     if matches!(
                         io.kind(),
                         std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
@@ -593,7 +593,9 @@ impl OwnerReceive {
                 {
                     Class::Idle
                 }
-                Error::Io(io) if crate::transport::FATAL_RECEIVE_IO_KINDS.contains(&io.kind()) => {
+                Error::Io { source: io }
+                    if crate::transport::FATAL_RECEIVE_IO_KINDS.contains(&io.kind()) =>
+                {
                     Class::Fatal
                 }
                 Error::RuntimeShutdown => Class::Fatal,
@@ -914,14 +916,14 @@ impl<T: Clone> ReceiptCore<T> {
 fn application_outcome(verdict: Result<CancellationOutcome, Error>) -> Result<(), Error> {
     match verdict? {
         CancellationOutcome::Completed => Ok(()),
-        CancellationOutcome::Cancelled => Err(Error::CommandCanceled),
+        CancellationOutcome::Cancelled => Err(Error::CommandCancelled),
     }
 }
 
 fn normalize_command_outcome(outcome: CommandOutcome) -> Result<(), Error> {
     match outcome {
         CommandOutcome::Written | CommandOutcome::Applied => Ok(()),
-        CommandOutcome::Cancelled => Err(Error::CommandCanceled),
+        CommandOutcome::Cancelled => Err(Error::CommandCancelled),
         CommandOutcome::Failed(error) => Err(error),
     }
 }
@@ -1150,6 +1152,15 @@ impl DiagnosticSubscription {
     }
 
     #[cfg(feature = "blocking")]
+    pub(crate) fn recv_blocking(&self) -> Result<DiagnosticEvent, Error> {
+        self.clock
+            .select()
+            .recv(&self.receiver, |event| event)
+            .wait()
+            .map_err(|_| self.disconnected_error())
+    }
+
+    #[cfg(feature = "blocking")]
     pub(crate) fn recv_timeout(&self, timeout: Duration) -> Result<Option<DiagnosticEvent>, Error> {
         let received = match &self.clock {
             Clock::System => match self.receiver.recv_timeout(timeout) {
@@ -1200,9 +1211,9 @@ pub(crate) struct OwnerBuffers {
 impl OwnerBuffers {
     pub(crate) fn new(limits: OwnerLimits) -> Result<Self, Error> {
         if limits.receive_bytes == 0 {
-            return Err(Error::InvalidRequest(
-                "owner receive buffer must be non-zero".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "owner receive buffer must be non-zero".into(),
+            });
         }
         Ok(Self {
             send: Vec::with_capacity(MAX_BYTES),
@@ -1367,7 +1378,7 @@ pub(crate) enum AppliedEffect {
 /// requests against it.
 ///
 /// The owner is the sole writer: an update reaches it through the control
-/// boundary of either owner shell (#631, #780). Readers therefore see one whole [`crate::OperationalTuning`] value —
+/// boundary of either owner shell (#631, #780). Readers therefore see one whole [`crate::config::OperationalTuning`] value —
 /// never a half-applied mixture of two updates — and two concurrent updates
 /// resolve last-writer-wins in the order the owner accepted them.
 #[derive(Debug, Clone)]
@@ -1468,9 +1479,9 @@ impl OwnerState {
             || policy.limits.control_requests == 0
             || policy.limits.frames_per_receive == 0
         {
-            return Err(Error::InvalidRequest(
-                "owner collection bounds must be non-zero".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "owner collection bounds must be non-zero".into(),
+            });
         }
         let mut engine = ProtocolEngine::new(policy.protocol.clone(), now)?;
         for (target, target_policy) in policy.targets.iter() {
@@ -1713,9 +1724,10 @@ impl OwnerState {
                         .retained()
                         .is_some_and(|after| after.len >= retained.len)
                     {
-                        return Err(Error::InvalidState(
-                            "raw stream decoder did not consume the discarded prefix".into(),
-                        ));
+                        return Err(Error::InvalidState {
+                            reason: "raw stream decoder did not consume the discarded prefix"
+                                .into(),
+                        });
                     }
                     let _ = self.apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
                 }
@@ -1979,9 +1991,9 @@ impl OwnerState {
         if event_capacity == 0
             || event_capacity > self.policy.limits.diagnostic_events_per_subscription
         {
-            return Err(Error::InvalidRequest(
-                "diagnostic subscription capacity is outside owner bounds".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "diagnostic subscription capacity is outside owner bounds".into(),
+            });
         }
         self.diagnostic_subscribers
             .retain(|_, value| !value.sender.is_disconnected());
@@ -2064,10 +2076,10 @@ impl OwnerState {
                 Arc::clone(&self.target_cache),
                 staged.target(),
             );
-            if cache.variable_speed_mode() != Some(crate::command::PanTiltSpeedMode::Fine50) {
-                return Err(Error::InvalidRequest(format!(
+            if cache.pan_tilt().speed_mode() != Some(crate::command::PanTiltSpeedMode::Fine50) {
+                return Err(Error::InvalidRequest { reason: format!(
                     "Sony FR7 speeds above 24 require an applied Fine50 variable-speed mode for camera {}",
-                    staged.target().camera()).into()));
+                    staged.target().camera()).into() });
             }
         }
         let framing = staged.framing();
@@ -2368,7 +2380,7 @@ pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
 pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
     fn transport_failure(error: &Error) -> bool {
         match error {
-            Error::Io(_)
+            Error::Io { .. }
             | Error::ConnectionFailed { .. }
             | Error::ConnectionClosed { .. }
             | Error::StreamPoisoned { .. }

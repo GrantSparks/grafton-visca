@@ -30,15 +30,6 @@ macro_rules! camera_core {
         }
 
         impl $core {
-            #[cfg(feature = "dyn-api")]
-            pub(crate) fn into_typed<P>(self) -> crate::Result<Camera<P>>
-            where
-                P: crate::CompileTimeProfile,
-            {
-                self.profile().ensure_compile_time::<P>()?;
-                Ok(Camera::from_core(self))
-            }
-
             /// Returns this view's fixed individual target.
             pub(crate) fn target(&self) -> crate::CameraId {
                 self.registration.target()

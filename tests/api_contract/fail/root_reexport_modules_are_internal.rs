@@ -3,7 +3,7 @@
 // crate's internal file layout by naming it.
 
 fn main() {
-    let _ = core::any::TypeId::of::<grafton_visca::error::Error>();
+    let _ = core::any::TypeId::of::<grafton_visca::tuning::OperationalTuning>();
     let _ = core::any::TypeId::of::<grafton_visca::session_config::SessionConfig>();
     let _ = core::any::TypeId::of::<grafton_visca::outcome::CancellationOutcome>();
     let _ = core::any::TypeId::of::<grafton_visca::operation_id::OperationId>();
@@ -11,7 +11,7 @@ fn main() {
 }
 
 //~ E0603
-//~ "module `error` is private"
+//~ "module `tuning` is private"
 //~ "module `session_config` is private"
 //~ "module `outcome` is private"
 //~ "module `operation_id` is private"

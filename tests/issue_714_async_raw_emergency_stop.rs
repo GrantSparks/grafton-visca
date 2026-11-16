@@ -16,22 +16,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use grafton_visca::{
-    completion::AppliedOnly,
-    raw,
-    request::builtin::{FocusStop, ZoomDrive},
-    transport::AddressingMode,
-    AffectedAxes, Error, Executor, RetryClass, Session,
-};
 #[cfg(feature = "blocking")]
-use grafton_visca::{CameraId, OperationalTuning};
+use grafton_visca::{config::OperationalTuning, types::CameraId};
+use grafton_visca::{
+    operation::AppliedOnly, r#async::Session, raw, request::RetryClass, runtime::Executor,
+    transport::AddressingMode, types::AffectedAxes, Error,
+};
 
 #[cfg(feature = "blocking")]
 use fake_camera::FOCUS_STOP;
 use fake_camera::{frames, FakeCamera, ZOOM_STOP};
 use profile_fixtures::{session_config, NonDefaultCompileTimeProfile};
 #[cfg(feature = "blocking")]
-use {grafton_visca::profile::ProfileSpec, profile_fixtures::two_camera_session_config};
+use {grafton_visca::profiles::ProfileSpec, profile_fixtures::two_camera_session_config};
 
 /// A raw datagram camera whose replies are scripted per write: each write
 /// queues its step's replies. Writes past the script draw no reply.
@@ -65,28 +62,28 @@ fn assert_written_within(camera: &FakeCamera, count: usize, since: Instant, boun
     );
 }
 
-fn ordinary_operation() -> raw::AppliedOnly {
+fn ordinary_operation() -> raw::AppliedOnlyRequest {
     let policy = grafton_visca::raw::OperationPolicy::new(
-        grafton_visca::CommandCategory::Quick,
+        grafton_visca::profiles::CommandTimeoutClass::Quick,
         RetryClass::Never,
-        grafton_visca::SubmissionClass::Normal,
+        grafton_visca::request::SubmissionClass::Normal,
     )
     .with_reply_shape(raw::OperationReplyShape::AckThenCompletion);
-    raw::AppliedOnly::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, policy)
+    raw::AppliedOnlyRequest::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, policy)
         .expect("ordinary raw operation")
 }
 
 #[cfg(feature = "blocking")]
-fn ordinary_operation_for(target: CameraId) -> raw::AppliedOnly {
+fn ordinary_operation_for(target: CameraId) -> raw::AppliedOnlyRequest {
     let mut wire = ZOOM_STOP.to_vec();
     wire[0] = 0x80 | target.value();
-    raw::AppliedOnly::with_policy(
+    raw::AppliedOnlyRequest::with_policy(
         wire,
         AffectedAxes::ZOOM,
         grafton_visca::raw::OperationPolicy::new(
-            grafton_visca::CommandCategory::Quick,
+            grafton_visca::profiles::CommandTimeoutClass::Quick,
             RetryClass::Never,
-            grafton_visca::SubmissionClass::Normal,
+            grafton_visca::request::SubmissionClass::Normal,
         )
         .with_reply_shape(raw::OperationReplyShape::AckThenCompletion),
     )
@@ -99,16 +96,16 @@ async fn ordinary_successor_waits_for_lost_ack_quarantine<E: Executor>(executor:
     let camera = scripted_camera(vec![vec![], vec![frames::ack(1), frames::complete(1)]]);
     let session = Session::open(
         camera.async_wire().with_addressing(AddressingMode::Ip),
-        session_config(),
+        &session_config(),
         executor.clone(),
     )
     .await
     .expect("async owner session");
     let view = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
     let mut predecessor = view
-        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
         .await
         .expect("predecessor admission");
     let submitted = Instant::now();
@@ -153,16 +150,16 @@ async fn urgent_work_crosses_the_pre_ack_candidate<E: Executor>(executor: E) {
     ]);
     let session = Session::open(
         camera.async_wire().with_addressing(AddressingMode::Ip),
-        session_config(),
+        &session_config(),
         executor.clone(),
     )
     .await
     .expect("async owner session");
     let view = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
     let mut predecessor = view
-        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
         .await
         .expect("predecessor admission");
     let submitted = Instant::now();
@@ -170,7 +167,7 @@ async fn urgent_work_crosses_the_pre_ack_candidate<E: Executor>(executor: E) {
     assert_written_within(&camera, 1, submitted, PROMPT);
     let urgent_started = Instant::now();
     let mut urgent = view
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
         .await
         .expect("urgent admission");
     camera.wait_for_writes_async(&executor, 2).await;
@@ -195,7 +192,8 @@ runtime_matrix!(
 mod parity {
     use super::*;
     use grafton_visca::{
-        blocking::{Session as BlockingSession, SessionConfig as BlockingSessionConfig},
+        blocking::Session as BlockingSession,
+        config::SessionConfig as BlockingSessionConfig,
         transport::{AddressingMode, TransportConfig},
     };
 
@@ -232,23 +230,23 @@ mod parity {
         let camera = FakeCamera::silent();
         let session = BlockingSession::open(
             camera.blocking_wire(),
-            BlockingSessionConfig::new(
+            &BlockingSessionConfig::new(
                 ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
                     .expect("raw profile"),
             ),
         )
         .expect("blocking session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
         let _predecessor = view
-            .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
             .expect("blocking predecessor");
         let submitted = Instant::now();
         camera.wait_for_writes(1);
         assert_written_within(&camera, 1, submitted, UNHELD);
         let _urgent = view
-            .submit::<AppliedOnly, _>(&FocusStop)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
             .expect("blocking urgent");
         let submitted = Instant::now();
         let transcript = camera.wait_for_writes(2);
@@ -270,19 +268,19 @@ mod parity {
                 .blocking_wire()
                 .with_config(serial_config())
                 .with_addressing(AddressingMode::Serial),
-            two_camera_session_config()
-                .with_tuning(OperationalTuning::new().command_spacing(SPACING)),
+            &two_camera_session_config()
+                .with_tuning(OperationalTuning::new().with_command_spacing(SPACING)),
         )
         .expect("blocking multi-camera session");
         let camera_one = session
-            .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
             .expect("camera one view");
         let camera_two = session
-            .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
             .expect("camera two view");
 
         let mut predecessor = camera_two
-            .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
             .expect("camera two predecessor");
         let submitted = Instant::now();
         camera.wait_for_writes(1);
@@ -310,7 +308,7 @@ mod parity {
             Err(Error::UnsequencedCommandUnconfirmed)
         ));
         let mut stop = camera_one
-            .submit::<AppliedOnly, _>(&FocusStop)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
             .expect("urgent stop crosses camera-one PreAck hold");
         let stop_submitted = Instant::now();
         camera.wait_for_writes(5);
@@ -328,23 +326,23 @@ mod parity {
         let camera = FakeCamera::silent();
         let session = Session::open(
             camera.async_wire().with_addressing(AddressingMode::Ip),
-            session_config(),
+            &session_config(),
             executor.clone(),
         )
         .await
         .expect("async session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
         let _predecessor = view
-            .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
             .await
             .expect("async predecessor");
         let submitted = Instant::now();
         camera.wait_for_writes_async(&executor, 1).await;
         assert_written_within(&camera, 1, submitted, PROMPT);
         let _urgent = view
-            .submit::<AppliedOnly, _>(&FocusStop)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
             .await
             .expect("async urgent");
         let submitted = Instant::now();
@@ -367,21 +365,21 @@ mod parity {
                 .async_wire()
                 .with_config(serial_config())
                 .with_addressing(AddressingMode::Serial),
-            two_camera_session_config()
-                .with_tuning(OperationalTuning::new().command_spacing(SPACING)),
+            &two_camera_session_config()
+                .with_tuning(OperationalTuning::new().with_command_spacing(SPACING)),
             executor.clone(),
         )
         .await
         .expect("async multi-camera session");
         let camera_one = session
-            .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
             .expect("camera one view");
         let camera_two = session
-            .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
             .expect("camera two view");
 
         let mut predecessor = camera_two
-            .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
             .await
             .expect("camera two predecessor");
         let submitted = Instant::now();
@@ -413,7 +411,7 @@ mod parity {
             Err(Error::UnsequencedCommandUnconfirmed)
         ));
         let mut stop = camera_one
-            .submit::<AppliedOnly, _>(&FocusStop)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
             .await
             .expect("urgent stop crosses camera-one PreAck hold");
         let stop_submitted = Instant::now();

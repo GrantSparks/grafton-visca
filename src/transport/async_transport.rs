@@ -14,9 +14,13 @@ use crate::{transport::ReceiveOutcome, Error};
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use grafton_visca::transport::AsyncTransport;
-/// struct MyAsyncTransport { /* ... */ }
+/// ```rust
+/// use grafton_visca::{
+///     transport::{AsyncTransport, ReceiveOutcome},
+///     Error,
+/// };
+/// use std::future::Future;
+/// struct MyAsyncTransport {/* ... */}
 ///
 /// impl AsyncTransport for MyAsyncTransport {
 ///     fn send(&mut self, _bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {

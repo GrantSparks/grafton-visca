@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
-    let sony = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().unwrap();
+    let sony = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().unwrap();
     let raw = crate::ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap();
     for (profile, envelope, ack_window, ack_at, complete_at) in [
         (
@@ -16,9 +16,9 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
         (raw, EnvelopeKind::Raw, 8, 7, Duration::from_millis(11_500)),
     ] {
         let start = Instant::now();
-        let command = crate::raw::Plain::new(
+        let command = crate::raw::PlainRequest::new(
             [0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
-            crate::CommandCategory::Quick,
+            crate::CommandTimeoutClass::Quick,
             crate::RetryClass::Standard,
             crate::SubmissionClass::Normal,
         )
@@ -27,13 +27,13 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
             &command,
             &crate::TargetRegistration::new((camera(1)).camera(), profile.clone())
                 .expect("valid target registration"),
-            crate::OperationalTuning::new().ack_timeout(Duration::from_secs(ack_window)),
+            crate::OperationalTuning::new().with_ack_timeout(Duration::from_secs(ack_window)),
             crate::prepared::ClassSelection::Request,
         )
         .unwrap();
         let request = prepared.admit_with(|request, _observer_timeout| request);
         let context = *request.context();
-        let legacy_budget = crate::profile::MINIMUM_RETRY_BUDGET
+        let legacy_budget = crate::profiles::MINIMUM_RETRY_BUDGET
             .max(context.timeout.completion.get() * 2)
             .max(profile.timing().busy_timeout());
         let full_attempt = context.timeout.ack.get() + context.timeout.completion.get();

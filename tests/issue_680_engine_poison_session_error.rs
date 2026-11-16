@@ -20,11 +20,13 @@ use std::sync::Arc;
 
 use fake_camera::FakeCamera;
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    completion::AppliedOnly,
-    profile::ProfileSpec,
-    request::builtin::ZoomStop,
-    DiagnosticEvent, Error, ErrorKind, SessionStatus,
+    blocking::Session,
+    config::SessionConfig,
+    error::ErrorKind,
+    observability::{DiagnosticEvent, SessionStatus},
+    operation::AppliedOnly,
+    profiles::ProfileSpec,
+    Error,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -37,9 +39,9 @@ fn poison_on_read_camera() -> FakeCamera {
     FakeCamera::new(move |_, answer| {
         sends = sends.saturating_add(1);
         if sends == 1 {
-            answer.fault(Error::Io(Arc::new(std::io::Error::from(
-                std::io::ErrorKind::ConnectionRefused,
-            ))));
+            answer.fault(Error::Io {
+                source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+            });
         }
     })
 }
@@ -50,17 +52,17 @@ fn strict_session() -> Session {
             .expect("raw runtime profile"),
     )
     .with_strict_unconfirmed_poison(true);
-    Session::open(poison_on_read_camera().blocking_wire(), config).expect("owner session")
+    Session::open(poison_on_read_camera().blocking_wire(), &config).expect("owner session")
 }
 
 /// Drive the strict opt-in poison and return the session, now terminated by the
 /// engine's own verdict.
 fn poison_via_strict_opt_in(session: &Session) {
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
     let error = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("submission")
         .applied()
         .expect_err("the strict opt-in poisons on the receive fault");
@@ -172,5 +174,5 @@ fn healthy_session() -> Session {
     );
     // A camera that answers every command, for the rebuilt half of the
     // recovery loop.
-    Session::open(FakeCamera::acking(1).blocking_wire(), config).expect("healthy session")
+    Session::open(FakeCamera::acking(1).blocking_wire(), &config).expect("healthy session")
 }

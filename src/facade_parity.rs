@@ -5,7 +5,8 @@
 //! same public surface: every public method on `Session`, `CameraSession`,
 //! `Camera` and `Operation` exists on both, with the same generics,
 //! parameters and return type, and both expand the same shared method
-//! macros. Only the `async` keyword may differ. The noun accessors and their
+//! macros. Async constructors additionally take their runtime last; opening
+//! additionally takes its executor. The noun accessors and their
 //! `Camera` getters are not compared here: one consumer
 //! (`crate::noun_facade::static_noun_facade!`) generates both facades' copies.
 //!
@@ -298,7 +299,9 @@ fn signature_shape(signature: &str) -> String {
         shape = shape.replace(path, "");
     }
     // Each facade names its own runtime-profile camera.
-    shape = shape.replace("BlockingDynSessionCamera", "DynSessionCamera");
+    shape = shape
+        .replace("camera::CameraConfig", "CameraConfig")
+        .replace("BlockingDynSessionCamera", "DynSessionCamera");
     shape
         .replace("( ", "(")
         .replace(", )", ")")
@@ -362,8 +365,9 @@ fn collect_items(body: &[String], label: &str, core: bool, surface: &mut Surface
                         break;
                     }
                 }
-                // Opening legitimately differs: the async facade also takes
-                // the executor its owner actor runs on.
+                // Async constructors additionally take their runtime last.
+                // Preserve every other parameter and the complete return
+                // shape, so a mismatched config or endpoint remains visible.
                 let parameters = if core {
                     let lines: Vec<&str> = body.iter().map(String::as_str).collect();
                     let end = block_end(&lines, index, label);
@@ -375,7 +379,15 @@ fn collect_items(body: &[String], label: &str, core: bool, surface: &mut Surface
                 } else if name == "open" {
                     String::from("(facade-specific)")
                 } else {
-                    signature_shape(&signature)
+                    let shape = signature_shape(&signature);
+                    if matches!(
+                        name.as_str(),
+                        "connect" | "connect_tcp" | "connect_udp" | "connect_serial"
+                    ) {
+                        shape.replace(", runtime: impl runtime::Runtime)", ")")
+                    } else {
+                        shape
+                    }
                 };
                 let previous = surface.insert(name.clone(), parameters);
                 assert!(previous.is_none(), "{label}: `{name}` declared twice");
@@ -512,7 +524,6 @@ fn both_native_camera_cores_have_the_same_methods_and_forwarding_contract() {
         [
             "execute",
             "inquire",
-            "into_typed",
             "is_moving",
             "profile",
             "registration",
@@ -640,9 +651,40 @@ fn both_facades_expose_the_same_method_set() {
             !asynchronous.is_empty(),
             "the scanner found no async `{ty}` methods"
         );
+        if *ty == "Camera" {
+            assert!(blocking.contains_key("into_typed"));
+            assert!(asynchronous.contains_key("into_typed"));
+        }
         assert_eq!(
             blocking, asynchronous,
             "`{ty}` differs between the blocking and async facades"
+        );
+    }
+}
+
+#[test]
+fn constructor_parity_ignores_only_the_runtime_last_argument() {
+    let blocking =
+        "impl Session {\n pub fn connect(config: &SessionConfig) -> Result<Self> {}\n}\n";
+    let asynchronous = "impl Session {\n pub async fn connect(config: &SessionConfig, runtime: impl crate::runtime::Runtime) -> Result<Self> {}\n}\n";
+    let expected = surface(&[("blocking fixture", blocking)], "Session");
+    assert!(expected.contains_key("connect"));
+    assert_eq!(
+        expected,
+        surface(&[("async fixture", asynchronous)], "Session")
+    );
+    for changed in [
+        asynchronous.replace("&SessionConfig", "&CameraConfig"),
+        asynchronous.replace("-> Result<Self>", "-> Result<Camera>"),
+        asynchronous.replace("runtime::Runtime", "runtime::DifferentRuntime"),
+        asynchronous.replace(
+            "config: &SessionConfig, runtime: impl crate::runtime::Runtime",
+            "runtime: impl crate::runtime::Runtime, config: &SessionConfig",
+        ),
+    ] {
+        assert_ne!(
+            expected,
+            surface(&[("mutation fixture", &changed)], "Session")
         );
     }
 }

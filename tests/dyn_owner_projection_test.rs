@@ -1,9 +1,12 @@
 //! Owner-backed dynamic operation projection coverage.
 
 #![cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
+
+#[path = "common/profile_encodings.rs"]
+mod profile_encodings;
 
 use grafton_visca_test_support::{fake_camera, runtime_matrix};
 
@@ -13,13 +16,14 @@ use grafton_visca::{
     capabilities::{
         Capabilities, InquirySupport, ShutterSpeedEntry, TypedSupportSet, TypedSupportSurface,
     },
-    dynapi::DynSessionCameraNouns,
-    profile::{PositionInquirySupport, ProfileSpec},
-    profiles::{SonyBRC300, SonyFR7},
-    types::ZoomPosition,
-    units::UnitInterval,
-    CameraId, CommandTimeouts, Error, ExposureMode, ProfileEnvelope, ProfileTiming, Session,
-    SessionConfig, TransportCompatibility, ZoomDomain,
+    config::SessionConfig,
+    profiles::{
+        CommandTimeouts, ProfileEnvelope, ProfileSpec, ProfileTiming, SonyBrc300, SonyFr7,
+        TransportCompatibility,
+    },
+    r#async::Session,
+    types::{CameraId, ExposureMode, UnitInterval, ZoomDomain, ZoomPosition},
+    Error,
 };
 
 use fake_camera::{frames, FakeCamera};
@@ -39,29 +43,32 @@ fn camera() -> FakeCamera {
 
 fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
     let timing: ProfileTiming = static_profile.timing();
-    ProfileSpec::builder(static_profile.capabilities().clone())
-        .transports(static_profile.transports())
-        .envelope(static_profile.envelope())
-        .timing(
-            ProfileTiming::builder()
-                .ack_timeout(timing.ack_timeout())
-                .command_timeouts(timing.command_timeouts())
-                .inquiry_timeout(timing.inquiry_timeout())
-                .cancellation_timeout(timing.cancellation_timeout())
-                .ambiguity_timeout(timing.ambiguity_timeout())
-                .busy_timeout(timing.busy_timeout())
-                .raw_inquiry_reply_skew(timing.raw_inquiry_reply_skew())
-                .minimum_inquiry_spacing(timing.minimum_inquiry_spacing())
-                .minimum_command_spacing(timing.minimum_command_spacing())
-                .build()
-                .expect("valid timing"),
-        )
-        .maximum_command_sockets(static_profile.maximum_command_sockets())
-        .supports_operation_complete(static_profile.supports_operation_complete())
-        .supports_command_cancel(static_profile.supports_command_cancel())
-        .position_inquiries(static_profile.position_inquiries())
-        .build()
-        .expect("runtime profile equivalent")
+    crate::profile_encodings::with_source_encodings(
+        ProfileSpec::builder(static_profile.capabilities().clone())
+            .transports(static_profile.transports())
+            .envelope(static_profile.envelope())
+            .timing(
+                ProfileTiming::builder()
+                    .ack_timeout(timing.ack_timeout())
+                    .command_timeouts(timing.command_timeouts())
+                    .inquiry_timeout(timing.inquiry_timeout())
+                    .cancellation_timeout(timing.cancellation_timeout())
+                    .ambiguity_timeout(timing.ambiguity_timeout())
+                    .busy_timeout(timing.busy_timeout())
+                    .raw_inquiry_reply_skew(timing.raw_inquiry_reply_skew())
+                    .inquiry_spacing(timing.inquiry_spacing())
+                    .command_spacing(timing.command_spacing())
+                    .build()
+                    .expect("valid timing"),
+            )
+            .maximum_command_sockets(static_profile.maximum_command_sockets())
+            .supports_operation_complete(static_profile.supports_operation_complete())
+            .supports_command_cancel(static_profile.supports_command_cancel())
+            .position_inquiries(static_profile.position_inquiries()),
+        static_profile,
+    )
+    .build()
+    .expect("runtime profile equivalent")
 }
 
 /// A runtime profile may document the physical digital range while declining
@@ -89,7 +96,7 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
     };
 
     ProfileSpec::builder(capabilities)
-        .transports(TransportCompatibility::new(Some(5678), None, false))
+        .transports(TransportCompatibility::new().with_tcp(5678))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(
             ProfileTiming::builder()
@@ -100,15 +107,15 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
                 .ambiguity_timeout(Duration::from_secs(1))
                 .busy_timeout(Duration::ZERO)
                 .raw_inquiry_reply_skew(Duration::ZERO)
-                .minimum_inquiry_spacing(Duration::ZERO)
-                .minimum_command_spacing(Duration::ZERO)
+                .inquiry_spacing(Duration::ZERO)
+                .command_spacing(Duration::ZERO)
                 .build()
                 .expect("valid timing"),
         )
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .position_inquiries(PositionInquirySupport::new(false, false, false))
+        .position_inquiries(None)
         .build()
         .expect("documented digital zoom profile")
 }
@@ -121,15 +128,15 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
         Capabilities::runtime_baseline("Documented Exposure Modes", 1).expect("baseline profile");
     capabilities.exposure = Some(grafton_visca::capabilities::ExposureCaps {
         modes: vec![ExposureMode::Auto],
-        backlight: false,
-        wdr: false,
+        backlight_compensation: false,
+        wide_dynamic_range: false,
         compensation_range: None,
         iris_range: None,
         gain_range: Some(grafton_visca::capabilities::CapabilityRange::<u8>::new(
             0, 1,
         )),
         shutter_speeds: vec![ShutterSpeedEntry {
-            exposure: grafton_visca::units::ExposureTime::new(1, 60).expect("nonzero denominator"),
+            exposure: grafton_visca::types::ExposureTime::new(1, 60).expect("nonzero denominator"),
             value: 1,
         }],
         brightness_range: None,
@@ -138,7 +145,7 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
     capabilities.typed_support = TypedSupportSet::empty();
 
     ProfileSpec::builder(capabilities)
-        .transports(TransportCompatibility::new(Some(5678), None, false))
+        .transports(TransportCompatibility::new().with_tcp(5678))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(
             ProfileTiming::builder()
@@ -149,28 +156,33 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
                 .ambiguity_timeout(Duration::from_secs(1))
                 .busy_timeout(Duration::ZERO)
                 .raw_inquiry_reply_skew(Duration::ZERO)
-                .minimum_inquiry_spacing(Duration::ZERO)
-                .minimum_command_spacing(Duration::ZERO)
+                .inquiry_spacing(Duration::ZERO)
+                .command_spacing(Duration::ZERO)
                 .build()
                 .expect("valid timing"),
         )
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .position_inquiries(PositionInquirySupport::new(false, false, false))
+        .position_inquiries(None)
         .build()
         .expect("documented exposure-mode profile without typed permission")
 }
 
 async fn dynamic_targeted_projection_uses_owner_settlement_wait<E>(runtime: E)
 where
-    E: grafton_visca::Executor,
+    E: grafton_visca::runtime::Executor,
 {
-    let static_profile = ProfileSpec::from_compile_time::<SonyBRC300>().expect("static profile");
+    let static_profile = ProfileSpec::from_compile_time::<SonyBrc300>().expect("static profile");
     assert!(!static_profile.supports_operation_complete());
     assert_eq!(
         static_profile.position_inquiries(),
-        PositionInquirySupport::new_with_iris_nd(true, true, true, true, false)
+        Some(
+            grafton_visca::types::AffectedAxes::PAN_TILT
+                | grafton_visca::types::AffectedAxes::ZOOM
+                | grafton_visca::types::AffectedAxes::FOCUS
+                | grafton_visca::types::AffectedAxes::IRIS
+        )
     );
     let runtime_profile = runtime_equivalent(&static_profile);
     assert_eq!(static_profile, runtime_profile);
@@ -178,20 +190,23 @@ where
     let fake = camera();
     let session = Session::open(
         fake.async_wire(),
-        SessionConfig::new(runtime_profile.clone()),
+        &SessionConfig::new(runtime_profile.clone()),
         runtime,
     )
     .await
     .expect("owner-backed session");
-    let camera = session.camera_dyn().expect("dynamic camera");
+    let camera = session
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("dynamic camera");
     assert_eq!(camera.target(), CameraId::CAMERA_1);
     assert_eq!(camera.profile(), &runtime_profile);
     let typed = camera
-        .camera::<SonyBRC300>()
+        .clone()
+        .into_typed::<SonyBrc300>()
         .expect("exact dynamic-to-typed projection");
     assert_eq!(typed.target(), camera.target());
 
-    let object: &dyn DynSessionCameraNouns = &camera;
+    let object = &camera;
     object
         .pan_tilt()
         .home()
@@ -212,20 +227,20 @@ where
 
 async fn dynamic_combined_normalized_zoom_requires_typed_digital_range<E>(runtime: E)
 where
-    E: grafton_visca::Executor,
+    E: grafton_visca::runtime::Executor,
 {
     let midpoint = UnitInterval::new(0.5).expect("unit interval midpoint");
     let partial_profile = documented_digital_zoom_profile(false);
     let partial_fake = camera();
     let partial_session = Session::open(
         partial_fake.async_wire(),
-        SessionConfig::new(partial_profile),
+        &SessionConfig::new(partial_profile),
         runtime.clone(),
     )
     .await
     .expect("partial-profile session");
     let partial_camera = partial_session
-        .camera_dyn()
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("partial dynamic camera");
 
     // Both values map within the documented numeric range; the midpoint also
@@ -284,13 +299,13 @@ where
     let supported_fake = camera();
     let supported_session = Session::open(
         supported_fake.async_wire(),
-        SessionConfig::new(supported_profile),
+        &SessionConfig::new(supported_profile),
         runtime,
     )
     .await
     .expect("supported-profile session");
     let supported_camera = supported_session
-        .camera_dyn()
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("supported dynamic camera");
     for position in [midpoint, UnitInterval::MAX] {
         supported_camera
@@ -314,13 +329,13 @@ where
 
 async fn dynamic_shared_exposure_modes_require_typed_permission<E>(runtime: E)
 where
-    E: grafton_visca::Executor,
+    E: grafton_visca::runtime::Executor,
 {
     // Sony FR7 retains exposure controls, but does not document the shared
     // `04 39` mode family. The erased noun remains callable and rejects both
     // projections before the owner reaches its transport.
-    let fr7_profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
-    assert!(fr7_profile.capabilities().has_exposure());
+    let fr7_profile = ProfileSpec::from_compile_time::<SonyFr7>().expect("Sony FR7 profile");
+    assert!(fr7_profile.capabilities().exposure.is_some());
     assert!(fr7_profile
         .capabilities()
         .exposure
@@ -330,18 +345,20 @@ where
         .is_empty());
     assert!(!fr7_profile
         .capabilities()
-        .supports_typed(TypedSupportSurface::ExposureMode));
+        .supports(TypedSupportSurface::ExposureMode));
 
     let fr7_fake = camera();
     let fr7_session = Session::open(
         fr7_fake.async_wire(),
-        SessionConfig::new(fr7_profile),
+        &SessionConfig::new(fr7_profile),
         runtime.clone(),
     )
     .await
     .expect("Sony FR7 session");
-    let fr7_camera = fr7_session.camera_dyn().expect("Sony FR7 camera");
-    let fr7_nouns: &dyn DynSessionCameraNouns = &fr7_camera;
+    let fr7_camera = fr7_session
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("Sony FR7 camera");
+    let fr7_nouns = &fr7_camera;
 
     let error = fr7_nouns
         .exposure()
@@ -377,7 +394,7 @@ where
     // fact that makes the shared mode family physically plausible, but omits
     // only its typed permission bit.
     let partial_profile = documented_exposure_mode_profile_without_typed_permission();
-    assert!(partial_profile.capabilities().has_exposure());
+    assert!(partial_profile.capabilities().exposure.is_some());
     assert!(!partial_profile
         .capabilities()
         .exposure
@@ -387,20 +404,20 @@ where
         .is_empty());
     assert!(!partial_profile
         .capabilities()
-        .supports_typed(TypedSupportSurface::ExposureMode));
+        .supports(TypedSupportSurface::ExposureMode));
 
     let partial_fake = camera();
     let partial_session = Session::open(
         partial_fake.async_wire(),
-        SessionConfig::new(partial_profile),
+        &SessionConfig::new(partial_profile),
         runtime,
     )
     .await
     .expect("partial exposure-mode session");
     let partial_camera = partial_session
-        .camera_dyn()
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("partial exposure-mode camera");
-    let partial_nouns: &dyn DynSessionCameraNouns = &partial_camera;
+    let partial_nouns = &partial_camera;
 
     let error = partial_nouns
         .exposure()
@@ -437,22 +454,21 @@ where
 
 async fn evidence_refinements_predict_every_withheld_builtin_call<E>(runtime: E)
 where
-    E: grafton_visca::Executor,
+    E: grafton_visca::runtime::Executor,
 {
     use grafton_visca::{
         profiles::*,
-        types::{GainLevel, GainLimit, ShutterSpeed},
-        PresetNumber,
+        types::{GainLevel, GainLimit, PresetNumber, ShutterSpeed},
     };
     let profiles = [
         ProfileSpec::from_compile_time::<PtzOpticsG2>().unwrap(),
         ProfileSpec::from_compile_time::<PtzOpticsG3>().unwrap(),
-        ProfileSpec::from_compile_time::<PtzOptics30X>().unwrap(),
-        ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
-        ProfileSpec::from_compile_time::<SonyBRCH900>().unwrap(),
-        ProfileSpec::from_compile_time::<SonyEVIH100>().unwrap(),
-        ProfileSpec::from_compile_time::<SonyBRC300>().unwrap(),
-        ProfileSpec::from_compile_time::<NearusBRC300>().unwrap(),
+        ProfileSpec::from_compile_time::<PtzOptics30x>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyBrcH900>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyEviH100>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyBrc300>().unwrap(),
+        ProfileSpec::from_compile_time::<NearusBrc300>().unwrap(),
         ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
     ];
     let mut refusals = 0;
@@ -460,12 +476,14 @@ where
         let fake = camera();
         let session = Session::open(
             fake.async_wire(),
-            SessionConfig::new(profile.clone()),
+            &SessionConfig::new(profile.clone()),
             runtime.clone(),
         )
         .await
         .unwrap();
-        let camera = session.camera_dyn().unwrap();
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .unwrap();
         macro_rules! refused {
             ($request:expr) => {{
                 assert!(
@@ -479,26 +497,26 @@ where
         }
         if !profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::PowerStandby)
+            .supports(TypedSupportSurface::PowerStandby)
         {
-            refused!(camera.power().off());
+            refused!(camera.power().standby());
         }
         if !profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::FocusInfinity)
+            .supports(TypedSupportSurface::FocusInfinity)
         {
             refused!(camera.focus().infinity());
         }
         if !profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::PresetMemory)
+            .supports(TypedSupportSurface::PresetMemory)
         {
-            refused!(camera.presets().set(PresetNumber::MIN));
-            refused!(camera.presets().reset(PresetNumber::MIN));
+            refused!(camera.presets().store(PresetNumber::MIN));
+            refused!(camera.presets().clear(PresetNumber::MIN));
         }
         if !profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::ShutterControl)
+            .supports(TypedSupportSurface::Shutter)
         {
             refused!(camera.exposure().shutter_reset());
             refused!(camera.exposure().shutter_up());
@@ -507,55 +525,68 @@ where
         }
         if !profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::ShutterDirect)
+            .supports(TypedSupportSurface::DirectShutter)
         {
             refused!(camera
                 .exposure()
-                .shutter_direct(ShutterSpeed::new(0).expect("valid value")));
+                .set_shutter(ShutterSpeed::new(0).expect("valid value")));
         }
-        if !profile
-            .capabilities()
-            .supports_typed(TypedSupportSurface::GainControl)
-        {
+        if !profile.capabilities().supports(TypedSupportSurface::Gain) {
             refused!(camera.exposure().gain_reset());
             refused!(camera.exposure().gain_up());
             refused!(camera.exposure().gain_down());
-            refused!(camera.exposure().gain_direct(GainLevel::MIN));
+            refused!(camera.exposure().set_gain(GainLevel::MIN));
             refused!(camera.exposure().gain());
         }
         if !profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::GainLimit)
+            .supports(TypedSupportSurface::GainLimit)
         {
             refused!(camera.exposure().set_gain_limit(GainLimit::MIN));
             refused!(camera.exposure().gain_limit());
         }
-        if !profile
-            .capabilities()
-            .supports_typed(TypedSupportSurface::StandardWhiteBalanceModes)
-        {
-            refused!(camera.white_balance().auto());
-            refused!(camera.white_balance().indoor());
-            refused!(camera.white_balance().outdoor());
+        for (mode, operation) in [
+            (grafton_visca::types::WhiteBalanceMode::Auto, 0),
+            (grafton_visca::types::WhiteBalanceMode::Indoor, 1),
+            (grafton_visca::types::WhiteBalanceMode::Outdoor, 2),
+        ] {
+            if !profile
+                .capabilities()
+                .white_balance
+                .as_ref()
+                .is_some_and(|facts| facts.modes.contains(&mode))
+            {
+                match operation {
+                    0 => refused!(camera
+                        .white_balance()
+                        .set_mode(grafton_visca::types::WhiteBalanceMode::Auto)),
+                    1 => refused!(camera
+                        .white_balance()
+                        .set_mode(grafton_visca::types::WhiteBalanceMode::Indoor)),
+                    _ => refused!(camera
+                        .white_balance()
+                        .set_mode(grafton_visca::types::WhiteBalanceMode::Outdoor)),
+                }
+            }
         }
         if !profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::MenuDisplay)
+            .supports(TypedSupportSurface::MenuDisplay)
         {
-            refused!(camera.menu().display(true));
+            refused!(camera.menu().set_visible(true));
         }
         if !profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::MenuEnterReturn)
+            .supports(TypedSupportSurface::MenuEnterReturn)
         {
-            refused!(camera.menu().select());
-            refused!(camera.menu().cancel());
+            refused!(camera.menu().enter());
+            refused!(camera.menu().back());
         }
         if !profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::MenuStatusInquiry)
+            .supports(TypedSupportSurface::MenuDisplayInquiry)
         {
-            refused!(camera.menu().status());
+            refused!(camera.menu().visible());
         }
         assert!(
             fake.writes().is_empty(),

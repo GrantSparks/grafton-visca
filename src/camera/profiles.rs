@@ -8,7 +8,7 @@
 mod profile_constants {
     use crate::{
         capabilities::ShutterSpeedEntry,
-        command::{exposure::ExposureMode, FocusZone},
+        command::{exposure_wire::ExposureMode, FocusZone},
         units::ExposureTime,
         WhiteBalanceMode,
     };
@@ -99,8 +99,22 @@ mod profile_constants {
     /// Profiles with no registered model-specific shutter-code inventory.
     pub const NO_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[];
 
-    /// The five shared AE modes; also the `Exposure::EXPOSURE_MODES` default.
-    pub(crate) use crate::capabilities::exposure::STANDARD_EXPOSURE_MODES;
+    /// Documented PTZ color-temperature values, indexed by wire step.
+    pub const PTZ_COLOR_TEMPERATURE_STEPS: &[u16] = &[
+        2500, 2600, 2700, 2800, 2900, 3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900,
+        4000, 4100, 4200, 4300, 4400, 4500, 4600, 4700, 4800, 4900, 5000, 5100, 5200, 5300, 5400,
+        5500, 5600, 5700, 5800, 5900, 6000, 6100, 6200, 6300, 6400, 6500, 6600, 6700, 6800, 6900,
+        7000, 7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900, 8000,
+    ];
+
+    /// The five shared, source-backed AE modes.
+    pub const STANDARD_EXPOSURE_MODES: &[ExposureMode] = &[
+        ExposureMode::Auto,
+        ExposureMode::Manual,
+        ExposureMode::Shutter,
+        ExposureMode::Iris,
+        ExposureMode::Bright,
+    ];
 
     /// Shared modes listed by the BRC-H900 command and inquiry tables (R11).
     pub const BRC_H900_EXPOSURE_MODES: &[ExposureMode] = &[
@@ -125,7 +139,7 @@ mod profile_constants {
 
     /// The documented `CAM_AFZone` values only (R14/R20).
     pub const DOCUMENTED_FOCUS_ZONES: &[FocusZone] =
-        crate::capabilities::focus::DOCUMENTED_FOCUS_ZONES;
+        &[FocusZone::Top, FocusZone::Center, FocusZone::Bottom];
 
     /// Profiles without focus-zone selection.
     pub const NO_FOCUS_ZONES: &[FocusZone] = &[];
@@ -156,45 +170,43 @@ pub(crate) mod profile_registry;
 builtin_profile_registry!(__define_builtin_profiles);
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::capabilities::{
-        nd_filter::NdFilterMetadataExt, pan_tilt::PanTiltExt, ProfileMetadata,
-    };
 
     #[test]
     fn test_ptzoptics_g2_capabilities() {
-        let camera = PtzOpticsG2;
-
-        assert!(camera.validate_pan(0).is_ok());
-        assert!(camera.validate_pan(2448).is_ok());
-        assert!(camera.validate_pan(2449).is_err());
-
-        assert_eq!(camera.degrees_to_pan_units(170.0), Some(2448));
-        assert_eq!(camera.pan_units_to_degrees(2448), 170.0);
+        let spec = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
+        let pan = spec.capabilities().pan_tilt.as_ref().expect("pan/tilt");
+        assert!(pan.pan_range.contains(0));
+        assert!(pan.pan_range.contains(2448));
+        assert!(!pan.pan_range.contains(2449));
+        assert_eq!(pan.coordinates.pan_units(170.0), Some(2448));
+        assert_eq!(pan.coordinates.pan_degrees(2448), 170.0);
     }
 
-    /// PTZOptics G2 bench facts: 14.4 pan/tilt units per degree and an
-    /// absolute optical zoom range of `0..=0x4000`.
+    /// PTZOptics G2 bench facts remain source-backed runtime records.
     #[test]
     fn ptzoptics_g2_geometry_matches_bench_facts() {
-        use crate::capabilities::{PanTilt, Zoom};
-
-        assert_eq!(<PtzOpticsG2 as PanTilt>::PAN_DEGREES_TO_UNITS, 14.4);
-        assert_eq!(<PtzOpticsG2 as PanTilt>::TILT_DEGREES_TO_UNITS, 14.4);
-        assert_eq!(<PtzOpticsG2 as Zoom>::OPTICAL_ZOOM_MAX, 0x4000);
-        assert_eq!(<PtzOpticsG2 as Zoom>::DIGITAL_ZOOM_MAX, None);
+        let spec = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
+        let caps = spec.capabilities();
+        let conversion = caps.pan_tilt.as_ref().expect("pan/tilt").coordinates;
+        let zoom = caps.zoom.as_ref().expect("zoom");
+        assert_eq!(conversion.pan_degrees_to_units(), 14.4);
+        assert_eq!(conversion.tilt_degrees_to_units(), 14.4);
+        assert_eq!(zoom.optical_max, 0x4000);
+        assert_eq!(zoom.digital_max, None);
     }
 
-    /// #808: the public helper rounds like the request path (144.72 → 145;
-    /// it previously truncated to 144), and ±0.05° is ±1 unit, not 0.
+    /// The shared conversion retains half-away-from-zero rounding (#808).
     #[test]
     fn pan_tilt_helpers_round_half_away_from_zero_like_the_request_path() {
-        let camera = PtzOpticsG2;
-        assert_eq!(camera.degrees_to_pan_units(10.05), Some(145));
-        assert_eq!(camera.degrees_to_pan_units(0.05), Some(1));
-        assert_eq!(camera.degrees_to_pan_units(-0.05), Some(-1));
-        assert_eq!(camera.degrees_to_tilt_units(-10.05), Some(-145));
+        let spec = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
+        let conversion = spec.pan_tilt_coordinates().expect("pan/tilt");
+        assert_eq!(conversion.pan_units(10.05), Some(145));
+        assert_eq!(conversion.pan_units(0.05), Some(1));
+        assert_eq!(conversion.pan_units(-0.05), Some(-1));
+        assert_eq!(conversion.tilt_units(-10.05), Some(-145));
     }
 
     /// #808: raw positions convert with each camera's own scale. The removed
@@ -216,10 +228,10 @@ mod tests {
 
         // R8's position table: pan `1E1B` is +170°, tilt `FC75` -20° and
         // `0FF0` +90°.
-        let evi = position::<SonyEVIH100>(0x1E1B, -0x038B)?;
+        let evi = position::<SonyEviH100>(0x1E1B, -0x038B)?;
         assert!((evi.pan.value() - 170.0).abs() < 0.01, "{}", evi.pan);
         assert!((evi.tilt.value() + 20.0).abs() < 0.01, "{}", evi.tilt);
-        let evi_up = position::<SonyEVIH100>(0, 0x0FF0)?;
+        let evi_up = position::<SonyEviH100>(0, 0x0FF0)?;
         assert!((evi_up.tilt.value() - 90.0).abs() < 0.01, "{}", evi_up.tilt);
         let generic = position::<GenericVisca>(2880, -1440)?;
         assert_eq!((generic.pan.value(), generic.tilt.value()), (180.0, -90.0));
@@ -244,13 +256,21 @@ mod tests {
                 .and_then(|exposure| caps.shutter_speed_for(exposure).ok())
                 .map(|s| s.value())
         };
-        let g2 = Capabilities::from_profile::<PtzOpticsG2>();
+        let g2 = ProfileId::PtzOpticsG2
+            .spec()
+            .expect("profile")
+            .capabilities()
+            .clone();
         assert_eq!(code(&g2, 1, 60), Some(0x02));
         assert_eq!(code(&g2, 1, 1000), Some(0x0B));
         assert_eq!(code(&g2, 2, 120), Some(0x02));
         assert_eq!(code(&g2, 1, 0), None);
 
-        let evi = Capabilities::from_profile::<SonyEVIH100>();
+        let evi = ProfileId::SonyEviH100
+            .spec()
+            .expect("profile")
+            .capabilities()
+            .clone();
         for (denominator, expected) in [
             (1, 0x00),
             (2, 0x01),
@@ -266,9 +286,21 @@ mod tests {
             );
         }
         for caps in [
-            Capabilities::from_profile::<SonyBRC300>(),
-            Capabilities::from_profile::<NearusBRC300>(),
-            Capabilities::from_profile::<GenericVisca>(),
+            ProfileId::SonyBrc300
+                .spec()
+                .expect("profile")
+                .capabilities()
+                .clone(),
+            ProfileId::NearusBrc300
+                .spec()
+                .expect("profile")
+                .capabilities()
+                .clone(),
+            ProfileId::GenericVisca
+                .spec()
+                .expect("profile")
+                .capabilities()
+                .clone(),
         ] {
             assert_eq!(code(&caps, 1, 4), Some(0x02), "{}", caps.model_name);
             assert_eq!(code(&caps, 1, 30), Some(0x05), "{}", caps.model_name);
@@ -279,8 +311,16 @@ mod tests {
         }
         // No sourced table: no typed shutter code at all.
         for caps in [
-            Capabilities::from_profile::<SonyFR7>(),
-            Capabilities::from_profile::<SonyBRCH900>(),
+            ProfileId::SonyFr7
+                .spec()
+                .expect("profile")
+                .capabilities()
+                .clone(),
+            ProfileId::SonyBrcH900
+                .spec()
+                .expect("profile")
+                .capabilities()
+                .clone(),
         ] {
             assert!(
                 caps.exposure
@@ -295,19 +335,19 @@ mod tests {
 
     #[test]
     fn test_nd_filter_capability() {
-        let fr7 = SonyFR7;
-
-        assert!(fr7.has_nd_filter());
-        assert_eq!(fr7.nd_filter_description(), "Variable ND filter");
-        assert!(fr7.validate_nd_filter(0x14).is_ok());
-        assert!(fr7.validate_nd_filter(0x15).is_err());
-        assert!(fr7.validate_nd_filter(128).is_err());
+        let spec = ProfileId::SonyFr7.spec().expect("FR7 profile");
+        assert!(spec
+            .capabilities()
+            .supports(crate::capabilities::TypedSupportSurface::NdFilter));
+        assert!(crate::types::NdFilterDensity::new(0x14).is_ok());
+        assert!(crate::types::NdFilterDensity::new(0x15).is_err());
+        assert!(crate::types::NdFilterDensity::new(128).is_err());
     }
 
     #[test]
     fn test_profile_metadata() {
-        assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
-        assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
+        assert_eq!(ProfileId::PtzOpticsG2.display_name(), "PtzOptics G2");
+        assert_eq!(ProfileId::SonyFr7.display_name(), "Sony FR7");
     }
 
     /// Every profile belongs to exactly the group that lists it. The literal
@@ -324,7 +364,7 @@ mod tests {
         }
         let listed: usize = [
             ProfileGroup::GenericVisca,
-            ProfileGroup::PtzOpticsG2,
+            ProfileGroup::PtzOptics,
             ProfileGroup::SonyProfessional,
         ]
         .iter()
@@ -336,14 +376,14 @@ mod tests {
     #[test]
     fn test_profile_group_display() {
         assert_eq!(ProfileGroup::GenericVisca.display_name(), "Generic VISCA");
-        assert_eq!(ProfileGroup::PtzOpticsG2.display_name(), "PtzOptics Series");
+        assert_eq!(ProfileGroup::PtzOptics.display_name(), "PtzOptics Series");
         assert_eq!(
             ProfileGroup::SonyProfessional.display_name(),
             "Sony Professional"
         );
 
         assert_eq!(format!("{}", ProfileGroup::GenericVisca), "Generic VISCA");
-        assert_eq!(format!("{}", ProfileGroup::PtzOpticsG2), "PtzOptics Series");
+        assert_eq!(format!("{}", ProfileGroup::PtzOptics), "PtzOptics Series");
     }
 
     /// A group reports a transport or envelope fact only when every member
@@ -352,21 +392,27 @@ mod tests {
     fn group_facts_hold_for_every_member() {
         for group in [
             ProfileGroup::GenericVisca,
-            ProfileGroup::PtzOpticsG2,
+            ProfileGroup::PtzOptics,
             ProfileGroup::SonyProfessional,
         ] {
             let members = group.profiles();
             assert_eq!(
                 group.supports_tcp(),
-                members.iter().all(ProfileId::supports_tcp)
+                members
+                    .iter()
+                    .all(|id| id.raw_facts().transports.tcp_port().is_some())
             );
             assert_eq!(
                 group.supports_udp(),
-                members.iter().all(ProfileId::supports_udp)
+                members
+                    .iter()
+                    .all(|id| id.raw_facts().transports.udp_port().is_some())
             );
             assert_eq!(
                 group.supports_serial(),
-                members.iter().all(ProfileId::supports_serial)
+                members
+                    .iter()
+                    .all(|id| id.raw_facts().transports.supports_serial())
             );
             assert_eq!(
                 group.uses_sony_encapsulation(),
@@ -394,16 +440,47 @@ mod tests {
     #[test]
     fn test_profile_transport_support() {
         for profile in ProfileId::all() {
+            let spec = profile.spec().expect("built-in profile");
+            let transports = spec.transports();
             assert!(
-                profile.supports_tcp() || profile.supports_udp() || profile.supports_serial(),
+                transports.tcp_port().is_some()
+                    || transports.udp_port().is_some()
+                    || transports.supports_serial(),
                 "{profile:?} has no transport"
             );
             if profile.uses_sony_encapsulation() {
-                assert!(!profile.supports_tcp() && !profile.supports_serial());
+                assert!(transports.tcp_port().is_none() && !transports.supports_serial());
             }
-            assert_eq!(profile.default_tcp_port().is_some(), profile.supports_tcp());
-            assert_eq!(profile.default_udp_port().is_some(), profile.supports_udp());
+            assert_eq!(profile.default_tcp_port(), transports.tcp_port());
+            assert_eq!(profile.default_udp_port(), transports.udp_port());
         }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn persisted_profile_identifiers_are_explicit_and_pinned() {
+        for (id, expected) in [
+            (ProfileId::PtzOpticsG2, "ptzoptics_g2"),
+            (ProfileId::PtzOpticsG3, "ptzoptics_g3"),
+            (ProfileId::PtzOptics30x, "ptzoptics_30x"),
+            (ProfileId::SonyFr7, "sony_fr7"),
+            (ProfileId::SonyBrcH900, "sony_brc_h900"),
+            (ProfileId::SonyEviH100, "sony_evi_h100"),
+            (ProfileId::SonyBrc300, "sony_brc_300"),
+            (ProfileId::NearusBrc300, "nearus_brc_300"),
+            (ProfileId::GenericVisca, "generic_visca"),
+        ] {
+            assert_eq!(serde_json::to_value(id).expect("profile id"), expected);
+            assert_eq!(
+                serde_json::from_value::<ProfileId>(serde_json::json!(expected))
+                    .expect("profile id"),
+                id
+            );
+        }
+        assert_eq!(
+            serde_json::to_value(ProfileGroup::PtzOptics).expect("group"),
+            "ptzoptics"
+        );
     }
 
     #[test]

@@ -12,11 +12,11 @@ use grafton_visca_test_support::fake_camera;
 use std::{thread, time::Duration};
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    camera::profiles::PtzOpticsG2,
-    profile::ProfileSpec,
+    blocking::Session,
+    config::SessionConfig,
+    operation::{CancellationOutcome, HaltOutcome},
+    profiles::{ProfileSpec, PtzOpticsG2},
     transport::SendSemantics,
-    CancellationOutcome, HaltOutcome,
 };
 
 use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP, ZOOM_TELE};
@@ -27,7 +27,7 @@ const PAN_TILT_STOP: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x0c, 0x0a, 0x03, 0x03, 0
 fn g2_session(camera: &FakeCamera) -> Session {
     Session::open(
         camera.blocking_wire().with_semantics(SendSemantics::Stream),
-        SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile")),
+        &SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile")),
     )
     .expect("session")
 }
@@ -72,7 +72,9 @@ fn g2_cancel_after_immediate_completion_is_completed_and_sends_nothing() {
         }
     });
     let session = g2_session(&fake);
-    let view = session.camera::<PtzOpticsG2>().expect("camera");
+    let view = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
     let mut operation = view.zoom().tele().expect("tele admitted");
     thread::sleep(Duration::from_millis(100));
@@ -97,9 +99,11 @@ fn g2_cancel_after_immediate_completion_is_completed_and_sends_nothing() {
 fn g2_auto_focus_halt_report_keeps_pan_tilt_and_zoom_applied() {
     let fake = halt_camera(vec![frames::not_executable(1)]);
     let session = g2_session(&fake);
-    let view = session.camera::<PtzOpticsG2>().expect("camera");
+    let view = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
-    let report = view.motion().stop_all_motion().expect("halt accepted");
+    let report = view.motion().stop_all().expect("halt accepted");
 
     assert!(
         matches!(report.pan_tilt, HaltOutcome::Applied),
@@ -119,9 +123,11 @@ fn g2_auto_focus_halt_report_keeps_pan_tilt_and_zoom_applied() {
 fn g2_manual_focus_halt_report_is_all_applied() {
     let fake = halt_camera(vec![frames::ack(2), frames::complete(2)]);
     let session = g2_session(&fake);
-    let view = session.camera::<PtzOpticsG2>().expect("camera");
+    let view = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
-    let report = view.motion().stop_all_motion().expect("halt accepted");
+    let report = view.motion().stop_all().expect("halt accepted");
 
     assert!(
         matches!(report.pan_tilt, HaltOutcome::Applied),

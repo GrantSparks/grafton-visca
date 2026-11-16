@@ -1,10 +1,10 @@
-use grafton_visca::{command::PowerInquiry, PlainCommand};
+use grafton_visca::{command::power::StatusInquiry, request::PlainCommand};
 
 fn requires_plain<C: PlainCommand>(_: C) {}
 
 fn main() {
-    requires_plain(PowerInquiry);
+    requires_plain(StatusInquiry);
 }
 
 //~ E0271
-//~ "type mismatch resolving `<PowerInquiry as Request>::Class == Plain`"
+//~ "type mismatch resolving `<StatusInquiry as Request>::Class == PlainClass`"

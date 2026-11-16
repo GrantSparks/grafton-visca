@@ -160,7 +160,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(Error::InvalidRequest(actual))
+            Err(Error::InvalidRequest { reason: actual })
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
         assert!(

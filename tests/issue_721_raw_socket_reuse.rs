@@ -18,8 +18,10 @@ use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 use std::time::Duration;
 
 use grafton_visca::{
-    completion::AppliedOnly, profile::ProfileSpec, request::builtin::ZoomDrive,
-    CancellationOutcome, Error, SessionConfig,
+    config::SessionConfig,
+    operation::{AppliedOnly, CancellationOutcome},
+    profiles::ProfileSpec,
+    Error,
 };
 
 #[cfg(all(
@@ -120,12 +122,12 @@ facade_matrix! {
         )
         .expect("session");
         let camera = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera");
 
-        let mut displaced = wait!(camera.submit::<AppliedOnly, _>(&ZoomDrive::Tele))
+        let mut displaced = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele))
             .expect("first command writes");
-        let mut successor = wait!(camera.submit::<AppliedOnly, _>(&ZoomDrive::Wide))
+        let mut successor = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide))
             .expect("second command writes after A's ACK");
 
         assert!(matches!(
@@ -160,10 +162,10 @@ facade_matrix! {
         )
         .expect("session");
         let camera = session
-            .camera::<QuarantinedSocketCompileTimeProfile>()
+            .camera::<QuarantinedSocketCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera");
 
-        let mut displaced = wait!(camera.submit::<AppliedOnly, _>(&ZoomDrive::Tele))
+        let mut displaced = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele))
             .expect("first command writes");
         let displaced_result = wait!(displaced.applied());
         assert!(
@@ -171,7 +173,7 @@ facade_matrix! {
             "the protocol terminal installs the raw S1 quarantine before B is admitted: {displaced_result:?}"
         );
 
-        let mut successor = wait!(camera.submit::<AppliedOnly, _>(&ZoomDrive::Wide))
+        let mut successor = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide))
             .expect("successor writes while the stale S1 hold remains");
         wait!(successor.applied())
             .expect("camera-named S1 ACK and completion settle the successor normally");

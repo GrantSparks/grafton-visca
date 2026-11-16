@@ -1,9 +1,12 @@
-use grafton_visca::{request, CameraId, ControlClass, Request, RetryClass, TimeoutClass};
+use grafton_visca::{
+    request, request::ControlClass, request::Request, request::RetryClass, request::TimeoutClass,
+    types::CameraId,
+};
 
 struct DownstreamUrgent;
 
 impl Request for DownstreamUrgent {
-    type Class = request::Plain;
+    type Class = request::PlainClass;
 
     const MAX_SIZE: usize = 3;
     const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;

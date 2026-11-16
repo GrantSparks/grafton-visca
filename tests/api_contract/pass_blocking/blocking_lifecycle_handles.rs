@@ -3,9 +3,8 @@
 use std::{marker::PhantomData, time::Duration};
 
 use grafton_visca::{
-    blocking::{Operation, OperationId},
-    completion::{AppliedOnly, Targeted},
-    CancellationOutcome, Error, Settlement,
+    blocking::Operation, operation::AppliedOnly, operation::CancellationOutcome,
+    operation::OperationId, operation::Settlement, operation::Targeted, Error,
 };
 
 fn applied_only(mut handle: Operation<AppliedOnly>) -> Result<(), Error> {
@@ -33,7 +32,7 @@ fn targeted(mut handle: Operation<Targeted>) -> Result<Settlement, Error> {
 fn cancellation(mut handle: Operation<Targeted>) -> Result<bool, Error> {
     match handle.cancel_with_timeout(Duration::from_secs(1)) {
         Ok(_) => {}
-        Err(Error::NotSupported) => return handle.settled().map(|_| false),
+        Err(Error::CancellationNotSupported) => return handle.settled().map(|_| false),
         Err(error) => return Err(error),
     }
     let cancelled = match handle.cancel()? {
@@ -50,9 +49,7 @@ fn borrowing_waits() {
         handle.applied()
     }
 
-    fn cancel_method(
-        handle: &mut Operation<Targeted>,
-    ) -> Result<CancellationOutcome, Error> {
+    fn cancel_method(handle: &mut Operation<Targeted>) -> Result<CancellationOutcome, Error> {
         handle.cancel()
     }
 
@@ -70,6 +67,10 @@ fn main() {
 }
 
 /// Menu navigation starts physical pan/tilt movement if the menu is closed.
-fn menu_navigation(camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>) -> Result<Operation<AppliedOnly>, Error> {
-    camera.menu().navigate(grafton_visca::command::MenuDirection::Up)
+fn menu_navigation(
+    camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>,
+) -> Result<Operation<AppliedOnly>, Error> {
+    camera
+        .menu()
+        .navigate(grafton_visca::types::MenuDirection::Up)
 }

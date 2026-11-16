@@ -1,7 +1,4 @@
-use grafton_visca::{
-    command::{ExposureMode, InquiryData},
-    ViscaInquiry,
-};
+use grafton_visca::{__macro_support::InquiryData, types::ExposureMode, ViscaInquiry};
 
 // These deliberately shadow names that unhygienic derive output used to rely
 // on from the downstream prelude.

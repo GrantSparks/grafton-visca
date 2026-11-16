@@ -5,10 +5,8 @@
 //! stop frame. This module holds that one implementation so the two facades
 //! cannot drift apart.
 
-#![cfg(any(feature = "blocking", feature = "async"))]
-
 use crate::{
-    profile::ProfileSpec,
+    profiles::ProfileSpec,
     request::builtin::PanTiltStop,
     types::{PanSpeed, TiltSpeed},
     Result,

@@ -32,7 +32,7 @@ fn test_error_code_consistency() {
                 "Code 0x{code:02X} should map to {expected_name}"
             ),
             0x04 => assert!(
-                matches!(error, Error::CommandCanceled),
+                matches!(error, Error::CommandCancelled),
                 "Code 0x{code:02X} should map to {expected_name}"
             ),
             0x05 => assert!(
@@ -50,7 +50,7 @@ fn test_error_code_consistency() {
 
 #[test]
 fn recovery_distinguishes_capacity_acceptance_and_uncertainty() {
-    use grafton_visca::Recovery;
+    use grafton_visca::error::Recovery;
     use std::time::Duration;
     for (error, expected) in [
         (
@@ -86,12 +86,12 @@ fn test_error_code_round_trip() {
         match code {
             0x02 => assert!(matches!(error, Error::SyntaxError)),
             0x03 => assert!(matches!(error, Error::CommandBufferFull)),
-            0x04 => assert!(matches!(error, Error::CommandCanceled)),
+            0x04 => assert!(matches!(error, Error::CommandCancelled)),
             0x05 => assert!(matches!(error, Error::NoSocket)),
             0x41 => assert!(matches!(error, Error::CommandNotExecutable)),
             _ => assert!(matches!(
                 error,
-                Error::Unknown(_) | Error::MessageLengthError
+                Error::Unknown { .. } | Error::MessageLengthError
             )),
         }
     }
@@ -114,7 +114,7 @@ fn test_internal_external_error_consistency() {
                 assert!(
                     matches!(
                         public_error.recovery(),
-                        grafton_visca::Recovery::Resubmit { .. }
+                        grafton_visca::error::Recovery::Resubmit { .. }
                     ),
                     "Error for 0x{code:02X} should be retryable"
                 );
@@ -124,7 +124,7 @@ fn test_internal_external_error_consistency() {
                 assert!(
                     !matches!(
                         public_error.recovery(),
-                        grafton_visca::Recovery::Resubmit { .. }
+                        grafton_visca::error::Recovery::Resubmit { .. }
                     ),
                     "Error for 0x{code:02X} should not be retryable"
                 );
@@ -134,7 +134,7 @@ fn test_internal_external_error_consistency() {
                 assert!(
                     !matches!(
                         public_error.recovery(),
-                        grafton_visca::Recovery::Resubmit { .. }
+                        grafton_visca::error::Recovery::Resubmit { .. }
                     ),
                     "Error for 0x{code:02X} (CommandNotExecutable) base should not be retryable"
                 );
@@ -163,7 +163,7 @@ fn test_unknown_error_handling() {
             );
         } else if code == 0x00 || code > 0x05 && code != 0x41 {
             assert!(
-                matches!(error, Error::Unknown(c) if c == code),
+                matches!(error, Error::Unknown { code: c } if c == code),
                 "Code 0x{code:02X} should map to Unknown(0x{code:02X})"
             );
         }
@@ -177,7 +177,7 @@ fn test_error_display_messages() {
     let test_cases = [
         (Error::SyntaxError, "Syntax error in VISCA command"),
         (Error::CommandBufferFull, "Command buffer is full"),
-        (Error::CommandCanceled, "Command was canceled"),
+        (Error::CommandCancelled, "Command was canceled"),
         (Error::NoSocket, "No socket available"),
         (Error::CommandNotExecutable, "Command is not executable"),
         (Error::MessageLengthError, "Message length error"),

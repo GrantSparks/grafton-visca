@@ -61,6 +61,7 @@ impl NdFilterModeCommand {
 
     /// Returns the requested ND filter mode.
     #[must_use]
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub const fn mode(self) -> NdFilterMode {
         self.mode
     }
@@ -90,9 +91,6 @@ impl WireEncode for NdFilterDensity {
 }
 
 impl NdFilterDensity {
-    /// The densest variable-ND position.
-    pub(crate) const MAX_VALUE: u16 = 0x0014;
-
     /// Create from a stop value (2.0 to 7.0 stops).
     ///
     /// Each raw unit is a quarter stop: `2.0` maps to the minimum density
@@ -122,7 +120,7 @@ impl NdFilterDensity {
 
 /// ND filter step adjustment direction.
 #[crate::value_enum]
-pub enum NdFilterStep {
+pub(crate) enum NdFilterStep {
     /// Increase ND by one step (more density).
     Up = 2,
     /// Decrease ND by one step (less density).

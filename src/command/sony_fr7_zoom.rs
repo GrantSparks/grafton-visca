@@ -31,7 +31,6 @@ pub struct HighResolutionZoomSpeed(u16);
     serde(rename_all = "snake_case", deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum Fr7ZoomHighResolution {
     /// Drive toward telephoto at the requested speed.
     Tele(HighResolutionZoomSpeed),
@@ -60,7 +59,6 @@ impl WireEncode for Fr7ZoomHighResolution {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7ZoomHighResolutionStop;
 
 impl WireEncode for Fr7ZoomHighResolutionStop {

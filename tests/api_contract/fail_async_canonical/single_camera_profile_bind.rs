@@ -1,12 +1,12 @@
 // The explicit `Session` path admits a second, runtime-checked profile naming.
-// Standard `Connect::open_tcp::<PtzOpticsG2, _>(..)` construction names the
+// Standard `CameraSession::<PtzOpticsG2>::connect_tcp(..)` construction names the
 // profile once and binds it at compile time, so neither the camera the session
 // owns nor the camera it gives up can change profile.
 //
 // Where the compile-time bind ends: `CameraSession::session()` hands back the
-// profile-generic `&Session` the value owns, and `Session::camera::<P>()` is
+// profile-generic `&Session` the value owns, and `Session::camera::<P>(target)` is
 // the runtime-checked projection. So
-// `camera_session.session().camera::<PtzOpticsG3>()` *does* compile against a
+// `camera_session.session().camera::<PtzOpticsG3>(target)` *does* compile against a
 // `CameraSession<PtzOpticsG2>` and returns `Err` at run time instead. That
 // escape hatch is deliberate — it is how a caller reaches the generic session
 // API from a single-camera handle — and it is exactly why the two functions
@@ -15,8 +15,7 @@
 // substitution.
 
 use grafton_visca::{
-    profiles::{PtzOpticsG2, PtzOpticsG3},
-    Camera, CameraSession,
+    profiles::PtzOpticsG2, profiles::PtzOpticsG3, r#async::Camera, r#async::CameraSession,
 };
 
 fn view_cannot_change_profile(session: &CameraSession<PtzOpticsG2>) -> &Camera<PtzOpticsG3> {

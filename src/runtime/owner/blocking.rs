@@ -393,9 +393,10 @@ impl BlockingOwnerHandle {
     /// A worker callback cannot wait for work only this worker can perform.
     fn off_worker(&self, call: &str) -> Result<(), Error> {
         if self.worker_id == thread::current().id() {
-            return Err(Error::InvalidState(
-                format!("blocking owner worker cannot call {call} on its own session").into(),
-            ));
+            return Err(Error::InvalidState {
+                reason: format!("blocking owner worker cannot call {call} on its own session")
+                    .into(),
+            });
         }
         Ok(())
     }
@@ -518,9 +519,9 @@ impl BlockingOwnerHandle {
     pub(crate) fn close(&self) -> Result<(), Error> {
         let shutdown = self.shutdown();
         if self.worker_id == thread::current().id() {
-            return Err(Error::InvalidState(
-                "blocking owner worker cannot close its own session".into(),
-            ));
+            return Err(Error::InvalidState {
+                reason: "blocking owner worker cannot close its own session".into(),
+            });
         }
         let worker = self
             .worker

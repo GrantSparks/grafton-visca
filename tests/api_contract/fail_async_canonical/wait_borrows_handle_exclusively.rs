@@ -1,4 +1,4 @@
-use grafton_visca::{completion::Targeted, Operation};
+use grafton_visca::{operation::Targeted, r#async::Operation};
 
 // Waits borrow the handle exclusively (#777): two waits cannot be in flight
 // on one handle at once.

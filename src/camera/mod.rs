@@ -5,13 +5,11 @@
 //! profile registry namespace; camera views are exported from their respective
 //! async and blocking facades.
 
-mod config;
-#[cfg(feature = "async")]
-mod construction;
+pub(crate) mod config;
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) mod construction;
 mod movement;
-pub mod profiles;
+pub(crate) mod profiles;
 
 pub use config::{CameraConfig, TransportKind, TransportOptions};
-#[cfg(feature = "async")]
-pub use construction::Connect;
 pub use movement::{IdleWait, MotionQuery, MovementTolerance, PanTiltPosition, PanTiltUnits};

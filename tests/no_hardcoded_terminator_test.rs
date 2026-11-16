@@ -25,17 +25,12 @@
 
 use bytes::BytesMut;
 use grafton_visca::{
-    command::{
-        CommandKind, PowerInquiry, PowerOn, PowerStandby, TallyGreenInquiry, ZoomPositionInquiry,
-        VISCA_TERMINATOR,
-    },
     raw,
-    request::builtin::{
-        FocusInfinity, FocusStop, IrisReset, PanTiltHome, PanTiltReset, PresetSet, PushAfPress,
-        ZoomDrive, ZoomStop,
-    },
+    request::{Request, RetryClass},
     transport::{AddressingMode, Envelope, RawVisca, SonyEncapsulated},
-    CameraId, Error, PresetNumber, Request, RetryClass, ZoomSpeed,
+    types::{CameraId, PresetNumber, ZoomSpeed},
+    wire::{CommandKind, VISCA_TERMINATOR},
+    Error,
 };
 
 /// Sony's encapsulation header, which precedes the VISCA payload.
@@ -83,20 +78,20 @@ fn exported_terminator_matches_the_protocol_and_the_encoder() {
         "VISCA protocol requires the terminator to be 0xFF"
     );
 
-    let power_on = encode(&PowerOn::new());
-    assert_terminated("PowerOn", &power_on);
+    let power_on = encode(&grafton_visca::command::power::On);
+    assert_terminated("grafton_visca::command::power::On", &power_on);
     assert_eq!(
         power_on,
         [0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
-        "PowerOn must encode the canonical terminated frame"
+        "grafton_visca::command::power::On must encode the canonical terminated frame"
     );
 
-    let zoom_tele = encode(&ZoomDrive::Tele);
-    assert_terminated("ZoomDrive::Tele", &zoom_tele);
+    let zoom_tele = encode(&grafton_visca::command::zoom::Tele);
+    assert_terminated("grafton_visca::command::zoom::Tele", &zoom_tele);
     assert_eq!(
         zoom_tele,
         [0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR],
-        "ZoomDrive::Tele must encode the canonical terminated frame"
+        "grafton_visca::command::zoom::Tele must encode the canonical terminated frame"
     );
 }
 
@@ -106,20 +101,44 @@ fn exported_terminator_matches_the_protocol_and_the_encoder() {
 #[test]
 fn built_in_commands_end_with_the_exported_terminator() {
     assert_encodes_terminated!(
-        PowerOn::new(),
-        PowerStandby::new(),
-        PanTiltHome,
-        PanTiltReset,
-        ZoomDrive::Tele,
-        ZoomDrive::Wide,
-        ZoomDrive::TeleVariable(ZoomSpeed::new(5).expect("zoom speed")),
-        ZoomDrive::WideVariable(ZoomSpeed::ZERO),
-        ZoomStop,
-        FocusInfinity,
-        FocusStop,
-        IrisReset,
-        PushAfPress,
-        PresetSet::new(PresetNumber::new(3).expect("preset 3 is valid")),
+        grafton_visca::command::power::On,
+        grafton_visca::command::power::Standby,
+        grafton_visca::command::pan_tilt::Home,
+        grafton_visca::command::pan_tilt::Reset,
+        grafton_visca::command::zoom::Tele,
+        grafton_visca::command::zoom::Wide,
+        grafton_visca::command::zoom::TeleVariable::for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                    grafton_visca::profiles::PtzOpticsG2,
+                >()
+                .expect("source profile")
+            )
+            .expect("target registration"),
+            ZoomSpeed::new(5).expect("zoom speed")
+        )
+        .expect("profile-aware request"),
+        grafton_visca::command::zoom::WideVariable::for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                    grafton_visca::profiles::PtzOpticsG2,
+                >()
+                .expect("source profile")
+            )
+            .expect("target registration"),
+            ZoomSpeed::ZERO
+        )
+        .expect("profile-aware request"),
+        grafton_visca::command::zoom::Stop,
+        grafton_visca::command::focus::Infinity,
+        grafton_visca::command::focus::Stop,
+        grafton_visca::command::exposure::IrisReset,
+        grafton_visca::command::focus::PushAutoFocusPress,
+        grafton_visca::command::presets::Store::new(
+            PresetNumber::new(3).expect("preset 3 is valid")
+        ),
     );
 }
 
@@ -127,7 +146,7 @@ fn built_in_commands_end_with_the_exported_terminator() {
 /// separate terminator instead of mistaking that data byte for one.
 #[test]
 fn final_ff_data_byte_is_not_mistaken_for_the_terminator() {
-    let preset = encode(&PresetSet::new(
+    let preset = encode(&grafton_visca::command::presets::Store::new(
         PresetNumber::new(255).expect("preset 255 is valid"),
     ));
     assert_eq!(
@@ -139,16 +158,22 @@ fn final_ff_data_byte_is_not_mistaken_for_the_terminator() {
 /// Inquiries travel the same encode path and carry the same terminator.
 #[test]
 fn built_in_inquiries_end_with_the_exported_terminator() {
-    let zoom_position = encode(&ZoomPositionInquiry);
-    assert_terminated("ZoomPositionInquiry", &zoom_position);
+    let zoom_position = encode(&grafton_visca::command::zoom::PositionInquiry);
+    assert_terminated(
+        "grafton_visca::command::zoom::PositionInquiry",
+        &zoom_position,
+    );
     assert_eq!(
         zoom_position,
         [0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR],
-        "ZoomPositionInquiry must encode the canonical terminated frame"
+        "grafton_visca::command::zoom::PositionInquiry must encode the canonical terminated frame"
     );
 
-    // `TallyGreenInquiry` uses the extended (vendor) inquiry envelope.
-    assert_encodes_terminated!(PowerInquiry, TallyGreenInquiry);
+    // `grafton_visca::command::tally::GreenInquiry` uses the extended (vendor) inquiry envelope.
+    assert_encodes_terminated!(
+        grafton_visca::command::power::StatusInquiry,
+        grafton_visca::command::tally::GreenInquiry
+    );
 }
 
 /// Raw frame admission is validated against the same terminator the encoders
@@ -156,26 +181,26 @@ fn built_in_inquiries_end_with_the_exported_terminator() {
 #[test]
 fn raw_frames_are_admitted_against_the_exported_terminator() {
     let terminated = [0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
-    let accepted = raw::Plain::new(
+    let accepted = raw::PlainRequest::new(
         terminated,
-        grafton_visca::CommandCategory::Quick,
+        grafton_visca::profiles::CommandTimeoutClass::Quick,
         RetryClass::Never,
-        grafton_visca::SubmissionClass::Normal,
+        grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("a frame ending in the exported terminator must be admitted");
-    assert_terminated("raw::Plain", accepted.bytes());
+    assert_terminated("raw::PlainRequest", accepted.bytes());
 
     let mut unterminated = terminated;
     let last = unterminated.len() - 1;
     unterminated[last] = VISCA_TERMINATOR.wrapping_sub(1);
-    let rejected = raw::Plain::new(
+    let rejected = raw::PlainRequest::new(
         unterminated,
-        grafton_visca::CommandCategory::Quick,
+        grafton_visca::profiles::CommandTimeoutClass::Quick,
         RetryClass::Never,
-        grafton_visca::SubmissionClass::Normal,
+        grafton_visca::request::SubmissionClass::Normal,
     );
     assert!(
-        matches!(rejected, Err(Error::InvalidRequest(_))),
+        matches!(rejected, Err(Error::InvalidRequest { .. })),
         "a frame not ending in the exported terminator must be rejected, got {rejected:?}"
     );
 }
@@ -185,8 +210,8 @@ fn raw_frames_are_admitted_against_the_exported_terminator() {
 /// 8-byte header without disturbing the payload's trailing terminator.
 #[test]
 fn transport_envelopes_preserve_the_encoded_terminator() {
-    let frame = encode(&PowerOn::new());
-    assert_terminated("PowerOn", &frame);
+    let frame = encode(&grafton_visca::command::power::On);
+    assert_terminated("grafton_visca::command::power::On", &frame);
 
     let raw_envelope = RawVisca::new(AddressingMode::Ip);
     let mut framed = BytesMut::new();

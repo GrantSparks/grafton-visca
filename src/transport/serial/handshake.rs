@@ -21,7 +21,7 @@ use crate::{
     command::{
         bytes::{constants::system, VISCA_TERMINATOR},
         encode::WireEncode,
-        system::{AddressSetCommand, InterfaceClearCommand},
+        system_wire::{AddressSetCommand, InterfaceClearCommand},
     },
     error::{Error, Result},
     protocol::framer::{Framer, FramingError, RawFramer},
@@ -354,9 +354,9 @@ impl SerialStartup {
                     phase: ClearPhase::Settle,
                 };
             }
-            (Ok(()), _) => self.fail(Error::InvalidState(
-                "serial startup received a write result without a pending write".into(),
-            )),
+            (Ok(()), _) => self.fail(Error::InvalidState {
+                reason: "serial startup received a write result without a pending write".into(),
+            }),
         }
     }
 
@@ -369,9 +369,9 @@ impl SerialStartup {
             phase: AddressPhase::Read,
         } = self.state
         else {
-            self.fail(Error::InvalidState(
-                "serial startup received a read result without a pending read".into(),
-            ));
+            self.fail(Error::InvalidState {
+                reason: "serial startup received a read result without a pending read".into(),
+            });
             return;
         };
         let chunk = match result {
@@ -417,10 +417,8 @@ impl SerialStartup {
         while let Some(frame) = self.framer.visit_next_frame(address_set_reply) {
             match frame {
                 Ok(Some(camera_count)) => {
-                    if usize::from(camera_count) > crate::session_config::MAX_REGISTERED_TARGETS {
-                        return Err(Error::InvalidRequest(
-                                format!("serial chain reports {camera_count} devices; VISCA addresses at most 7").into(),
-                            ));
+                    if usize::from(camera_count) > crate::target::TargetSlot::COUNT {
+                        return Err(Error::InvalidRequest { reason: format!("serial chain reports {camera_count} devices; VISCA addresses at most 7").into() });
                     }
                     return Ok(Some(camera_count));
                 }
@@ -515,8 +513,8 @@ mod tests {
     #[test]
     fn fragmented_replies_and_noise_are_framed_within_bounds() {
         let config = Config::new("/dev/test")
-            .startup(Startup::default().with_address_set(true))
-            .buffer_config(BufferConfig {
+            .with_startup(Startup::default().with_address_set(true))
+            .with_buffer_config(BufferConfig {
                 recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE,
                 max_buffer_size: 64,
             });
@@ -544,7 +542,7 @@ mod tests {
     fn an_overlong_chain_is_a_final_reply_and_is_not_retried() {
         for next_address in 0x09..=0x0f {
             let mut startup = startup(
-                Config::new("/dev/test").startup(Startup::default().with_address_set(true)),
+                Config::new("/dev/test").with_startup(Startup::default().with_address_set(true)),
             );
             let now = Instant::now();
             assert!(matches!(startup.next(now), Action::Write { .. }));
@@ -552,7 +550,7 @@ mod tests {
             assert!(matches!(startup.next(now), Action::Read { .. }));
             startup.read(Ok(&[0x88, 0x30, next_address, VISCA_TERMINATOR]));
             assert!(
-                matches!(startup.next(now), Action::Done(Err(Error::InvalidRequest(message)))
+                matches!(startup.next(now), Action::Done(Err(Error::InvalidRequest { reason: message }))
                 if message.contains(&format!("reports {} devices", next_address - 1)))
             );
         }
@@ -561,8 +559,8 @@ mod tests {
     #[test]
     fn overflow_retries_the_entire_attempt_without_salvaging_its_suffix() {
         let config = Config::new("/dev/test")
-            .startup(Startup::default().with_address_set(true))
-            .buffer_config(BufferConfig {
+            .with_startup(Startup::default().with_address_set(true))
+            .with_buffer_config(BufferConfig {
                 recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE,
                 max_buffer_size: 64,
             });
@@ -654,7 +652,7 @@ pub(crate) mod scenarios {
     }
 
     fn config(address_set: bool, interface_clear: bool) -> Config {
-        Config::new("/dev/test").startup(
+        Config::new("/dev/test").with_startup(
             Startup::default()
                 .with_address_set(address_set)
                 .with_interface_clear(interface_clear),
@@ -746,9 +744,9 @@ pub(crate) mod scenarios {
         let matched = match (scenario.outcome, result) {
             (Outcome::Ok(expected), Ok(actual)) => expected == *actual,
             (Outcome::Timeout, Err(Error::Timeout { .. })) => true,
-            (Outcome::Io(kind), Err(Error::Io(error))) => error.kind() == kind,
+            (Outcome::Io(kind), Err(Error::Io { source: error })) => error.kind() == kind,
             (Outcome::MaxRetries, Err(Error::MaxRetriesExceeded)) => true,
-            (Outcome::InvalidChain(count), Err(Error::InvalidRequest(message))) => {
+            (Outcome::InvalidChain(count), Err(Error::InvalidRequest { reason: message })) => {
                 message.as_ref()
                     == format!("serial chain reports {count} devices; VISCA addresses at most 7")
             }

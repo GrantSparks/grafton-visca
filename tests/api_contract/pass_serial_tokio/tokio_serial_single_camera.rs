@@ -1,36 +1,36 @@
 #![allow(dead_code)]
 #![cfg(feature = "transport-serial-tokio")]
 
-//! Tokio serial construction retains the multi-target session path (#729).
+//! Tokio serial construction has the same single-camera bind as TCP/UDP.
 //!
-//! Async serial is Tokio-only, so both forms carry the same `RuntimeSerial`
-//! bound and return a `Session`; callers select the desired address with
-//! `camera_for`.
+//! Async serial is Tokio-only. Both forms retain the profile parameter and
+//! return `CameraSession<P>` with an already-bound camera view.
 
 use grafton_visca::{
-    camera::{CameraConfig, Connect},
-    profiles::PtzOpticsG2,
-    runtime::TokioRuntime,
-    transport::TransportConfig,
-    Error, Session,
+    config::CameraConfig, profiles::PtzOpticsG2, r#async::CameraSession, runtime::TokioRuntime,
+    transport::TransportConfig, Error,
 };
 
 async fn one_liner_serial_camera(runtime: TokioRuntime) -> Result<(), Error> {
-    let session: Session =
-        Connect::open_serial::<PtzOpticsG2, _>("/dev/ttyUSB0", 9600, runtime).await?;
+    let session: CameraSession<PtzOpticsG2> =
+        grafton_visca::r#async::CameraSession::<PtzOpticsG2>::connect_serial(
+            "/dev/ttyUSB0",
+            9600,
+            runtime,
+        )
+        .await?;
 
-    let camera = session.camera_for::<PtzOpticsG2>(grafton_visca::CameraId::CAMERA_1)?;
+    let camera = session.camera();
     let _target = camera.target();
     session.close().await
 }
 
 async fn configured_serial_camera(runtime: TokioRuntime) -> Result<(), Error> {
-    let session: Session = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600)
-        .transport_config(TransportConfig::default())
-        .open_serial_async(runtime)
-        .await?;
+    let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600)
+        .with_transport_config(TransportConfig::for_serial());
+    let session: CameraSession<PtzOpticsG2> = CameraSession::connect(&config, runtime).await?;
 
-    let camera = session.camera_for::<PtzOpticsG2>(grafton_visca::CameraId::CAMERA_1)?;
+    let camera = session.camera();
     let _target = camera.target();
     session.close().await
 }

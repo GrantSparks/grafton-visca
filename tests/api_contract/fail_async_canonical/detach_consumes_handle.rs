@@ -1,4 +1,4 @@
-use grafton_visca::{completion::Targeted, Operation};
+use grafton_visca::{operation::Targeted, r#async::Operation};
 
 // Detaching consumes the handle (#777): nothing can observe it afterwards.
 async fn use_after_detach(mut handle: Operation<Targeted>) {

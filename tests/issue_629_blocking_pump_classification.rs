@@ -13,13 +13,14 @@ use grafton_visca_test_support::{fake_camera, profile_fixtures};
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    completion::{AppliedOnly, Targeted},
-    profile::ProfileSpec,
-    request::builtin::{ZoomStop, ZoomTarget},
+    blocking::Session,
+    config::{OperationalTuning, SessionConfig},
+    error::{Certainty, FailureStage},
+    operation::{AppliedOnly, Targeted},
+    profiles::ProfileSpec,
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    types::ZoomPosition,
-    CameraId, Certainty, Error, FailureStage, OperationalTuning,
+    types::{CameraId, ZoomPosition},
+    Error,
 };
 
 use fake_camera::{frames, BlockingWire, FakeCamera, Read};
@@ -91,9 +92,9 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
             // resets the connection before the next sample can be taken.
             vec![
                 Ok(ZOOM_POSITION_REPLY.to_vec()),
-                Err(Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::ConnectionReset,
-                )))),
+                Err(Error::Io {
+                    source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionReset)),
+                }),
             ],
         ],
         None,
@@ -102,13 +103,13 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
         ProfileSpec::from_compile_time::<DirectZoomOnlyTypedSupport>()
             .expect("settlement-polling runtime profile"),
     );
-    let session = Session::open(stream_wire(&fake), config).expect("owner session");
+    let session = Session::open(stream_wire(&fake), &config).expect("owner session");
     let camera = session
-        .camera::<DirectZoomOnlyTypedSupport>()
+        .camera::<DirectZoomOnlyTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera
-        .submit::<Targeted, _>(&ZoomTarget::new(
+        .submit::<Targeted, _>(&grafton_visca::command::zoom::SetPosition::new(
             ZoomPosition::new(0x0100).expect("zoom position"),
         ))
         .expect("submission")
@@ -123,7 +124,7 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
     };
     assert!(!matches!(
         error.recovery(),
-        grafton_visca::Recovery::Resubmit { .. }
+        grafton_visca::error::Recovery::Resubmit { .. }
     ));
     let context = error
         .failure_context()
@@ -131,7 +132,7 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
     assert_eq!(context.stage, FailureStage::Observation);
     assert_eq!(context.certainty, Certainty::Unconfirmed);
     let cause = source.as_ref().expect("the read fault preserves its cause");
-    assert!(matches!(cause.as_ref(), Error::Io(io)
+    assert!(matches!(cause.as_ref(), Error::Io { source: io }
         if io.kind() == std::io::ErrorKind::ConnectionReset));
     assert!(
         error.requires_new_session(),
@@ -154,11 +155,12 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     let config = SessionConfig::new(profile.clone())
         .with_target(CameraId::CAMERA_2, profile)
         .expect("second serial target")
-        .with_tuning(OperationalTuning::new().retry_timing(
-            Duration::from_millis(50),
-            Duration::from_millis(500),
-            Duration::from_secs(10),
-        ));
+        .with_tuning(
+            OperationalTuning::new()
+                .with_initial_retry_backoff(Duration::from_millis(50))
+                .with_maximum_retry_backoff(Duration::from_millis(500))
+                .with_retry_budget(Duration::from_secs(10)),
+        );
     let fake = probe(
         vec![
             vec![Ok(frames::ack(1)), Ok(frames::complete(1))],
@@ -172,21 +174,21 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
             )),
         )),
     );
-    let session = Session::open(serial_stream_wire(&fake), config).expect("owner session");
+    let session = Session::open(serial_stream_wire(&fake), &config).expect("owner session");
     let first_camera = session
-        .camera_for::<DirectZoomOnlyTypedSupport>(CameraId::CAMERA_1)
+        .camera::<DirectZoomOnlyTypedSupport>(CameraId::CAMERA_1)
         .expect("camera one view");
     let second_camera = session
-        .camera_for::<DirectZoomOnlyTypedSupport>(CameraId::CAMERA_2)
+        .camera::<DirectZoomOnlyTypedSupport>(CameraId::CAMERA_2)
         .expect("camera two view");
 
     let mut current = first_camera
-        .submit::<Targeted, _>(&ZoomTarget::new(
+        .submit::<Targeted, _>(&grafton_visca::command::zoom::SetPosition::new(
             ZoomPosition::new(0x0100).expect("zoom position"),
         ))
         .expect("targeted operation write");
     let mut peer = second_camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("peer operation write");
 
     let error = current
@@ -228,7 +230,7 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     assert!(write_source.downcast_ref::<Arc<Error>>().is_some());
     assert!(
         matches!(write_cause.as_ref(), Error::TransportError { source, .. }
-        if matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other))
+        if matches!(source.as_ref(), Error::Io { source: io } if io.kind() == std::io::ErrorKind::Other))
     );
     assert!(write_source
         .source()
@@ -238,7 +240,10 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
         .downcast_ref::<Arc<std::io::Error>>()
         .is_some());
     assert!(error.requires_new_session());
-    assert_eq!(error.recovery(), grafton_visca::Recovery::ReopenSession);
+    assert_eq!(
+        error.recovery(),
+        grafton_visca::error::Recovery::ReopenSession
+    );
     let context = error
         .failure_context()
         .expect("applied move observation context");

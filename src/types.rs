@@ -4,16 +4,30 @@
 //! selected camera profile's narrower limits and encoding.
 
 pub use crate::camera::{IdleWait, MotionQuery, MovementTolerance, PanTiltPosition, PanTiltUnits};
-pub use crate::command::{
-    AeLevel, AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, BlackLevel,
-    BlackStep, ClearImageZoomPosition, DirectMenuTarget, ExposureMode, FocusMode, FocusZone,
-    HighResolutionZoomSpeed, ImageFlipMode, IrisStep, KneeMode, KneeParameter, KneePermission,
-    KneePoint, KneeSlope, MemoryColorTemperatureStep, MenuButton, MenuDirection, NdFilterDensity,
-    NdFilterMode, NoiseReduction2D, NoiseReduction2DMode, NoiseReduction3D, PanTiltDirection,
-    PanTiltLimitCorner, PanTiltSpeedMode, PictureEffectMode, PowerStatus, PresetNumber,
-    PresetSeparateMode, PresetSpeed, PresetSpeedSelection, SharpnessMode, UnknownPictureEffect,
-    VersionInfo, WhiteBalanceGain, WhiteBalanceMode, WhiteBalanceOffset, WhiteBalanceStep,
+pub use crate::command::exposure_wire::{AntiFlickerMode, ExposureMode};
+pub use crate::command::focus_wire::{AutoFocusSensitivity, FocusMode, FocusZone};
+pub use crate::command::image_wire::{
+    ImageFlipMode, NoiseReduction2D, NoiseReduction2DMode, NoiseReduction3D, SharpnessMode,
 };
+pub use crate::command::inquiry_types::VersionInfo;
+pub use crate::command::menu_wire::{DirectMenuTarget, MenuButton, MenuDirection};
+pub use crate::command::nd_filter_wire::{NdFilterDensity, NdFilterMode};
+pub use crate::command::pan_tilt_wire::{PanTiltDirection, PanTiltLimitCorner};
+pub use crate::command::power_wire::PowerStatus;
+pub use crate::command::preset_wire::PresetNumber;
+pub use crate::command::resolution::{PictureEffectMode, UnknownPictureEffect};
+pub use crate::command::sony_fr7_exposure::{AeLevel, IrisStep};
+pub use crate::command::sony_fr7_image::{
+    BlackLevel, BlackStep, KneeMode, KneeParameter, KneePermission, KneePoint, KneeSlope,
+};
+pub use crate::command::sony_fr7_presets::{PresetSeparateMode, PresetSpeed, PresetSpeedSelection};
+pub use crate::command::sony_fr7_white_balance::{
+    MemoryColorTemperatureStep, WhiteBalanceGain, WhiteBalanceOffset, WhiteBalanceStep,
+};
+pub use crate::command::sony_fr7_zoom::{ClearImageZoomPosition, HighResolutionZoomSpeed};
+pub use crate::command::variable_speed::PanTiltSpeedMode;
+pub use crate::command::white_balance_wire::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
+
 pub use crate::inquiry_conversions::ZoomDomain;
 pub use crate::units::{Degrees, ExposureTime, Kelvin, UnitInterval};
 
@@ -104,7 +118,7 @@ pub struct ExposureCompensationLevel(i8);
 /// Coarse movement speed resolved against the selected profile during preparation.
 ///
 /// This value has no profile-independent conversion into an axis speed. Pass
-/// it directly to a control accepting [`Speed<T>`].
+/// it directly to a control accepting [`crate::types::Speed<T>`].
 #[crate::value_enum]
 #[derive(Default)]
 pub enum SpeedLevel {
@@ -126,7 +140,6 @@ impl SpeedLevel {
     ///
     /// The preparation path clamps these using the profile's actual speed
     /// grammar, including BRC-300's shared pan/tilt speed field.
-    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) const fn baseline_speeds(self) -> (u8, u8, u8, u8) {
         match self {
             Self::Slowest => (1, 1, 0, 0),
@@ -386,3 +399,7 @@ pub enum TallyBrightness {
 #[cfg(test)]
 #[path = "types/value_tests.rs"]
 mod value_tests;
+
+pub use crate::camera_id::{CameraId, IndividualCameraId};
+pub use crate::requests::{AffectedAxes, AffectedAxis, AffectedAxisIter};
+pub use crate::visca_socket::ViscaSocket;

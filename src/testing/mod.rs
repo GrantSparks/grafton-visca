@@ -6,19 +6,53 @@
 //! codec-selectable simulator and does not model Sony BRC-300's profile-owned
 //! 5+4 position codec.
 
+// Keep each stable export and its documentation projection in one declaration.
+// The projection includes all feature configurations for the generated guide.
+macro_rules! test_utility_exports {
+    (@exports; $($condition:meta => $($source:ident)::+ {
+        $($name:ident),+ $(,)?
+    };)*) => {
+        $(#[cfg($condition)] pub use $($source)::+::{$($name),+};)*
+    };
+    (@metadata; $($condition:meta => $($source:ident)::+ {
+        $($name:ident),+ $(,)?
+    };)*) => {
+        #[cfg(test)]
+        pub(crate) const PUBLIC_TEST_UTILITIES: &[(&str, &str)] = &[
+            $($((stringify!($name), stringify!($condition)),)+)*
+        ];
+    };
+    ($($entries:tt)*) => {
+        test_utility_exports!(@exports; $($entries)*);
+        test_utility_exports!(@metadata; $($entries)*);
+    };
+}
+
+#[macro_use]
+#[path = "testkit/exports.rs"]
+mod testkit_exports;
+
+#[cfg(test)]
+pub(crate) mod testkit_metadata {
+    testkit_utility_exports!(metadata);
+}
+
 // The reply frames shared by the testkit helpers, the simulator, and (through
 // `#[path]`) the integration suite's fake camera. Every test build that compiles
 // this module also compiles `frame_tests`, which pins each frame.
-#[cfg(any(feature = "test-utils", all(test, feature = "runtime-tokio")))]
-mod frames;
-#[cfg(any(feature = "test-utils", all(test, feature = "runtime-tokio")))]
+#[cfg(any(test, feature = "test-utils"))]
+pub(crate) mod frames;
+#[cfg(any(test, feature = "test-utils"))]
 use crate::command::VISCA_TERMINATOR;
 
 #[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
-pub mod camera_simulator;
+mod camera_simulator;
 
-#[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
-pub use camera_simulator::ViscaCameraSimulator;
+test_utility_exports! {
+    all(feature = "runtime-tokio", any(test, feature = "test-utils")) => camera_simulator {
+        CommandType, SimulatorBuilder, SimulatorConfig, ViscaCameraSimulator,
+    };
+}
 
 /// The virtual owner clock: test-only time for blocking owners, the testkit's
 /// async executor wrapper, and the crate's own owner tests. It drives owners,
@@ -49,7 +83,7 @@ pub mod receive;
 #[cfg(all(feature = "test-utils", feature = "blocking"))]
 pub mod fuzz;
 
-#[cfg(all(test, any(feature = "test-utils", feature = "runtime-tokio")))]
+#[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic)]
 mod frame_tests {
     //! Pins the reply frames against the crate's own reply decoder, and the
@@ -92,7 +126,7 @@ mod frame_tests {
         ));
         assert!(matches!(
             decode(&frames::canceled(1)),
-            Response::Error(Error::CommandCanceled)
+            Response::Error(Error::CommandCancelled)
         ));
         assert!(matches!(
             decode(&frames::no_socket(1)),

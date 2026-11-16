@@ -5,7 +5,7 @@
 //! safe code, where it would otherwise be polled by the wrong reactor.
 
 use grafton_visca::{
-    runtime::SmolRuntime, runtime_adapters::tokio::SerialTransport, TransportHandle,
+    runtime::SmolRuntime, runtime::TransportHandle, transport::tokio::SerialTransport,
 };
 
 fn tokio_serial() -> SerialTransport {

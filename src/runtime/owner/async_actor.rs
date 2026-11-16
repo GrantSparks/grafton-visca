@@ -153,6 +153,7 @@ async fn cooperative_yield() {
 
 trait OwnerClock: Send + Sync + 'static {
     fn now(&self) -> Instant;
+    fn diagnostic_timer(&self, deadline: Instant) -> Pin<Box<dyn ResettableTimer>>;
     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
@@ -164,21 +165,29 @@ where
         Executor::now(self)
     }
 
+    fn diagnostic_timer(&self, deadline: Instant) -> Pin<Box<dyn ResettableTimer>> {
+        Box::pin(Executor::timer(self, deadline))
+    }
+
     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(Executor::sleep(self, duration))
     }
 }
 
 #[derive(Clone)]
-struct BoundClock(Arc<dyn OwnerClock>);
+pub(crate) struct BoundClock(Arc<dyn OwnerClock>);
 
 impl BoundClock {
     fn from_shared<R: Executor>(runtime: Arc<R>) -> Self {
         Self(runtime)
     }
 
-    fn now(&self) -> Instant {
+    pub(crate) fn now(&self) -> Instant {
         self.0.now()
+    }
+
+    pub(crate) fn diagnostic_timer(&self, deadline: Instant) -> Pin<Box<dyn ResettableTimer>> {
+        self.0.diagnostic_timer(deadline)
     }
 
     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
@@ -204,7 +213,7 @@ pub(crate) trait AsyncOwnerDriver: Send + RetainedStreamInput {
     ) -> impl Future<Output = OwnerReceive> + Send;
 }
 
-/// An async operation receipt, as the public [`crate::Operation`] holds it.
+/// An async operation receipt, as the public [`crate::r#async::Operation`] holds it.
 pub(crate) type AsyncOperationReceipt<K> = OperationReceipt<K, AsyncOwnerHandle>;
 
 super::handle::owner_handle_methods! {
@@ -228,6 +237,11 @@ impl AsyncOwnerHandle {
         subscription: super::DiagnosticSubscription,
     ) -> super::DiagnosticSubscription {
         subscription
+    }
+
+    /// Clones only the selected executor clock, without retaining owner liveness.
+    pub(crate) fn diagnostic_clock(&self) -> BoundClock {
+        self.clock.clone()
     }
 
     /// Wait until the owner actor has finished its teardown.

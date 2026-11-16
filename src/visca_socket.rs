@@ -1,175 +1,108 @@
-//! Unified VISCA socket type.
-//!
-//! This module provides a single socket type that unifies the various socket
-//! representations used throughout the codebase.
+//! Checked identifiers for the two numbered VISCA command sockets.
 
-/// VISCA socket identifier.
+/// One numbered VISCA command-execution slot.
 ///
-/// VISCA cameras maintain two concurrent command execution slots (sockets) to allow
-/// up to two commands to be processed simultaneously. This unified type replaces
-/// the various socket representations that were previously scattered throughout
-/// the codebase.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+/// The canonical wire values are `1` and `2`. A protocol response with socket
+/// nibble `0` has no numbered socket and is represented by `Option::None`.
+/// Use [`crate::wire::WireValue`] for wire conversion; array indices remain
+/// zero-based through [`Self::as_index`].
+#[crate::value_enum]
+#[derive(Default)]
 pub enum ViscaSocket {
-    /// First command socket
+    /// First command socket, with protocol number `1`.
     #[default]
-    S1,
-    /// Second command socket
-    S2,
+    #[value(display = "Socket1")]
+    S1 = 1,
+    /// Second command socket, with protocol number `2`.
+    #[value(display = "Socket2")]
+    S2 = 2,
 }
 
 impl ViscaSocket {
-    /// Convert to zero-based index (0 or 1).
-    ///
-    /// This is used for array indexing and similar operations.
+    /// Returns the zero-based array index, `0` or `1`.
     #[must_use]
-    pub fn as_index(self) -> usize {
-        usize::from(self.as_socket_number() - 1)
-    }
-
-    /// Convert to one-based index (1 or 2).
-    ///
-    /// This matches the VISCA protocol socket numbering.
-    #[must_use]
-    pub fn as_socket_number(self) -> u8 {
+    pub const fn as_index(self) -> usize {
         match self {
-            ViscaSocket::S1 => 1,
-            ViscaSocket::S2 => 2,
-        }
-    }
-
-    /// Convert to VISCA protocol socket byte (0x01 or 0x02).
-    ///
-    /// This is used in VISCA command addressing.
-    #[must_use]
-    pub fn as_protocol_byte(self) -> u8 {
-        self.as_socket_number()
-    }
-
-    /// Convert to VISCA cancel command byte (0x21 or 0x22).
-    ///
-    /// This is used specifically for command cancellation: the Command Cancel
-    /// opcode nibble with this socket's protocol byte in the low nibble.
-    #[must_use]
-    pub fn as_cancel_byte(self) -> u8 {
-        crate::command::bytes::constants::system::COMMAND_CANCEL | self.as_protocol_byte()
-    }
-
-    /// Create from zero-based index (0 or 1).
-    ///
-    /// # Errors
-    /// Returns `None` if the index is not 0 or 1.
-    #[must_use]
-    pub fn from_index(index: usize) -> Option<Self> {
-        Self::from_socket_number(u8::try_from(index).ok()?.checked_add(1)?)
-    }
-
-    /// Create from one-based socket number (1 or 2).
-    ///
-    /// # Errors
-    /// Returns `None` if the socket number is not 1 or 2.
-    #[must_use]
-    pub fn from_socket_number(socket: u8) -> Option<Self> {
-        match socket {
-            1 => Some(ViscaSocket::S1),
-            2 => Some(ViscaSocket::S2),
-            _ => None,
-        }
-    }
-
-    /// Create from VISCA protocol byte.
-    ///
-    /// Accepts both socket addressing bytes (0x01, 0x02) and cancel bytes (0x21, 0x22).
-    ///
-    /// # Errors
-    /// Returns `None` if the byte doesn't represent a valid socket.
-    #[must_use]
-    pub fn from_protocol_byte(byte: u8) -> Option<Self> {
-        match byte {
-            0x01 | 0x02 | 0x21 | 0x22 => Self::from_socket_number(byte & 0x0F),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for ViscaSocket {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ViscaSocket::S1 => write!(f, "Socket1"),
-            ViscaSocket::S2 => write!(f, "Socket2"),
+            Self::S1 => 0,
+            Self::S2 => 1,
         }
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::wire::WireValue;
 
     #[test]
-    fn test_as_index() {
+    fn canonical_wire_domain_excludes_socketless_and_cancel_bytes() {
+        let accepted: Vec<_> = (0..=u8::MAX)
+            .filter_map(|byte| {
+                ViscaSocket::from_wire(byte)
+                    .ok()
+                    .map(|socket| (byte, socket))
+            })
+            .collect();
+        assert_eq!(accepted, [(1, ViscaSocket::S1), (2, ViscaSocket::S2)]);
+        for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+            assert_eq!(ViscaSocket::from_wire(socket.to_wire()).unwrap(), socket);
+        }
+    }
+
+    #[test]
+    fn array_indices_are_distinct_from_protocol_numbers() {
         assert_eq!(ViscaSocket::S1.as_index(), 0);
         assert_eq!(ViscaSocket::S2.as_index(), 1);
+        assert_eq!(ViscaSocket::S1.to_wire(), 1);
+        assert_eq!(ViscaSocket::S2.to_wire(), 2);
+        assert!(ViscaSocket::S1 < ViscaSocket::S2);
     }
 
     #[test]
-    fn test_as_socket_number() {
-        assert_eq!(ViscaSocket::S1.as_socket_number(), 1);
-        assert_eq!(ViscaSocket::S2.as_socket_number(), 2);
-    }
-
-    #[test]
-    fn test_as_protocol_byte() {
-        assert_eq!(ViscaSocket::S1.as_protocol_byte(), 0x01);
-        assert_eq!(ViscaSocket::S2.as_protocol_byte(), 0x02);
-    }
-
-    #[test]
-    fn test_as_cancel_byte() {
-        assert_eq!(ViscaSocket::S1.as_cancel_byte(), 0x21);
-        assert_eq!(ViscaSocket::S2.as_cancel_byte(), 0x22);
-    }
-
-    #[test]
-    fn test_from_index() {
-        assert_eq!(ViscaSocket::from_index(0), Some(ViscaSocket::S1));
-        assert_eq!(ViscaSocket::from_index(1), Some(ViscaSocket::S2));
-        assert_eq!(ViscaSocket::from_index(2), None);
-        assert_eq!(ViscaSocket::from_index(usize::MAX), None);
-    }
-
-    #[test]
-    fn test_from_socket_number() {
-        assert_eq!(ViscaSocket::from_socket_number(1), Some(ViscaSocket::S1));
-        assert_eq!(ViscaSocket::from_socket_number(2), Some(ViscaSocket::S2));
-        assert_eq!(ViscaSocket::from_socket_number(0), None);
-        assert_eq!(ViscaSocket::from_socket_number(3), None);
-    }
-
-    #[test]
-    fn test_from_protocol_byte() {
-        let accepted: Vec<_> = (0..=u8::MAX)
-            .filter_map(|byte| ViscaSocket::from_protocol_byte(byte).map(|socket| (byte, socket)))
-            .collect();
-        assert_eq!(
-            accepted,
-            [
-                (0x01, ViscaSocket::S1),
-                (0x02, ViscaSocket::S2),
-                (0x21, ViscaSocket::S1),
-                (0x22, ViscaSocket::S2)
-            ]
-        );
-        assert_eq!(ViscaSocket::from_protocol_byte(0x41), None);
-    }
-
-    #[test]
-    fn test_default() {
+    fn default_and_display_keep_the_numbered_socket_meaning() {
         assert_eq!(ViscaSocket::default(), ViscaSocket::S1);
+        assert_eq!(ViscaSocket::S1.to_string(), "Socket1");
+        assert_eq!(ViscaSocket::S2.to_string(), "Socket2");
     }
 
+    #[cfg(feature = "serde")]
     #[test]
-    fn test_display() {
-        assert_eq!(format!("{}", ViscaSocket::S1), "Socket1");
-        assert_eq!(format!("{}", ViscaSocket::S2), "Socket2");
+    fn serde_is_the_snake_case_value_enum_not_a_second_wire_codec() {
+        for (socket, name) in [(ViscaSocket::S1, "s1"), (ViscaSocket::S2, "s2")] {
+            let json = serde_json::json!(name);
+            assert_eq!(serde_json::to_value(socket).unwrap(), json);
+            assert_eq!(serde_json::from_value::<ViscaSocket>(json).unwrap(), socket);
+        }
+        assert!(serde_json::from_value::<ViscaSocket>(serde_json::json!("S1")).is_err());
+        assert!(serde_json::from_value::<ViscaSocket>(serde_json::json!(1)).is_err());
+    }
+
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    #[test]
+    fn schema_and_typescript_share_the_serialized_socket_domain() {
+        let schema = schemars::schema_for!(ViscaSocket);
+        let values = schema
+            .get("enum")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_else(|| {
+                schema
+                    .get("oneOf")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|variant| variant["const"].clone())
+                    .collect()
+            });
+        assert_eq!(
+            values,
+            serde_json::json!(["s1", "s2"]).as_array().unwrap().to_vec()
+        );
+        assert_eq!(
+            <ViscaSocket as ts_rs::TS>::decl(&ts_rs::Config::default()),
+            "type ViscaSocket = \"s1\" | \"s2\";"
+        );
     }
 }

@@ -370,12 +370,12 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
     } = spec;
     let (response_type, decoder, inherent, typed_impl, profiled) = match kind {
         ResponseKind::Raw => (
-            quote! { #crate_path::command::RawInquiryPayload },
+            quote! { #crate_path::wire::RawInquiryPayload },
             quote! {
-                fn decode(payload: &[u8]) -> ::core::result::Result<#crate_path::command::RawInquiryPayload, #crate_path::Error> {
-                    ::core::result::Result::Ok(#crate_path::command::RawInquiryPayload::from_slice(payload))
+                fn decode(payload: &[u8]) -> ::core::result::Result<#crate_path::wire::RawInquiryPayload, #crate_path::Error> {
+                    ::core::result::Result::Ok(#crate_path::wire::RawInquiryPayload::from_slice(payload))
                 }
-                #crate_path::ResponseDecoder::from_fn(decode)
+                #crate_path::request::ResponseDecoder::from_fn(decode)
             },
             None,
             None,
@@ -389,30 +389,30 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                 typed,
             } = built_in.as_ref();
             let body = if let Some(parse) = custom {
-                quote! { #parse(payload).map(#crate_path::command::Response::Inquiry) }
+                quote! { #parse(payload).map(#crate_path::wire::Response::Inquiry) }
             } else {
-                quote! { #crate_path::command::parse_inquiry_payload(payload, &#crate_path::command::InquiryKind::#response) }
+                quote! { #crate_path::wire::parse_inquiry_payload(payload, &#crate_path::__macro_support::InquiryKind::#response) }
             };
             let inherent = quote! {
                 impl #struct_name {
                     #[doc(hidden)]
-                    fn __grafton_visca_decode_payload(payload: &[u8]) -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> {
-                        (|| -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> { #body })()
+                    fn __grafton_visca_decode_payload(payload: &[u8]) -> ::core::result::Result<#crate_path::wire::Response, #crate_path::Error> {
+                        (|| -> ::core::result::Result<#crate_path::wire::Response, #crate_path::Error> { #body })()
                             .map_err(|error| #crate_path::__macro_support::inquiry_reply_error(error, payload))
                     }
 
                     /// Parses this inquiry's payload with the canonical table or explicit custom parser.
-                    pub fn parse_response(&self, payload: &[u8]) -> ::core::result::Result<#crate_path::command::InquiryData, #crate_path::Error> {
+                    pub fn parse_response(&self, payload: &[u8]) -> ::core::result::Result<#crate_path::__macro_support::InquiryData, #crate_path::Error> {
                         match Self::__grafton_visca_decode_payload(payload)? {
-                            #crate_path::command::Response::Inquiry(data) => ::core::result::Result::Ok(data),
-                            #crate_path::command::Response::Error(error) => ::core::result::Result::Err(error),
+                            #crate_path::wire::Response::Inquiry(data) => ::core::result::Result::Ok(data),
+                            #crate_path::wire::Response::Error(error) => ::core::result::Result::Err(error),
                             _ => ::core::result::Result::Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
                 }
             };
             let response_type = typed.as_ref().map_or_else(
-                || quote! { #crate_path::command::Response },
+                || quote! { #crate_path::wire::Response },
                 |typed| {
                     let ty = &typed.ty;
                     quote! { #ty }
@@ -422,7 +422,7 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                 generate_typed_impl(struct_name, variant, typed, &response_type, crate_path)
             });
             let lift = if typed.is_some() {
-                quote! { <#struct_name as #crate_path::command::ResponseParser>::from_response(response) }
+                quote! { <#struct_name as #crate_path::wire::ResponseParser>::from_response(response) }
             } else {
                 quote! { ::core::result::Result::Ok(response) }
             };
@@ -432,18 +432,18 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                     (|| -> ::core::result::Result<#response_type, #crate_path::Error> { #lift })()
                         .map_err(|error| #crate_path::__macro_support::inquiry_reply_error(error, payload))
                 }
-                #crate_path::ResponseDecoder::from_fn(decode)
+                #crate_path::request::ResponseDecoder::from_fn(decode)
             };
             let profiled = custom.is_none().then(|| quote! {
-                fn payload_shape(&self) -> #crate_path::PayloadShape {
-                    #crate_path::__macro_support::inquiry_payload_shape(#crate_path::command::InquiryKind::#response, ::core::option::Option::None)
+                fn payload_shape(&self) -> #crate_path::request::PayloadShape {
+                    #crate_path::__macro_support::inquiry_payload_shape(#crate_path::__macro_support::InquiryKind::#response, ::core::option::Option::None)
                 }
-                fn payload_shape_for_profile(&self, profile: &#crate_path::ProfileSpec) -> #crate_path::PayloadShape {
-                    #crate_path::__macro_support::inquiry_payload_shape(#crate_path::command::InquiryKind::#response, ::core::option::Option::Some(profile))
+                fn payload_shape_for_profile(&self, profile: &#crate_path::profiles::ProfileSpec) -> #crate_path::request::PayloadShape {
+                    #crate_path::__macro_support::inquiry_payload_shape(#crate_path::__macro_support::InquiryKind::#response, ::core::option::Option::Some(profile))
                 }
-                fn decoder_for_profile(&self, profile: &#crate_path::ProfileSpec) -> #crate_path::ResponseDecoder<Self::Response> {
-                    fn lift(response: #crate_path::command::Response) -> ::core::result::Result<#response_type, #crate_path::Error> { #lift }
-                    #crate_path::__macro_support::inquiry_decoder(#crate_path::command::InquiryKind::#response, profile, lift)
+                fn decoder_for_profile(&self, profile: &#crate_path::profiles::ProfileSpec) -> #crate_path::request::ResponseDecoder<Self::Response> {
+                    fn lift(response: #crate_path::wire::Response) -> ::core::result::Result<#response_type, #crate_path::Error> { #lift }
+                    #crate_path::__macro_support::inquiry_decoder(#crate_path::__macro_support::InquiryKind::#response, profile, lift)
                 }
             });
             (response_type, decoder, Some(inherent), typed_impl, profiled)
@@ -456,25 +456,25 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
             #[doc(hidden)]
             const __GRAFTON_VISCA_INQUIRY_BODY: [u8; 3] = [#crate_path::__macro_support::INQUIRY, #subcode, #opcode];
         }
-        impl #crate_path::Request for #struct_name {
-            type Class = #crate_path::request::Inquiry;
+        impl #crate_path::request::Request for #struct_name {
+            type Class = #crate_path::request::InquiryClass;
             const MAX_SIZE: usize = #crate_path::__macro_support::frame_len(&Self::__GRAFTON_VISCA_INQUIRY_BODY);
-            const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
-            const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
-            const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
-            fn write_into(&self, camera_id: #crate_path::CameraId, buffer: &mut [u8]) -> ::core::result::Result<usize, #crate_path::Error> {
+            const TIMEOUT_CLASS: #crate_path::request::TimeoutClass = #crate_path::request::TimeoutClass::Inquiry;
+            const RETRY_CLASS: #crate_path::request::RetryClass = #crate_path::request::RetryClass::Inquiry;
+            const CONTROL_CLASS: #crate_path::request::ControlClass = #crate_path::request::ControlClass::Normal;
+            fn write_into(&self, camera_id: #crate_path::types::CameraId, buffer: &mut [u8]) -> ::core::result::Result<usize, #crate_path::Error> {
                 #crate_path::__macro_support::write_frame(camera_id, &[&Self::__GRAFTON_VISCA_INQUIRY_BODY], buffer)
             }
         }
-        impl #crate_path::Inquiry for #struct_name {
+        impl #crate_path::request::Inquiry for #struct_name {
             type Response = #response_type;
-            fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> { #decoder }
+            fn decoder(&self) -> #crate_path::request::ResponseDecoder<Self::Response> { #decoder }
             #profiled
         }
     }
 }
 
-/// Generates the `command::ResponseParser` impl for a typed response.
+/// Generates the `wire::ResponseParser` impl for a typed response.
 fn generate_typed_impl(
     struct_name: &Ident,
     variant: &Ident,
@@ -490,9 +490,9 @@ fn generate_typed_impl(
     } = typed;
 
     let destructure = if *is_tuple {
-        quote! { #crate_path::command::InquiryData::#variant(#(#fields),*) }
+        quote! { #crate_path::__macro_support::InquiryData::#variant(#(#fields),*) }
     } else {
-        quote! { #crate_path::command::InquiryData::#variant { #(#fields),* } }
+        quote! { #crate_path::__macro_support::InquiryData::#variant { #(#fields),* } }
     };
 
     let first = &fields[0];
@@ -517,15 +517,15 @@ fn generate_typed_impl(
     };
 
     quote! {
-        impl #crate_path::command::ResponseParser for #struct_name {
+        impl #crate_path::wire::ResponseParser for #struct_name {
             type Response = #response_type;
 
             fn from_response(
-                resp: #crate_path::command::Response,
+                resp: #crate_path::wire::Response,
             ) -> ::core::result::Result<Self::Response, #crate_path::Error> {
                 (match resp {
-                    #crate_path::command::Response::Inquiry(#destructure) => #construction,
-                    #crate_path::command::Response::Error(e) => ::core::result::Result::Err(e),
+                    #crate_path::wire::Response::Inquiry(#destructure) => #construction,
+                    #crate_path::wire::Response::Error(e) => ::core::result::Result::Err(e),
                     _ => ::core::result::Result::Err(#crate_path::Error::UnexpectedResponseType),
                 }).map_err(|error| {
                     #crate_path::__macro_support::inquiry_reply_error(error, &[])
@@ -563,6 +563,54 @@ mod tests {
                 "{tokens}"
             );
             assert!(!tokens.contains("compile_error"), "{tokens}");
+        }
+    }
+
+    #[test]
+    fn renamed_dependencies_use_only_canonical_public_and_hidden_support_paths() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[visca(opcode = 0, response = Power, typed_response = bool, typed_field = status)]
+            struct Probe;
+        };
+        let spec = parse_visca_attributes_from_struct(&input)
+            .and_then(|attrs| attrs.validate(&input.ident))
+            .unwrap();
+        let tokens = generate(&input.ident, &spec, &quote!(::renamed_camera)).to_string();
+        for path in [
+            "request :: Request",
+            "request :: InquiryClass",
+            "request :: Inquiry",
+            "request :: ResponseDecoder",
+            "request :: PayloadShape",
+            "request :: TimeoutClass",
+            "request :: RetryClass",
+            "request :: ControlClass",
+            "types :: CameraId",
+            "profiles :: ProfileSpec",
+            "wire :: ResponseParser",
+            "wire :: Response",
+            "wire :: parse_inquiry_payload",
+            "__macro_support :: InquiryKind",
+            "__macro_support :: InquiryData",
+        ] {
+            assert!(
+                tokens.contains(&format!("renamed_camera :: {path}")),
+                "missing {path}: {tokens}"
+            );
+        }
+        assert!(!tokens.contains("renamed_camera :: command"));
+        for old in [
+            "Request",
+            "Inquiry",
+            "CameraId",
+            "ProfileSpec",
+            "ResponseDecoder",
+            "PayloadShape",
+        ] {
+            assert!(
+                !tokens.contains(&format!("renamed_camera :: {old} ")),
+                "old root path {old}: {tokens}"
+            );
         }
     }
 

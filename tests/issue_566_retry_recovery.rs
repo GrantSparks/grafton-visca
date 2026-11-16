@@ -33,13 +33,13 @@ use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures, r
 use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
-    completion::AppliedOnly,
-    profile::{ProfileSpec, ProfileTiming},
-    profiles::SonyFR7,
+    error::{Certainty, ErrorKind, FailureContext, FailureStage, Recovery},
+    operation::AppliedOnly,
+    profiles::{ProfileSpec, ProfileTiming, SonyFr7},
     raw,
-    request::builtin::ZoomStop,
+    request::RetryClass,
     types::ZoomPosition,
-    Certainty, Error, ErrorKind, FailureContext, FailureStage, Recovery, RetryClass,
+    Error,
 };
 
 use fake_camera::{frames, FakeCamera};
@@ -50,7 +50,7 @@ const ZOOM_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xff];
 
 /// The Sony FR7 profile's timing, read from the profile itself.
 fn sony_fr7_timing() -> ProfileTiming {
-    ProfileSpec::from_compile_time::<SonyFR7>()
+    ProfileSpec::from_compile_time::<SonyFr7>()
         .expect("Sony FR7 profile")
         .timing()
 }
@@ -72,12 +72,12 @@ fn decode_custom_inquiry(payload: &[u8]) -> Result<Vec<u8>, Error> {
     Ok(payload.to_vec())
 }
 
-fn custom_zoom_inquiry() -> raw::Inquiry<Vec<u8>> {
-    raw::Inquiry::from_fn(
+fn custom_zoom_inquiry() -> raw::InquiryRequest<Vec<u8>> {
+    raw::InquiryRequest::from_fn(
         ZOOM_POSITION_INQUIRY,
         decode_custom_inquiry,
         RetryClass::Inquiry,
-        grafton_visca::SubmissionClass::Normal,
+        grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("valid custom inquiry")
 }
@@ -122,7 +122,7 @@ facade_matrix! {
         let camera = scripted(vec![vec![not_executable()], standard_reply()], standard_reply());
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(view.execute(&MovementCommand))
@@ -143,10 +143,10 @@ facade_matrix! {
         let camera = scripted(vec![vec![not_executable()], standard_reply()], standard_reply());
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
-        let error = wait!(wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+        let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
             .expect("submission")
             .applied_with_timeout(Duration::from_secs(5)))
         .expect_err("a refused STOP surfaces the camera's refusal");
@@ -164,7 +164,7 @@ facade_matrix! {
         let camera = scripted(vec![vec![not_executable()]], standard_reply());
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         let error = wait!(view.execute(&StandardCommand))
@@ -190,7 +190,7 @@ facade_matrix! {
         let camera = scripted(vec![vec![no_socket()], standard_reply()], standard_reply());
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(view.execute(&StandardCommand))
@@ -214,7 +214,7 @@ facade_matrix! {
         );
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         let position = wait!(view.zoom().position())
@@ -233,7 +233,7 @@ facade_matrix! {
         );
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         let custom = custom_zoom_inquiry();
@@ -277,9 +277,9 @@ facade_matrix! {
         // the frame is reissued.
         let camera = scripted(vec![Vec::new(), standard_reply()], standard_reply());
         let session = open!(camera, sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFR7>().expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
 
-        wait!(wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+        wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
             .expect("submission")
             .applied_with_timeout(Duration::from_secs(5)))
         .expect("a lost ACK must be retried for a movement request");
@@ -300,10 +300,10 @@ facade_matrix! {
     fn a_silent_camera_after_its_ack_is_never_rewritten() {
         let camera = scripted(vec![vec![frames::ack(1)], standard_reply()], standard_reply());
         let session = open!(camera, sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFR7>().expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
 
         let started = now!();
-        let error = wait!(wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+        let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
             .expect("submission")
             .applied_with_timeout(Duration::from_secs(30)))
         .expect_err("a post-ACK completion timeout is terminal");
@@ -318,9 +318,9 @@ facade_matrix! {
         }
         assert_eq!(
             error.failure_context(),
-            Some(grafton_visca::FailureContext::new(
-                grafton_visca::FailureStage::Terminal,
-                grafton_visca::Certainty::Unconfirmed
+            Some(grafton_visca::error::FailureContext::new(
+                grafton_visca::error::FailureStage::Terminal,
+                grafton_visca::error::Certainty::Unconfirmed
             )),
             "{error:?}"
         );
@@ -340,11 +340,11 @@ facade_matrix! {
         // The camera never answers anything: neither the command nor the cancel.
         let camera = FakeCamera::silent();
         let session = open!(camera, sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFR7>().expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
 
         let started = now!();
         let mut operation =
-            wait!(view.submit::<AppliedOnly, _>(&ZoomStop)).expect("submission");
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("submission");
         let error = wait!(operation.cancel_with_timeout(Duration::from_secs(5)))
             .expect_err("a camera that never answers cannot confirm a cancellation");
         let elapsed = now!().duration_since(started);

@@ -7,20 +7,29 @@
 
 // Command modules
 pub(crate) mod color;
-pub(crate) mod exposure;
+#[path = "exposure.rs"]
+pub(crate) mod exposure_wire;
 pub(crate) mod flip;
-pub(crate) mod focus;
+#[path = "focus.rs"]
+pub(crate) mod focus_wire;
 pub(crate) mod gain;
-pub(crate) mod image;
+#[path = "image.rs"]
+pub(crate) mod image_wire;
 pub(crate) mod inquiry;
 pub(crate) mod inquiry_structs; // Internal module for macro-generated inquiry commands
 pub(crate) mod inquiry_types;
-pub(crate) mod menu;
-pub(crate) mod motion_sync;
-pub(crate) mod nd_filter;
-pub(crate) mod pan_tilt;
-pub(crate) mod power;
-pub(crate) mod preset;
+#[path = "menu.rs"]
+pub(crate) mod menu_wire;
+#[path = "motion_sync.rs"]
+pub(crate) mod motion_sync_wire;
+#[path = "nd_filter.rs"]
+pub(crate) mod nd_filter_wire;
+#[path = "pan_tilt.rs"]
+pub(crate) mod pan_tilt_wire;
+#[path = "power.rs"]
+pub(crate) mod power_wire;
+#[path = "preset.rs"]
+pub(crate) mod preset_wire;
 pub(crate) mod resolution;
 pub(crate) mod response;
 /// Authoritative semantic classification ledger for built-in commands.
@@ -30,18 +39,67 @@ pub(crate) mod sony_fr7_image;
 pub(crate) mod sony_fr7_presets;
 pub(crate) mod sony_fr7_white_balance;
 pub(crate) mod sony_fr7_zoom;
-pub(crate) mod streaming;
+#[path = "streaming.rs"]
+pub(crate) mod streaming_wire;
 /// Crate-private noun/method mapping for the final static camera surface.
 ///
 /// The mapping is an in-crate audit authority; production request preparation
 /// consumes typed request implementations directly.
 pub(crate) mod surface;
-pub(crate) mod system;
-pub(crate) mod tally;
+#[path = "system.rs"]
+pub(crate) mod system_wire;
+#[path = "tally.rs"]
+pub(crate) mod tally_wire;
 pub(crate) mod typed;
 pub(crate) mod variable_speed;
-pub(crate) mod white_balance;
-pub(crate) mod zoom;
+#[path = "white_balance.rs"]
+pub(crate) mod white_balance_wire;
+#[path = "zoom.rs"]
+pub(crate) mod zoom_wire;
+
+/// Canonical exposure requests.
+#[path = "nouns/exposure.rs"]
+pub mod exposure;
+/// Canonical focus requests.
+#[path = "nouns/focus.rs"]
+pub mod focus;
+/// Canonical image requests.
+#[path = "nouns/image.rs"]
+pub mod image;
+/// Canonical menu requests.
+#[path = "nouns/menu.rs"]
+pub mod menu;
+/// Canonical motion sync requests.
+#[path = "nouns/motion_sync.rs"]
+pub mod motion_sync;
+/// Canonical nd filter requests.
+#[path = "nouns/nd_filter.rs"]
+pub mod nd_filter;
+pub(crate) mod nouns;
+/// Canonical pan tilt requests.
+#[path = "nouns/pan_tilt.rs"]
+pub mod pan_tilt;
+/// Canonical power requests.
+#[path = "nouns/power.rs"]
+pub mod power;
+/// Canonical preset requests.
+#[path = "nouns/presets.rs"]
+pub mod presets;
+/// Canonical streaming requests.
+#[path = "nouns/streaming.rs"]
+pub mod streaming;
+/// Canonical system requests.
+#[path = "nouns/system.rs"]
+pub mod system;
+/// Canonical tally requests.
+#[path = "nouns/tally.rs"]
+pub mod tally;
+/// Canonical white-balance requests.
+#[path = "nouns/white_balance.rs"]
+pub mod white_balance;
+/// Canonical zoom requests.
+#[path = "nouns/zoom.rs"]
+pub mod zoom;
 
 // Command encoding implementation. The stable extension surface is re-exported
 // from this module root rather than through implementation submodules.
@@ -61,43 +119,48 @@ pub(crate) fn test_wire_bytes<C: encode::WireEncode>(
 }
 
 // Re-export command types
-pub use self::sony_fr7_exposure::*;
-pub use self::sony_fr7_image::*;
-pub use self::sony_fr7_presets::*;
-pub use self::sony_fr7_white_balance::*;
-pub use self::sony_fr7_zoom::*;
-pub use self::{
-    bytes::VISCA_TERMINATOR,
-    color::*,
+pub(crate) use self::sony_fr7_exposure::*;
+pub(crate) use self::sony_fr7_image::*;
+pub(crate) use self::sony_fr7_presets::*;
+pub(crate) use self::sony_fr7_white_balance::*;
+pub(crate) use self::sony_fr7_zoom::*;
+pub(crate) use self::{
     encode::CommandKind,
-    exposure::*,
-    flip::ImageFreeze,
-    focus::*,
-    gain::{Gain, GainLimitCommand},
-    image::*,
+    exposure_wire::*,
+    focus_wire::*,
+    image_wire::*,
     inquiry::*,
     inquiry_structs::{InquiryData, InquiryKind},
     inquiry_types::VersionInfo,
-    menu::*,
-    motion_sync::{SetMotionSyncMode, SetMotionSyncPreset},
-    nd_filter::*,
-    pan_tilt::*,
-    power::*,
-    preset::*,
-    resolution::{PictureEffectMode, UnknownPictureEffect},
-    response::{
-        parse_inquiry_payload, BoolConvention, Nibbles, Payload, RawInquiryPayload, Response,
-    },
-    streaming::{MulticastStreamingCommand, SetNdiQuality, UsbAudioCommand},
-    system::SettingsSaveCommand,
-    tally::{
+    menu_wire::*,
+    motion_sync_wire::{SetMotionSyncMode, SetMotionSyncPreset},
+    nd_filter_wire::*,
+    pan_tilt_wire::*,
+    power_wire::*,
+    preset_wire::*,
+    response::{Payload, Response},
+    streaming_wire::{MulticastStreamingCommand, SetNdiQuality, UsbAudioCommand},
+    system_wire::SettingsSaveCommand,
+    tally_wire::{
         TallyBrightHi, TallyBrightLo, TallyFlash, TallyGreenOff, TallyGreenOn, TallyOff, TallyOn,
         TallyRedOff, TallyRedOn,
     },
     typed::ResponseParser,
     variable_speed::*,
-    white_balance::*,
-    zoom::{DigitalZoom, Zoom},
+    white_balance_wire::*,
+    zoom_wire::Zoom,
+};
+
+#[cfg(any(test, feature = "test-utils"))]
+pub(crate) use self::bytes::VISCA_TERMINATOR;
+#[cfg(any(test, all(feature = "test-utils", feature = "blocking")))]
+pub(crate) use self::response::parse_inquiry_payload;
+
+#[cfg(test)]
+pub(crate) use self::{
+    color::{BlueGain, ColorTemperature, RedGain},
+    gain::Gain,
+    resolution::UnknownPictureEffect,
 };
 
 #[cfg(test)]
@@ -145,14 +208,14 @@ mod tests {
 
     #[test]
     fn test_power_commands_have_terminator() {
-        use crate::command::power::{PowerOn, PowerStandby};
+        use crate::command::power_wire::{PowerOn, PowerStandby};
         assert_command_has_terminator(PowerOn::new(), "PowerOn");
         assert_command_has_terminator(PowerStandby::new(), "PowerStandby");
     }
 
     #[test]
     fn test_zoom_commands_have_terminator() {
-        use crate::command::zoom::Zoom;
+        use crate::command::zoom_wire::Zoom;
         assert_command_has_terminator(Zoom::Stop, "Zoom::Stop");
         assert_command_has_terminator(Zoom::TeleStd, "Zoom::TeleStd");
         assert_command_has_terminator(Zoom::WideStd, "Zoom::WideStd");
@@ -160,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_focus_commands_have_terminator() {
-        use crate::command::focus::Focus;
+        use crate::command::focus_wire::Focus;
         assert_command_has_terminator(Focus::Stop, "Focus::Stop");
         assert_command_has_terminator(Focus::Auto, "Focus::Auto");
         assert_command_has_terminator(Focus::Manual, "Focus::Manual");
@@ -171,11 +234,11 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used, clippy::unwrap_used)]
     fn test_pan_tilt_commands_have_terminator() {
-        use crate::command::pan_tilt::PanTilt;
+        use crate::command::pan_tilt_wire::PanTilt;
         assert_command_has_terminator(PanTilt::Home, "PanTilt::Home");
         assert_command_has_terminator(PanTilt::Reset, "PanTilt::Reset");
         // Test Move variant with Stop direction
-        use crate::command::pan_tilt::PanTiltDirection;
+        use crate::command::pan_tilt_wire::PanTiltDirection;
         use crate::types::{PanSpeed, TiltSpeed};
         assert_command_has_terminator(
             PanTilt::Move {
@@ -197,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_exposure_commands_have_terminator() {
-        use crate::command::exposure::{ExposureCommand, ExposureMode};
+        use crate::command::exposure_wire::{ExposureCommand, ExposureMode};
         assert_command_has_terminator(
             ExposureCommand {
                 mode: ExposureMode::Auto,
@@ -215,22 +278,22 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)]
     fn test_preset_commands_have_terminator() {
-        use crate::command::preset::PresetCommand;
-        use crate::command::preset::PresetNumber;
+        use crate::command::preset_wire::PresetCommand;
+        use crate::command::preset_wire::PresetNumber;
 
         // Not `if let Ok(..)`: a preset range that stopped admitting 1 would
         // silently skip both assertions instead of failing.
         let preset = PresetNumber::new(1).expect("preset 1 is inside every supported preset range");
         assert_command_has_terminator(
             PresetCommand {
-                action: crate::command::preset::PresetAction::Recall,
+                action: crate::command::preset_wire::PresetAction::Recall,
                 preset_number: preset,
             },
             "Preset::Recall(1)",
         );
         assert_command_has_terminator(
             PresetCommand {
-                action: crate::command::preset::PresetAction::Set,
+                action: crate::command::preset_wire::PresetAction::Set,
                 preset_number: preset,
             },
             "Preset::Set(1)",
@@ -240,7 +303,7 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used, clippy::unwrap_used)]
     fn test_white_balance_commands_have_terminator() {
-        use crate::command::white_balance::{WhiteBalanceCommand, WhiteBalanceMode};
+        use crate::command::white_balance_wire::{WhiteBalanceCommand, WhiteBalanceMode};
 
         assert_command_has_terminator(
             WhiteBalanceCommand {
@@ -259,10 +322,10 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used, clippy::unwrap_used)]
     fn test_all_command_categories_terminate() {
-        use crate::command::focus::Focus;
-        use crate::command::pan_tilt::PanTilt;
-        use crate::command::power::PowerOn;
-        use crate::command::zoom::Zoom;
+        use crate::command::focus_wire::Focus;
+        use crate::command::pan_tilt_wire::PanTilt;
+        use crate::command::power_wire::PowerOn;
+        use crate::command::zoom_wire::Zoom;
 
         // Test commands from different categories to ensure
         // the macros are correctly applying termination
@@ -329,7 +392,7 @@ mod tests {
         use crate::command::color::{
             BlueGain, BlueTuningCommand, HueCommand, RedGain, RedTuningCommand, SaturationCommand,
         };
-        use crate::command::streaming::{
+        use crate::command::streaming_wire::{
             MulticastStreamingCommand, SetNdiQuality, UsbAudioCommand,
         };
         use crate::types::{HueLevel, NdiQuality, RgbGain, RgbTuning, SaturationLevel};
@@ -436,11 +499,11 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)]
     fn every_encoder_family_varies_only_in_the_address_byte() {
+        use crate::command::color::OnePushTriggerCommand;
         use crate::command::{
             BlueGain, Brightness, ColorTemperature, ExposureCompensation, Focus, Gain, Iris,
-            OnePushTriggerCommand, PowerOn, RedGain, SettingsSaveCommand, Sharpness, SharpnessMode,
-            Shutter, SpotlightOn, TallyFlash, TallyRedOn, WhiteBalanceCommand, WhiteBalanceMode,
-            Zoom,
+            PowerOn, RedGain, SettingsSaveCommand, Sharpness, SharpnessMode, Shutter, SpotlightOn,
+            TallyFlash, TallyRedOn, WhiteBalanceCommand, WhiteBalanceMode, Zoom,
         };
         use crate::types::{
             BrightnessLevel, ExposureCompensationLevel, GainLevel, IrisLevel, Kelvin, RgbGain,

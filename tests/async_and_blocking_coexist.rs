@@ -26,10 +26,11 @@ use grafton_visca_test_support::fake_camera;
 ))]
 fn assert_blocking_surface() {
     use grafton_visca::{
-        blocking::{Camera, Operation, Session, SessionConfig},
-        completion::{AppliedOnly, Targeted},
-        profiles::PtzOpticsG2,
-        Error, ProfileSpec,
+        blocking::{Camera, Operation, Session},
+        config::SessionConfig,
+        operation::{AppliedOnly, Targeted},
+        profiles::{ProfileSpec, PtzOpticsG2},
+        Error,
     };
 
     let _: Option<Camera<PtzOpticsG2>> = None;
@@ -50,7 +51,10 @@ fn assert_async_surface() {
     use std::future::Future;
 
     use grafton_visca::{
-        completion::Targeted, profiles::PtzOpticsG2, Camera, Operation, Session, SessionConfig,
+        config::SessionConfig,
+        operation::Targeted,
+        profiles::PtzOpticsG2,
+        r#async::{Camera, Operation, Session},
     };
 
     let _: Option<Camera<PtzOpticsG2>> = None;
@@ -61,7 +65,7 @@ fn assert_async_surface() {
         operation: &mut Operation<K>,
     ) -> impl Future<Output = grafton_visca::Result<()>> + '_
     where
-        K: grafton_visca::completion::Kind,
+        K: grafton_visca::operation::Kind,
     {
         operation.applied()
     }
@@ -82,15 +86,15 @@ fn blocking_only_surface_compiles() {
 #[test]
 fn async_only_tokio_surface_compiles() {
     assert_async_surface();
-    let _: fn() -> grafton_visca::Result<grafton_visca::TokioRuntime> =
-        || grafton_visca::TokioRuntime::from_current();
+    let _: fn() -> grafton_visca::Result<grafton_visca::runtime::TokioRuntime> =
+        || grafton_visca::runtime::TokioRuntime::from_current();
 }
 
 #[cfg(all(feature = "async", feature = "runtime-smol", not(feature = "blocking")))]
 #[test]
 fn async_only_smol_surface_compiles() {
     assert_async_surface();
-    let _: fn() -> grafton_visca::SmolRuntime = grafton_visca::SmolRuntime::new;
+    let _: fn() -> grafton_visca::runtime::SmolRuntime = grafton_visca::runtime::SmolRuntime::new;
 }
 
 #[cfg(all(feature = "blocking", feature = "async", feature = "runtime-tokio"))]
@@ -117,9 +121,9 @@ fn blocking_and_smol_surfaces_coexist() {
 fn blocking_and_all_supported_executors_coexist() {
     assert_blocking_surface();
     assert_async_surface();
-    let _: fn() -> grafton_visca::Result<grafton_visca::TokioRuntime> =
-        || grafton_visca::TokioRuntime::from_current();
-    let _: fn() -> grafton_visca::SmolRuntime = grafton_visca::SmolRuntime::new;
+    let _: fn() -> grafton_visca::Result<grafton_visca::runtime::TokioRuntime> =
+        || grafton_visca::runtime::TokioRuntime::from_current();
+    let _: fn() -> grafton_visca::runtime::SmolRuntime = grafton_visca::runtime::SmolRuntime::new;
 }
 
 // Keep one behavioral coexistence probe in this crate. The type assertions
@@ -133,9 +137,9 @@ fn blocking_and_all_supported_executors_coexist() {
 ))]
 mod runtime_coexistence {
     use grafton_visca::{
-        blocking::{Session as BlockingSession, SessionConfig as BlockingConfig},
-        profiles::PtzOpticsG2,
-        Executor, Session as AsyncSession, SessionConfig as AsyncConfig,
+        blocking::Session as BlockingSession, config::SessionConfig as BlockingConfig,
+        config::SessionConfig as AsyncConfig, profiles::PtzOpticsG2,
+        r#async::Session as AsyncSession, runtime::Executor,
     };
     use grafton_visca_test_support::runtime_matrix;
 
@@ -144,11 +148,11 @@ mod runtime_coexistence {
     async fn blocking_and_async_owners_open_use_and_close<E: Executor>(executor: E) {
         let blocking = BlockingSession::open(
             FakeCamera::acking(1).blocking_wire(),
-            BlockingConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
+            &BlockingConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
         )
         .unwrap();
         blocking
-            .camera::<PtzOpticsG2>()
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
             .unwrap()
             .zoom()
             .stop()
@@ -158,13 +162,13 @@ mod runtime_coexistence {
 
         let async_session = AsyncSession::open(
             FakeCamera::acking(1).async_wire(),
-            AsyncConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
+            &AsyncConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
             executor,
         )
         .await
         .unwrap();
         async_session
-            .camera::<PtzOpticsG2>()
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
             .unwrap()
             .zoom()
             .stop()

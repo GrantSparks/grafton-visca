@@ -6,4 +6,4 @@ fn main() {
 }
 
 //~ E0277
-//~ "does not declare typed ND filter support"
+//~ "camera profile `grafton_visca::profiles::PtzOpticsG2` does not support `grafton_visca::capabilities::gate::NdFilter`"

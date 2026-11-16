@@ -232,7 +232,7 @@ visca_command! {
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
     /// in low light conditions to maintain proper exposure. The typed surface is
-    /// restricted to source-backed `HasSonyAutoSlowShutter` profiles.
+    /// restricted to source-backed `HasAutoSlowShutter` profiles.
     pub struct AutoSlowShutterOn;
     bytes = exposure::AUTO_SLOW_SHUTTER_ON;
 }
@@ -242,7 +242,7 @@ visca_command! {
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
     /// in low light conditions to maintain proper exposure. The typed surface is
-    /// restricted to source-backed `HasSonyAutoSlowShutter` profiles.
+    /// restricted to source-backed `HasAutoSlowShutter` profiles.
     pub struct AutoSlowShutterOff;
     bytes = exposure::AUTO_SLOW_SHUTTER_OFF;
 }

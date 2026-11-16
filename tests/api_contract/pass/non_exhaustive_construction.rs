@@ -1,14 +1,13 @@
 use grafton_visca::{
-    camera::MovementTolerance,
-    capabilities::ValidationError,
-    command::{ImageFlipMode, InquiryData, InquiryKind, Response},
-    transport::{BufferConfig, FrameMeta, FrameSequence, TransportConfig},
-    Certainty, Error, FailureStage, ViscaSocket,
+    __macro_support::InquiryData, __macro_support::InquiryKind, error::Certainty,
+    error::FailureStage, transport::BufferConfig, transport::FrameMeta, transport::FrameSequence,
+    transport::TransportConfig, types::ImageFlipMode, types::MovementTolerance, types::ViscaSocket,
+    wire::Response, Error,
 };
 
 fn main() {
     let mut config = TransportConfig::default();
-    config.buffer_config = BufferConfig::for_raw_ip();
+    config = config.with_buffer_config(BufferConfig::for_tcp());
     let mut tolerance = MovementTolerance::default();
     tolerance.zoom = 1;
     let _ = (
@@ -34,8 +33,6 @@ fn main() {
     }
     let _ = Error::timeout(FailureStage::Observation, Certainty::StillLive);
     let _ = Error::connection_closed(None);
-    let _ = ValidationError::out_of_range("zoom", 2.0, 0.0, 1.0);
-    let _ = ValidationError::invalid_value("zoom", "invalid");
     match Response::cmd_ack(Some(ViscaSocket::S1)) {
         Response::CmdAck { socket, .. } => assert_eq!(socket, Some(ViscaSocket::S1)),
         _ => panic!("unexpected acknowledgment"),
@@ -58,7 +55,7 @@ fn main() {
         _ => false,
     };
     let _ = match (InquiryData::Power {
-        status: grafton_visca::PowerStatus::On,
+        status: grafton_visca::types::PowerStatus::On,
     }) {
         InquiryData::Power { status } => status.is_on(),
         _ => false,

@@ -1,7 +1,9 @@
 use grafton_visca::Error;
 fn main() {
     match Error::connection_closed(None) {
-        Error::ConnectionClosed { source } => { let _ = source; }
+        Error::ConnectionClosed { source } => {
+            let _ = source;
+        }
         _ => {}
     }
 }

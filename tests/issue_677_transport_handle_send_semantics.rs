@@ -3,10 +3,10 @@
 
 #![cfg(feature = "runtime-tokio")]
 
+use grafton_visca::runtime::{Runtime, TokioRuntime, TransportHandle};
 use grafton_visca::transport::{
     HasTransportConfig, SendSemantics, TransportConfig, TransportIdentity,
 };
-use grafton_visca::{Runtime, TokioRuntime, TransportHandle};
 
 /// A UDP session built through the wrapper must be governed by datagram rules.
 /// This is the defect in #677: the omitted `send_semantics` forward demoted

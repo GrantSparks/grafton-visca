@@ -5,14 +5,19 @@
 use std::time::Duration;
 
 use grafton_visca::{
-    camera::profiles::GenericVisca,
-    profile::ProfileSpec,
+    config::SessionConfig,
+    error::{Certainty, ErrorKind, FailureContext, FailureStage, Recovery},
+    observability::SessionStatus,
+    operation::CancellationOutcome,
+    profiles::{GenericVisca, ProfileSpec},
+    r#async::Session,
     raw,
-    testing::camera_simulator::{CommandType, ViscaCameraSimulator},
+    request::{ControlClass, Inquiry, Request, ResponseDecoder, RetryClass, TimeoutClass},
+    runtime::TokioExecutor,
+    testing::{CommandType, ViscaCameraSimulator},
     transport::{AsyncTransport, HasTransportConfig, SendSemantics},
-    CameraId, CancellationOutcome, Certainty, ControlClass, Error, ErrorKind, FailureContext,
-    FailureStage, Inquiry, Recovery, Request, ResponseDecoder, RetryClass, Session, SessionConfig,
-    SessionStatus, TimeoutClass, TokioExecutor,
+    types::CameraId,
+    Error,
 };
 
 const POWER_ON: &[u8] = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xff];
@@ -20,7 +25,7 @@ const POWER_ON: &[u8] = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xff];
 async fn open(simulator: ViscaCameraSimulator) -> Session {
     Session::open(
         simulator,
-        SessionConfig::from_compile_time::<GenericVisca>().expect("generic configuration"),
+        &SessionConfig::from_compile_time::<GenericVisca>().expect("generic configuration"),
         TokioExecutor::from_current().expect("Tokio runtime"),
     )
     .await
@@ -37,12 +42,12 @@ async fn reply(simulator: &mut ViscaCameraSimulator) -> Vec<u8> {
     bytes[..count].to_vec()
 }
 
-fn plain_power() -> raw::Plain {
-    raw::Plain::new(
+fn plain_power() -> raw::PlainRequest {
+    raw::PlainRequest::new(
         POWER_ON,
-        grafton_visca::CommandCategory::Quick,
+        grafton_visca::profiles::CommandTimeoutClass::Quick,
         RetryClass::Never,
-        grafton_visca::SubmissionClass::Normal,
+        grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("valid power command")
 }
@@ -55,7 +60,9 @@ async fn ack_and_execution_delays_control_session_observations() {
         .build();
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
-    let camera = session.camera::<GenericVisca>().expect("generic camera");
+    let camera = session
+        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("generic camera");
     let started = tokio::time::Instant::now();
     let mut movement = camera.zoom().tele().await.expect("zoom admitted");
 
@@ -72,7 +79,9 @@ async fn busy_probability_refuses_a_session_request_without_ending_the_session()
         .with_busy_probability(1.0)
         .build();
     let session = open(simulator).await;
-    let camera = session.camera::<GenericVisca>().expect("generic camera");
+    let camera = session
+        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("generic camera");
 
     assert!(matches!(
         camera.execute(&plain_power()).await,
@@ -83,7 +92,7 @@ async fn busy_probability_refuses_a_session_request_without_ending_the_session()
     assert_eq!(metrics.busy_errors, 1);
     assert_eq!(metrics.write_failures, 0);
     // Refusing commands does not prevent inquiry replies.
-    camera.power().state().await.expect("inquiry while busy");
+    camera.power().status().await.expect("inquiry while busy");
     session.close().await.expect("close");
 }
 
@@ -97,7 +106,9 @@ async fn complete_reply_loss_is_a_request_outcome_and_never_a_failed_write() {
         SendSemantics::Datagram
     );
     let session = open(simulator).await;
-    let camera = session.camera::<GenericVisca>().expect("generic camera");
+    let camera = session
+        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("generic camera");
 
     let error = camera
         .execute(&plain_power())
@@ -120,7 +131,9 @@ async fn socket_count_changes_backpressure_seen_by_a_real_session() {
         .build();
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
-    let camera = session.camera::<GenericVisca>().expect("generic camera");
+    let camera = session
+        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("generic camera");
     let mut movement = camera.zoom().tele().await.expect("first socket admitted");
     assert_eq!(reply(&mut monitor).await, [0x90, 0x41, 0xff]);
     assert!(matches!(
@@ -145,7 +158,9 @@ async fn cancelling_an_executing_socket_suppresses_its_pending_completion() {
         .build();
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
-    let camera = session.camera::<GenericVisca>().expect("generic camera");
+    let camera = session
+        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("generic camera");
     let mut movement = camera.zoom().tele().await.expect("zoom admitted");
     assert_eq!(reply(&mut monitor).await, [0x90, 0x41, 0xff]);
 
@@ -156,7 +171,7 @@ async fn cancelling_an_executing_socket_suppresses_its_pending_completion() {
     assert_eq!(reply(&mut monitor).await, [0x90, 0x61, 0x04, 0xff]);
     assert!(matches!(
         movement.applied().await,
-        Err(Error::CommandCanceled)
+        Err(Error::CommandCancelled)
     ));
     tokio::time::advance(Duration::from_secs(11)).await;
     tokio::task::yield_now().await;
@@ -179,7 +194,9 @@ async fn deterministic_jitter_delays_session_replies_once() {
             .build();
         let mut monitor = simulator.clone();
         let session = open(simulator).await;
-        let camera = session.camera::<GenericVisca>().expect("generic camera");
+        let camera = session
+            .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("generic camera");
         let started = tokio::time::Instant::now();
         let mut movement = camera.zoom().tele().await.expect("zoom admitted");
         assert_eq!(reply(&mut monitor).await, [0x90, 0x41, 0xff]);
@@ -205,7 +222,7 @@ async fn deterministic_jitter_delays_session_replies_once() {
 struct UnknownInquiry;
 
 impl Request for UnknownInquiry {
-    type Class = grafton_visca::request::Inquiry;
+    type Class = grafton_visca::request::InquiryClass;
     const MAX_SIZE: usize = 5;
     const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
     const RETRY_CLASS: RetryClass = RetryClass::Never;
@@ -230,7 +247,9 @@ async fn unknown_inquiry_gets_a_syntax_error_instead_of_ack_and_completion() {
     let simulator = ViscaCameraSimulator::new();
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
-    let camera = session.camera::<GenericVisca>().expect("generic camera");
+    let camera = session
+        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("generic camera");
 
     let error = camera
         .inquire(&UnknownInquiry)
@@ -276,16 +295,16 @@ async fn one_simulator_routes_replies_to_each_registered_camera() {
         .expect("second target");
     let session = Session::open(
         simulator,
-        config,
+        &config,
         TokioExecutor::from_current().expect("Tokio runtime"),
     )
     .await
     .expect("multi-camera session");
     for (target, address) in [(CameraId::CAMERA_1, 0x90), (CameraId::CAMERA_2, 0xa0)] {
         let camera = session
-            .camera_for::<GenericVisca>(target)
+            .camera::<GenericVisca>(target)
             .expect("target camera");
-        camera.power().state().await.expect("addressed inquiry");
+        camera.power().status().await.expect("addressed inquiry");
         assert_eq!(reply(&mut monitor).await, [address, 0x50, 0x02, 0xff]);
     }
     session.close().await.expect("close");

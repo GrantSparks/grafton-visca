@@ -5,11 +5,11 @@ mod serde_validation {
     use grafton_visca::wire::WireValue;
     use grafton_visca::{
         capabilities::CapabilityRange,
-        command::PresetSpeed,
         types::{
-            ExposureCompensationLevel, GainLevel, NoiseReduction2DLevel, ShutterSpeed, ZoomPosition,
+            ExposureCompensationLevel, FocusSpeed, GainLevel, NoiseReduction2DLevel, PresetNumber,
+            PresetSpeed, ShutterSpeed, ZoomPosition,
         },
-        value, FocusSpeed, PresetNumber,
+        value,
     };
 
     #[grafton_visca::value(min = 10, max = 12)]

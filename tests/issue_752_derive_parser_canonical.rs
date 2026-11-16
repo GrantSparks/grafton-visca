@@ -1,8 +1,7 @@
 //! Public extension regressions for canonical and explicit custom inquiry decoding.
 
 use grafton_visca::{
-    command::{InquiryData, Response},
-    Error, Inquiry, ViscaInquiry,
+    __macro_support::InquiryData, request::Inquiry, wire::Response, Error, ViscaInquiry,
 };
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
@@ -51,9 +50,10 @@ fn canonical_iris_accepts_the_real_four_byte_reply_and_rejects_the_old_selector_
 
 #[test]
 fn derived_positions_preserve_the_profiles_brc300_framing() {
-    let profile =
-        grafton_visca::ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyBRC300>()
-            .unwrap();
+    let profile = grafton_visca::profiles::ProfileSpec::from_compile_time::<
+        grafton_visca::profiles::SonyBrc300,
+    >()
+    .unwrap();
     assert!(matches!(
         PositionInquiry
             .decoder_for_profile(&profile)
@@ -76,7 +76,7 @@ fn local_typed_paths_resolve_as_written_and_narrowing_never_truncates() {
         .decode(&[0, 1, 0, 5])
         .unwrap_err();
     assert!(matches!(error, Error::InvalidResponse { ref actual, .. } if actual == &[0, 1, 0, 5]));
-    assert_eq!(error.kind(), grafton_visca::ErrorKind::Protocol);
+    assert_eq!(error.kind(), grafton_visca::error::ErrorKind::Protocol);
 }
 
 #[test]

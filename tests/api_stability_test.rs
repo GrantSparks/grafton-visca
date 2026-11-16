@@ -5,6 +5,9 @@
 //! the feature matrix and the root exports honest without importing any of
 //! the removed 1.x mode, client, control-trait, or runtime-handle vocabulary.
 
+#[path = "common/profile_encodings.rs"]
+mod profile_encodings;
+
 use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
 use std::time::Duration;
@@ -15,10 +18,14 @@ use std::marker::PhantomData;
 #[test]
 fn root_value_and_transport_contract() {
     use grafton_visca::{
+        config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY},
         transport::{BufferConfig, TcpKeepaliveConfig, TransportConfig},
-        types::{FocusPosition, Kelvin, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed},
-        CameraId, Error, PresetNumber, SessionConfig, SpeedLevel, ViscaSocket,
-        DEFAULT_ADMISSION_CAPACITY,
+        types::{
+            CameraId, FocusPosition, Kelvin, PanSpeed, PresetNumber, SpeedLevel, TiltSpeed,
+            ViscaSocket, ZoomPosition, ZoomSpeed,
+        },
+        wire::WireValue,
+        Error,
     };
 
     assert!(matches!(Error::from_code(0x02), Error::SyntaxError));
@@ -37,9 +44,9 @@ fn root_value_and_transport_contract() {
 
     assert_eq!(ViscaSocket::S1.as_index(), 0);
     assert_eq!(ViscaSocket::S2.as_index(), 1);
-    assert_eq!(ViscaSocket::from_protocol_byte(1), Some(ViscaSocket::S1));
-    assert_eq!(ViscaSocket::from_protocol_byte(2), Some(ViscaSocket::S2));
-    assert_eq!(ViscaSocket::from_protocol_byte(0), None);
+    assert_eq!(ViscaSocket::from_wire(1).unwrap(), ViscaSocket::S1);
+    assert_eq!(ViscaSocket::from_wire(2).unwrap(), ViscaSocket::S2);
+    assert!(ViscaSocket::from_wire(0).is_err());
     assert_eq!(SpeedLevel::Fast as u8, 3);
 
     assert_eq!(PanSpeed::ZERO.value(), 0);
@@ -82,21 +89,21 @@ fn root_value_and_transport_contract() {
     assert!(Kelvin::new(15001).is_err());
 
     let buffer = BufferConfig::default();
-    assert_eq!(buffer.recv_buffer_size, 128);
-    assert_eq!(buffer.max_buffer_size, 8192);
-    assert_eq!(BufferConfig::for_udp().recv_buffer_size, 1024);
+    assert_eq!(buffer.recv_buffer_size(), 128);
+    assert_eq!(buffer.max_buffer_size(), 8192);
+    assert_eq!(BufferConfig::for_udp().recv_buffer_size(), 1024);
 
     let keepalive = TcpKeepaliveConfig::for_visca_long_lived_tcp();
-    assert_eq!(keepalive.idle, Duration::from_secs(10));
-    assert_eq!(keepalive.interval, Some(Duration::from_secs(10)));
+    assert_eq!(keepalive.idle(), Duration::from_secs(10));
+    assert_eq!(keepalive.interval(), Some(Duration::from_secs(10)));
 
     let config = TransportConfig::default();
-    assert_eq!(config.connect_timeout, Duration::from_secs(5));
-    assert_eq!(config.read_timeout, Duration::from_secs(5));
-    assert_eq!(config.write_timeout, Duration::from_secs(5));
+    assert_eq!(config.connect_timeout(), Duration::from_secs(5));
+    assert_eq!(config.read_timeout(), Duration::from_secs(5));
+    assert_eq!(config.write_timeout(), Duration::from_secs(5));
 
-    assert_eq!(config.tcp_nodelay, Some(true));
-    assert_eq!(config.tcp_keepalive, Some(keepalive));
+    assert_eq!(config.tcp_nodelay(), Some(true));
+    assert_eq!(config.tcp_keepalive(), Some(keepalive));
     assert_eq!(
         SessionConfig::default().admission_capacity(),
         DEFAULT_ADMISSION_CAPACITY
@@ -106,23 +113,28 @@ fn root_value_and_transport_contract() {
 #[test]
 fn runtime_profile_default_selects_the_registered_individual_target() {
     use grafton_visca::{
-        profiles::PtzOpticsG2, CameraId, IndividualCameraId, ProfileSpec, SessionConfig,
+        config::SessionConfig,
+        profiles::{ProfileSpec, PtzOpticsG2},
+        types::{CameraId, IndividualCameraId},
     };
 
     let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2");
     let mut capabilities = source.capabilities().clone();
     capabilities.profile_id = None;
     capabilities.default_camera_id = IndividualCameraId::new(2).expect("individual default");
-    let profile = ProfileSpec::builder(capabilities)
-        .transports(source.transports())
-        .envelope(source.envelope())
-        .timing(source.timing())
-        .maximum_command_sockets(source.maximum_command_sockets())
-        .supports_operation_complete(source.supports_operation_complete())
-        .supports_command_cancel(source.supports_command_cancel())
-        .position_inquiries(source.position_inquiries())
-        .build()
-        .expect("runtime profile with camera 2 default");
+    let profile = crate::profile_encodings::with_source_encodings(
+        ProfileSpec::builder(capabilities)
+            .transports(source.transports())
+            .envelope(source.envelope())
+            .timing(source.timing())
+            .maximum_command_sockets(source.maximum_command_sockets())
+            .supports_operation_complete(source.supports_operation_complete())
+            .supports_command_cancel(source.supports_command_cancel())
+            .position_inquiries(source.position_inquiries()),
+        &source,
+    )
+    .build()
+    .expect("runtime profile with camera 2 default");
 
     let config = SessionConfig::new(profile.clone());
     assert_eq!(config.sole_target(), Some(CameraId::CAMERA_2));
@@ -137,58 +149,34 @@ fn runtime_profile_default_selects_the_registered_individual_target() {
 fn profile_marker_and_capability_contract() {
     use grafton_visca::{
         capabilities::{
-            Capabilities, Exposure, Focus, HasNdFilter, ImageProcessing, InquirySupport, PanTilt,
-            Power, Profile, ProfileMetadata, SupportsTcp, SupportsUdp, TypedSupportSurface,
-            WhiteBalance, Zoom,
+            HasExposure, HasFocus, HasImage, HasNdFilter, HasPanTilt, HasPower, HasWhiteBalance,
+            HasZoom, InquirySupport, SupportsTcp, SupportsUdp, TypedSupportSurface,
         },
-        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
-        CompileTimeProfile,
+        profiles::{CompileTimeProfile, GenericVisca, PtzOpticsG2, SonyFr7},
     };
-
-    fn profile<P>()
-    where
-        P: CompileTimeProfile
-            + Profile
-            + ProfileMetadata
-            + Power
-            + Zoom
-            + PanTilt
-            + Focus
-            + Exposure,
-    {
+    fn profile<P: CompileTimeProfile + HasPower + HasZoom + HasPanTilt + HasFocus + HasExposure>() {
     }
-
-    fn advanced<P>()
-    where
-        P: Profile + ImageProcessing + WhiteBalance,
-    {
-    }
-
+    fn image<P: CompileTimeProfile + HasImage + HasWhiteBalance>() {}
     fn nd_filter<P: HasNdFilter>() {}
-
     fn raw_ip<P: SupportsTcp + SupportsUdp>() {}
-
     profile::<PtzOpticsG2>();
-    profile::<SonyFR7>();
+    profile::<SonyFr7>();
     profile::<GenericVisca>();
-    advanced::<PtzOpticsG2>();
-    advanced::<SonyFR7>();
-    advanced::<GenericVisca>();
-    nd_filter::<SonyFR7>();
+    image::<PtzOpticsG2>();
+    image::<SonyFr7>();
+    nd_filter::<SonyFr7>();
     raw_ip::<PtzOpticsG2>();
     raw_ip::<GenericVisca>();
-
-    assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
-    assert_eq!(PtzOpticsG2::DEFAULT_CAMERA_ID.value(), 1);
-    for transports in [PtzOpticsG2::TRANSPORTS, GenericVisca::TRANSPORTS] {
+    let g2_profile = PtzOpticsG2::spec().expect("G2");
+    let generic_profile = GenericVisca::spec().expect("Generic");
+    let fr7_profile = SonyFr7::spec().expect("FR7");
+    let g2 = g2_profile.capabilities();
+    assert_eq!(g2.model_name, "PtzOptics G2");
+    assert_eq!(g2.default_camera_id.value(), 1);
+    for transports in [g2_profile.transports(), generic_profile.transports()] {
         assert_eq!(transports.tcp_port(), Some(5678));
         assert_eq!(transports.udp_port(), Some(1259));
     }
-    assert_eq!(SonyFR7::DEFAULT_CAMERA_ID.value(), 1);
-
-    let g2 = Capabilities::from_profile::<PtzOpticsG2>();
-    assert!(g2.has_basic_features());
-    assert!(g2.has_full_inquiry_support());
     assert_eq!(g2.inquiry_support, InquirySupport::Full);
     assert_eq!(
         g2.pan_tilt
@@ -197,35 +185,32 @@ fn profile_marker_and_capability_contract() {
             .motion_sync_speed_range,
         None
     );
-    assert!(!g2.has_nd_filter());
+    assert!(!g2.supports(TypedSupportSurface::NdFilter));
     assert!(g2
         .exposure
         .as_ref()
         .expect("exposure domain")
         .iris_range
         .is_some());
-    assert!(g2.has_picture_effect());
-
-    let fr7 = Capabilities::from_profile::<SonyFR7>();
-    assert!(fr7.has_basic_features());
-    // This summary covers shared refinements (digital zoom, one-push modes,
-    // WDR, shared color temperature and tours). FR7 has its own cinema domains.
-    assert!(!fr7.has_advanced_features());
-    assert!(fr7.supports_typed(TypedSupportSurface::SonyFr7Iris));
-    assert!(fr7.supports_typed(TypedSupportSurface::SonyFr7Black));
-    assert!(fr7.has_nd_filter());
+    assert!(g2.image.as_ref().expect("image domain").picture_effect);
+    let fr7 = fr7_profile.capabilities();
+    assert_eq!(fr7.default_camera_id.value(), 1);
+    assert!(fr7.supports(TypedSupportSurface::IrisSteps));
+    assert!(fr7.supports(TypedSupportSurface::BlackLevels));
+    assert!(fr7.supports(TypedSupportSurface::NdFilter));
     assert!(fr7.power.as_ref().expect("power domain").wake_on_lan);
-    assert_eq!(SonyFR7::TRANSPORTS.tcp_port(), None);
-    assert_eq!(SonyFR7::TRANSPORTS.udp_port(), Some(52381));
+    assert_eq!(fr7_profile.transports().tcp_port(), None);
+    assert_eq!(fr7_profile.transports().udp_port(), Some(52381));
 }
 
 #[cfg(feature = "async")]
 #[test]
 fn async_root_exports_are_profile_and_handle_safe() {
     use grafton_visca::{
-        completion::{AppliedOnly, Targeted},
-        profiles::PtzOpticsG2,
-        Camera, CancellationOutcome, CompileTimeProfile, Operation, Session, SessionConfig,
+        config::SessionConfig,
+        operation::{AppliedOnly, CancellationOutcome, Targeted},
+        profiles::{CompileTimeProfile, PtzOpticsG2},
+        r#async::{Camera, Operation, Session},
     };
 
     fn assert_profile<P: CompileTimeProfile>() {}
@@ -247,9 +232,9 @@ fn async_root_exports_are_profile_and_handle_safe() {
 fn blocking_root_exports_are_profile_and_handle_safe() {
     use grafton_visca::{
         blocking::{Camera, Operation, Session},
-        completion::{AppliedOnly, Targeted},
-        profiles::PtzOpticsG2,
-        CompileTimeProfile, SessionConfig,
+        config::SessionConfig,
+        operation::{AppliedOnly, Targeted},
+        profiles::{CompileTimeProfile, PtzOpticsG2},
     };
 
     fn assert_profile<P: CompileTimeProfile>() {}
@@ -268,8 +253,12 @@ fn blocking_root_exports_are_profile_and_handle_safe() {
 #[cfg(all(feature = "blocking", feature = "async"))]
 #[test]
 fn blocking_and_async_facades_coexist() {
-    use grafton_visca::completion::{AppliedOnly, Targeted};
-    use grafton_visca::{blocking, profiles::PtzOpticsG2, Camera, Operation, Session};
+    use grafton_visca::operation::{AppliedOnly, Targeted};
+    use grafton_visca::{
+        blocking,
+        profiles::PtzOpticsG2,
+        r#async::{Camera, Operation, Session},
+    };
 
     let _: PhantomData<blocking::Camera<PtzOpticsG2>> = PhantomData;
     let _: PhantomData<blocking::Session> = PhantomData;
@@ -279,34 +268,26 @@ fn blocking_and_async_facades_coexist() {
     let _: PhantomData<Operation<Targeted>> = PhantomData;
 }
 
-#[cfg(all(feature = "dyn-api", feature = "async"))]
+#[cfg(feature = "async")]
 #[test]
-fn dyn_root_is_object_safe() {
-    use grafton_visca::dynapi::{
-        DynCustomOperations, DynMotion, DynSessionCamera, DynSessionCameraControl,
-        DynSessionCameraNouns,
-    };
-
-    fn control(_: &dyn DynSessionCameraControl) {}
-    fn nouns(_: &dyn DynSessionCameraNouns) {}
-    fn custom(_: &dyn DynCustomOperations) {}
-    fn motion(_: &dyn DynMotion) {}
-    fn owner(camera: &DynSessionCamera) {
-        control(camera);
-        nouns(camera);
-        custom(camera);
-        motion(camera.motion());
+fn runtime_profile_camera_has_the_native_surface() {
+    fn assert_send_sync_clone<T: Send + Sync + Clone>() {}
+    fn owner(camera: &grafton_visca::r#async::Camera) {
+        let _: &grafton_visca::profiles::ProfileSpec = camera.profile();
+        let _: &grafton_visca::capabilities::Capabilities = camera.capabilities();
+        let _: grafton_visca::state_cache::StateCache = camera.state_cache();
+        let _ = camera.power();
+        let _ = camera.motion();
     }
 
+    assert_send_sync_clone::<grafton_visca::r#async::Camera>();
     let _ = owner;
 }
 
-#[cfg(all(feature = "dyn-api", feature = "blocking"))]
+#[cfg(feature = "blocking")]
 #[test]
-fn blocking_dyn_root_is_runtime_profile_view() {
-    use grafton_visca::dynapi::BlockingDynSessionCamera;
-
-    let _: PhantomData<BlockingDynSessionCamera> = PhantomData;
+fn blocking_runtime_profile_camera_uses_the_native_view() {
+    let _: PhantomData<grafton_visca::blocking::Camera> = PhantomData;
 }
 
 #[test]
@@ -326,11 +307,17 @@ fn canonical_compile_contracts() {
     if cfg!(all(feature = "blocking", feature = "async")) {
         pass_dirs.push("tests/api_contract/pass_coexistence");
     }
-    if cfg!(all(feature = "dyn-api", feature = "async")) {
-        pass_dirs.push("tests/api_contract/pass_dyn");
+    if cfg!(all(
+        any(feature = "async", feature = "blocking"),
+        feature = "async"
+    )) {
+        pass_dirs.push("tests/api_contract/pass_any_async");
     }
-    if cfg!(all(feature = "dyn-api", feature = "blocking")) {
-        pass_dirs.push("tests/api_contract/pass_dyn_blocking");
+    if cfg!(all(
+        any(feature = "async", feature = "blocking"),
+        feature = "blocking"
+    )) {
+        pass_dirs.push("tests/api_contract/pass_any_blocking");
     }
     if cfg!(feature = "test-utils") {
         pass_dirs.push("tests/api_contract/pass_test_utils");
@@ -356,10 +343,10 @@ fn canonical_compile_contracts() {
     fail_dirs.push("tests/api_contract/fail_async_only");
     #[cfg(all(feature = "blocking", feature = "async"))]
     fail_dirs.push("tests/api_contract/fail_blocking_mode");
-    #[cfg(all(feature = "dyn-api", feature = "async"))]
+    #[cfg(feature = "async")]
     {
-        fail_dirs.push("tests/api_contract/fail_dyn_async");
-        fail_dirs.push("tests/api_contract/fail_must_use_dyn");
+        fail_dirs.push("tests/api_contract/fail_any_async");
+        fail_dirs.push("tests/api_contract/fail_must_use_any");
     }
     #[cfg(all(feature = "runtime-smol", feature = "transport-serial-tokio"))]
     fail_dirs.push("tests/api_contract/fail_serial_runtime_pairing");

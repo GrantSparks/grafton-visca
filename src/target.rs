@@ -79,9 +79,9 @@ impl TryFrom<CameraId> for TargetSlot {
     fn try_from(camera: CameraId) -> Result<Self, Self::Error> {
         match camera.value() {
             1..=7 => Ok(Self(camera.value() - 1)),
-            _ => Err(Error::InvalidRequest(
-                "a session target must be an individual camera".into(),
-            )),
+            _ => Err(Error::InvalidRequest {
+                reason: "a session target must be an individual camera".into(),
+            }),
         }
     }
 }
@@ -142,7 +142,7 @@ mod tests {
         assert!(CameraId::new(0).is_err());
         assert!(matches!(
             TargetSlot::try_from(CameraId::BROADCAST),
-            Err(Error::InvalidRequest(reason))
+            Err(Error::InvalidRequest { reason })
                 if reason == "a session target must be an individual camera"
         ));
         assert_eq!(size_of::<TargetSlot>(), 1);

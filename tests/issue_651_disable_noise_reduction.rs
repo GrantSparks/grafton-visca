@@ -11,6 +11,10 @@
     all(feature = "async", feature = "runtime-tokio")
 ))]
 
+#[cfg(all(feature = "async", feature = "runtime-tokio"))]
+#[path = "common/profile_encodings.rs"]
+mod profile_encodings;
+
 use grafton_visca_test_support::fake_camera;
 
 use fake_camera::{frames, FakeCamera};
@@ -71,13 +75,14 @@ fn one_raw_frame(fake: &FakeCamera) -> Vec<u8> {
 mod blocking_surface {
     use grafton_visca::wire::WireValue;
     use grafton_visca::{
-        blocking::{Session, SessionConfig},
-        capabilities::{HasImageProcessing, HasNoiseReduction3D, HasNoiseReduction3DControl},
-        command::{NoiseReduction2DMode, NoiseReduction3D},
-        profile::ProfileSpec,
-        profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
-        types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
-        CompileTimeProfile, Error,
+        blocking::Session,
+        capabilities::{HasImage, HasNoiseReduction3D},
+        config::SessionConfig,
+        profiles::{CompileTimeProfile, ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3},
+        types::{
+            NoiseReduction2DLevel, NoiseReduction2DMode, NoiseReduction3D, NoiseReduction3DLevel,
+        },
+        Error,
     };
 
     use super::{
@@ -87,23 +92,26 @@ mod blocking_surface {
 
     fn round_trip_3d<P>(level: u8) -> Result<NoiseReduction3D, Error>
     where
-        P: CompileTimeProfile
-            + HasImageProcessing
-            + HasNoiseReduction3D
-            + HasNoiseReduction3DControl,
+        P: CompileTimeProfile + HasImage + HasNoiseReduction3D,
     {
         let fake = noise_reduction_camera(0);
         let session = Session::open(
             fake.blocking_wire(),
-            SessionConfig::new(ProfileSpec::from_compile_time::<P>().expect("built-in profile")),
+            &SessionConfig::new(ProfileSpec::from_compile_time::<P>().expect("built-in profile")),
         )
         .expect("session");
-        let camera = session.camera::<P>().expect("matching camera profile");
+        let camera = session
+            .camera::<P>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("matching camera profile");
         let value =
             NoiseReduction3D::from_wire(level).expect("level or Off is in the register domain");
         let set = match value {
-            NoiseReduction3D::Off => camera.image().disable_noise_reduction_3d(),
-            NoiseReduction3D::Level(level) => camera.image().set_noise_reduction_3d(level),
+            NoiseReduction3D::Off => camera
+                .image()
+                .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Off),
+            NoiseReduction3D::Level(level) => camera
+                .image()
+                .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Level(level)),
         };
         let result = set.and_then(|_| camera.image().noise_reduction_3d());
         assert_raw_writes(&fake);
@@ -116,10 +124,12 @@ mod blocking_surface {
         let fake = noise_reduction_camera(5);
         let session = Session::open(
             fake.blocking_wire(),
-            SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2")),
+            &SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2")),
         )
         .expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera");
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("G2 camera");
 
         camera
             .image()
@@ -128,17 +138,27 @@ mod blocking_surface {
         assert_eq!(one_raw_frame(&fake), NR_MODE_MANUAL);
         camera
             .image()
-            .set_noise_reduction_2d(NoiseReduction2DLevel::new(3).expect("2D level"))
+            .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Level(
+                NoiseReduction2DLevel::new(3).expect("2D level"),
+            ))
             .expect("2D set");
         assert_eq!(one_raw_frame(&fake), NR_2D_LEVEL_3);
-        camera.image().disable_noise_reduction_2d().expect("2D off");
+        camera
+            .image()
+            .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Off)
+            .expect("2D off");
         assert_eq!(one_raw_frame(&fake), NR_2D_OFF);
         camera
             .image()
-            .set_noise_reduction_3d(NoiseReduction3DLevel::MAX)
+            .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Level(
+                NoiseReduction3DLevel::MAX,
+            ))
             .expect("3D set");
         assert_eq!(one_raw_frame(&fake), NR_3D_LEVEL_8);
-        camera.image().disable_noise_reduction_3d().expect("3D off");
+        camera
+            .image()
+            .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Off)
+            .expect("3D off");
         assert_eq!(one_raw_frame(&fake), NR_3D_OFF);
 
         session.shutdown().expect("shutdown");
@@ -154,7 +174,7 @@ mod blocking_surface {
                         [
                             scope.spawn(move || round_trip_3d::<PtzOpticsG2>(level)),
                             scope.spawn(move || round_trip_3d::<PtzOpticsG3>(level)),
-                            scope.spawn(move || round_trip_3d::<PtzOptics30X>(level)),
+                            scope.spawn(move || round_trip_3d::<PtzOptics30x>(level)),
                         ],
                     )
                 })
@@ -179,13 +199,16 @@ mod blocking_surface {
 mod async_surface {
     use grafton_visca::wire::WireValue;
     use grafton_visca::{
-        capabilities::{HasImageProcessing, HasNoiseReduction3D, HasNoiseReduction3DControl},
-        command::{NoiseReduction2DMode, NoiseReduction3D},
-        profile::ProfileSpec,
-        profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
+        capabilities::{HasImage, HasNoiseReduction3D},
+        config::SessionConfig,
+        profiles::{CompileTimeProfile, ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3},
+        r#async::Session,
+        runtime::TokioRuntime,
         transport::AddressingMode,
-        types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
-        CompileTimeProfile, Error, Session, SessionConfig, TokioRuntime,
+        types::{
+            NoiseReduction2DLevel, NoiseReduction2DMode, NoiseReduction3D, NoiseReduction3DLevel,
+        },
+        Error,
     };
 
     use super::{
@@ -196,7 +219,7 @@ mod async_surface {
     pub(super) async fn open_with_profile(camera: &FakeCamera, profile: ProfileSpec) -> Session {
         Session::open(
             camera.async_wire().with_addressing(AddressingMode::Ip),
-            SessionConfig::new(profile),
+            &SessionConfig::new(profile),
             TokioRuntime::from_current().expect("Tokio runtime"),
         )
         .await
@@ -213,10 +236,7 @@ mod async_surface {
 
     async fn round_trip_3d<P>(level: u8) -> Result<NoiseReduction3D, Error>
     where
-        P: CompileTimeProfile
-            + HasImageProcessing
-            + HasNoiseReduction3D
-            + HasNoiseReduction3DControl,
+        P: CompileTimeProfile + HasImage + HasNoiseReduction3D,
     {
         let fake = noise_reduction_camera(0);
         let session = open_with_profile(
@@ -224,12 +244,24 @@ mod async_surface {
             ProfileSpec::from_compile_time::<P>().expect("built-in profile"),
         )
         .await;
-        let camera = session.camera::<P>().expect("matching camera profile");
+        let camera = session
+            .camera::<P>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("matching camera profile");
         let value =
             NoiseReduction3D::from_wire(level).expect("level or Off is in the register domain");
         let set = match value {
-            NoiseReduction3D::Off => camera.image().disable_noise_reduction_3d().await,
-            NoiseReduction3D::Level(level) => camera.image().set_noise_reduction_3d(level).await,
+            NoiseReduction3D::Off => {
+                camera
+                    .image()
+                    .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Off)
+                    .await
+            }
+            NoiseReduction3D::Level(level) => {
+                camera
+                    .image()
+                    .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Level(level))
+                    .await
+            }
         };
         let result = match set {
             Ok(_) => camera.image().noise_reduction_3d().await,
@@ -244,7 +276,9 @@ mod async_surface {
     async fn async_nouns_encode_mode_set_and_off_at_their_absolute_frames() {
         let fake = noise_reduction_camera(5);
         let session = open(&fake).await;
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera");
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("G2 camera");
 
         camera
             .image()
@@ -254,25 +288,29 @@ mod async_surface {
         assert_eq!(one_raw_frame(&fake), NR_MODE_MANUAL);
         camera
             .image()
-            .set_noise_reduction_2d(NoiseReduction2DLevel::new(3).expect("2D level"))
+            .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Level(
+                NoiseReduction2DLevel::new(3).expect("2D level"),
+            ))
             .await
             .expect("2D set");
         assert_eq!(one_raw_frame(&fake), NR_2D_LEVEL_3);
         camera
             .image()
-            .disable_noise_reduction_2d()
+            .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Off)
             .await
             .expect("2D off");
         assert_eq!(one_raw_frame(&fake), NR_2D_OFF);
         camera
             .image()
-            .set_noise_reduction_3d(NoiseReduction3DLevel::MAX)
+            .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Level(
+                NoiseReduction3DLevel::MAX,
+            ))
             .await
             .expect("3D set");
         assert_eq!(one_raw_frame(&fake), NR_3D_LEVEL_8);
         camera
             .image()
-            .disable_noise_reduction_3d()
+            .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Off)
             .await
             .expect("3D off");
         assert_eq!(one_raw_frame(&fake), NR_3D_OFF);
@@ -289,7 +327,7 @@ mod async_surface {
                     [
                         tokio::spawn(round_trip_3d::<PtzOpticsG2>(level)),
                         tokio::spawn(round_trip_3d::<PtzOpticsG3>(level)),
-                        tokio::spawn(round_trip_3d::<PtzOptics30X>(level)),
+                        tokio::spawn(round_trip_3d::<PtzOptics30x>(level)),
                     ],
                 )
             })
@@ -309,16 +347,18 @@ mod async_surface {
     }
 }
 
-#[cfg(all(feature = "async", feature = "dyn-api", feature = "runtime-tokio"))]
-mod dyn_surface {
-    use grafton_visca::wire::WireValue;
+#[cfg(all(
+    feature = "async",
+    any(feature = "async", feature = "blocking"),
+    feature = "runtime-tokio"
+))]
+mod runtime_profile_surface {
     use grafton_visca::{
         capabilities::TypedSupportSurface,
-        command::{NoiseReduction2DMode, NoiseReduction3D},
-        dynapi::DynSessionCameraNouns,
-        profile::ProfileSpec,
-        profiles::PtzOpticsG2,
-        types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
+        profiles::{ProfileSpec, PtzOpticsG2},
+        types::{
+            NoiseReduction2DLevel, NoiseReduction2DMode, NoiseReduction3D, NoiseReduction3DLevel,
+        },
         Error,
     };
 
@@ -340,15 +380,18 @@ mod dyn_surface {
         capabilities.model_name = "NR runtime profile".into();
         capabilities.typed_support = transform_typed_support(capabilities.typed_support);
 
-        ProfileSpec::builder(capabilities)
-            .transports(source.transports())
-            .envelope(source.envelope())
-            .timing(source.timing())
-            .maximum_command_sockets(source.maximum_command_sockets())
-            .supports_operation_complete(source.supports_operation_complete())
-            .supports_command_cancel(source.supports_command_cancel())
-            .position_inquiries(source.position_inquiries())
-            .build()
+        crate::profile_encodings::with_source_encodings(
+            ProfileSpec::builder(capabilities)
+                .transports(source.transports())
+                .envelope(source.envelope())
+                .timing(source.timing())
+                .maximum_command_sockets(source.maximum_command_sockets())
+                .supports_operation_complete(source.supports_operation_complete())
+                .supports_command_cancel(source.supports_command_cancel())
+                .position_inquiries(source.position_inquiries()),
+            &source,
+        )
+        .build()
     }
 
     fn paired_noise_reduction_runtime_profile() -> ProfileSpec {
@@ -356,11 +399,12 @@ mod dyn_surface {
             .expect("paired NR runtime profile")
     }
 
-    fn inquiry_only_noise_reduction_profile() -> grafton_visca::Result<ProfileSpec> {
+    fn runtime_profile_without_noise_reduction_grants() -> grafton_visca::Result<ProfileSpec> {
         runtime_noise_reduction_profile(|typed_support| {
             typed_support
-                .without(TypedSupportSurface::NoiseReduction2DControl)
-                .without(TypedSupportSurface::NoiseReduction3DControl)
+                .without(TypedSupportSurface::NoiseReduction2D)
+                .without(TypedSupportSurface::NoiseReduction2DMode)
+                .without(TypedSupportSurface::NoiseReduction3D)
         })
     }
 
@@ -368,8 +412,10 @@ mod dyn_surface {
     async fn dynamic_nouns_encode_mode_set_and_off_at_their_absolute_frames() {
         let fake = noise_reduction_camera(5);
         let session = open(&fake).await;
-        let camera = session.camera_dyn().expect("dynamic camera");
-        let nouns: &dyn DynSessionCameraNouns = &camera;
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
+        let nouns = &camera;
 
         nouns
             .image()
@@ -379,25 +425,29 @@ mod dyn_surface {
         assert_eq!(one_raw_frame(&fake), NR_MODE_MANUAL);
         nouns
             .image()
-            .set_noise_reduction_2d(NoiseReduction2DLevel::new(3).expect("2D level"))
+            .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Level(
+                NoiseReduction2DLevel::new(3).expect("2D level"),
+            ))
             .await
             .expect("2D set");
         assert_eq!(one_raw_frame(&fake), NR_2D_LEVEL_3);
         nouns
             .image()
-            .disable_noise_reduction_2d()
+            .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Off)
             .await
             .expect("2D off");
         assert_eq!(one_raw_frame(&fake), NR_2D_OFF);
         nouns
             .image()
-            .set_noise_reduction_3d(NoiseReduction3DLevel::MAX)
+            .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Level(
+                NoiseReduction3DLevel::MAX,
+            ))
             .await
             .expect("3D set");
         assert_eq!(one_raw_frame(&fake), NR_3D_LEVEL_8);
         nouns
             .image()
-            .disable_noise_reduction_3d()
+            .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Off)
             .await
             .expect("3D off");
         assert_eq!(one_raw_frame(&fake), NR_3D_OFF);
@@ -406,22 +456,35 @@ mod dyn_surface {
     }
 
     #[tokio::test]
-    async fn inquiry_only_runtime_profile_rejects_controls_before_transport_io() {
-        let profile = inquiry_only_noise_reduction_profile()
-            .expect("inquiry and control grants are independent");
+    async fn unified_noise_reduction_grants_gate_controls_and_inquiries_before_transport_io() {
+        let profile = runtime_profile_without_noise_reduction_grants()
+            .expect("physical NR facts remain separate from the unified family grant");
         let fake = noise_reduction_camera(5);
         let session = open_with_profile(&fake, profile).await;
-        let camera = session.camera_dyn().expect("dynamic camera");
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
         let image = camera.image();
         for result in [
             image
-                .set_noise_reduction_2d(NoiseReduction2DLevel::MAX)
+                .set_noise_reduction_2d_mode(NoiseReduction2DMode::Manual)
                 .await,
-            image.disable_noise_reduction_2d().await,
             image
-                .set_noise_reduction_3d(NoiseReduction3DLevel::MAX)
+                .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Level(
+                    NoiseReduction2DLevel::MAX,
+                ))
                 .await,
-            image.disable_noise_reduction_3d().await,
+            image
+                .set_noise_reduction_2d(grafton_visca::types::NoiseReduction2D::Off)
+                .await,
+            image
+                .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Level(
+                    NoiseReduction3DLevel::MAX,
+                ))
+                .await,
+            image
+                .set_noise_reduction_3d(grafton_visca::types::NoiseReduction3D::Off)
+                .await,
         ] {
             assert!(matches!(result, Err(Error::FeatureNotSupported { .. })));
         }
@@ -430,16 +493,22 @@ mod dyn_surface {
             0,
             "controls reject before transport I/O"
         );
+        let inquiry_error = image
+            .noise_reduction_3d()
+            .await
+            .expect_err("the same NR family grant gates inquiry and control");
+        assert!(matches!(
+            inquiry_error,
+            Error::FeatureNotSupported {
+                feature: "inquiry NoiseReduction3dInquiry",
+                ..
+            }
+        ));
         assert_eq!(
-            image
-                .noise_reduction_3d()
-                .await
-                .expect("inquiry remains permitted")
-                .to_wire(),
-            5,
+            fake.write_count(),
+            0,
+            "inquiries reject before transport I/O"
         );
-        assert_eq!(fake.write_count(), 1);
-        assert_raw_writes(&fake);
         session.shutdown().expect("shutdown");
     }
 
@@ -447,8 +516,10 @@ mod dyn_surface {
     async fn dynamic_runtime_profile_uses_the_same_full_nr3d_reply_domain() {
         let fake = noise_reduction_camera(0x08);
         let session = open_with_profile(&fake, paired_noise_reduction_runtime_profile()).await;
-        let camera = session.camera_dyn().expect("dynamic camera");
-        let nouns: &dyn DynSessionCameraNouns = &camera;
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
+        let nouns = &camera;
 
         let level = nouns
             .image()

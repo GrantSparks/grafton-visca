@@ -31,12 +31,7 @@ use std::{
 use grafton_visca_test_support::fake_camera;
 
 use fake_camera::{frames, ZOOM_STOP, ZOOM_TELE};
-use grafton_visca::{
-    blocking::{CameraSession, Connect},
-    completion::AppliedOnly,
-    profiles::PtzOpticsG2,
-    request::builtin::{ZoomDrive, ZoomStop},
-};
+use grafton_visca::{blocking::CameraSession, operation::AppliedOnly, profiles::PtzOpticsG2};
 
 const IDLE_SESSIONS: usize = 8;
 const IDLE_WINDOW: Duration = Duration::from_secs(2);
@@ -76,7 +71,8 @@ fn cpu_ticks() -> u64 {
 
 fn open(peer: &UdpSocket) -> CameraSession<PtzOpticsG2> {
     let address = peer.local_addr().expect("peer address").to_string();
-    Connect::open_udp::<PtzOpticsG2>(address).expect("blocking UDP session")
+    grafton_visca::blocking::CameraSession::<PtzOpticsG2>::connect_udp(address)
+        .expect("blocking UDP session")
 }
 
 fn percentile(sorted: &[Duration], percent: usize) -> Duration {
@@ -171,7 +167,7 @@ fn stop_reaches_the_camera_within_one_read_slice() {
 
     // Another thread waits on a running zoom for the whole measurement.
     let mut zoom = camera_view
-        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
         .expect("zoom admitted");
     let waiter = thread::spawn(move || zoom.applied());
 
@@ -185,7 +181,7 @@ fn stop_reaches_the_camera_within_one_read_slice() {
         thread::sleep(Duration::from_millis(150 + offset));
         let started = Instant::now();
         let mut stop = camera_view
-            .submit::<AppliedOnly, _>(&ZoomStop)
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
             .expect("STOP admitted");
         let arrived = arrivals
             .recv_timeout(Duration::from_secs(5))

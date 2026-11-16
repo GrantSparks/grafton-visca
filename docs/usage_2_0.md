@@ -1,8 +1,8 @@
 # 2.0 usage and construction
 
-The 2.0 API has blocking and async static calling conventions plus
-runtime-profile projections for both. Every view ends at the same owner-backed
-session model.
+The 2.0 API exposes symmetric `blocking` and `r#async` facades. Both use
+`Camera<P>` for compile-time profiles and `Camera<AnyProfile>` for runtime
+profiles, with the same owner-backed session model.
 
 Every Rust snippet on this page is compiled by the crate's own test suite, so
 the `#[cfg(feature = "...")]` attributes below are load-bearing: they name the
@@ -18,8 +18,7 @@ Cargo feature a snippet needs.
 | smol async | `runtime-smol` |
 | Blocking serial | `transport-serial` |
 | Tokio serial | `runtime-tokio,transport-serial-tokio` |
-| Blocking runtime-profile views | `blocking,dyn-api` |
-| Dynamic async views | `async,dyn-api` with a caller-owned `Executor`, or `runtime-tokio,dyn-api` / `runtime-smol,dyn-api` |
+| Runtime-selected profiles | Use `AnyProfile` with the same facade features above |
 | Serialization/schema/typescript | `serde`, `schemars`, and `ts-rs` as needed |
 | Testkit steps and helpers | `test-utils` |
 | Scripted blocking transport | `test-utils,blocking` |
@@ -28,12 +27,8 @@ Cargo feature a snippet needs.
 | Async scripted transport and deterministic clock/executor | `test-utils,async` |
 | VISCA camera simulator | `test-utils,runtime-tokio` |
 
-`dyn-api` does not imply `async`: its blocking projection has no futures,
-executor, or async-runtime dependency. It projects the camera views of the
-enabled facades, so `dyn-api` without `blocking` or `async` is rejected at
-compile time. Runtime features imply the canonical
-`async` facade. `runtime-tokio`
-and `runtime-smol` may be enabled together; each session still receives one
+Runtime features imply the canonical `async` facade. `runtime-tokio` and
+`runtime-smol` may be enabled together; each session still receives one
 explicit runtime. The default `blocking` feature is an independent native
 synchronous implementation: a blocking-only application does not enable or
 link Tokio, smol, or an async executor. CI checks that dependency boundary for
@@ -41,19 +36,19 @@ both blocking network and blocking serial builds.
 
 ## One standard connection
 
-Use `Connect` for a short, standard connection. The type parameter is the
+Use `CameraSession::<P>::connect_tcp` for a standard connection. The type parameter is the
 compile-time profile, so transport support and optional control gates are
 checked before opening the connection.
 
 ### Blocking
 
 ```rust
-use grafton_visca::blocking::{CameraSession, Connect};
-use grafton_visca::camera::profiles::PtzOpticsG2;
+use grafton_visca::blocking::CameraSession;
+use grafton_visca::profiles::PtzOpticsG2;
 
 fn standard_connection() -> Result<(), grafton_visca::Error> {
     let session: CameraSession<PtzOpticsG2> =
-        Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+        CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")?;
     let camera = session.camera();
     camera.power().on()?;
     camera.zoom().stop()?.applied()?;
@@ -61,28 +56,25 @@ fn standard_connection() -> Result<(), grafton_visca::Error> {
 }
 ```
 
-Use `Connect::open_udp` for UDP. With `transport-serial`,
-`Connect::open_serial::<P>(port, baud_rate)` returns the multi-target `Session`;
-select a registered address with `session.camera_for::<P>(target)`.
-
-Code generic over the network kind can pass `TransportOptions::tcp(...)` or
-`TransportOptions::udp(...)` to `Connect::open::<P>`. That form requires only
-`CompileTimeProfile`; it checks transport compatibility at runtime and returns
-the same `CameraSession<P>`. Serial and custom options are deliberately
-rejected there because they use the multi-target `Session` construction path.
+Use `CameraSession::<P>::connect_udp` for UDP and, with `transport-serial`,
+`CameraSession::<P>::connect_serial(port, baud_rate)` for one serial target.
+All three return `CameraSession<P>`. A reusable `CameraConfig<P>` selects
+transport options and policy; `CameraSession::connect(&config)` opens it.
+For several registered serial targets, use `Session::connect(&session_config)`
+and select each camera with `session.camera::<P>(target)`.
 
 ### Async
 
 ```rust
 #[cfg(feature = "runtime-tokio")]
 async fn standard_connection() -> Result<(), grafton_visca::Error> {
-    use grafton_visca::camera::profiles::PtzOpticsG2;
+    use grafton_visca::profiles::PtzOpticsG2;
     use grafton_visca::runtime::TokioRuntime;
-    use grafton_visca::{CameraSession, Connect};
+    use grafton_visca::r#async::CameraSession;
 
     let runtime = TokioRuntime::from_current()?;
     let session: CameraSession<PtzOpticsG2> =
-        Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+        CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110", runtime).await?;
     let camera = session.camera();
     camera.power().on().await?;
     camera.zoom().stop().await?.applied().await?;
@@ -90,68 +82,67 @@ async fn standard_connection() -> Result<(), grafton_visca::Error> {
 }
 ```
 
-Use `runtime-smol` with `SmolRuntime`, or use `Connect::open_udp` for UDP.
-`Connect` and `CameraConfig` perform the same preflight and return the
-single-camera `CameraSession<P>` for TCP/UDP. Async serial is Tokio-only: with
-`transport-serial-tokio`, `Connect::open_serial::<P, _>(port, baud_rate,
-runtime)` returns the multi-target owner-backed `Session`.
+Use `runtime-smol` with `SmolRuntime`, or use `connect_udp` for UDP.
+The async constructors take an explicit runtime as their last argument.
+Tokio serial uses `transport-serial-tokio`; `connect_serial(port, baud_rate,
+runtime)` returns the same single-camera `CameraSession<P>` shape.
 
 ## Reusable configuration and target selection
 
-`CameraConfig<P>` is convenient profile-typed standard-transport data. It can
-set an address, `CameraId`, timeout policy, retry policy, transport options,
-and buffer/keepalive settings before calling `open`, `open_async`, or the
-serial-specific open methods. `open` and `open_async` return a
-`CameraSession<P>` for standard network transports; `open_serial` and
-`open_serial_async` return a multi-target `Session`. `CameraSession::open`
-takes a caller-owned transport with the same single-camera bind.
-`session_config()` lowers that pure
-configuration into the shared mode-independent `SessionConfig` without DNS,
-socket, serial, executor, or protocol work.
+`config::CameraConfig<P>` is reusable single-camera configuration. Its
+`with_*` methods select the address, checked `CameraId`, operational tuning,
+and transport buffer/keepalive settings. Open it with
+`blocking::CameraSession::connect(&config)` or
+`r#async::CameraSession::connect(&config, runtime).await`.
+`CameraSession::open(transport, &config[, executor])` attaches a caller-owned
+transport with the same profile binding. `session_config()` lowers the data
+into `config::SessionConfig` without opening a socket or serial device.
 
 `SessionConfig` is the reusable multi-target boundary:
 
 ```rust
-use grafton_visca::{ProfileSpec, SessionConfig};
-use grafton_visca::camera::profiles::{GenericVisca, PtzOpticsG2};
+use grafton_visca::config::SessionConfig;
+use grafton_visca::profiles::ProfileId;
 
-let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>()?;
-let generic = ProfileSpec::from_compile_time::<GenericVisca>()?;
-let mut config = SessionConfig::new(g2);
-config.register_target(grafton_visca::CameraId::new(2)?, generic)?;
+let g2 = ProfileId::PtzOpticsG2.spec()?;
+let generic = ProfileId::GenericVisca.spec()?;
+let config = SessionConfig::new(g2)
+    .with_target(grafton_visca::types::CameraId::new(2)?, generic)?;
 
 // Apply one session-wide tuning value before opening. Tuning may only be
 // more conservative than the profile floor, which is 150 ms here; opening the
 // session checks it against every registered profile.
 let config = config.with_tuning(
-    grafton_visca::OperationalTuning::new()
-        .inquiry_spacing(std::time::Duration::from_millis(250)),
+    grafton_visca::config::OperationalTuning::new()
+        .with_inquiry_spacing(std::time::Duration::from_millis(250)),
 );
 # Ok::<(), grafton_visca::Error>(())
 ```
 
 When defining a custom runtime profile, construct its timing facts as one
-validated value and select it with `camera_dyn`. This complete blocking-only
+validated value and select it with `Camera<AnyProfile>`. This complete blocking-only
 program uses the built-in TCP transport but never implements a compile-time
 profile marker:
 
 ```rust,no_run
-#[cfg(not(all(feature = "blocking", feature = "dyn-api")))]
+#[cfg(not(feature = "blocking"))]
 fn main() {}
 
-#[cfg(all(feature = "blocking", feature = "dyn-api"))]
+#[cfg(feature = "blocking")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Duration;
     use grafton_visca::{
-        blocking::Session,
-        capabilities::{Capabilities, PowerCaps},
-        command::PowerOn,
-        profile::{
-            PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming,
-            TransportCompatibility,
-        },
-        transport::Transport,
-        CommandTimeouts, SessionConfig,
+        blocking::CameraSession,
+        capabilities::Capabilities,
+        capabilities::PowerCaps,
+        command::power,
+        profiles::AnyProfile,
+        profiles::ProfileEnvelope,
+        profiles::ProfileSpec,
+        profiles::ProfileTiming,
+        profiles::TransportCompatibility,
+        profiles::CommandTimeouts,
+        config::{CameraConfig, TransportOptions},
     };
 
     let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
@@ -171,24 +162,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ambiguity_timeout(Duration::from_secs(1))
         .busy_timeout(Duration::ZERO)
         .raw_inquiry_reply_skew(Duration::ZERO)
-        .minimum_inquiry_spacing(Duration::ZERO)
-        .minimum_command_spacing(Duration::ZERO)
+        .inquiry_spacing(Duration::ZERO)
+        .command_spacing(Duration::ZERO)
         .build()?;
     let profile = ProfileSpec::builder(capabilities)
-        .transports(TransportCompatibility::new(Some(5678), None, false))
+        .transports(TransportCompatibility::new().with_tcp(5678))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(timing)
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .position_inquiries(PositionInquirySupport::new(false, false, false))
+        .position_inquiries(None)
         .build()?;
 
-    let transport = Transport::tcp()
-        .address("192.168.0.110:5678")
-        .build_blocking()?;
-    let session = Session::open(transport, SessionConfig::new(profile))?;
-    session.camera_dyn()?.execute(&PowerOn::new())?;
+    let config = CameraConfig::new(profile, TransportOptions::tcp("192.168.0.110:5678"));
+    let session = CameraSession::connect(&config)?;
+    session.camera().execute(&power::On)?;
     session.close()?;
     Ok(())
 }
@@ -205,13 +194,13 @@ matched reply.
 
 The equivalent builder form is `SessionConfig::for_target(...).with_target(...)`.
 `SessionConfig::from_compile_time::<P>()` creates a reusable camera-1 config
-from a static profile. `register_target` and `with_target` accept only IDs 1
+from a static profile. `with_target` accepts only IDs 1
 through 7, reject broadcast and duplicate IDs, and cap the registry at seven
 targets. Registration is immutable after the session starts; runtime-mutable
 tuning is not — `Session::set_tuning` replaces it at runtime, and
 `Session::tuning` reads back the live value. Every request prepared after the
 update uses the new deadlines, retry budget and pacing; a request already in
-flight keeps the deadlines it was admitted with. The
+flight keeps the deadlines it was admitted with.
 Construction-only recovery policy is separate from tuning. Configure
 `strict_unconfirmed_poison` with
 `SessionConfig::with_strict_unconfirmed_poison` (or the matching
@@ -225,15 +214,11 @@ once and return a `CameraSession<P>` whose `camera()` is bound to that same `P`
 at compile time, so there is no second profile naming for a mismatch to fail
 on and no projection error to handle.
 
-`session.camera::<P>()` remains the concise view selector for a `Session` that
-was opened with the multi-target constructors. For two or more targets it
-intentionally returns an error; use `session.camera_for::<P>(target)`.
-`camera` and `camera_for` check the complete registered `ProfileSpec` at run
-time, not only a profile name, because a `Session` carries no compile-time
-profile. Runtime profiles use `session.camera_dyn()` for one target and
-`session.camera_dyn_for(target)` for an explicit target. Those selectors return
-`BlockingDynSessionCamera` on the blocking facade and `DynSessionCamera` on the
-async facade.
+`Session::camera::<P>(target)` always names an explicit registered target and
+checks its complete `ProfileSpec` against `P`. `Session::camera::<AnyProfile>(target)`
+selects a runtime profile. `Camera<P>::into_any()` changes only the profile
+parameter; `into_typed::<Q>()` checks complete profile equality before returning
+a typed view. These conversions retain the same owner, cache and transport.
 
 ## Standard transport and profile matrix
 
@@ -241,9 +226,9 @@ The default network ports are profile facts, not global constants:
 
 | Profile family | Envelope | TCP | UDP | Serial |
 | --- | --- | ---: | ---: | --- |
-| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | 5678 | 1259 | Supported |
-| `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` | Raw VISCA | 5678 | 1259 | Supported |
-| `SonyFR7`, `SonyBRCH900` | Sony encapsulated VISCA | — | 52381 | Not a standard path |
+| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` | Raw VISCA | 5678 | 1259 | Supported |
+| `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` | Raw VISCA | 5678 | 1259 | Supported |
+| `SonyFr7`, `SonyBrcH900` | Sony encapsulated VISCA | — | 52381 | Not a standard path |
 
 An explicit `host:port` overrides a network default. Bracket IPv6 when an
 explicit port is present, for example `[2001:db8::1]:5678`. A profile/transport
@@ -301,16 +286,16 @@ async fn open_caller_owned<E, T>(
     executor: E,
 ) -> Result<(), grafton_visca::Error>
 where
-    E: grafton_visca::Executor,
+    E: grafton_visca::runtime::Executor,
     T: grafton_visca::transport::AsyncTransport
         + grafton_visca::transport::HasTransportConfig
         + 'static,
 {
-    use grafton_visca::camera::profiles::PtzOpticsG2;
+    use grafton_visca::profiles::PtzOpticsG2;
 
-    let session = grafton_visca::Session::open(
+    let session = grafton_visca::r#async::Session::open(
         custom_async_transport,
-        grafton_visca::SessionConfig::from_compile_time::<PtzOpticsG2>()?,
+        &grafton_visca::config::SessionConfig::from_compile_time::<PtzOpticsG2>()?,
         executor,
     )
     .await?;
@@ -319,7 +304,7 @@ where
 ```
 
 The blocking counterpart is `grafton_visca::blocking::Session::open(transport,
-config)`. `CameraSession::open(transport, &CameraConfig::<P>::new())` — with the
+&config)`. `CameraSession::open(transport, &config)` — with the
 executor as a third argument on the async side — is the single-camera form of
 the same boundary, taking the profile from `P` instead of a runtime
 `SessionConfig`. Implementors must
@@ -335,7 +320,7 @@ no standard kind (`None`) may bypass only that standard profile/transport pair m
 custom path still undergoes target-registry, envelope, addressing/topology,
 pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
 executor must provide coherent spawn, sleep, timeout, and clock behavior from
-one runtime. `raw::Inquiry::new` selects its fixed inquiry timeout class and
+one runtime. `raw::InquiryRequest::new` selects its fixed inquiry timeout class and
 accepts no timeout argument; `from_fn`, `with_context`, and explicit inquiry
 policies validate that class. Raw commands and operations reject the inquiry
 class at construction (#854).
@@ -350,10 +335,13 @@ call, so a thread waiting on one operation never blocks another thread's submit,
 or STOP.
 
 ```rust,no_run
-use grafton_visca::{blocking, profiles::PtzOpticsG2};
+use grafton_visca::{
+    blocking,
+    profiles::PtzOpticsG2,
+};
 
 fn share(session: &blocking::Session) -> grafton_visca::Result<()> {
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)?;
     std::thread::scope(|scope| {
         let worker = scope.spawn(move || camera.power().on());
         worker.join().expect("camera worker")
@@ -361,21 +349,20 @@ fn share(session: &blocking::Session) -> grafton_visca::Result<()> {
 }
 ```
 
-## Static, dynamic, and generic operations
+## Compile-time, runtime-selected, and generic operations
 
 Static cameras expose the same 14 noun views in blocking and async forms:
 `power`, `zoom`, `system`, `pan_tilt`, `focus`, `exposure`, `white_balance`,
 `image`, `presets`, `tally`, `nd_filter`, `motion_sync`, `menu`, and
-`advanced`. Profile-gated methods are available only when the profile's
+`streaming`. Profile-gated methods are available only when the profile's
 `Has*` marker permits them. `motion()` separately owns
-`stop_all_motion`, `is_moving`, and `wait_until_idle`, with
+`stop_all`, `is_moving`, and `wait_until_idle`, with
 the same names, arities and contracts on the blocking and async cameras, the
-blocking runtime-profile camera (whose `motion()` returns the same blocking
-view) and the object-safe `DynMotion`.
+runtime-selected cameras.
 `is_moving(MotionQuery)` samples the query's axes; `MotionQuery::default()`
 selects `AffectedAxes::MOVEMENT`.
 
-`stop_all_motion()` returns `HaltReport` under one end-to-end deadline. At owner
+`stop_all()` returns `HaltReport` under one end-to-end deadline. At owner
 acceptance it fences older declared queued motion and future retries, then
 admits each supported STOP independently while respecting protocol gates.
 Subsequent motion remains eligible. Inspect each axis's `HaltOutcome`, or use
@@ -405,40 +392,31 @@ cannot elapse within the observation deadline returns `Error::Timeout`, never
 `false`.
 
 Async noun futures borrow the temporary accessor. A direct call such as
-`camera.motion().stop_all_motion().await` is fine; bind each accessor before a
+`camera.motion().stop_all().await` is fine; bind each accessor before a
 macro retains several futures:
 
 ```rust,ignore
 let sony_motion = sony.motion();
 let raw_motion = raw.motion();
 let (sony_result, raw_result) = tokio::join!(
-    sony_motion.stop_all_motion(),
-    raw_motion.stop_all_motion(),
+    sony_motion.stop_all(),
+    raw_motion.stop_all(),
 );
 sony_result?.into_result()?;
 raw_result?.into_result()?;
 ```
 
-Blocking runtime-profile code uses `BlockingDynSessionCamera`. Its generic
-`execute`, `inquire`, and `submit` methods return native synchronous results and
-blocking operation handles; it also exposes the motion observers, state cache,
-and submission-class controls without enabling `async`.
-
-Dynamic async code uses `DynSessionCamera` and its object-safe
-`DynSessionCameraControl` plus `DynPower`, `DynZoom`, `DynSystem`,
-`DynPanTilt`, `DynFocus`, `DynExposure`, `DynWhiteBalance`, `DynImage`,
-`DynPresets`, `DynTally`, `DynNdFilter`, `DynMotionSync`, `DynMenu`,
-`DynAdvanced`, and `DynMotion` traits:
+Runtime-selected cameras use the same concrete `Camera<AnyProfile>` and
+`Operation<K>` types as compile-time profiles. Both facades validate domain
+presence, optional permission, inventory and profile-selected encoding before
+I/O. Discover optional permissions with `camera.capabilities().supports(surface)`.
 
 ```rust
-#[cfg(all(feature = "dyn-api", feature = "async"))]
-async fn dynamic_views(
-    session: &grafton_visca::Session,
-    query: grafton_visca::camera::MotionQuery,
+#[cfg(feature = "async")]
+async fn runtime_views(
+    camera: &grafton_visca::r#async::Camera<grafton_visca::profiles::AnyProfile>,
+    query: grafton_visca::types::MotionQuery,
 ) -> Result<(), grafton_visca::Error> {
-    use grafton_visca::dynapi::{DynMotion, DynZoom};
-
-    let camera = session.camera_dyn()?;
     camera.zoom().stop().await?.applied().await?;
     camera.motion().is_moving(query).await?;
     Ok(())
@@ -446,8 +424,8 @@ async fn dynamic_views(
 ```
 
 Use the generic `execute` for a plain request, `inquire` for a typed inquiry,
-and `submit` for a typed operation. Dynamic custom requests use the explicit
-targeted/applied-only request traits. An applied-only handle has no settled
+and `submit` for a typed operation. Custom requests declare their class with
+`PlainClass`, `InquiryClass`, or `OperationClass<K>`. An applied-only handle has no settled
 state. Every wait borrows its handle and caches what it observes, so a timed-out
 wait can be retried and `settled` can follow `applied`; `cancel` is one
 idempotent intent that reports its owner outcome, and `detach` is the explicit

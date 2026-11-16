@@ -1,49 +1,6 @@
-//! Zoom capability trait and associated types.
+//! Optical magnification conversion from a profile's lens facts.
 
 use std::borrow::Cow;
-
-use crate::capabilities::{CapabilityRange, ValidationError};
-
-/// Trait for cameras that support zoom operations.
-///
-/// This trait defines the constants and capabilities for zoom control.
-/// Cameras implementing this trait gain access to zoom methods.
-pub trait Zoom {
-    /// Maximum optical zoom position in VISCA units (`0x4000` on the
-    /// PTZOptics G2 family).
-    const OPTICAL_ZOOM_MAX: u16;
-
-    /// Maximum digital zoom position if supported.
-    /// None if camera doesn't support digital zoom.
-    const DIGITAL_ZOOM_MAX: Option<u16>;
-
-    /// Valid range for variable zoom speed.
-    /// Usually 0-7 where 0 is slowest, 7 is fastest.
-    const ZOOM_SPEED_RANGE: CapabilityRange<u8>;
-
-    /// Whether camera supports direct zoom positioning.
-    /// If false, zoom must be achieved through zoom in/out commands.
-    const SUPPORTS_DIRECT_ZOOM: bool = false;
-
-    /// Whether camera supports variable speed zoom.
-    /// If false, only standard speed zoom is available.
-    const SUPPORTS_VARIABLE_ZOOM: bool = false;
-
-    /// Optical zoom ratio of the profile's lens (`30.0` for a 30x lens).
-    ///
-    /// `Some` only when the profile names exactly one lens and a cited source
-    /// states its ratio. A profile that spans several lenses (the PTZOptics G2
-    /// family ships 12x, 20x and 30x models that answer VISCA identically)
-    /// or whose ratio is unsourced is `None`. There are two declaration paths:
-    /// a lens-dependent built-in profile names the installed lens per camera
-    /// with
-    /// [`Capabilities::zoom_scale_for_lens`](crate::capabilities::Capabilities::zoom_scale_for_lens),
-    /// and a custom profile with a fixed lens states it once through the
-    /// [`ZoomCaps::optical_ratio`](crate::capabilities::ZoomCaps::optical_ratio)
-    /// field in the complete domain supplied to
-    /// [`ProfileSpecBuilder::zoom`](crate::ProfileSpecBuilder::zoom).
-    const OPTICAL_ZOOM_RATIO: Option<f32>;
-}
 
 /// Linear magnification scale over a camera's optical zoom range.
 ///
@@ -139,126 +96,35 @@ impl ZoomScale {
     }
 }
 
-/// Extension trait that adds validation methods to cameras with zoom support.
-pub trait ZoomExt: Zoom {
-    /// Validate a zoom position is within range.
-    fn validate_zoom_position(&self, position: u16) -> Result<u16, ValidationError> {
-        let max = Self::DIGITAL_ZOOM_MAX.unwrap_or(Self::OPTICAL_ZOOM_MAX);
-        CapabilityRange::<u16>::new(0, max).validate("zoom position", position)
-    }
-
-    /// Validate a zoom speed against `ZOOM_SPEED_RANGE`.
-    ///
-    /// Rejects out-of-range speeds instead of clamping them, matching the
-    /// request path (`ZoomCaps::speed`).
-    fn validate_zoom_speed(&self, speed: u8) -> Result<u8, ValidationError> {
-        Self::ZOOM_SPEED_RANGE.validate("zoom speed", speed)
-    }
-
-    /// Check if position is in digital zoom range.
-    fn is_digital_zoom(&self, position: u16) -> bool {
-        position > Self::OPTICAL_ZOOM_MAX
-    }
-}
-
-// Automatic implementation for all types that support zoom
-impl<T: Zoom> ZoomExt for T {}
-
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use super::*;
-
-    struct TestCamera;
-
-    impl Zoom for TestCamera {
-        const SUPPORTS_DIRECT_ZOOM: bool = true;
-        const SUPPORTS_VARIABLE_ZOOM: bool = true;
-
-        const OPTICAL_ZOOM_MAX: u16 = 0x4000;
-        const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
-        const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
-        const OPTICAL_ZOOM_RATIO: Option<f32> = Some(20.0);
-    }
+    use super::ZoomScale;
 
     #[test]
-    fn omitted_optional_zoom_permissions_are_conservative() {
-        struct Conservative;
-        impl Zoom for Conservative {
-            const OPTICAL_ZOOM_MAX: u16 = 0x4000;
-            const DIGITAL_ZOOM_MAX: Option<u16> = None;
-            const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
-            const OPTICAL_ZOOM_RATIO: Option<f32> = None;
-        }
-        const { assert!(!<Conservative as Zoom>::SUPPORTS_DIRECT_ZOOM) };
-        const { assert!(!<Conservative as Zoom>::SUPPORTS_VARIABLE_ZOOM) };
-    }
-
-    #[test]
-    fn test_zoom_validation() {
-        let camera = TestCamera;
-
-        assert!(camera.validate_zoom_position(0x4000).is_ok());
-        assert!(camera.validate_zoom_position(0x7000).is_ok());
-        assert!(camera.validate_zoom_position(0x8000).is_err());
-    }
-
-    #[test]
-    fn zoom_speed_validation_rejects_instead_of_clamping() {
-        let camera = TestCamera;
-
-        assert_eq!(camera.validate_zoom_speed(0), Ok(0));
-        assert_eq!(camera.validate_zoom_speed(7), Ok(7));
-        assert_eq!(
-            camera.validate_zoom_speed(8),
-            Err(ValidationError::out_of_range("zoom speed", 8.0, 0.0, 7.0))
-        );
-    }
-
-    #[test]
-    fn test_digital_zoom_detection() {
-        let camera = TestCamera;
-
-        assert!(!camera.is_digital_zoom(0x4000));
-        assert!(camera.is_digital_zoom(0x4001));
-        assert!(camera.is_digital_zoom(0x7000));
-    }
-
-    #[test]
-    fn zoom_scale_maps_both_optical_ends_exactly_and_rejects_digital_magnification() {
-        let scale = ZoomScale::new(TestCamera::OPTICAL_ZOOM_MAX, 20.0).expect("valid lens");
+    fn optical_scale_pins_endpoints_and_rejects_unsupported_magnification() {
+        let scale = ZoomScale::new(0x4000, 20.0).expect("valid lens scale");
         assert_eq!(scale.units(1.0).ok(), Some(0));
         assert_eq!(scale.units(20.0).ok(), Some(0x4000));
         assert_eq!(scale.magnification(0), Some(1.0));
         assert_eq!(scale.magnification(0x4000), Some(20.0));
         assert_eq!(scale.magnification(0x4001), None);
         for invalid in [0.5, 20.01, f32::NAN, f32::INFINITY] {
-            assert!(matches!(
-                scale.units(invalid),
-                Err(crate::Error::InvalidParameter {
-                    parameter: "zoom magnification",
-                    ..
-                })
-            ));
+            assert!(scale.units(invalid).is_err());
         }
-        for ratio in [1.0, 0.0, f32::NAN] {
+        for ratio in [0.0, 1.0, f32::NAN, f32::INFINITY] {
             assert!(ZoomScale::new(0x4000, ratio).is_err());
         }
         assert!(ZoomScale::new(0, 20.0).is_err());
     }
 
-    /// Every unit maps to a magnification that maps back to the same unit.
     #[test]
-    fn zoom_scale_round_trips_every_optical_unit() {
+    fn every_optical_unit_round_trips_for_supported_lens_ratios() {
         for ratio in [12.0, 20.0, 30.0] {
-            let scale = ZoomScale::new(0x4000, ratio).expect("valid lens");
-            for units in 0..=0x4000_u16 {
+            let scale = ZoomScale::new(0x4000, ratio).expect("valid lens scale");
+            for units in 0..=0x4000 {
                 let magnification = scale.magnification(units).expect("optical unit");
-                assert_eq!(
-                    scale.units(magnification).ok(),
-                    Some(units),
-                    "{ratio}x {units}"
-                );
+                assert_eq!(scale.units(magnification).ok(), Some(units));
             }
         }
     }

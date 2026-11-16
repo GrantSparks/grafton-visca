@@ -7,6 +7,7 @@
 use crate::{
     camera_id::CameraId,
     command::{bytes::VISCA_TERMINATOR, response::Payload},
+    wire::WireValue,
     ViscaSocket,
 };
 
@@ -48,7 +49,7 @@ pub struct BasicResponse<'a> {
     /// The camera that sent this reply, decoded from the reply address byte.
     ///
     /// On a point-to-point transport this is always
-    /// [`CameraId::CAMERA_1`](crate::CameraId::CAMERA_1) (`0x90`); on a serial
+    /// [`crate::types::CameraId::CAMERA_1`](crate::types::CameraId::CAMERA_1) (`0x90`); on a serial
     /// daisy chain it identifies which of the up to seven addressed devices
     /// answered.
     pub source: CameraId,
@@ -144,9 +145,9 @@ pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<
 /// Decode the socket nibble used by a fixed-format response.
 ///
 /// VISCA uses nibble `0` on the wire for a socketless compatibility response,
-/// while the only numbered command sockets are `1` and `2`.  The public
-/// [`ViscaSocket::from_protocol_byte`] helper intentionally returns `None` for
-/// both socketless and invalid values, so the outer `Option` here preserves
+/// while the only numbered command sockets are `1` and `2`. The checked
+/// [`crate::wire::WireValue`] decoder rejects both socketless and invalid
+/// values, so the outer `Option` here preserves
 /// that distinction for strict fixed-frame parsing: `Some(None)` is valid
 /// socketless evidence and `None` is a malformed socket nibble.
 ///
@@ -158,7 +159,7 @@ pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<
 pub(crate) fn decode_fixed_socket(nibble: u8) -> Option<Option<ViscaSocket>> {
     match nibble {
         0 => Some(None),
-        1 | 2 => ViscaSocket::from_protocol_byte(nibble).map(Some),
+        1 | 2 => ViscaSocket::from_wire(nibble).ok().map(Some),
         _ => None,
     }
 }
@@ -169,7 +170,7 @@ mod tests {
     use super::*;
 
     use crate::command::{
-        pan_tilt::PanTiltFraming,
+        pan_tilt_wire::PanTiltFraming,
         response::{lift_inquiry, InquiryKind, Response},
         InquiryData,
     };

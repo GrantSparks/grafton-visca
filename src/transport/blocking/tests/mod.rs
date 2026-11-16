@@ -5,3 +5,7 @@
 
 #[cfg(test)]
 mod framing_tests;
+
+mod issue_843_udp_transient;
+#[cfg(target_os = "linux")]
+mod issue_869_linux_udp_send;

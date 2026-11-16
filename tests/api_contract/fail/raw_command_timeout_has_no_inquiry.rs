@@ -1,8 +1,8 @@
-use grafton_visca::CommandCategory;
+use grafton_visca::profiles::CommandTimeoutClass;
 
 fn main() {
-    let _ = CommandCategory::Inquiry;
+    let _ = CommandTimeoutClass::Inquiry;
 }
 
 //~ E0599
-//~ "named `Inquiry` found for enum `CommandCategory`"
+//~ "named `Inquiry` found for enum `CommandTimeoutClass`"

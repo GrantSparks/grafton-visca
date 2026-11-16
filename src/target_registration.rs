@@ -6,8 +6,13 @@ use crate::{target::TargetSlot, CameraId, Error, ProfileSpec, Result};
 
 /// Camera mounting position selected in the FR7's installation menu.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum MountPosition {
     /// Upright desktop installation, the default registration.
     #[default]
@@ -21,10 +26,60 @@ pub enum MountPosition {
 /// A registration keeps installation data separate from the source-backed
 /// profile identity. Its range accessors derive the effective target limits.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(
+    feature = "schemars",
+    derive(schemars::JsonSchema),
+    schemars(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct TargetRegistration {
+    #[cfg_attr(feature = "schemars", schemars(with = "CameraId"))]
+    #[cfg_attr(feature = "ts-rs", ts(as = "CameraId"))]
     target: TargetSlot,
     profile: Arc<ProfileSpec>,
     mount: Option<MountPosition>,
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TargetRegistrationData {
+    target: CameraId,
+    profile: ProfileSpec,
+    mount: Option<MountPosition>,
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for TargetRegistration {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
+        let mut fields = serializer.serialize_struct("TargetRegistration", 3)?;
+        fields.serialize_field("target", &self.target())?;
+        fields.serialize_field("profile", self.profile())?;
+        fields.serialize_field("mount", &self.mount())?;
+        fields.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for TargetRegistration {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let data = <TargetRegistrationData as serde::Deserialize>::deserialize(deserializer)?;
+        let registration =
+            Self::new(data.target, data.profile).map_err(serde::de::Error::custom)?;
+        match data.mount {
+            Some(mount) => registration
+                .with_mount(mount)
+                .map_err(serde::de::Error::custom),
+            None => Ok(registration),
+        }
+    }
 }
 
 impl TargetRegistration {
@@ -108,7 +163,7 @@ impl TargetRegistration {
         &self,
         pan: f32,
         tilt: f32,
-        kind: crate::profile::CoordinateKind,
+        kind: crate::profiles::CoordinateKind,
     ) -> Result<(i32, i32)> {
         let domain =
             self.profile
@@ -120,7 +175,7 @@ impl TargetRegistration {
                 })?;
         let position = domain.coordinates.checked_units(
             crate::types::PanTiltPosition::from_degrees(pan, tilt)?,
-            crate::profile::PanTiltRanges {
+            crate::profiles::PanTiltRanges {
                 pan_units: domain.pan_range,
                 tilt_units: domain.tilt_ranges.range(self.mount),
                 endpoint_quantization: domain.endpoint_quantization,
@@ -131,7 +186,7 @@ impl TargetRegistration {
     }
 
     pub(crate) fn convert_pan_tilt_degrees(&self, pan: f32, tilt: f32) -> Result<(i32, i32)> {
-        self.convert_coordinates(pan, tilt, crate::profile::CoordinateKind::Position)
+        self.convert_coordinates(pan, tilt, crate::profiles::CoordinateKind::Position)
     }
 
     pub(crate) fn convert_pan_tilt_offset_degrees(
@@ -139,7 +194,7 @@ impl TargetRegistration {
         pan: f32,
         tilt: f32,
     ) -> Result<(i32, i32)> {
-        self.convert_coordinates(pan, tilt, crate::profile::CoordinateKind::Offset)
+        self.convert_coordinates(pan, tilt, crate::profiles::CoordinateKind::Offset)
     }
 
     pub(crate) fn validate_pan_tilt_offset(&self, pan: i32, tilt: i32) -> Result<()> {
@@ -179,7 +234,7 @@ impl TargetRegistration {
 mod tests {
     use super::*;
     use crate::{
-        profiles::{GenericVisca, SonyFR7},
+        profiles::{GenericVisca, SonyFr7},
         request::builtin::{PanTiltAbsolute, PanTiltRelative},
         types::{PanSpeed, TiltSpeed},
         units::Degrees,
@@ -198,10 +253,9 @@ mod tests {
 
     #[test]
     fn fr7_registration_selects_mount_without_changing_profile_identity() {
-        let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7");
-        let mut config = crate::SessionConfig::new(profile.clone());
-        config
-            .set_mount(CameraId::CAMERA_1, MountPosition::Ceiling)
+        let profile = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7");
+        let config = crate::SessionConfig::new(profile.clone())
+            .with_mount(CameraId::CAMERA_1, MountPosition::Ceiling)
             .expect("ceiling registration");
         assert_eq!(config.profile(CameraId::CAMERA_1), Some(&profile));
         let target = config
@@ -228,7 +282,7 @@ mod tests {
     fn fr7_source_endpoints_snap_only_the_half_unit_rounding_cell() {
         let target = TargetRegistration::new(
             CameraId::CAMERA_1,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         )
         .expect("target");
         let mut buffer = [0; 17];
@@ -259,7 +313,7 @@ mod tests {
     fn fr7_target_validation_rejects_cross_mount_positions_before_encoding() {
         let desktop = TargetRegistration::new(
             CameraId::CAMERA_1,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         )
         .expect("desktop");
         let ceiling = desktop
@@ -279,5 +333,145 @@ mod tests {
         .expect("relative span");
         assert!(relative.validate_for_target(&desktop).is_ok());
         assert!(relative.validate_for_target(&ceiling).is_ok());
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+#[allow(clippy::expect_used)]
+mod portable_tests {
+    use super::*;
+    use crate::profiles::ProfileId;
+
+    fn registration(id: ProfileId) -> TargetRegistration {
+        TargetRegistration::new(CameraId::CAMERA_1, id.spec().expect("built-in spec"))
+            .expect("individual target")
+    }
+
+    #[test]
+    fn registration_round_trips_only_its_public_data_fields() {
+        for id in ProfileId::all() {
+            let registered = registration(*id);
+            let data = serde_json::to_value(&registered).expect("serialize registration");
+            let keys: std::collections::BTreeSet<_> = data
+                .as_object()
+                .expect("record")
+                .keys()
+                .map(String::as_str)
+                .collect();
+            assert_eq!(
+                keys,
+                std::collections::BTreeSet::from(["target", "profile", "mount"])
+            );
+            assert_eq!(data["target"], serde_json::json!(1));
+            assert_eq!(
+                data["profile"],
+                serde_json::to_value(registered.profile()).expect("canonical spec")
+            );
+            assert_eq!(
+                serde_json::from_value::<TargetRegistration>(data).expect("restore registration"),
+                registered
+            );
+        }
+        let ceiling = registration(ProfileId::SonyFr7)
+            .with_mount(MountPosition::Ceiling)
+            .expect("ceiling");
+        let data = serde_json::to_value(&ceiling).expect("serialize ceiling");
+        assert_eq!(data["mount"], serde_json::json!("ceiling"));
+        assert_eq!(
+            serde_json::from_value::<TargetRegistration>(data).expect("restore ceiling"),
+            ceiling
+        );
+    }
+
+    #[test]
+    fn registration_deserialization_keeps_constructor_defaults_and_checks() {
+        for id in [ProfileId::SonyFr7, ProfileId::GenericVisca] {
+            let expected = registration(id);
+            for omit_mount in [false, true] {
+                let mut data = serde_json::to_value(&expected).expect("serialize");
+                if omit_mount {
+                    data.as_object_mut().expect("record").remove("mount");
+                } else {
+                    data["mount"] = serde_json::Value::Null;
+                }
+                let restored = serde_json::from_value::<TargetRegistration>(data)
+                    .expect("default installation");
+                assert_eq!(restored.mount(), expected.mount());
+            }
+        }
+        let valid = serde_json::to_value(registration(ProfileId::SonyFr7)).expect("serialize");
+        for target in [0, 8, 9] {
+            let mut invalid = valid.clone();
+            invalid["target"] = serde_json::json!(target);
+            assert!(serde_json::from_value::<TargetRegistration>(invalid).is_err());
+        }
+        let mut unknown = valid.clone();
+        unknown["extra"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<TargetRegistration>(unknown).is_err());
+        let mut bad_mount = valid.clone();
+        bad_mount["mount"] = serde_json::json!("wall");
+        assert!(serde_json::from_value::<TargetRegistration>(bad_mount).is_err());
+        let mut bad_profile = valid;
+        bad_profile["profile"]["maximum_command_sockets"] = serde_json::json!(0);
+        assert!(serde_json::from_value::<TargetRegistration>(bad_profile).is_err());
+    }
+
+    #[test]
+    fn explicit_mount_cannot_bypass_fixed_or_absent_pan_tilt_domains() {
+        let fixed = serde_json::to_value(registration(ProfileId::GenericVisca)).expect("serialize");
+        let mut absent = fixed.clone();
+        absent["profile"]["capabilities"]["profile_id"] = serde_json::Value::Null;
+        absent["profile"]["capabilities"]["pan_tilt"] = serde_json::Value::Null;
+        absent["profile"]["position_inquiries"] = serde_json::Value::Null;
+        // This synthetic custom profile uses exact completion rather than
+        // position polling; its missing pan/tilt domain is otherwise valid.
+        absent["profile"]["supports_operation_complete"] = serde_json::json!(true);
+        absent["profile"]["capabilities"]["presets"]["recall_axes"] = serde_json::to_value(
+            crate::types::AffectedAxes::ZOOM.union(crate::types::AffectedAxes::FOCUS),
+        )
+        .expect("present preset axes");
+        serde_json::from_value::<TargetRegistration>(absent.clone())
+            .expect("valid profile without pan/tilt");
+        for data in [fixed, absent] {
+            for mount in ["desktop", "ceiling"] {
+                let mut invalid = data.clone();
+                invalid["mount"] = serde_json::json!(mount);
+                assert!(serde_json::from_value::<TargetRegistration>(invalid).is_err());
+            }
+        }
+    }
+
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    #[test]
+    fn portable_registration_exports_public_types_and_a_closed_schema() {
+        let schema = schemars::schema_for!(TargetRegistration);
+        assert_eq!(
+            schema.get("additionalProperties"),
+            Some(&serde_json::json!(false))
+        );
+        let properties = schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .expect("properties");
+        assert_eq!(
+            properties
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from(["target", "profile", "mount"])
+        );
+        let declaration = <TargetRegistration as ts_rs::TS>::decl(&ts_rs::Config::default());
+        assert!(declaration.contains("target: CameraId"), "{declaration}");
+        assert!(
+            declaration.contains("profile: ProfileSpec"),
+            "{declaration}"
+        );
+        assert!(
+            declaration.contains("mount: MountPosition | null"),
+            "{declaration}"
+        );
+        assert!(
+            !declaration.contains("TargetSlot") && !declaration.contains("TargetRegistrationData")
+        );
     }
 }

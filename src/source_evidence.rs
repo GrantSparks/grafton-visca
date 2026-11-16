@@ -76,9 +76,10 @@ impl PacketPattern {
         if frame.get(1..).is_some_and(|body| self.matches_bytes(body)) {
             Ok(())
         } else {
-            Err(crate::Error::InvalidRequest(
-                format!("{feature} encoded a packet outside its sourced register/selector").into(),
-            ))
+            Err(crate::Error::InvalidRequest {
+                reason: format!("{feature} encoded a packet outside its sourced register/selector")
+                    .into(),
+            })
         }
     }
 
@@ -149,7 +150,7 @@ source_ids! {
 pub(crate) struct Reference {
     pub(crate) id: SourceId,
     pub(crate) row: &'static str,
-    pub(crate) models: &'static [crate::camera::profiles::ProfileId],
+    pub(crate) models: &'static [crate::profiles::ProfileId],
 }
 
 /// Evidence is explicit even for a raw-only or decode-only fact.
@@ -185,7 +186,7 @@ impl Source {
     }
     pub(crate) fn validate_for_profile(
         self,
-        profile: &crate::ProfileSpec,
+        profile: &crate::profiles::ProfileSpec,
         feature: &'static str,
     ) -> crate::Result<()> {
         if self.covers_model(profile.capabilities().profile_id) {
@@ -195,10 +196,7 @@ impl Source {
         }
     }
 
-    pub(crate) const fn covers_model(
-        self,
-        model: Option<crate::camera::profiles::ProfileId>,
-    ) -> bool {
+    pub(crate) const fn covers_model(self, model: Option<crate::profiles::ProfileId>) -> bool {
         // A custom profile is an explicit caller-owned protocol authority.
         // It does not acquire a vendor provenance claim from this catalog.
         let Some(model) = model else { return true };
@@ -227,7 +225,7 @@ impl Source {
             }
             index += 1;
         }
-        if model as usize == crate::camera::profiles::ProfileId::GenericVisca as usize {
+        if model as usize == crate::profiles::ProfileId::GenericVisca as usize {
             evi && brc && nearus
         } else {
             any
@@ -242,7 +240,7 @@ macro_rules! source {
             $crate::source_evidence::Reference {
                 id: $crate::source_evidence::SourceId::$id,
                 row: $row,
-                models: &[$($crate::camera::profiles::ProfileId::$model),+],
+                models: &[$($crate::profiles::ProfileId::$model),+],
             },
         ])
     };
@@ -251,7 +249,7 @@ macro_rules! source {
             $($crate::source_evidence::Reference {
                 id: $crate::source_evidence::SourceId::$id,
                 row: $row,
-                models: &[$($crate::camera::profiles::ProfileId::$model),+],
+                models: &[$($crate::profiles::ProfileId::$model),+],
             }),+
         ])
     };
@@ -264,7 +262,7 @@ pub(crate) mod checked {
     use std::collections::{HashMap, HashSet};
 
     use super::{PacketPattern, Source, SourceId};
-    use crate::{camera::profiles::ProfileId, capabilities::TypedSupportSurface};
+    use crate::{capabilities::TypedSupportSurface, profiles::ProfileId};
 
     const BEGIN: &str = "<!-- BEGIN CHECKED SOURCE EVIDENCE -->";
     const END: &str = "<!-- END CHECKED SOURCE EVIDENCE -->";
@@ -508,7 +506,7 @@ pub(crate) mod checked {
             }
         };
         for row in BuiltinCommand::ALL {
-            if matches!(row_gate(*row), RowGate::Typed(gates) if gates.contains(surface))
+            if matches!(row_gate(*row), RowGate::Typed(gates) | RowGate::DomainAndTyped(_, gates) if gates.contains(surface))
                 && row.source().covers_model(Some(model))
             {
                 push(
@@ -525,7 +523,7 @@ pub(crate) mod checked {
             ..
         } in BUILTIN_INQUIRIES
         {
-            if matches!(gate, RowGate::Typed(gates) if gates.contains(surface))
+            if matches!(gate, RowGate::Typed(gates) | RowGate::DomainAndTyped(_, gates) if gates.contains(surface))
                 && source.covers_model(Some(model))
             {
                 let bytes = if matches!(kind, crate::command::InquiryKind::Power)
@@ -587,7 +585,7 @@ pub(crate) mod checked {
                 // The summary omitted the separately sourced FlickerModeInquiry.
                 let setter = command(C::AntiFlicker)?;
                 (
-                    S::PtzOpticsAntiFlicker,
+                    S::AntiFlicker,
                     vec![setter],
                     vec![setter, inquiry("FlickerModeInquiry")?],
                 )
@@ -596,7 +594,7 @@ pub(crate) mod checked {
                 // The old inquiry-only spelling omitted its gated setter (#912).
                 let getter = inquiry("FocusNearLimitInquiry")?;
                 (
-                    S::FocusNearLimitInquiry,
+                    S::FocusNearLimit,
                     vec![getter],
                     vec![getter, command(C::FocusNearLimit)?],
                 )
@@ -630,23 +628,6 @@ pub(crate) mod checked {
                     vec![setter],
                 )
             }
-            "r7-grant-sonyfr7whitebalance" => {
-                // ATW, manual mode and the baseline mode inquiry have separate
-                // noun permissions; this old domain summary included all three.
-                let scene = command(C::Fr7WhiteBalanceSet)?;
-                let preset = command(C::WhiteBalancePreset)?;
-                (
-                    S::SonyFr7WhiteBalance,
-                    vec![
-                        command(C::WhiteBalanceAutoTracking)?,
-                        command(C::WhiteBalanceManual)?,
-                        preset,
-                        scene,
-                        inquiry("WhiteBalanceModeInquiry")?,
-                    ],
-                    vec![scene, preset],
-                )
-            }
             "r1-ptzopticsg2-usbaudio-grant" | "r1-ptzoptics30x-usbaudio-grant" => {
                 // The obsolete 0A-category prefix in this aggregate summary
                 // is not positive permission. Both actual sourced rows use
@@ -668,7 +649,7 @@ pub(crate) mod checked {
                 // command patterns deliberately stop at the catalogue prefix.
                 let setter = command(C::PresetRecallSpeed)?;
                 (
-                    S::PtzOpticsPresetRecallSpeed,
+                    S::PresetRecallSpeed,
                     vec![setter.then(&[0], &[0])],
                     vec![setter],
                 )
@@ -740,7 +721,7 @@ pub(crate) mod checked {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::{checked::Index, Source};
-    use crate::{camera::profiles::ProfileId, capabilities::TypedSupportSurface};
+    use crate::{capabilities::TypedSupportSurface, profiles::ProfileId};
     use std::collections::HashSet;
 
     const FIXTURE: &str = "| R1 | primary |\n| R11 | primary |\nNo source documents 09 04 2B.\n<!-- BEGIN CHECKED SOURCE EVIDENCE -->\n| Evidence key | Source | Models | Subject | Packet | Boolean reply | Location |\n| positive | R1 | GenericVisca | inquiry.Power | 09 04 00 | on=02;off=03 | p. 1 |\n<!-- END CHECKED SOURCE EVIDENCE -->";
@@ -786,17 +767,297 @@ mod tests {
     #[test]
     fn a_grant_cannot_cite_a_packet_outside_its_noun_rows() {
         let document = FIXTURE
-            .replace("inquiry.Power", "grant.IrisControl")
+            .replace("inquiry.Power", "grant.Iris")
             .replace("09 04 00", "01 04 FF");
         let index = Index::parse(&document).expect("fixture index");
         let error = index
             .validate_grant(
                 source!(R1, [GenericVisca], "positive"),
-                TypedSupportSurface::IrisControl,
+                TypedSupportSurface::Iris,
                 ProfileId::GenericVisca,
             )
             .expect_err("an alien grant packet must fail");
         assert!(error.contains("not the packet of any gated row"), "{error}");
+    }
+
+    #[test]
+    fn split_fr7_grants_reject_other_families_and_models() {
+        let document = include_str!("../docs/visca_reference.md");
+        for (surface, source, key, foreign_packet) in [
+            (
+                TypedSupportSurface::IrisSteps,
+                source!(R7, [SonyFr7], "r7-grant-irissteps"),
+                "r7-grant-irissteps",
+                "01 05 34",
+            ),
+            (
+                TypedSupportSurface::AutoIris,
+                source!(R7, [SonyFr7], "r7-grant-autoiris"),
+                "r7-grant-autoiris",
+                "01 7E 04 4B 02",
+            ),
+            (
+                TypedSupportSurface::OnePushWhiteBalance,
+                source!(R7, [SonyFr7], "r7-grant-onepushwhitebalance"),
+                "r7-grant-onepushwhitebalance",
+                "01 04 35 0A",
+            ),
+            (
+                TypedSupportSurface::SeparatePresetSpeed,
+                source!(R7, [SonyFr7], "r7-grant-separatepresetspeed"),
+                "r7-grant-separatepresetspeed",
+                "01 7E 04 1C",
+            ),
+            (
+                TypedSupportSurface::SeparatePresetSpeed,
+                source!(R7, [SonyFr7], "r7-grant-separatepresetspeed"),
+                "r7-grant-separatepresetspeed",
+                "09 7E 04 1C",
+            ),
+            (
+                TypedSupportSurface::PresetRecallSpeed,
+                source!(R7, [SonyFr7], "r7-grant-presetrecallspeed"),
+                "r7-grant-presetrecallspeed",
+                "01 7E 01 0B",
+            ),
+            (
+                TypedSupportSurface::PresetRecallSpeedInquiry,
+                source!(R7, [SonyFr7], "r7-grant-presetrecallspeedinquiry"),
+                "r7-grant-presetrecallspeedinquiry",
+                "09 7E 01 0B",
+            ),
+        ] {
+            let index = Index::parse(document).expect("checked source index");
+            index
+                .validate_grant(source, surface, ProfileId::SonyFr7)
+                .expect("the narrowed source grant covers exactly its model's noun rows");
+            let error = index
+                .validate_grant(source, surface, ProfileId::PtzOpticsG2)
+                .expect_err("FR7 evidence cannot establish a PTZOptics grant");
+            assert!(
+                error.contains("no source applies to model"),
+                "{key}: {error}"
+            );
+
+            let line = document
+                .lines()
+                .find(|line| line.starts_with(&format!("| {key} |")))
+                .expect("exact split grant row");
+            let packet = line
+                .trim_matches('|')
+                .split('|')
+                .nth(4)
+                .expect("packet column")
+                .trim();
+            let changed_line = line.replace(packet, &format!("{packet};{foreign_packet}"));
+            let changed = document.replace(line, &changed_line);
+            let index = Index::parse(&changed).expect("mutated source index");
+            let error = index
+                .validate_grant(source, surface, ProfileId::SonyFr7)
+                .expect_err("a sibling family's packet cannot widen the grant");
+            assert!(
+                error.contains("not the packet of any gated row"),
+                "{key}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn merged_noise_reduction_grants_require_both_source_halves() {
+        let index =
+            Index::parse(include_str!("../docs/visca_reference.md")).expect("checked source index");
+        macro_rules! check {
+            ($surface:ident, $model:ident, $query_source:ident, $query:literal,
+             $control_source:ident, $control:literal) => {{
+                let combined = source!([
+                    ($query_source, [$model], $query),
+                    ($control_source, [$model], $control)
+                ]);
+                index
+                    .validate_grant(combined, TypedSupportSurface::$surface, ProfileId::$model)
+                    .expect("a merged level family retains both checked source anchors");
+                for incomplete in [
+                    source!($query_source, [$model], $query),
+                    source!($control_source, [$model], $control),
+                ] {
+                    let error = index
+                        .validate_grant(
+                            incomplete,
+                            TypedSupportSurface::$surface,
+                            ProfileId::$model,
+                        )
+                        .expect_err("neither inquiry nor control evidence alone covers the family");
+                    assert!(
+                        error.contains("missing from its source references"),
+                        "{error}"
+                    );
+                }
+            }};
+        }
+        check!(
+            NoiseReduction2D,
+            PtzOpticsG2,
+            R1,
+            "r1-ptzopticsg2-noisereduction2d-grant",
+            R14,
+            "r14-ptzopticsg2-noisereduction2dcontrol-grant"
+        );
+        check!(
+            NoiseReduction3D,
+            PtzOpticsG2,
+            R1,
+            "r1-ptzopticsg2-noisereduction3d-grant",
+            R14,
+            "r14-ptzopticsg2-noisereduction3dcontrol-grant"
+        );
+        check!(
+            NoiseReduction2D,
+            PtzOpticsG3,
+            R14,
+            "r14-ptzopticsg3-noisereduction2d-grant",
+            R14,
+            "r14-ptzopticsg3-noisereduction2dcontrol-grant"
+        );
+        check!(
+            NoiseReduction3D,
+            PtzOpticsG3,
+            R14,
+            "r14-ptzopticsg3-noisereduction3d-grant",
+            R14,
+            "r14-ptzopticsg3-noisereduction3dcontrol-grant"
+        );
+        check!(
+            NoiseReduction2D,
+            PtzOptics30x,
+            R1,
+            "r1-ptzoptics30x-noisereduction2d-grant",
+            R14,
+            "r14-ptzoptics30x-noisereduction2dcontrol-grant"
+        );
+        check!(
+            NoiseReduction3D,
+            PtzOptics30x,
+            R1,
+            "r1-ptzoptics30x-noisereduction3d-grant",
+            R14,
+            "r14-ptzoptics30x-noisereduction3dcontrol-grant"
+        );
+        check!(
+            NoiseReduction2D,
+            SonyEviH100,
+            R8,
+            "r8-sonyevih100-noisereduction2d-grant",
+            R8,
+            "r8-sonyevih100-noisereduction2dcontrol-grant"
+        );
+    }
+
+    #[test]
+    fn mode_only_and_aggregate_grant_rows_are_retired() {
+        let document = include_str!("../docs/visca_reference.md");
+        for key in [
+            "r7-sonyfr7-autotrackingwhitebalance-grant",
+            "r1-ptzoptics30x-standardwhitebalancemodes-grant",
+            "r1-ptzopticsg2-standardwhitebalancemodes-grant",
+            "r11-sonybrch900-standardwhitebalancemodes-grant",
+            "r12-genericvisca-standardwhitebalancemodes-grant",
+            "r12-sonybrc300-standardwhitebalancemodes-grant",
+            "r14-ptzopticsg3-standardwhitebalancemodes-grant",
+            "r21-genericvisca-standardwhitebalancemodes-grant",
+            "r21-nearusbrc300-standardwhitebalancemodes-grant",
+            "r8-genericvisca-standardwhitebalancemodes-grant",
+            "r8-sonyevih100-standardwhitebalancemodes-grant",
+            "r7-grant-sonyfr7iris",
+            "r7-grant-sonyfr7whitebalance",
+            "r7-grant-sonyfr7presetspeed",
+        ] {
+            assert!(
+                !document
+                    .lines()
+                    .any(|line| line.starts_with(&format!("| {key} |"))),
+                "retired grant row remains positive evidence: {key}"
+            );
+        }
+        let index = Index::parse(document).expect("checked source index");
+        let error = index
+            .validate_grant(
+                source!(R7, [SonyFr7], "r7-grant-sonyfr7whitebalance"),
+                TypedSupportSurface::OnePushWhiteBalance,
+                ProfileId::SonyFr7,
+            )
+            .expect_err("the old aggregate key must not alias the new one-shot grant");
+        assert!(error.contains("not a positive evidence row"), "{error}");
+    }
+
+    #[test]
+    fn white_balance_action_grants_exclude_separately_sourced_mode_selection() {
+        use crate::command::semantics::BuiltinCommand;
+
+        let document = include_str!("../docs/visca_reference.md");
+        let index = Index::parse(document).expect("checked source index");
+        for (key, source, surface, action, mode) in [
+            (
+                "r1-ptzopticsg2-colortemperature-grant",
+                source!(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperature-grant"),
+                TypedSupportSurface::ColorTemperature,
+                "01 04 20",
+                "01 04 35 20",
+            ),
+            (
+                "r1-ptzopticsg2-onepushwhitebalance-grant",
+                source!(
+                    R1,
+                    [PtzOpticsG2],
+                    "r1-ptzopticsg2-onepushwhitebalance-grant"
+                ),
+                TypedSupportSurface::OnePushWhiteBalance,
+                "01 04 10 05",
+                "01 04 35 03",
+            ),
+        ] {
+            index
+                .validate_grant(source, surface, ProfileId::PtzOpticsG2)
+                .expect("the action alone exactly describes this optional grant");
+            let line = document
+                .lines()
+                .find(|line| line.starts_with(&format!("| {key} |")))
+                .expect("the authored action grant remains present");
+            let changed_line =
+                line.replace(&format!("| {action} |"), &format!("| {action};{mode} |"));
+            assert_ne!(line, changed_line);
+            let changed = document.replace(line, &changed_line);
+            let error = Index::parse(&changed)
+                .expect("adding a mode packet still parses")
+                .validate_grant(source, surface, ProfileId::PtzOpticsG2)
+                .expect_err("mode selection must not become optional action permission");
+            assert!(error.contains("not the packet of any gated row"), "{error}");
+        }
+        // Narrowing the optional grant never retires the positive, model-scoped
+        // mode evidence used by the ordinary white-balance mode inventory.
+        for (row, packet) in [
+            (BuiltinCommand::WhiteBalanceOnePush, "01 04 35 03"),
+            (BuiltinCommand::WhiteBalanceColorTemperature, "01 04 35 20"),
+        ] {
+            let source = row.source();
+            let references = match source {
+                Source::References(references) => Some(references),
+                Source::Unsourced => None,
+            }
+            .expect("white-balance modes retain explicit model evidence");
+            for reference in references {
+                for model in reference.models {
+                    index
+                        .validate(
+                            source,
+                            &format!("command.{row:?}"),
+                            Some(&format!("{model:?}")),
+                            Some(packet),
+                            None,
+                        )
+                        .expect("every individual mode packet keeps its positive source");
+                }
+            }
+        }
     }
 
     #[test]
@@ -893,7 +1154,7 @@ mod tests {
     }
     #[test]
     fn custom_authority_and_generic_intersection_are_distinct() {
-        use crate::camera::profiles::ProfileId;
+        use crate::profiles::ProfileId;
         assert!(Source::Unsourced.covers_model(None));
         assert!(!Source::Unsourced.covers_model(Some(ProfileId::SonyFr7)));
         assert!(!source!(R8, [GenericVisca], "one-manufacturer")

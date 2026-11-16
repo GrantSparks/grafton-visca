@@ -3,9 +3,20 @@
 use grafton_visca::wire::WireValue;
 
 use grafton_visca::{
-    command::{InquiryData, InquiryKind, Response},
-    Error, ErrorKind, PowerStatus,
+    command::power::StatusInquiry, error::ErrorKind, request::Inquiry, types::PowerStatus,
+    wire::Response, Error,
 };
+
+fn decode_power(frame: &[u8]) -> Result<PowerStatus, Error> {
+    Response::parse(frame)?;
+    if frame.get(1) != Some(&0x50) {
+        return Err(Error::UnexpectedResponseType);
+    }
+    let payload = frame
+        .get(2..frame.len().saturating_sub(1))
+        .ok_or(Error::InvalidResponseFormat)?;
+    StatusInquiry.decoder().decode(payload)
+}
 
 #[test]
 fn power_status_decodes_all_documented_values_and_rejects_corruption() {
@@ -17,16 +28,13 @@ fn power_status_decodes_all_documented_values_and_rejects_corruption() {
         assert_eq!(PowerStatus::from_wire(byte).unwrap(), expected);
         assert_eq!(expected.to_wire(), byte);
         assert_eq!(expected.is_on(), byte == 0x02);
-        assert!(matches!(
-            Response::parse_with_type(&[0x90, 0x50, byte, 0xff], &InquiryKind::Power),
-            Ok(Response::Inquiry(InquiryData::Power { status })) if status == expected
-        ));
+        assert_eq!(decode_power(&[0x90, 0x50, byte, 0xff]).unwrap(), expected);
     }
     for frame in [
         &[0x90, 0x50, 0x05, 0xff][..],
         &[0x90, 0x50, 0x02, 0x03, 0xff],
     ] {
-        let error = Response::parse_with_type(frame, &InquiryKind::Power).unwrap_err();
+        let error = decode_power(frame).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Protocol);
         assert!(matches!(
             error,
@@ -56,7 +64,7 @@ fn network_change_is_a_notification_and_never_a_command_outcome() {
 ))]
 mod facades {
     use super::*;
-    use grafton_visca::{profiles::PtzOpticsG2, SessionConfig};
+    use grafton_visca::{config::SessionConfig, profiles::PtzOpticsG2};
     use grafton_visca_test_support::{facade_matrix, fake_camera::FakeCamera};
 
     fn camera(byte: u8) -> FakeCamera {
@@ -71,8 +79,8 @@ mod facades {
             for expected in [PowerStatus::On, PowerStatus::Standby, PowerStatus::CircuitError] {
                 let fake = camera(expected.to_wire());
                 let session = open!(fake, SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap()).unwrap();
-                let view = session.camera::<PtzOpticsG2>().unwrap();
-                assert_eq!(wait!(view.power().state()).unwrap(), expected);
+                let view = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+                assert_eq!(wait!(view.power().status()).unwrap(), expected);
                 assert_eq!(fake.write_count(), 1);
                 session.shutdown().unwrap();
             }
@@ -80,31 +88,35 @@ mod facades {
     }
 
     #[cfg(all(
-        feature = "dyn-api",
+        any(feature = "async", feature = "blocking"),
         any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
-    async fn dynamic_power_status<E: grafton_visca::Executor>(executor: E) {
+    async fn dynamic_power_status<E: grafton_visca::runtime::Executor>(executor: E) {
         for expected in [
             PowerStatus::On,
             PowerStatus::Standby,
             PowerStatus::CircuitError,
         ] {
             let fake = camera(expected.to_wire());
-            let session = grafton_visca::Session::open(
+            let session = grafton_visca::r#async::Session::open(
                 fake.async_wire(),
-                SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
+                &SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
                 executor.clone(),
             )
             .await
             .unwrap();
-            let view = session.camera_dyn().unwrap();
-            assert_eq!(view.power().state().await.unwrap(), expected);
+            let view = session
+                .camera::<grafton_visca::profiles::AnyProfile>(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                )
+                .unwrap();
+            assert_eq!(view.power().status().await.unwrap(), expected);
             session.shutdown().unwrap();
         }
     }
 
     #[cfg(all(
-        feature = "dyn-api",
+        any(feature = "async", feature = "blocking"),
         any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
     grafton_visca_test_support::runtime_matrix!(dynamic_power_status);

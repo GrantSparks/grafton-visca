@@ -34,7 +34,7 @@ pub struct SetVariableSpeedMode {
 
 impl SetVariableSpeedMode {
     /// Create a new variable speed mode command.
-    pub fn new(mode: PanTiltSpeedMode) -> Self {
+    pub const fn new(mode: PanTiltSpeedMode) -> Self {
         Self { mode }
     }
 }

@@ -39,7 +39,7 @@ fn invalid_bound_configurations() -> Vec<TransportConfig> {
         idle.tcp_keepalive = Some(TcpKeepaliveConfig::new(duration));
         cases.push(idle);
         let mut interval = TransportConfig::for_tcp();
-        interval.tcp_keepalive = Some(TcpKeepaliveConfig::default().with_interval(duration));
+        interval.tcp_keepalive = Some(TcpKeepaliveConfig::default().with_interval(Some(duration)));
         cases.push(interval);
     }
     for ttl in [0, 256, u32::MAX] {
@@ -79,7 +79,7 @@ fn maximum_supported_transport_bounds_validate() {
     };
     config.tcp_keepalive = Some(
         TcpKeepaliveConfig::new(Duration::from_secs(32_767))
-            .with_interval(Duration::from_secs(32_767)),
+            .with_interval(Some(Duration::from_secs(32_767))),
     );
     for ttl in [1, 255] {
         config.ttl = Some(ttl);
@@ -119,46 +119,52 @@ fn per_transport_defaults_are_internally_consistent() {
     }
 }
 
-/// `CameraConfig` and the blocking builder start from the same defaults
-/// (#799: the builder used to give TCP and UDP a 128-byte frame limit).
+/// Camera configuration lowers through the same TCP and UDP presets that the
+/// direct connectors use; an omitted override stays explicitly absent.
 #[cfg(feature = "blocking")]
 #[test]
-fn camera_config_and_blocking_builder_agree_with_the_defaults() {
-    use crate::{camera::CameraConfig, profiles::PtzOpticsG2};
-
-    let camera_tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local").tcp_transport_config();
-    let camera_udp = CameraConfig::<PtzOpticsG2>::udp("camera.local").udp_transport_config();
-    assert_eq!(camera_tcp, TransportConfig::for_tcp());
-    assert_eq!(camera_udp, TransportConfig::for_udp());
+fn camera_config_agrees_with_the_transport_defaults() {
+    use crate::{config::CameraConfig, profiles::PtzOpticsG2};
+    let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local");
+    let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local");
+    assert_eq!(tcp.transport_config(), None);
+    assert_eq!(udp.transport_config(), None);
     assert_eq!(
-        crate::transport::NetTransportBuilder::tcp().config(),
-        &TransportConfig::for_tcp()
+        tcp.standard_connection_plan()
+            .expect("TCP plan")
+            .transport_config,
+        TransportConfig::for_tcp()
     );
     assert_eq!(
-        crate::transport::NetTransportBuilder::udp().config(),
-        &TransportConfig::for_udp()
+        udp.standard_connection_plan()
+            .expect("UDP plan")
+            .transport_config,
+        TransportConfig::for_udp()
     );
 }
 
-/// An explicitly chosen generic buffer configuration is honoured, not
-/// mistaken for "unset" (#799: `CameraConfig` used to replace a caller's
-/// `BufferConfig::default()` with the transport preset).
+/// An explicitly chosen generic buffer configuration is honoured instead of
+/// being mistaken for an omitted override (#799).
 #[cfg(feature = "blocking")]
 #[test]
 fn camera_config_honours_an_explicit_generic_buffer_choice() {
-    use crate::{camera::CameraConfig, profiles::PtzOpticsG2, transport::BufferConfig};
-
-    let mut explicit = TransportConfig::for_tcp();
-    explicit.buffer_config = BufferConfig::default();
+    use crate::{config::CameraConfig, profiles::PtzOpticsG2, transport::BufferConfig};
+    let explicit = TransportConfig::for_tcp().with_buffer_config(BufferConfig::default());
     let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local")
-        .transport_config(explicit)
-        .tcp_transport_config();
-    assert_eq!(tcp.buffer_config, BufferConfig::default());
+        .with_transport_config(explicit)
+        .standard_connection_plan()
+        .expect("explicit TCP plan");
+    assert_eq!(
+        tcp.transport_config.buffer_config(),
+        BufferConfig::default()
+    );
 
-    // The transport kind still owns addressing.
-    let _udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
-        .transport_config(TransportConfig::for_serial())
-        .udp_transport_config();
+    // A caller-selected preset does not change the connector's transport kind.
+    let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
+        .with_transport_config(TransportConfig::for_serial())
+        .standard_connection_plan()
+        .expect("explicit UDP plan");
+    assert_eq!(udp.kind, crate::config::TransportKind::Udp);
 }
 
 /// Live loopback checks of the blocking connectors.
@@ -171,7 +177,7 @@ mod blocking {
 
     use super::*;
     use crate::{
-        transport::{BlockingTransport, Transport},
+        transport::{blocking_transport::BlockingTransportHandle, BlockingTransport},
         Error,
     };
 
@@ -189,7 +195,7 @@ mod blocking {
                 crate::transport::blocking::Udp::connect_with_config(&address, config)
                     .expect_err("invalid UDP config"),
             ] {
-                assert!(matches!(error, Error::InvalidRequest(_)), "{error:?}");
+                assert!(matches!(error, Error::InvalidRequest { .. }), "{error:?}");
             }
             assert!(
                 matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
@@ -217,7 +223,7 @@ mod blocking {
 
     #[test]
     fn a_direct_ip_transport_accepts_a_nondefault_camera_reply_source() {
-        use crate::{profiles::GenericVisca, SessionConfig};
+        use crate::{config::SessionConfig, profiles::GenericVisca};
         use std::io::{Read, Write};
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
         let address = listener.local_addr().expect("address").to_string();
@@ -248,11 +254,11 @@ mod blocking {
         .expect("connect");
         let session = crate::blocking::Session::open(
             transport,
-            SessionConfig::from_compile_time::<GenericVisca>().expect("profile"),
+            &SessionConfig::from_compile_time::<GenericVisca>().expect("profile"),
         )
         .expect("session");
         session
-            .camera::<GenericVisca>()
+            .camera::<GenericVisca>(crate::types::CameraId::CAMERA_1)
             .expect("camera")
             .power()
             .on()
@@ -269,14 +275,20 @@ mod blocking {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let peer = UdpSocket::bind("127.0.0.1:0").expect("bind UDP peer");
 
-        let tcp = Transport::tcp()
-            .address(listener.local_addr().expect("address").to_string())
-            .build_blocking()
-            .expect("TCP connects");
-        let udp = Transport::udp()
-            .address(peer.local_addr().expect("address").to_string())
-            .build_blocking()
-            .expect("UDP connects");
+        let tcp = BlockingTransportHandle::Tcp(
+            crate::transport::blocking::Tcp::connect_with_config(
+                &listener.local_addr().expect("address").to_string(),
+                TransportConfig::for_tcp(),
+            )
+            .expect("TCP connects"),
+        );
+        let udp = BlockingTransportHandle::Udp(
+            crate::transport::blocking::Udp::connect_with_config(
+                &peer.local_addr().expect("address").to_string(),
+                TransportConfig::for_udp(),
+            )
+            .expect("UDP connects"),
+        );
 
         for (transport, expected, identity) in [
             (&tcp, TransportConfig::for_tcp(), TransportIdentity::Tcp),
@@ -294,14 +306,20 @@ mod blocking {
     fn unrepresentable_budgets_are_rejected_identically() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let peer = UdpSocket::bind("127.0.0.1:0").expect("bind UDP peer");
-        let mut tcp = Transport::tcp()
-            .address(listener.local_addr().expect("address").to_string())
-            .build_blocking()
-            .expect("TCP connects");
-        let mut udp = Transport::udp()
-            .address(peer.local_addr().expect("address").to_string())
-            .build_blocking()
-            .expect("UDP connects");
+        let mut tcp = BlockingTransportHandle::Tcp(
+            crate::transport::blocking::Tcp::connect_with_config(
+                &listener.local_addr().expect("address").to_string(),
+                TransportConfig::for_tcp(),
+            )
+            .expect("TCP connects"),
+        );
+        let mut udp = BlockingTransportHandle::Udp(
+            crate::transport::blocking::Udp::connect_with_config(
+                &peer.local_addr().expect("address").to_string(),
+                TransportConfig::for_udp(),
+            )
+            .expect("UDP connects"),
+        );
 
         let rejected = |result: Result<(), Error>, expected: &str| {
             assert!(
@@ -385,8 +403,7 @@ mod facades {
     use super::*;
     use crate::{
         runtime::{Runtime, SmolRuntime, TokioRuntime},
-        runtime_adapters::{smol, tokio as tokio_adapters},
-        transport::Transport,
+        transport::{smol, tokio as tokio_adapters},
         Error,
     };
 
@@ -414,7 +431,7 @@ mod facades {
                 ::smol::block_on(smol.connect_udp(&address, config))
                     .expect_err("invalid smol UDP config"),
             ] {
-                assert!(matches!(error, Error::InvalidRequest(_)), "{error:?}");
+                assert!(matches!(error, Error::InvalidRequest { .. }), "{error:?}");
             }
             assert!(
                 matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
@@ -518,17 +535,19 @@ mod facades {
         let errors: Vec<(&str, Error)> = vec![
             (
                 "blocking TCP",
-                Transport::tcp()
-                    .address(HOST)
-                    .build_blocking()
-                    .expect_err("unresolvable"),
+                crate::transport::blocking::Tcp::connect_with_config(
+                    HOST,
+                    TransportConfig::for_tcp(),
+                )
+                .expect_err("unresolvable"),
             ),
             (
                 "blocking UDP",
-                Transport::udp()
-                    .address(HOST)
-                    .build_blocking()
-                    .expect_err("unresolvable"),
+                crate::transport::blocking::Udp::connect_with_config(
+                    HOST,
+                    TransportConfig::for_udp(),
+                )
+                .expect_err("unresolvable"),
             ),
             (
                 "Tokio TCP",
@@ -626,7 +645,7 @@ mod udp_address_selection {
     async fn tokio_udp_localhost_reaches_the_ipv4_camera() {
         use crate::transport::AsyncTransport;
         let (peer, endpoint) = peer();
-        let mut socket = crate::runtime_adapters::tokio::UdpTransport::connect_with_config(
+        let mut socket = crate::transport::tokio::UdpTransport::connect_with_config(
             &endpoint,
             TransportConfig::for_udp(),
         )
@@ -642,7 +661,7 @@ mod udp_address_selection {
         use crate::transport::AsyncTransport;
         ::smol::block_on(async {
             let (peer, endpoint) = peer();
-            let mut socket = crate::runtime_adapters::smol::UdpTransport::connect_with_config(
+            let mut socket = crate::transport::smol::UdpTransport::connect_with_config(
                 &endpoint,
                 TransportConfig::for_udp(),
             )

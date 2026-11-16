@@ -21,7 +21,7 @@ use crate::error::Error;
 /// # Examples
 ///
 /// ```rust
-/// use grafton_visca::command::{BoolConvention, Payload};
+/// use grafton_visca::{wire::BoolConvention, wire::Payload};
 ///
 /// let data = [0x02];
 /// let payload = Payload::new(&data);
@@ -53,7 +53,7 @@ pub enum BoolConvention {
 /// Zero-copy view of unvalidated VISCA reply payload bytes.
 ///
 /// [`Self::new`] retains raw bytes without checking their shape or nibble values.
-/// [`Self::assert_nibbles`] validates the values; conversion to [`Nibbles`]
+/// [`Self::assert_nibbles`] validates the values; conversion to [`crate::wire::Nibbles`]
 /// additionally establishes the fixed length without copying the bytes.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +107,7 @@ impl<'a> Payload<'a> {
     /// # Arguments
     ///
     /// * `param_name` - Parameter name for error messages (e.g., "autofocus_status")
-    /// * `convention` - Which byte mapping to use (see [`BoolConvention`])
+    /// * `convention` - Which byte mapping to use (see [`crate::wire::BoolConvention`])
     ///
     /// # Errors
     ///
@@ -119,7 +119,7 @@ impl<'a> Payload<'a> {
     /// # Examples
     ///
     /// ```rust
-    /// use grafton_visca::command::{BoolConvention, Payload};
+    /// use grafton_visca::{wire::BoolConvention, wire::Payload};
     /// let payload = Payload::new(&[0x02]);
     /// // Standard convention (0x02 = on)
     /// let powered = payload.parse_bool("digital_zoom", BoolConvention::OnIs02)?;

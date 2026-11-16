@@ -11,17 +11,15 @@ use grafton_visca_test_support::{fake_camera, profile_fixtures};
 use std::time::{Duration, Instant};
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    camera::{IdleWait, MotionQuery},
-    command::{
-        ImageFlipMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PanTiltSpeedMode,
-        PresetSpeed,
+    blocking::Session,
+    config::SessionConfig,
+    profiles::{ProfileSpec, PtzOpticsG2, SonyEviH100, SonyFr7},
+    types::{
+        AffectedAxes, Degrees, IdleWait, ImageFlipMode, MotionQuery, MotionSyncSpeed, NdFilterMode,
+        NdiQuality, PanSpeed, PanTiltDirection, PanTiltLimitCorner, PanTiltSpeedMode, PresetSpeed,
+        TiltSpeed, UnitInterval, ZoomDomain, ZoomPosition,
     },
-    profile::ProfileSpec,
-    profiles::{PtzOpticsG2, SonyEVIH100, SonyFR7},
-    types::{MotionSyncSpeed, NdiQuality, PanSpeed, TiltSpeed, ZoomPosition},
-    units::{Degrees, UnitInterval},
-    AffectedAxes, Error, ZoomDomain,
+    Error,
 };
 
 use fake_camera::{frames, FakeCamera};
@@ -48,7 +46,7 @@ fn recording_camera() -> FakeCamera {
 fn open_session(profile: ProfileSpec) -> (Session, FakeCamera) {
     let camera = recording_camera();
     let session =
-        Session::open(camera.blocking_wire(), SessionConfig::new(profile)).expect("session");
+        Session::open(camera.blocking_wire(), &SessionConfig::new(profile)).expect("session");
     (session, camera)
 }
 
@@ -57,11 +55,11 @@ fn ptz_session() -> (Session, FakeCamera) {
 }
 
 fn fr7_session() -> (Session, FakeCamera) {
-    open_session(ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"))
+    open_session(ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"))
 }
 
 fn evi_h100_session() -> (Session, FakeCamera) {
-    open_session(ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI-H100 profile"))
+    open_session(ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI-H100 profile"))
 }
 
 fn motion_sync_session() -> (Session, FakeCamera) {
@@ -73,7 +71,9 @@ fn motion_sync_session() -> (Session, FakeCamera) {
 #[test]
 fn directional_pan_tilt_drive_encodes_each_direction() {
     let (session, fake) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let pan = PanSpeed::new(6).expect("pan speed");
     let tilt = TiltSpeed::new(5).expect("tilt speed");
 
@@ -86,7 +86,7 @@ fn directional_pan_tilt_drive_encodes_each_direction() {
     ] {
         let mut operation = camera
             .pan_tilt()
-            .move_direction(direction, pan, tilt)
+            .drive(direction, grafton_visca::types::PanTiltSpeed { pan, tilt })
             .expect("directional drive");
         operation.applied().expect("drive applied");
 
@@ -107,7 +107,7 @@ fn normalized_zoom_maps_the_unit_interval_across_explicit_combined_domains() {
             .expect("combined zoom fixture"),
     );
     let camera = session
-        .camera::<CombinedZoomTypedSupport>()
+        .camera::<CombinedZoomTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera");
     let optical_max = *camera
         .capabilities()
@@ -243,10 +243,12 @@ fn fr7_refuses_combined_zoom_and_uses_dedicated_clear_image_readback() {
     });
     let session = Session::open(
         fake.blocking_wire(),
-        SessionConfig::from_compile_time::<SonyFR7>().expect("FR7 session config"),
+        &SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 session config"),
     )
     .expect("session");
-    let camera = session.camera::<SonyFR7>().expect("camera");
+    let camera = session
+        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     assert!(camera
         .capabilities()
         .zoom
@@ -278,18 +280,20 @@ fn fr7_refuses_combined_zoom_and_uses_dedicated_clear_image_readback() {
 #[test]
 fn menu_toggle_sends_the_vendor_open_close_control() {
     let (session, fake) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
+    let camera = session
+        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
     camera
         .menu()
         .direct(
-            grafton_visca::command::DirectMenuTarget::NdFilter,
-            grafton_visca::command::MenuButton::Press,
+            grafton_visca::types::DirectMenuTarget::NdFilter,
+            grafton_visca::types::MenuButton::Press,
         )
         .expect("explicit control");
     let explicit_frame = fake.take_only_payload();
 
-    camera.menu().toggle_display().expect("menu toggle");
+    camera.menu().toggle_visible().expect("menu toggle");
     let toggle_frame = fake.take_only_payload();
 
     assert_eq!(toggle_frame, explicit_frame);
@@ -309,7 +313,7 @@ fn menu_toggle_sends_the_vendor_open_close_control() {
 fn motion_sync_speed_helper_drives_its_explicit_preset() {
     let (session, fake) = motion_sync_session();
     let camera = session
-        .camera::<MotionSyncTypedSupport>()
+        .camera::<MotionSyncTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("motion-sync camera");
 
     // `81 0A 11 14 pp FF`, pp = speed: the literal frame for speed 12.
@@ -345,7 +349,9 @@ fn motion_sync_speed_helper_drives_its_explicit_preset() {
 #[test]
 fn default_motion_query_samples_every_mechanical_movement_axis() {
     let (session, fake) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
     assert!(!camera
         .motion()
@@ -372,7 +378,9 @@ fn default_motion_query_samples_every_mechanical_movement_axis() {
 #[test]
 fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
     let (session, fake) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
     let polling_started = Instant::now();
     for _ in 0..6 {
@@ -400,7 +408,9 @@ fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
 #[test]
 fn named_idle_wait_presets_poll_only_their_own_axis() {
     let (session, fake) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
 
     camera
         .motion()
@@ -439,10 +449,12 @@ fn named_idle_wait_presets_poll_only_their_own_axis() {
 #[test]
 fn typed_cameras_expose_their_runtime_capability_inventory() {
     let (session, _fake) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let capabilities = camera.capabilities();
     assert_eq!(capabilities.model_name, "PtzOptics G2");
-    assert!(capabilities.has_pan_tilt());
+    assert!(capabilities.pan_tilt.is_some());
 
     // `camera.capabilities()` is defined as `camera.profile().capabilities()`,
     // so comparing those two by address asserts nothing. Compare against an
@@ -459,27 +471,29 @@ fn typed_cameras_expose_their_runtime_capability_inventory() {
 #[test]
 fn typed_cache_getters_decode_the_combined_flip_pair() {
     let (session, _fake) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.flip_state(), None);
+    assert_eq!(cache.image().flip_mode(), None);
 
     camera
         .image()
         .set_flip_mode(ImageFlipMode::Both)
         .expect("combined flip");
-    assert_eq!(cache.flip_state(), Some(ImageFlipMode::Both));
+    assert_eq!(cache.image().flip_mode(), Some(ImageFlipMode::Both));
 
     camera
         .image()
         .set_flip_mode(ImageFlipMode::Horizontal)
         .expect("combined flip");
-    assert_eq!(cache.flip_state(), Some(ImageFlipMode::Horizontal));
+    assert_eq!(cache.image().flip_mode(), Some(ImageFlipMode::Horizontal));
 
     // A single-axis opcode moves one axis and leaves the other unknown, so the
     // complete pair stops being known rather than going stale.
-    camera.image().enable_flip().expect("separate flip");
-    assert_eq!(cache.flip_state(), None);
+    camera.image().set_flip(true).expect("separate flip");
+    assert_eq!(cache.image().flip_mode(), None);
 
     session.shutdown().expect("shutdown");
 }
@@ -487,17 +501,21 @@ fn typed_cache_getters_decode_the_combined_flip_pair() {
 #[test]
 fn typed_cache_getters_decode_pan_tilt_limit_updates() {
     let (session, fake) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.pan_tilt_limits(), None);
+    assert_eq!(cache.pan_tilt().limit(), None);
 
     camera
         .pan_tilt()
-        .limit_set(
+        .set_limit(
             PanTiltLimitCorner::DownLeft,
-            Degrees::new(0.0).expect("finite degrees"),
-            Degrees::new(0.0).expect("finite degrees"),
+            grafton_visca::types::PanTiltPosition {
+                pan: Degrees::new(0.0).expect("finite degrees"),
+                tilt: Degrees::new(0.0).expect("finite degrees"),
+            },
         )
         .expect("limit set");
     assert_eq!(
@@ -507,7 +525,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
             0xFF,
         ]
     );
-    let update = cache.pan_tilt_limits().expect("recorded limit update");
+    let update = cache.pan_tilt().limit().expect("recorded limit update");
     assert_eq!(update.corner(), PanTiltLimitCorner::DownLeft);
     assert!(!update.is_cleared());
     assert_eq!(
@@ -521,10 +539,12 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
     // profile's own degrees-to-units factors.
     camera
         .pan_tilt()
-        .limit_set(
+        .set_limit(
             PanTiltLimitCorner::UpRight,
-            Degrees::new(90.0).expect("finite degrees"),
-            Degrees::new(30.0).expect("finite degrees"),
+            grafton_visca::types::PanTiltPosition {
+                pan: Degrees::new(90.0).expect("finite degrees"),
+                tilt: Degrees::new(30.0).expect("finite degrees"),
+            },
         )
         .expect("limit set");
     assert_eq!(
@@ -534,7 +554,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
             0xFF,
         ]
     );
-    let update = cache.pan_tilt_limits().expect("recorded limit update");
+    let update = cache.pan_tilt().limit().expect("recorded limit update");
     assert_eq!(update.corner(), PanTiltLimitCorner::UpRight);
     assert!(!update.is_cleared());
     let (pan, tilt) = update
@@ -546,7 +566,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
 
     camera
         .pan_tilt()
-        .limit_clear(PanTiltLimitCorner::DownLeft)
+        .clear_limit(PanTiltLimitCorner::DownLeft)
         .expect("limit clear");
     assert_eq!(
         fake.take_only_payload(),
@@ -555,14 +575,14 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
             0xFF,
         ]
     );
-    let update = cache.pan_tilt_limits().expect("recorded limit clear");
+    let update = cache.pan_tilt().limit().expect("recorded limit clear");
     assert_eq!(update.corner(), PanTiltLimitCorner::DownLeft);
     assert!(update.is_cleared());
     assert_eq!(update.position(), None);
 
     camera
         .pan_tilt()
-        .limit_clear(PanTiltLimitCorner::UpRight)
+        .clear_limit(PanTiltLimitCorner::UpRight)
         .expect("limit clear");
     assert_eq!(
         fake.take_only_payload(),
@@ -571,7 +591,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
             0xFF,
         ]
     );
-    let update = cache.pan_tilt_limits().expect("recorded limit clear");
+    let update = cache.pan_tilt().limit().expect("recorded limit clear");
     assert_eq!(update.corner(), PanTiltLimitCorner::UpRight);
     assert!(update.is_cleared());
     assert_eq!(update.position(), None);
@@ -583,17 +603,23 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
 /// FR7 red/green tally commands and must fail before transport I/O.
 #[test]
 fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
-    use grafton_visca::command::{TallyFlash, TallyOff, TallyOn};
-
     let (session, fake) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
+    let camera = session
+        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.tally_mode(), None);
+    assert_eq!(cache.tally().mode(), None);
     for result in [
-        camera.execute(&TallyOn),
-        camera.execute(&TallyOff),
-        camera.execute(&TallyFlash),
+        camera.execute(&grafton_visca::command::tally::SetMode::new(
+            grafton_visca::types::TallyMode::On,
+        )),
+        camera.execute(&grafton_visca::command::tally::SetMode::new(
+            grafton_visca::types::TallyMode::Off,
+        )),
+        camera.execute(&grafton_visca::command::tally::SetMode::new(
+            grafton_visca::types::TallyMode::Flash,
+        )),
     ] {
         assert!(
             matches!(result, Err(Error::FeatureNotSupported { .. })),
@@ -604,7 +630,7 @@ fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
         fake.take_payloads().is_empty(),
         "rejected tally rows must not reach I/O"
     );
-    assert_eq!(cache.tally_mode(), None);
+    assert_eq!(cache.tally().mode(), None);
 
     session.shutdown().expect("shutdown");
 }
@@ -612,18 +638,24 @@ fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
 /// Rejection through direct request admission also leaves the cache unknown.
 #[test]
 fn direct_vendor_tally_mode_rejection_does_not_mutate_cache() {
-    use grafton_visca::command::{TallyFlash, TallyOff, TallyOn};
-
     let (session, fake) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
+    let camera = session
+        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.tally_mode(), None);
+    assert_eq!(cache.tally().mode(), None);
 
     for result in [
-        camera.execute(&TallyOn),
-        camera.execute(&TallyOff),
-        camera.execute(&TallyFlash),
+        camera.execute(&grafton_visca::command::tally::SetMode::new(
+            grafton_visca::types::TallyMode::On,
+        )),
+        camera.execute(&grafton_visca::command::tally::SetMode::new(
+            grafton_visca::types::TallyMode::Off,
+        )),
+        camera.execute(&grafton_visca::command::tally::SetMode::new(
+            grafton_visca::types::TallyMode::Flash,
+        )),
     ] {
         assert!(
             matches!(result, Err(Error::FeatureNotSupported { .. })),
@@ -634,7 +666,7 @@ fn direct_vendor_tally_mode_rejection_does_not_mutate_cache() {
         fake.take_payloads().is_empty(),
         "rejected tally rows must not reach I/O"
     );
-    assert_eq!(cache.tally_mode(), None);
+    assert_eq!(cache.tally().mode(), None);
 
     session.shutdown().expect("shutdown");
 }
@@ -644,16 +676,18 @@ fn direct_vendor_tally_mode_rejection_does_not_mutate_cache() {
 #[test]
 fn typed_cache_getters_decode_the_focus_lock_mode() {
     let (session, _fake) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.focus_lock(), None);
+    assert_eq!(cache.focus().lock(), None);
 
     camera.focus().set_lock(true).expect("focus lock on");
-    assert_eq!(cache.focus_lock(), Some(true));
+    assert_eq!(cache.focus().lock(), Some(true));
 
     camera.focus().set_lock(false).expect("focus lock off");
-    assert_eq!(cache.focus_lock(), Some(false));
+    assert_eq!(cache.focus().lock(), Some(false));
 
     session.shutdown().expect("shutdown");
 }
@@ -663,32 +697,37 @@ fn typed_cache_getters_decode_the_focus_lock_mode() {
 #[test]
 fn typed_cache_getters_decode_the_remaining_write_only_keys() {
     let (session, _fake) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
+    let camera = session
+        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.digital_zoom(), None);
-    assert_eq!(cache.tally_brightness_is_high(), None);
-    assert_eq!(cache.variable_speed_mode(), None);
+    assert_eq!(cache.zoom().digital_zoom(), None);
+    assert_eq!(cache.tally().brightness(), None);
+    assert_eq!(cache.pan_tilt().speed_mode(), None);
 
     assert!(matches!(
-        camera.execute(&grafton_visca::command::DigitalZoom::new(true)),
+        camera.execute(&grafton_visca::command::zoom::SetDigitalZoom::new(true)),
         Err(Error::FeatureNotSupported { .. })
     ));
-    assert_eq!(cache.digital_zoom(), None);
+    assert_eq!(cache.zoom().digital_zoom(), None);
 
-    assert_eq!(cache.tally_brightness_is_high(), None);
+    assert_eq!(cache.tally().brightness(), None);
 
     camera
-        .advanced()
-        .set_variable_speed_mode(PanTiltSpeedMode::Fine50)
-        .expect("variable speed mode");
-    assert_eq!(cache.variable_speed_mode(), Some(PanTiltSpeedMode::Fine50));
-    camera
-        .advanced()
-        .set_variable_speed_mode(PanTiltSpeedMode::Standard24)
+        .pan_tilt()
+        .set_speed_mode(PanTiltSpeedMode::Fine50)
         .expect("variable speed mode");
     assert_eq!(
-        cache.variable_speed_mode(),
+        cache.pan_tilt().speed_mode(),
+        Some(PanTiltSpeedMode::Fine50)
+    );
+    camera
+        .pan_tilt()
+        .set_speed_mode(PanTiltSpeedMode::Standard24)
+        .expect("variable speed mode");
+    assert_eq!(
+        cache.pan_tilt().speed_mode(),
         Some(PanTiltSpeedMode::Standard24)
     );
 
@@ -698,33 +737,40 @@ fn typed_cache_getters_decode_the_remaining_write_only_keys() {
 #[test]
 fn typed_cache_getters_decode_the_sony_write_only_toggles() {
     let (session, _fake) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
+    let camera = session
+        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.spotlight(), None);
-    camera.exposure().spotlight_on().expect("spotlight on");
-    assert_eq!(cache.spotlight(), Some(true));
-    camera.exposure().spotlight_off().expect("spotlight off");
-    assert_eq!(cache.spotlight(), Some(false));
+    assert_eq!(cache.exposure().spotlight(), None);
+    camera.exposure().set_spotlight(true).expect("spotlight on");
+    assert_eq!(cache.exposure().spotlight(), Some(true));
+    camera
+        .exposure()
+        .set_spotlight(false)
+        .expect("spotlight off");
+    assert_eq!(cache.exposure().spotlight(), Some(false));
 
     session.shutdown().expect("shutdown");
 
     let (session, _fake) = evi_h100_session();
-    let camera = session.camera::<SonyEVIH100>().expect("camera");
+    let camera = session
+        .camera::<SonyEviH100>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.auto_slow_shutter(), None);
+    assert_eq!(cache.exposure().auto_slow_shutter(), None);
 
     camera
         .exposure()
-        .auto_slow_shutter_on()
+        .set_auto_slow_shutter(true)
         .expect("auto slow shutter on");
-    assert_eq!(cache.auto_slow_shutter(), Some(true));
+    assert_eq!(cache.exposure().auto_slow_shutter(), Some(true));
     camera
         .exposure()
-        .auto_slow_shutter_off()
+        .set_auto_slow_shutter(false)
         .expect("auto slow shutter off");
-    assert_eq!(cache.auto_slow_shutter(), Some(false));
+    assert_eq!(cache.exposure().auto_slow_shutter(), Some(false));
 
     session.shutdown().expect("shutdown");
 }
@@ -732,34 +778,45 @@ fn typed_cache_getters_decode_the_sony_write_only_toggles() {
 #[test]
 fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
     let (session, fake) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.preset_recall_speed(), None);
-    assert_eq!(cache.multicast_streaming(), None);
-    assert_eq!(cache.ndi_quality(), None);
-    assert_eq!(cache.image_freeze(), None);
+    assert_eq!(cache.presets().recall_speed(), None);
+    assert_eq!(cache.streaming().multicast(), None);
+    assert_eq!(cache.streaming().ndi_quality(), None);
+    assert_eq!(cache.image().freeze(), None);
 
     camera
         .presets()
         .set_recall_speed(PresetSpeed::new(12).expect("preset recall speed"))
         .expect("recall speed");
-    assert_eq!(cache.preset_recall_speed(), Some(12));
-
-    camera.advanced().multicast_on().expect("multicast on");
-    assert_eq!(cache.multicast_streaming(), Some(true));
-    camera.advanced().multicast_off().expect("multicast off");
-    assert_eq!(cache.multicast_streaming(), Some(false));
+    assert_eq!(
+        cache.presets().recall_speed(),
+        Some(grafton_visca::types::PresetSpeed::new(12).expect("preset speed"))
+    );
 
     camera
-        .advanced()
+        .streaming()
+        .set_multicast(true)
+        .expect("multicast on");
+    assert_eq!(cache.streaming().multicast(), Some(true));
+    camera
+        .streaming()
+        .set_multicast(false)
+        .expect("multicast off");
+    assert_eq!(cache.streaming().multicast(), Some(false));
+
+    camera
+        .streaming()
         .set_ndi_quality(NdiQuality::Medium)
         .expect("ndi quality");
-    assert_eq!(cache.ndi_quality(), Some(NdiQuality::Medium));
+    assert_eq!(cache.streaming().ndi_quality(), Some(NdiQuality::Medium));
 
     let writes_before = fake.write_count();
     let error = camera
-        .execute(&grafton_visca::command::ImageFreeze::on())
+        .execute(&grafton_visca::command::image::SetFreeze::new(true))
         .expect_err("unsupported image-freeze must be rejected before I/O");
     assert!(
         matches!(error, Error::FeatureNotSupported { .. }),
@@ -770,7 +827,7 @@ fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
         writes_before,
         "rejected image-freeze must not reach I/O"
     );
-    assert_eq!(cache.image_freeze(), None);
+    assert_eq!(cache.image().freeze(), None);
 
     session.shutdown().expect("shutdown");
 }
@@ -778,27 +835,29 @@ fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
 #[test]
 fn typed_cache_getters_decode_the_nd_filter_keys() {
     let (session, _fake) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
+    let camera = session
+        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let cache = camera.state_cache();
 
-    assert_eq!(cache.nd_filter_mode(), None);
-    assert_eq!(cache.auto_nd_filter(), None);
+    assert_eq!(cache.nd_filter().mode(), None);
+    assert_eq!(cache.nd_filter().auto(), None);
 
     camera
         .nd_filter()
         .set_mode(NdFilterMode::Variable)
         .expect("nd mode");
-    assert_eq!(cache.nd_filter_mode(), Some(NdFilterMode::Variable));
+    assert_eq!(cache.nd_filter().mode(), Some(NdFilterMode::Variable));
     camera
         .nd_filter()
         .set_mode(NdFilterMode::Preset)
         .expect("nd mode");
-    assert_eq!(cache.nd_filter_mode(), Some(NdFilterMode::Preset));
+    assert_eq!(cache.nd_filter().mode(), Some(NdFilterMode::Preset));
 
-    camera.nd_filter().auto_on().expect("auto nd on");
-    assert_eq!(cache.auto_nd_filter(), Some(true));
-    camera.nd_filter().auto_off().expect("auto nd off");
-    assert_eq!(cache.auto_nd_filter(), Some(false));
+    camera.nd_filter().set_auto(true).expect("auto nd on");
+    assert_eq!(cache.nd_filter().auto(), Some(true));
+    camera.nd_filter().set_auto(false).expect("auto nd off");
+    assert_eq!(cache.nd_filter().auto(), Some(false));
 
     session.shutdown().expect("shutdown");
 }

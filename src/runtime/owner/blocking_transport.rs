@@ -83,7 +83,7 @@ mod tests {
     use super::*;
     use crate::{
         prepared::{test_support::prepare_command, ClassSelection},
-        profiles::{GenericVisca, SonyFR7},
+        profiles::{GenericVisca, SonyFr7},
         protocol::framer::RawIncompletePrefix,
         runtime::{
             engine::{
@@ -186,7 +186,7 @@ mod tests {
     }
 
     fn sony_adapter(transport: ScriptedTransport) -> BlockingTransportAdapter<ScriptedTransport> {
-        let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+        let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
         BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
             .unwrap()
     }
@@ -310,7 +310,11 @@ mod tests {
     /// that spelling. Custom idle timers use `Error::io_timeout()`.
     #[test]
     fn raw_idle_io_kinds_map_to_the_same_no_data_answer() {
-        let io = |kind| Err(Error::Io(Arc::new(std::io::Error::from(kind))));
+        let io = |kind| {
+            Err(Error::Io {
+                source: Arc::new(std::io::Error::from(kind)),
+            })
+        };
         let mut adapter = adapter(ScriptedTransport::new([
             io(std::io::ErrorKind::WouldBlock),
             io(std::io::ErrorKind::Interrupted),
@@ -328,7 +332,7 @@ mod tests {
             matches!(
                 receive(&mut adapter, &mut buffers),
                 OwnerReceive::Fatal(crate::runtime::owner::ReceiveFatal::TransportClosed {
-                    cause: Some(Error::Io(_))
+                    cause: Some(Error::Io { .. })
                 })
             ),
             "an OS timeout remains a fault the owner classifies as terminal"
@@ -336,7 +340,7 @@ mod tests {
         assert!(
             matches!(
                 receive(&mut adapter, &mut buffers),
-                OwnerReceive::Transient(Error::Io(_))
+                OwnerReceive::Transient(Error::Io { .. })
             ),
             "another real read failure still reaches the owner"
         );

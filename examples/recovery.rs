@@ -26,11 +26,10 @@
 use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    camera::profiles::PtzOpticsG2,
-    profile::ProfileSpec,
-    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
-    Error, OperationalTuning, Recovery,
+    blocking::Session, config::OperationalTuning, config::SessionConfig, error::Recovery,
+    profiles::ProfileSpec, profiles::PtzOpticsG2, transport::BlockingTransport,
+    transport::HasTransportConfig, transport::ReceiveOutcome, transport::TransportConfig,
+    types::CameraId, Error,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -121,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn demonstrate(first_peer: Peer) -> Result<(), Box<dyn std::error::Error>> {
     let config = SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>()?)
-        .with_tuning(OperationalTuning::new().retry_limit(0));
+        .with_tuning(OperationalTuning::new().with_retry_limit(0));
 
     // A RE-CALLABLE factory (`FnMut`, not `FnOnce`): a supervisor can call it on
     // every reconnect. Here the first transport is silent and later ones
@@ -137,9 +136,12 @@ fn demonstrate(first_peer: Peer) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Sample positive liveness around one application-owned heartbeat.
-    let session = Session::open(new_transport()?, config.clone())?;
+    let session = Session::open(new_transport()?, &config)?;
     let frames_before = session.metrics()?.received_frames;
-    let probe = session.camera::<PtzOpticsG2>()?.power().state();
+    let probe = session
+        .camera::<PtzOpticsG2>(CameraId::CAMERA_1)?
+        .power()
+        .status();
     let frames_after = session.metrics()?.received_frames;
     let received_a_frame = frames_after > frames_before;
 
@@ -180,7 +182,7 @@ fn recover(
     config: &SessionConfig,
     new_transport: &mut impl FnMut() -> Result<FakeCamera, Error>,
 ) -> Result<(), Error> {
-    let session = Session::open(new_transport()?, config.clone())?;
+    let session = Session::open(new_transport()?, config)?;
     let result = requery_and_restore(&session);
     match (result, session.close()) {
         (Ok(()), Ok(())) => Ok(()),
@@ -191,23 +193,23 @@ fn recover(
 fn requery_and_restore(session: &Session) -> Result<(), Error> {
     // The fresh cache is Unknown: read the live values before restoring desired
     // state. The owner never resubmits the old session's commands.
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let camera = session.camera::<PtzOpticsG2>(CameraId::CAMERA_1)?;
     let frames_before = session.metrics()?.received_frames;
-    let power = camera.power().state()?;
+    let power = camera.power().status()?;
     let zoom = camera.zoom().position()?;
     let pan_tilt = camera.pan_tilt().position()?;
     let frames_after = session.metrics()?.received_frames;
     if frames_after <= frames_before {
-        return Err(Error::InvalidState(
-            "successful re-query produced no positive liveness frame".into(),
-        ));
+        return Err(Error::InvalidState {
+            reason: "successful re-query produced no positive liveness frame".into(),
+        });
     }
     println!(
         "recovered: power={power:?}, zoom=0x{:04X}, pan/tilt={pan_tilt:?}, response_frames={}",
         zoom.value(),
         frames_after - frames_before
     );
-    if power == grafton_visca::PowerStatus::Standby {
+    if power == grafton_visca::types::PowerStatus::Standby {
         camera.power().on()?;
         println!("restored desired power-on state after the fresh re-query");
     }

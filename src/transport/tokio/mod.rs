@@ -5,16 +5,16 @@
 
 pub(crate) mod connectors;
 #[cfg(feature = "transport-serial-tokio")]
-pub mod serial;
+pub(crate) mod serial;
 
 /// TCP transport over Tokio.
-pub mod tcp {
+pub(crate) mod tcp {
     /// TCP transport for async VISCA communication using Tokio.
     ///
     /// # Example
     ///
     /// ```no_run
-    /// # use grafton_visca::runtime_adapters::tokio::TcpTransport;
+    /// # use grafton_visca::transport::tokio::TcpTransport;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let transport = TcpTransport::connect("192.168.1.100:5678").await?;
     /// let (mut reader, mut writer) = transport.split();
@@ -26,10 +26,16 @@ pub mod tcp {
 }
 
 /// UDP transport over Tokio.
-pub mod udp {
+pub(crate) mod udp {
     /// UDP transport for async VISCA communication using Tokio.
     pub type Udp = crate::transport::async_udp::Udp<tokio::net::UdpSocket>;
 }
+
+pub use tcp::Tcp as TcpTransport;
+pub use udp::Udp as UdpTransport;
+
+#[cfg(feature = "transport-serial-tokio")]
+pub use serial::Serial as SerialTransport;
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]
@@ -61,7 +67,7 @@ mod tests {
     fn assert_invalid_buffer_error<T>(result: Result<T, Error>) {
         assert!(matches!(
             result,
-            Err(Error::InvalidRequest(actual))
+            Err(Error::InvalidRequest { reason: actual })
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
     }
@@ -78,7 +84,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(Error::InvalidRequest(actual))
+            Err(Error::InvalidRequest { reason: actual })
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
         assert!(

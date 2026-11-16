@@ -5,7 +5,7 @@ use super::*;
 fn refuses_reentry(during_write: bool) {
     let clock = ManualClock::new();
     let _participant = clock.enter();
-    let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+    let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
     let (owner, peer) = Setup::datagram_for(profile.clone()).on(&clock).spawn();
     let mut operation = owner
         .submit_operation(
@@ -92,7 +92,7 @@ fn refuses_reentry(during_write: bool) {
         .expect("every worker re-entry returns without waiting");
     for (call, result) in answers {
         assert!(
-            matches!(result, Err(Error::InvalidState(_))),
+            matches!(result, Err(Error::InvalidState { .. })),
             "{call}: {result:?}"
         );
     }

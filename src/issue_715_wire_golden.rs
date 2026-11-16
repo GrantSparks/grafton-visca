@@ -16,19 +16,32 @@
 //!
 //! The fixture is literal text and every change to it is reviewed as a diff.
 //! After a deliberate encoder change, regenerate it from [`rows`] with
-//! `GRAFTON_VISCA_BLESS_WIRE_GOLDEN=1 cargo test --lib wire_ledger_matches_literal_golden_inventory`.
+//! `GRAFTON_VISCA_BLESS=1 cargo test --lib wire_ledger_matches_literal_golden_inventory`.
 //! The bless run writes the fixture and then fails on purpose, so it can never
 //! report green; it is refused when `CI` is set. Review the diff and rerun
 //! without the variable.
 
 #![allow(clippy::redundant_closure_call)]
 
-use std::{any::TypeId, collections::HashSet};
+use std::{
+    any::TypeId,
+    collections::{HashMap, HashSet},
+};
 
+#[cfg(any(feature = "blocking", feature = "async"))]
+use crate::command::bytes::VISCA_TERMINATOR;
+use crate::command::color::{
+    decode_color_temperature, BlueTuningCommand, HueCommand, OnePushTriggerCommand,
+    RedTuningCommand, SaturationCommand,
+};
+use crate::command::flip::ImageFreeze;
+use crate::command::gain::GainLimitCommand;
+use crate::command::image_wire::{NoiseReduction2DCommand, NoiseReduction3DCommand};
 use crate::command::inquiry_structs::{GeneratedInquiry, BUILTIN_INQUIRIES};
-use crate::command::preset::{PresetCommand, PresetRecallSpeedCommand};
+use crate::command::preset_wire::{PresetCommand, PresetRecallSpeedCommand};
 use crate::command::semantics::{BuiltinCommand, BuiltinRequestContract};
-use crate::command::system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand};
+use crate::command::system_wire::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand};
+use crate::command::zoom_wire::DigitalZoom;
 use crate::command::*;
 use crate::request::builtin;
 use crate::source_evidence::PacketPattern;
@@ -55,7 +68,7 @@ trait GoldenCase: Enc {
 enum GoldenCaseIdentity {
     Command {
         row: BuiltinCommand,
-        request_type: Option<TypeId>,
+        request_type: Option<(TypeId, &'static str, &'static [BuiltinCommand])>,
     },
     Inquiry(PacketPattern),
 }
@@ -69,7 +82,11 @@ impl<T: BuiltinRequestContract + Enc + 'static> GoldenCase for T {
 fn request_identity<C: BuiltinRequestContract + 'static>(request: &C) -> GoldenCaseIdentity {
     GoldenCaseIdentity::Command {
         row: request.selected_ledger_row(),
-        request_type: Some(TypeId::of::<C>()),
+        request_type: Some((
+            TypeId::of::<C>(),
+            std::any::type_name::<C>(),
+            C::LEDGER_ROWS,
+        )),
     }
 }
 
@@ -84,7 +101,11 @@ fn static_request_identity<C: BuiltinRequestContract + 'static>() -> GoldenCaseI
     );
     GoldenCaseIdentity::Command {
         row: C::LEDGER_ROW,
-        request_type: Some(TypeId::of::<C>()),
+        request_type: Some((
+            TypeId::of::<C>(),
+            std::any::type_name::<C>(),
+            C::LEDGER_ROWS,
+        )),
     }
 }
 
@@ -247,6 +268,7 @@ struct WireInventory {
     lines: Vec<String>,
     commands: HashSet<BuiltinCommand>,
     selector_arms: HashSet<(TypeId, BuiltinCommand)>,
+    selector_requirements: HashMap<TypeId, (&'static str, &'static [BuiltinCommand])>,
 }
 
 impl WireInventory {
@@ -268,8 +290,10 @@ impl WireInventory {
                 let pattern = match identity {
                     GoldenCaseIdentity::Command { row, request_type } => {
                         self.commands.insert(row);
-                        if let Some(request_type) = request_type {
+                        if let Some((request_type, name, rows)) = request_type {
                             self.selector_arms.insert((request_type, row));
+                            self.selector_requirements
+                                .insert(request_type, (name, rows));
                         }
                         row.packet()
                     }
@@ -327,47 +351,21 @@ fn ts(v: u8) -> Result<TiltSpeed, Error> {
     TiltSpeed::new(v)
 }
 
-fn assert_request_selector_arms<C: BuiltinRequestContract + 'static>(
-    seen: &HashSet<(TypeId, BuiltinCommand)>,
-) {
-    let arms = C::LEDGER_ROWS;
-    let distinct = arms.iter().copied().collect::<HashSet<_>>();
-    assert_eq!(arms.len(), distinct.len(),
-        "{} has selector arms sharing a row; add explicit branch witnesses before claiming fixture coverage", std::any::type_name::<C>());
-    for row in arms {
-        assert!(
-            seen.contains(&(TypeId::of::<C>(), *row)),
-            "{} selector arm {row:?} has no encoded golden case",
-            std::any::type_name::<C>()
-        );
+fn assert_selector_arm_coverage(inventory: &WireInventory) {
+    // The fixture exercises private encoders as well as canonical requests.
+    // Derive each encoder's arm requirements from its actual typed witnesses;
+    // public noun-family admission is checked separately by issue_871_gates.
+    for (request_type, (name, arms)) in &inventory.selector_requirements {
+        let distinct = arms.iter().copied().collect::<HashSet<_>>();
+        assert_eq!(arms.len(), distinct.len(),
+            "{name} has selector arms sharing a row; add explicit branch witnesses before claiming fixture coverage");
+        for row in *arms {
+            assert!(
+                inventory.selector_arms.contains(&(*request_type, *row)),
+                "{name} selector arm {row:?} has no encoded golden case"
+            );
+        }
     }
-}
-
-macro_rules! selector_arm_coverage {
-    (
-        [$seen:ident]
-        $(
-            @noun $noun:ident { $($header:tt)* };
-            $(
-                $(#[$doc:meta])*
-                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
-                    $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
-            )*
-        )*
-        @exceptions;
-        $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
-    ) => {
-        $( $( $(
-            let _ = BuiltinCommand::$command;
-            assert_request_selector_arms::<$ret>($seen);
-        )? )* )*
-        $(assert_request_selector_arms::<$exty>($seen);)*
-    };
-}
-
-fn assert_selector_arm_coverage(seen: &HashSet<(TypeId, BuiltinCommand)>) {
-    use crate::command;
-    crate::noun_table::noun_table!(selector_arm_coverage, [seen]);
 }
 
 #[allow(
@@ -823,20 +821,32 @@ pub(crate) fn rows() -> Vec<String> {
     }
     row!(o, "Backlight[on]", BacklightCommand::new(true));
     row!(o, "Backlight[off]", BacklightCommand::new(false));
-    row!(o, "NR2D::off", NoiseReduction2D::off());
+    row!(
+        o,
+        "NR2D::off",
+        NoiseReduction2DCommand::new(NoiseReduction2D::off())
+    );
     for l in [0u8, 1, 5, 6, 0xFF] {
         rowr!(
             o,
             format!("NR2D[{l}]"),
-            Ok(NoiseReduction2D::with_level(NoiseReduction2DLevel::new(l)?))
+            Ok(NoiseReduction2DCommand::new(NoiseReduction2D::with_level(
+                NoiseReduction2DLevel::new(l)?
+            )))
         );
     }
-    row!(o, "NR3D::off", NoiseReduction3D::off());
+    row!(
+        o,
+        "NR3D::off",
+        NoiseReduction3DCommand::new(NoiseReduction3D::off())
+    );
     for l in [0u8, 1, 5, 8, 9, 0xFF] {
         rowr!(
             o,
             format!("NR3D[{l}]"),
-            Ok(NoiseReduction3D::with_level(NoiseReduction3DLevel::new(l)?))
+            Ok(NoiseReduction3DCommand::new(NoiseReduction3D::with_level(
+                NoiseReduction3DLevel::new(l)?
+            )))
         );
     }
     for (mn, m) in [
@@ -846,21 +856,11 @@ pub(crate) fn rows() -> Vec<String> {
         ("Both", ImageFlipMode::Both),
     ] {
         let command = ImageFlipCombinedCommand::new(m);
-        let identity = if m == ImageFlipMode::Both {
-            command.golden_case()
-        } else {
-            // set_flip_mode and set_flip_both are noun aliases for this
-            // command type. Witness the general alias with its other modes.
-            GoldenCaseIdentity::Command {
-                row: BuiltinCommand::ImageFlipCombined,
-                request_type: None,
-            }
-        };
         o.record_identity(
             format!("ImageFlipCombined[{mn}]"),
             &command,
             CameraId::CAMERA_1,
-            identity,
+            command.golden_case(),
         );
     }
     row!(
@@ -1380,7 +1380,7 @@ pub(crate) fn rows() -> Vec<String> {
         o.commands, expected,
         "every semantic-ledger command must be tied to the literal wire inventory",
     );
-    assert_selector_arm_coverage(&o.selector_arms);
+    assert_selector_arm_coverage(&o);
     assert_inquiry_coverage(&o.lines);
     o.lines
 }
@@ -1425,39 +1425,15 @@ fn golden_inventory_rejects_a_valid_frame_under_the_wrong_focus_row() {
     );
 }
 
-// A bless run must never report green, so it ends in a deliberate panic.
-#[allow(clippy::expect_used, clippy::panic)]
 fn assert_golden(actual: &str) {
-    const EXPECTED: &str = include_str!("../tests/fixtures/issue_715_wire_golden.txt");
-    if std::env::var("GRAFTON_VISCA_BLESS_WIRE_GOLDEN").as_deref() == Ok("1") {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "GRAFTON_VISCA_BLESS_WIRE_GOLDEN regenerates the fixture and is refused under CI"
-        );
-        let path = concat!(
+    grafton_visca_test_support::bless_or_assert(
+        concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/tests/fixtures/issue_715_wire_golden.txt"
-        );
-        std::fs::write(path, actual).expect("write the regenerated wire golden fixture");
-        panic!("fixture blessed; review the diff and rerun without the variable");
-    }
-    let actual_rows = actual.lines().collect::<Vec<_>>();
-    let expected_rows = EXPECTED.lines().collect::<Vec<_>>();
-    assert_eq!(
-        actual_rows.len(),
-        expected_rows.len(),
-        "built-in VISCA wire inventory row count drifted",
+        ),
+        None,
+        actual,
     );
-    for (index, (actual_row, expected_row)) in
-        actual_rows.iter().zip(expected_rows.iter()).enumerate()
-    {
-        assert_eq!(
-            actual_row,
-            expected_row,
-            "built-in VISCA wire inventory row {} drifted",
-            index + 1,
-        );
-    }
 }
 
 fn assert_inquiry_coverage(rows: &[String]) {
@@ -1475,6 +1451,221 @@ fn assert_inquiry_coverage(rows: &[String]) {
             );
         }
     }
+}
+
+/// Checks the exact row selected by an actually admitted public request.
+/// Admission is deliberately evaluated before consulting any source metadata:
+/// filtering by a source's model list would conceal an overly permissive gate.
+#[cfg(any(feature = "blocking", feature = "async"))]
+#[allow(clippy::expect_used, clippy::panic)]
+pub(crate) fn admitted_command_source<C: BuiltinRequestContract>(
+    request: &C,
+    target: &crate::TargetRegistration,
+    index: &crate::source_evidence::checked::Index<'_>,
+) -> Option<(BuiltinCommand, Vec<u8>)> {
+    crate::Request::validate_for_target(request, target).ok()?;
+    let row = request
+        .selected_ledger_row_for_target(target)
+        .expect("admitted request selects its contextual ledger row");
+    assert!(
+        C::LEDGER_ROWS.contains(&row),
+        "selected row is outside its request family"
+    );
+    assert_eq!(
+        row.classification().kind(),
+        <C::Class as semantics::BuiltinClassMarker>::KIND,
+        "admitted request class differs from its contextual ledger row"
+    );
+    let frame = admitted_frame(request, target);
+    let pattern = row.packet().expect("admitted command has a packet pattern");
+    assert!(
+        pattern.matches_bytes(&frame[1..]),
+        "admitted {} selected {row:?} but encoded a different packet: {}",
+        std::any::type_name::<C>(),
+        hex(&frame)
+    );
+    let model = target
+        .profile()
+        .capabilities()
+        .profile_id
+        .expect("built-in source proof target");
+    index
+        .validate(
+            row.source(),
+            &format!("command.{row:?}"),
+            Some(&format!("{model:?}")),
+            Some(&pattern.to_string()),
+            None,
+        )
+        .unwrap_or_else(|error| {
+            panic!("admitted command has no exact positive source proof: {error}")
+        });
+    Some((row, frame))
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+#[allow(clippy::expect_used, clippy::panic)]
+pub(crate) fn admitted_inquiry_source<Q: nouns::NounInquiryContract>(
+    request: &Q,
+    target: &crate::TargetRegistration,
+    expected_arguments: &[u8],
+    index: &crate::source_evidence::checked::Index<'_>,
+) -> Option<Vec<u8>> {
+    crate::Request::validate_for_target(request, target).ok()?;
+    let mut matching = BUILTIN_INQUIRIES
+        .iter()
+        .filter(|metadata| metadata.kind == Q::KIND && metadata.source == Q::SOURCE);
+    let metadata = matching
+        .next()
+        .expect("canonical inquiry has generated source metadata");
+    assert!(
+        matching.next().is_none(),
+        "canonical inquiry source identity is ambiguous"
+    );
+    let frame = admitted_frame(request, target);
+    let body = inquiry_structs::body_for_profile(metadata.kind, metadata.bytes, target.profile());
+    let pattern = PacketPattern::exact(body);
+    let expected_body: Vec<u8> = body
+        .iter()
+        .chain(expected_arguments)
+        .copied()
+        .chain(std::iter::once(VISCA_TERMINATOR))
+        .collect();
+    assert_eq!(
+        &frame[1..],
+        expected_body,
+        "admitted inquiry encoded a different register, argument or terminator"
+    );
+    let model = target
+        .profile()
+        .capabilities()
+        .profile_id
+        .expect("built-in source proof target");
+    let polarity = metadata.boolean.map(|convention| match convention {
+        response::BoolConvention::OnIs02 => "02=on;03=off",
+        response::BoolConvention::OnIs03 => "03=on;02=off",
+    });
+    index
+        .validate(
+            Q::SOURCE,
+            metadata.name,
+            Some(&format!("{model:?}")),
+            Some(&pattern.to_string()),
+            polarity,
+        )
+        .unwrap_or_else(|error| {
+            panic!("admitted inquiry has no exact positive source proof: {error}")
+        });
+    Some(frame)
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+#[allow(clippy::expect_used)]
+fn admitted_frame<R: crate::Request>(request: &R, target: &crate::TargetRegistration) -> Vec<u8> {
+    let mut buffer = [0; 64];
+    let written = crate::Request::write_for_target(
+        request,
+        target,
+        &mut buffer,
+        crate::requests::RequestContractAuthority::new(),
+    )
+    .expect("preflight-admitted request encodes for the same target");
+    assert!(
+        written <= R::MAX_SIZE,
+        "request exceeds its public allocation bound"
+    );
+    buffer[..written].to_vec()
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) fn has_literal_frame(frame: &[u8]) -> bool {
+    let encoded = hex(frame);
+    include_str!("../tests/fixtures/issue_715_wire_golden.txt")
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .any(|(_, literal)| literal == encoded)
+}
+
+// A deliberately faulty request bypasses only admission's model guard. The
+// audit must reject it after observing Ok, rather than silently excluding it
+// because its selected source belongs to another model.
+#[cfg(any(feature = "blocking", feature = "async"))]
+struct AdmittedWithoutModelEvidence<const WRONG_PACKET: bool>;
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl<const WRONG_PACKET: bool> crate::Request for AdmittedWithoutModelEvidence<WRONG_PACKET> {
+    type Class = crate::request::PlainClass;
+    const MAX_SIZE: usize = 6;
+    const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Quick;
+    const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Standard;
+    const CONTROL_CLASS: crate::ControlClass = crate::ControlClass::Normal;
+
+    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
+        if WRONG_PACKET {
+            crate::Request::write_into(&PowerOn::new(), camera_id, buffer)
+        } else {
+            crate::Request::write_into(
+                &WhiteBalanceCommand::new(WhiteBalanceMode::Preset),
+                camera_id,
+                buffer,
+            )
+        }
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl<const WRONG_PACKET: bool> BuiltinRequestContract
+    for AdmittedWithoutModelEvidence<WRONG_PACKET>
+{
+    const LEDGER_ROW: BuiltinCommand = BuiltinCommand::WhiteBalancePreset;
+    type State = crate::request::builtin_contract::NoState;
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+#[test]
+#[should_panic(expected = "admitted command has no exact positive source proof")]
+#[allow(clippy::expect_used)]
+fn source_admission_audit_rejects_an_admitted_value_for_an_unsourced_model() {
+    let index =
+        crate::source_evidence::checked::Index::parse(include_str!("../docs/visca_reference.md"))
+            .expect("checked positive source table");
+    admitted_command_source(
+        &AdmittedWithoutModelEvidence::<false>,
+        &registered_target::<crate::profiles::PtzOpticsG2>(),
+        &index,
+    );
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+#[test]
+#[should_panic(expected = "encoded a different packet")]
+#[allow(clippy::expect_used)]
+fn source_admission_audit_rejects_a_positive_row_for_another_packet() {
+    let index =
+        crate::source_evidence::checked::Index::parse(include_str!("../docs/visca_reference.md"))
+            .expect("checked positive source table");
+    admitted_command_source(
+        &AdmittedWithoutModelEvidence::<true>,
+        &registered_target::<crate::profiles::SonyFr7>(),
+        &index,
+    );
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+#[test]
+#[should_panic(expected = "different register, argument or terminator")]
+#[allow(clippy::expect_used)]
+fn source_admission_audit_rejects_an_inquiry_with_another_checked_argument() {
+    let index =
+        crate::source_evidence::checked::Index::parse(include_str!("../docs/visca_reference.md"))
+            .expect("checked positive source table");
+    let request = presets::SeparateModeInquiry::new(PresetNumber::new(5).expect("preset slot"));
+    admitted_inquiry_source(
+        &request,
+        &registered_target::<crate::profiles::SonyFr7>(),
+        &[6],
+        &index,
+    );
 }
 
 // ---- Shared row helpers ----
@@ -1586,15 +1777,7 @@ fn prepared_query<Q: crate::Inquiry + GeneratedInquiry>(
     .map(|prepared| prepared.admit_with(|request, _, _| request.wire().as_bytes().to_vec()))?;
     #[cfg(not(any(feature = "blocking", feature = "async")))]
     let frame = registered_wire(request, target)?;
-    // The inquiry table has one explicitly profile-selected catalogue body.
-    let body = if Q::KIND == InquiryKind::Power
-        && target.profile().capabilities().profile_id
-            == Some(crate::profiles::ProfileId::SonyBrcH900)
-    {
-        &bytes::constants::power::BRC_H900_STATE_INQUIRY[..]
-    } else {
-        Q::BODY
-    };
+    let body = inquiry_structs::body_for_profile(Q::KIND, Q::BODY, target.profile());
     assert!(
         PacketPattern::exact(body).matches_bytes(&frame[1..]),
         "prepared {} inquiry differs from its profile-selected packet: {}",
@@ -1631,29 +1814,31 @@ fn unsigned_target() -> crate::TargetRegistration {
         14.4,
     )
     .expect("unsigned standard grammar");
-    let profile = crate::ProfileSpec::builder(capabilities)
+    let mut builder = crate::ProfileSpec::builder(capabilities)
         .transports(source.transports())
         .envelope(source.envelope())
         .timing(source.timing())
         .maximum_command_sockets(source.maximum_command_sockets())
         .supports_operation_complete(source.supports_operation_complete())
         .supports_command_cancel(source.supports_command_cancel())
-        .position_inquiries(source.position_inquiries())
-        .build()
-        .expect("validated custom profile");
+        .position_inquiries(source.position_inquiries());
+    for selection in source.encodings().iter() {
+        builder = builder.encoding(selection);
+    }
+    let profile = builder.build().expect("validated custom profile");
     crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("unsigned target")
 }
 
 #[allow(clippy::expect_used)]
 fn registered_profile_rows() -> Vec<String> {
     use crate::{request::builtin, units::Degrees};
-    let desktop = registered_target::<crate::profiles::SonyFR7>();
+    let desktop = registered_target::<crate::profiles::SonyFr7>();
     let ceiling = desktop
         .clone()
         .with_mount(crate::MountPosition::Ceiling)
         .expect("ceiling");
     let standard = registered_target::<crate::profiles::PtzOpticsG2>();
-    let brc = registered_target::<crate::profiles::SonyBRC300>();
+    let brc = registered_target::<crate::profiles::SonyBrc300>();
     let unsigned = unsigned_target();
     let mut output = Vec::new();
     macro_rules! case {
@@ -1902,7 +2087,7 @@ fn registered_profile_rows() -> Vec<String> {
         "H900[PowerInquiry,target-aware]",
         prepared_query(
             &PowerInquiry,
-            &registered_target::<crate::profiles::SonyBRCH900>(),
+            &registered_target::<crate::profiles::SonyBrcH900>(),
         )
     );
     output

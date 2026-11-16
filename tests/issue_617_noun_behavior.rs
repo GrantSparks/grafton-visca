@@ -47,7 +47,10 @@ const ZOOM_NORMALIZED_COMBINED_HALF: &[u8] =
 
 const POWER_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x00, 0xff];
 const MENU_STATUS_INQUIRY: &[u8] = &[0x81, 0x09, 0x06, 0x06, 0xff];
-#[cfg(all(feature = "runtime-tokio", feature = "dyn-api"))]
+#[cfg(all(
+    feature = "runtime-tokio",
+    any(feature = "async", feature = "blocking")
+))]
 const BACKLIGHT_ON: &[u8] = &[0x81, 0x01, 0x04, 0x33, 0x02, 0xff];
 const BACKLIGHT_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x33, 0xff];
 
@@ -77,15 +80,14 @@ fn probe_camera() -> FakeCamera {
 #[cfg(feature = "blocking")]
 mod blocking_surface {
     use grafton_visca::{
-        blocking::{Session, SessionConfig},
-        command::{
-            ExposureCommand, ExposureMode, ExposureModeInquiry, FocusZone, PanTiltDirection,
+        blocking::Session,
+        config::SessionConfig,
+        profiles::{ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3, SonyBrc300, SonyFr7},
+        types::{
+            Degrees, ExposureMode, FocusZone, PanSpeed, PanTiltDirection, SpeedLevel, TiltSpeed,
+            UnitInterval, ZoomDomain,
         },
-        profile::ProfileSpec,
-        profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyFR7},
-        types::{PanSpeed, SpeedLevel, TiltSpeed},
-        units::{Degrees, UnitInterval},
-        Error, ZoomDomain,
+        Error,
     };
 
     use super::{
@@ -99,27 +101,29 @@ mod blocking_surface {
     fn open_with(profile: ProfileSpec) -> (Session, FakeCamera) {
         let camera = probe_camera();
         let session =
-            Session::open(camera.blocking_wire(), SessionConfig::new(profile)).expect("session");
+            Session::open(camera.blocking_wire(), &SessionConfig::new(profile)).expect("session");
         (session, camera)
     }
 
     fn open() -> (Session, FakeCamera) {
-        open_with(ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"))
+        open_with(ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"))
     }
 
     fn open_brc300() -> (Session, FakeCamera) {
-        open_with(ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"))
+        open_with(ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300 profile"))
     }
 
     #[test]
     fn blocking_power_zoom_focus_and_menu_rows_keep_their_wire_identity() {
         let (session, fake) =
             open_with(ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"));
-        let camera = session.camera::<PtzOpticsG3>().expect("camera");
+        let camera = session
+            .camera::<PtzOpticsG3>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         camera.power().on().expect("power on");
         assert_eq!(fake.take_only_payload(), POWER_ON);
-        camera.power().off().expect("power off");
+        camera.power().standby().expect("power off");
         assert_eq!(fake.take_only_payload(), POWER_OFF);
 
         camera
@@ -152,9 +156,9 @@ mod blocking_surface {
             .expect("near applied");
         assert_eq!(fake.take_only_payload(), FOCUS_NEAR);
 
-        camera.menu().select().expect("menu select");
+        camera.menu().enter().expect("menu select");
         assert_eq!(fake.take_only_payload(), MENU_SELECT);
-        camera.menu().cancel().expect("menu cancel");
+        camera.menu().back().expect("menu cancel");
         assert_eq!(fake.take_only_payload(), MENU_CANCEL);
 
         session.shutdown().expect("shutdown");
@@ -163,15 +167,17 @@ mod blocking_surface {
     #[test]
     fn blocking_fr7_red_and_green_tally_rows_are_distinct() {
         let (session, fake) = open();
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
-        camera.tally().red_on().expect("red tally on");
+        camera.tally().set_red(true).expect("red tally on");
         assert_eq!(fake.take_only_payload(), TALLY_RED_ON);
-        camera.tally().red_off().expect("red tally off");
+        camera.tally().set_red(false).expect("red tally off");
         assert_eq!(fake.take_only_payload(), TALLY_RED_OFF);
-        camera.tally().green_on().expect("green tally on");
+        camera.tally().set_green(true).expect("green tally on");
         assert_eq!(fake.take_only_payload(), TALLY_GREEN_ON);
-        camera.tally().green_off().expect("green tally off");
+        camera.tally().set_green(false).expect("green tally off");
         assert_eq!(fake.take_only_payload(), TALLY_GREEN_OFF);
         session.shutdown().expect("shutdown");
     }
@@ -179,20 +185,34 @@ mod blocking_surface {
     #[test]
     fn blocking_pan_tilt_directions_and_normalized_zoom_use_profile_values() {
         let (session, fake) = open();
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
         let pan_speed = PanSpeed::new(0x0a).expect("pan speed");
         let tilt_speed = TiltSpeed::new(0x05).expect("tilt speed");
 
         camera
             .pan_tilt()
-            .move_direction(PanTiltDirection::Up, pan_speed, tilt_speed)
+            .drive(
+                PanTiltDirection::Up,
+                grafton_visca::types::PanTiltSpeed {
+                    pan: pan_speed,
+                    tilt: tilt_speed,
+                },
+            )
             .expect("pan/tilt up")
             .applied()
             .expect("up applied");
         assert_eq!(fake.take_only_payload(), PAN_TILT_UP);
         camera
             .pan_tilt()
-            .move_direction(PanTiltDirection::Down, pan_speed, tilt_speed)
+            .drive(
+                PanTiltDirection::Down,
+                grafton_visca::types::PanTiltSpeed {
+                    pan: pan_speed,
+                    tilt: tilt_speed,
+                },
+            )
             .expect("pan/tilt down")
             .applied()
             .expect("down applied");
@@ -230,7 +250,7 @@ mod blocking_surface {
         assert!(profile.capabilities().profile_id.is_none());
         let (session, fake) = open_with(profile);
         let camera = session
-            .camera::<CombinedZoomTypedSupport>()
+            .camera::<CombinedZoomTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("custom camera");
         let half = UnitInterval::new(0.5).expect("half");
         camera
@@ -253,13 +273,17 @@ mod blocking_surface {
     #[test]
     fn blocking_brc300_speed_level_noun_mirrors_its_one_position_speed() {
         let (session, fake) = open_brc300();
-        let camera = session.camera::<SonyBRC300>().expect("camera");
+        let camera = session
+            .camera::<SonyBrc300>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         camera
             .pan_tilt()
             .absolute(
-                Degrees::new(45.0).expect("valid degrees"),
-                Degrees::new(15.0).expect("valid degrees"),
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(45.0).expect("valid degrees"),
+                    tilt: Degrees::new(15.0).expect("valid degrees"),
+                },
                 SpeedLevel::Fastest,
             )
             .expect("BRC-300 absolute noun")
@@ -270,8 +294,10 @@ mod blocking_surface {
         camera
             .pan_tilt()
             .relative(
-                Degrees::new(45.0).expect("valid degrees"),
-                Degrees::new(15.0).expect("valid degrees"),
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(45.0).expect("valid degrees"),
+                    tilt: Degrees::new(15.0).expect("valid degrees"),
+                },
                 SpeedLevel::Fastest,
             )
             .expect("BRC-300 relative noun")
@@ -285,11 +311,13 @@ mod blocking_surface {
     #[test]
     fn blocking_same_response_type_inquiries_use_their_own_wire_queries() {
         let (session, fake) = open();
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
-        assert!(camera.power().state().expect("power inquiry").is_on());
+        assert!(camera.power().status().expect("power inquiry").is_on());
         assert_eq!(fake.take_only_payload(), POWER_INQUIRY);
-        assert!(!camera.menu().status().expect("menu inquiry"));
+        assert!(!camera.menu().visible().expect("menu inquiry"));
         assert_eq!(fake.take_only_payload(), MENU_STATUS_INQUIRY);
 
         session.shutdown().expect("shutdown");
@@ -298,10 +326,14 @@ mod blocking_surface {
     #[test]
     fn blocking_direct_exposure_command_rejects_before_any_write() {
         let (session, fake) = open();
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         let error = camera
-            .execute(&ExposureCommand::new(ExposureMode::Auto))
+            .execute(&grafton_visca::command::exposure::SetMode::new(
+                ExposureMode::Auto,
+            ))
             .expect_err("Sony FR7 does not support the shared exposure-mode command");
         assert!(matches!(
             error,
@@ -321,10 +353,12 @@ mod blocking_surface {
     #[test]
     fn blocking_direct_exposure_mode_inquiry_rejects_before_any_write() {
         let (session, fake) = open();
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         let error = camera
-            .inquire(&ExposureModeInquiry)
+            .inquire(&grafton_visca::command::exposure::ModeInquiry)
             .expect_err("Sony FR7 does not support the shared exposure-mode inquiry");
         assert!(matches!(
             error,
@@ -348,7 +382,9 @@ mod blocking_surface {
     fn blocking_focus_zone_03_is_refused_on_g3_before_any_write() {
         let (session, fake) =
             open_with(ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"));
-        let camera = session.camera::<PtzOpticsG3>().expect("camera");
+        let camera = session
+            .camera::<PtzOpticsG3>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         let error = camera
             .focus()
@@ -387,7 +423,7 @@ mod blocking_surface {
         let (session, fake) =
             open_with(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"));
         session
-            .camera::<PtzOpticsG2>()
+            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera")
             .focus()
             .set_zone(FocusZone::Zone03)
@@ -399,9 +435,9 @@ mod blocking_surface {
         session.shutdown().expect("shutdown");
 
         let (session, fake) =
-            open_with(ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile"));
+            open_with(ProfileSpec::from_compile_time::<PtzOptics30x>().expect("30X profile"));
         session
-            .camera::<PtzOptics30X>()
+            .camera::<PtzOptics30x>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera")
             .focus()
             .set_zone(FocusZone::Zone03)
@@ -417,16 +453,19 @@ mod blocking_surface {
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod async_surface {
     use grafton_visca::{
-        command::{ExposureCommand, ExposureMode, ExposureModeInquiry, PanTiltDirection},
-        profile::ProfileSpec,
-        profiles::{PtzOpticsG3, SonyBRC300, SonyFR7},
+        config::SessionConfig,
+        profiles::{ProfileSpec, PtzOpticsG3, SonyBrc300, SonyFr7},
+        r#async::Session,
+        runtime::TokioRuntime,
         transport::AddressingMode,
-        types::{PanSpeed, SpeedLevel, TiltSpeed},
-        units::{Degrees, UnitInterval},
-        Error, Session, SessionConfig, TokioRuntime, ZoomDomain,
+        types::{
+            Degrees, ExposureMode, PanSpeed, PanTiltDirection, SpeedLevel, TiltSpeed, UnitInterval,
+            ZoomDomain,
+        },
+        Error,
     };
 
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     use grafton_visca::profiles::{GenericVisca, PtzOpticsG2};
 
     use super::{
@@ -437,13 +476,13 @@ mod async_surface {
         ZOOM_WIDE,
     };
 
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     use super::{BACKLIGHT_INQUIRY, BACKLIGHT_ON};
 
     async fn open_session(camera: &FakeCamera, profile: ProfileSpec) -> Session {
         Session::open(
             camera.async_wire().with_addressing(AddressingMode::Ip),
-            SessionConfig::new(profile),
+            &SessionConfig::new(profile),
             TokioRuntime::from_current().expect("Tokio runtime"),
         )
         .await
@@ -458,11 +497,13 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("FR7 profile"),
         )
         .await;
-        let camera = session.camera::<PtzOpticsG3>().expect("camera");
+        let camera = session
+            .camera::<PtzOpticsG3>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         camera.power().on().await.expect("power on");
         assert_eq!(fake.take_only_payload(), POWER_ON);
-        camera.power().off().await.expect("power off");
+        camera.power().standby().await.expect("power off");
         assert_eq!(fake.take_only_payload(), POWER_OFF);
 
         camera
@@ -503,9 +544,9 @@ mod async_surface {
             .expect("near applied");
         assert_eq!(fake.take_only_payload(), FOCUS_NEAR);
 
-        camera.menu().select().await.expect("menu select");
+        camera.menu().enter().await.expect("menu select");
         assert_eq!(fake.take_only_payload(), MENU_SELECT);
-        camera.menu().cancel().await.expect("menu cancel");
+        camera.menu().back().await.expect("menu cancel");
         assert_eq!(fake.take_only_payload(), MENU_CANCEL);
 
         session.shutdown().expect("shutdown");
@@ -516,18 +557,28 @@ mod async_surface {
         let fake = probe_camera();
         let session = open_session(
             &fake,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"),
         )
         .await;
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
-        camera.tally().red_on().await.expect("red tally on");
+        camera.tally().set_red(true).await.expect("red tally on");
         assert_eq!(fake.take_only_payload(), TALLY_RED_ON);
-        camera.tally().red_off().await.expect("red tally off");
+        camera.tally().set_red(false).await.expect("red tally off");
         assert_eq!(fake.take_only_payload(), TALLY_RED_OFF);
-        camera.tally().green_on().await.expect("green tally on");
+        camera
+            .tally()
+            .set_green(true)
+            .await
+            .expect("green tally on");
         assert_eq!(fake.take_only_payload(), TALLY_GREEN_ON);
-        camera.tally().green_off().await.expect("green tally off");
+        camera
+            .tally()
+            .set_green(false)
+            .await
+            .expect("green tally off");
         assert_eq!(fake.take_only_payload(), TALLY_GREEN_OFF);
         session.shutdown().expect("shutdown");
     }
@@ -537,16 +588,24 @@ mod async_surface {
         let fake = probe_camera();
         let session = open_session(
             &fake,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"),
         )
         .await;
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
         let pan_speed = PanSpeed::new(0x0a).expect("pan speed");
         let tilt_speed = TiltSpeed::new(0x05).expect("tilt speed");
 
         camera
             .pan_tilt()
-            .move_direction(PanTiltDirection::Up, pan_speed, tilt_speed)
+            .drive(
+                PanTiltDirection::Up,
+                grafton_visca::types::PanTiltSpeed {
+                    pan: pan_speed,
+                    tilt: tilt_speed,
+                },
+            )
             .await
             .expect("pan/tilt up")
             .applied()
@@ -555,7 +614,13 @@ mod async_surface {
         assert_eq!(fake.take_only_payload(), PAN_TILT_UP);
         camera
             .pan_tilt()
-            .move_direction(PanTiltDirection::Down, pan_speed, tilt_speed)
+            .drive(
+                PanTiltDirection::Down,
+                grafton_visca::types::PanTiltSpeed {
+                    pan: pan_speed,
+                    tilt: tilt_speed,
+                },
+            )
             .await
             .expect("pan/tilt down")
             .applied()
@@ -599,7 +664,7 @@ mod async_surface {
         let fake = probe_camera();
         let session = open_session(&fake, profile).await;
         let camera = session
-            .camera::<CombinedZoomTypedSupport>()
+            .camera::<CombinedZoomTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("custom camera");
         let half = UnitInterval::new(0.5).expect("half");
         camera
@@ -628,16 +693,20 @@ mod async_surface {
         let fake = probe_camera();
         let session = open_session(
             &fake,
-            ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
+            ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300 profile"),
         )
         .await;
-        let camera = session.camera::<SonyBRC300>().expect("camera");
+        let camera = session
+            .camera::<SonyBrc300>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         camera
             .pan_tilt()
             .absolute(
-                Degrees::new(45.0).expect("valid degrees"),
-                Degrees::new(15.0).expect("valid degrees"),
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(45.0).expect("valid degrees"),
+                    tilt: Degrees::new(15.0).expect("valid degrees"),
+                },
                 SpeedLevel::Fastest,
             )
             .await
@@ -650,8 +719,10 @@ mod async_surface {
         camera
             .pan_tilt()
             .relative(
-                Degrees::new(45.0).expect("valid degrees"),
-                Degrees::new(15.0).expect("valid degrees"),
+                grafton_visca::types::PanTiltPosition {
+                    pan: Degrees::new(45.0).expect("valid degrees"),
+                    tilt: Degrees::new(15.0).expect("valid degrees"),
+                },
                 SpeedLevel::Fastest,
             )
             .await
@@ -669,14 +740,21 @@ mod async_surface {
         let fake = probe_camera();
         let session = open_session(
             &fake,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"),
         )
         .await;
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
-        assert!(camera.power().state().await.expect("power inquiry").is_on());
+        assert!(camera
+            .power()
+            .status()
+            .await
+            .expect("power inquiry")
+            .is_on());
         assert_eq!(fake.take_only_payload(), POWER_INQUIRY);
-        assert!(!camera.menu().status().await.expect("menu inquiry"));
+        assert!(!camera.menu().visible().await.expect("menu inquiry"));
         assert_eq!(fake.take_only_payload(), MENU_STATUS_INQUIRY);
 
         session.shutdown().expect("shutdown");
@@ -687,13 +765,17 @@ mod async_surface {
         let fake = probe_camera();
         let session = open_session(
             &fake,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"),
         )
         .await;
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         let error = camera
-            .execute(&ExposureCommand::new(ExposureMode::Auto))
+            .execute(&grafton_visca::command::exposure::SetMode::new(
+                ExposureMode::Auto,
+            ))
             .await
             .expect_err("Sony FR7 does not support the shared exposure-mode command");
         assert!(matches!(
@@ -716,13 +798,15 @@ mod async_surface {
         let fake = probe_camera();
         let session = open_session(
             &fake,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"),
         )
         .await;
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session
+            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("camera");
 
         let error = camera
-            .inquire(&ExposureModeInquiry)
+            .inquire(&grafton_visca::command::exposure::ModeInquiry)
             .await
             .expect_err("Sony FR7 does not support the shared exposure-mode inquiry");
         assert!(matches!(
@@ -740,7 +824,7 @@ mod async_surface {
         session.shutdown().expect("shutdown");
     }
 
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[tokio::test]
     async fn dynamic_unsupported_capability_fails_before_any_write() {
         let fake = probe_camera();
@@ -749,7 +833,9 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
         )
         .await;
-        let camera = session.camera_dyn().expect("dynamic camera");
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
         let error = camera
             .zoom()
             .set_digital_zoom(true)
@@ -769,7 +855,7 @@ mod async_surface {
     /// PTZOptics G2 answers `81 09 00 02 FF` with an unsourced 2-byte payload,
     /// so the erased surface refuses the Sony-format version inquiry before
     /// anything is written (PTZOptics G2 bench, 2026-10-04, #795).
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[tokio::test]
     async fn dynamic_version_inquiry_on_g2_fails_before_any_write() {
         let fake = probe_camera();
@@ -778,7 +864,9 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
         )
         .await;
-        let camera = session.camera_dyn().expect("dynamic camera");
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
 
         let error = camera
             .system()
@@ -788,7 +876,7 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "typed inquiry VersionInquiry",
+                feature: "inquiry VersionInquiry",
                 ..
             }
         ));
@@ -802,7 +890,7 @@ mod async_surface {
     /// Only the PTZOptics G2 color-temperature reply layout is sourced (#828
     /// M1), so the erased inquiry refuses every other profile before anything
     /// is written, including G3, which keeps the color-temperature controls.
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[tokio::test]
     async fn dynamic_color_temperature_inquiry_without_a_sourced_reply_fails_before_any_write() {
         for (name, profile) in [
@@ -811,14 +899,18 @@ mod async_surface {
                 ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
             ),
             (
-                "SonyEVIH100",
-                ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyEVIH100>()
+                "SonyEviH100",
+                ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyEviH100>()
                     .expect("EVI-H100 profile"),
             ),
         ] {
             let fake = probe_camera();
             let session = open_session(&fake, profile).await;
-            let camera = session.camera_dyn().expect("dynamic camera");
+            let camera = session
+                .camera::<grafton_visca::profiles::AnyProfile>(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                )
+                .expect("dynamic camera");
 
             let error = camera
                 .white_balance()
@@ -829,7 +921,7 @@ mod async_surface {
                 matches!(
                     error,
                     Error::FeatureNotSupported {
-                        feature: "typed inquiry ColorTemperatureInquiry",
+                        feature: "inquiry ColorTemperatureInquiry",
                         ..
                     }
                 ),
@@ -843,7 +935,7 @@ mod async_surface {
         }
     }
 
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[tokio::test]
     async fn dynamic_focus_zone_03_on_g3_fails_before_any_write() {
         let fake = probe_camera();
@@ -852,11 +944,13 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
         )
         .await;
-        let camera = session.camera_dyn().expect("dynamic camera");
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
 
         let error = camera
             .focus()
-            .set_zone(grafton_visca::command::FocusZone::Zone03)
+            .set_zone(grafton_visca::types::FocusZone::Zone03)
             .await
             .expect_err("G3 has no evidence for focus-zone value 03");
         assert!(
@@ -877,7 +971,7 @@ mod async_surface {
         session.shutdown().expect("shutdown");
     }
 
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[tokio::test]
     async fn dynamic_flicker_inquiry_requires_its_vendor_marker_before_any_write() {
         let fake = probe_camera();
@@ -886,17 +980,19 @@ mod async_surface {
             ProfileSpec::from_compile_time::<GenericVisca>().expect("Generic VISCA profile"),
         )
         .await;
-        let camera = session.camera_dyn().expect("dynamic camera");
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
 
         let error = camera
             .exposure()
-            .flicker_mode()
+            .anti_flicker()
             .await
             .expect_err("Generic VISCA has no source-backed PTZOptics flicker inquiry");
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "typed inquiry FlickerModeInquiry",
+                feature: "inquiry AntiFlickerInquiry",
                 ..
             }
         ));
@@ -910,7 +1006,7 @@ mod async_surface {
     /// Unsupported image rows remain unavailable whether a profile lacks the
     /// base noun entirely or exposes only other, independently gated image
     /// rows. The erased facade must refuse them before reaching the transport.
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[tokio::test]
     async fn dynamic_image_noun_matches_the_static_base_gate() {
         for (label, profile) in [
@@ -920,7 +1016,7 @@ mod async_surface {
             ),
             (
                 "Sony BRC-300",
-                ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
+                ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300 profile"),
             ),
             (
                 "PTZOptics G2",
@@ -929,17 +1025,21 @@ mod async_surface {
         ] {
             let fake = probe_camera();
             let session = open_session(&fake, profile).await;
-            let camera = session.camera_dyn().expect("dynamic camera");
+            let camera = session
+                .camera::<grafton_visca::profiles::AnyProfile>(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                )
+                .expect("dynamic camera");
 
             for error in [
                 camera
                     .image()
-                    .freeze_on()
+                    .set_freeze(true)
                     .await
                     .expect_err("image freeze must be refused"),
                 camera
                     .image()
-                    .freeze_off()
+                    .set_freeze(false)
                     .await
                     .expect_err("image freeze-off must be refused"),
             ] {
@@ -956,22 +1056,28 @@ mod async_surface {
         }
     }
 
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[tokio::test]
     async fn dynamic_brc300_backlight_rows_are_reachable() {
         let fake = probe_camera();
         let session = open_session(
             &fake,
-            ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
+            ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300 profile"),
         )
         .await;
-        let camera = session.camera_dyn().expect("dynamic camera");
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
 
-        assert!(camera.image().backlight().await.expect("backlight inquiry"));
+        assert!(camera
+            .exposure()
+            .backlight_compensation()
+            .await
+            .expect("backlight inquiry"));
         assert_eq!(fake.take_only_payload(), BACKLIGHT_INQUIRY);
         camera
-            .image()
-            .set_backlight(true)
+            .exposure()
+            .set_backlight_compensation(true)
             .await
             .expect("backlight on");
         assert_eq!(fake.take_only_payload(), BACKLIGHT_ON);
@@ -982,23 +1088,40 @@ mod async_surface {
     /// The FR7 exposes only the source-backed red/green tally rows.  Its
     /// brightness and tally-mode commands remain runtime-gated on the erased
     /// surface.
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[tokio::test]
     async fn dynamic_fr7_unsupported_tally_rows_fail_before_any_write() {
         let fake = probe_camera();
         let session = open_session(
             &fake,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"),
         )
         .await;
-        let camera = session.camera_dyn().expect("dynamic camera");
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
 
         for result in [
-            camera.tally().bright_lo().await,
-            camera.tally().bright_hi().await,
-            camera.tally().on().await,
-            camera.tally().off().await,
-            camera.tally().flash().await,
+            camera
+                .tally()
+                .set_brightness(grafton_visca::types::TallyBrightness::Low)
+                .await,
+            camera
+                .tally()
+                .set_brightness(grafton_visca::types::TallyBrightness::High)
+                .await,
+            camera
+                .tally()
+                .set_mode(grafton_visca::types::TallyMode::On)
+                .await,
+            camera
+                .tally()
+                .set_mode(grafton_visca::types::TallyMode::Off)
+                .await,
+            camera
+                .tally()
+                .set_mode(grafton_visca::types::TallyMode::Flash)
+                .await,
         ] {
             assert!(
                 matches!(result, Err(Error::FeatureNotSupported { .. })),
@@ -1014,7 +1137,7 @@ mod async_surface {
 
     /// The erased tally noun rejects both the Sony family and the independently
     /// gated PTZOptics family before I/O when neither surface is supported.
-    #[cfg(feature = "dyn-api")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[tokio::test]
     async fn dynamic_tally_noun_refuses_as_one_on_a_profile_without_tally() {
         let fake = probe_camera();
@@ -1023,15 +1146,26 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
         )
         .await;
-        let camera = session.camera_dyn().expect("dynamic camera");
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic camera");
 
         // The tally-mode opcodes are refused, not admitted through a vendor
         // fallback; the red row is independently refused as well.
         for result in [
-            camera.tally().on().await,
-            camera.tally().off().await,
-            camera.tally().flash().await,
-            camera.tally().red_on().await,
+            camera
+                .tally()
+                .set_mode(grafton_visca::types::TallyMode::On)
+                .await,
+            camera
+                .tally()
+                .set_mode(grafton_visca::types::TallyMode::Off)
+                .await,
+            camera
+                .tally()
+                .set_mode(grafton_visca::types::TallyMode::Flash)
+                .await,
+            camera.tally().set_red(true).await,
         ] {
             assert!(
                 matches!(result, Err(Error::FeatureNotSupported { .. })),

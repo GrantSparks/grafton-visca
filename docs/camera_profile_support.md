@@ -1,160 +1,662 @@
 # Camera Profile Support Guide
 
-This guide is for contributors adding or changing camera profiles and optional
-camera capabilities. The goal is that a selected profile means something
-concrete: protocol framing, numeric limits, runtime capability metadata, and
-typed control surfaces all match the checked-in source documents.
+A profile lets a camera use the existing blocking and async noun API, including
+mixed rigs built from `Camera<AnyProfile>`. Start with a JSON `ProfileSpec`, try
+it through that API, collect model evidence, and promote the same facts into the
+built-in registry.
 
-## Source Of Truth
+## Contribution invariant
 
-Profile support must start from evidence in the consolidated
-[VISCA protocol reference](visca_reference.md). When a profile change depends on
-new vendor material or hardware validation, update that reference and its source
-register in the same change instead of adding a separate protocol note.
+> A camera contribution adds a profile: one registry row with source-backed
+> grants, its evidence entries, and, only when the camera speaks a different
+> dialect for an existing concept, an encoding variant with golden bytes. It
+> adds no public method, value type, request type, marker or typed surface. A
+> genuinely new concept may add those, under a vendor-neutral name and with a
+> reviewed contract, in a change separate from the profile that first uses it.
 
-Use this order when sources disagree:
+The [pull request checklist](../.github/pull_request_template.md) records this
+boundary. An additional model joins the same API; an encoding variant changes
+how an existing concept reaches its wire representation.
 
-1. Model-specific manuals, datasheets, and capability tables.
+## Source of truth
+
+Profile support starts from the consolidated
+[VISCA protocol reference](visca_reference.md). Add new vendor material or
+reproducible hardware validation to that reference and its source register in
+the same change. Use this order when sources disagree:
+
+1. Model-specific manuals, datasheets and capability tables.
 2. Manufacturer VISCA command lists for the same model and firmware family.
 3. Hardware validation logs or reproducible tests with model and firmware noted.
 4. Generic VISCA references and command tables.
 
-A command-list opcode proves that an opcode exists in some command reference. It
-does not, by itself, prove that a built-in profile should expose a typed API for
-that feature. If model capability docs do not establish support, keep the profile
-conservative and document the ambiguity.
+An opcode in a generic command list does not establish a model-specific grant.
+Record the ambiguity and retain conservative facts when a model's support is
+unknown. A successful inquiry decode establishes a result for that query and
+setup; it does not establish a writable control family, physical motion,
+settlement, cancellation or timing guarantees.
 
-## Metadata Versus Typed Support
+## Facts, grants and encodings
 
-Optional vendor features and profile-specific sub-capabilities use two layers:
+`ProfileSpec` is the validated representation for built-in and custom profiles.
+A built-in `ProfileId::spec()` resolves the registry row. A custom spec uses the
+same builder and deserialization validation. These are its top-level fact keys:
 
-| Layer | Meaning | Example |
-| ----- | ------- | ------- |
-| Metadata traits and constants | Runtime discovery facts for `Capabilities::from_profile::<P>()`; unsupported defaults are valid. | `NdFilterMetadata`, `DIGITAL_ZOOM_MAX`, `IRIS_RANGE`, `SUPPORTS_ONE_PUSH_FOCUS` |
-| Support markers | Compile-time permission for typed control/accessor/inquiry APIs. | `HasNdFilter`, `HasDigitalZoomToggle`, `HasDirectZoom`, `HasIrisControl`, `HasOnePushFocus` |
+| JSON key | Meaning |
+| --- | --- |
+| `capabilities` | Identity, optional domain records, ranges, mode inventories and `typed_support` grants |
+| `encodings` | Selected variants for granted surfaces with multiple encodings |
+| `transports` | `tcp_port`, `udp_port` and `serial` compatibility |
+| `envelope` | Raw VISCA or Sony encapsulation |
+| `timing` | ACK, inquiry, cancellation, ambiguity, busy, spacing and command-category deadlines |
+| `maximum_command_sockets` | Source-backed command capacity |
+| `supports_operation_complete` | Whether protocol completion can establish settlement |
+| `supports_command_cancel` | Whether the model supports socket cancellation |
+| `position_inquiries` | Optional affected-axis set available for settlement queries |
 
-`Profile` requires metadata traits so discovery can report the same fields for
-every profile. Do not treat those metadata traits as proof of support. Implement
-support markers only when the camera profile's source documents establish that
-the feature exists and the crate has a typed implementation for it.
+Every current fact key is required, including optional nested keys. Explicit
+`null` means an absent fact; omission is not a request for a default. Unknown
+keys are rejected. Export again with the current release when an older file
+needs regeneration. Durations serialize as `{"secs": ..., "nanos": ...}`.
 
-The runtime equivalent of the marker contract is `TypedSupportSet`.
-`ProfileTypedSupport::TYPED_SUPPORT` records the optional typed surfaces a
-profile exposes, and `Capabilities::supports_typed(...)` is the dyn-api
-permission check for those surfaces. Built-in profiles derive marker impls and
-`TYPED_SUPPORT` from the same `typed_support: [...]` registry list. Static typed noun methods prove at compile time that each optional marker
-has its corresponding `TYPED_SUPPORT` bit. A bit without a marker widens only
-the erased surface. Do not use metadata constants as a fallback permission source.
+Domain records describe presence and supported values. For example,
+`capabilities.zoom` owns zoom ranges, and `capabilities.focus.zones` lists the
+focus zones that may be sent. An absent domain is `null`; empty mode tables and
+conservative ranges preserve gaps in the evidence. The corresponding static
+domain markers are `HasPower`, `HasZoom`, `HasFocus`, `HasPanTilt`, `HasPresets`,
+`HasExposure`, `HasWhiteBalance`, `HasImage` and `HasMenu`.
 
-The two broad baseline markers are intentionally asymmetric. Implementing
-`Exposure` establishes a usable baseline exposure domain, so every
-`ProfileMetadata + Exposure` type receives `HasExposure`. `ImageProcessing`
-must be implemented only because `Profile` needs a uniform discovery shape and
-can validly contain no image surface at all; `HasImageProcessing` therefore
-requires an explicit, source-backed opt-in. A downstream profile with any typed
-image noun must implement that marker itself.
+Optional grants name existing concepts such as `Iris`, `NdFilter` or
+`OnePushWhiteBalance`. A registry grant supplies its checked `source!` reference
+and generates both the `Has*` marker and the runtime support entry. A domain's
+presence does not grant every optional method within it. Getter and setter
+support may differ: `ColorTemperatureInquiry` is separate from
+`ColorTemperature`, while `NoiseReduction2D` covers its evidenced command and
+inquiry family together.
 
-This split also applies inside broad baseline areas. A profile may support zoom
-tele/wide movement without supporting direct absolute zoom, digital zoom toggle,
-or optical-plus-digital positioning. A profile may support exposure mode and
-gain without iris control. A profile may support basic focus without one-push
-AF, focus zone, AF sensitivity, or focus near-limit inquiry. Model those
-surfaces with precise markers rather than runtime-only guards.
+Runtime discovery uses `camera.capabilities().supports(surface)` and the optional
+domain records. `Camera<AnyProfile>` exposes all noun methods and checks their
+domain, permission, value inventory and selected encoding before I/O. It makes
+no static `Has*` claims. Built-in compile-time profiles expose the same methods
+with the corresponding marker bounds. Request preparation uses the same facts
+for both forms.
 
-Current built-in sub-capability markers include the generated table below. Its
-marker vocabulary comes from `src/capabilities/typed_support_registry.rs`, and
-the method lists come from `src/noun_table.rs`; edit those declarations rather
-than this marked region.
+### Same concept, different bytes
+
+A surface with one documented encoding declares no family. A multi-encoding
+surface declares a closed, `#[non_exhaustive]` `<Surface>Encoding` enum in
+`src/capabilities/typed_support_registry.rs`; its registry grant selects a
+variant. The current families are:
+
+| Surface | Encoding variants | JSON selection |
+| --- | --- | --- |
+| `PresetRecallSpeed` | `PtzOptics`, `SonyFr7` | `"preset_recall_speed": "ptzoptics"` or `"sony_fr7"` |
+| `OnePushWhiteBalance` | `Standard`, `SonyFr7` | `"one_push_white_balance": "standard"` or `"sony_fr7"` |
+
+For custom builders, `ProfileSpecBuilder::encoding(EncodingSelection::...)`
+sets a selection. A granted multi-encoding surface without its selection is
+invalid, as is a selection without the corresponding grant. Registry rows keep
+one source: `capabilities.typed_support: grants(...)` owns the grants and variant
+choices; `encodings: from_grants` derives the map.
+
+An existing concept with another evidenced packet dialect needs a variant,
+its `for_target(&TargetRegistration, ...)` encoder arm and independent literal
+golden rows. Keep the existing method, request, value and marker. A different
+semantic contract requires separate review before a profile can use it.
+
+## Worked example: `acme_cam.json` to a registry row
+
+This walkthrough prepares an unlisted **Acme PTZ** as a local draft. It does not
+add a built-in profile or claim that Acme hardware supports any template fact.
+The export and validation steps need no camera.
+
+### 1. Export a complete template
+
+From the repository root:
+
+```sh
+cargo +1.98.0 run --example profile_spec --no-default-features --features serde -- \
+  export generic_visca > acme_cam.json
+```
+
+`export` accepts any built-in's canonical id; `--help` lists the available ids.
+The file initially retains that built-in's identity and must match its complete
+registry spec. Make the identity explicitly custom before editing facts:
+
+```sh
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("acme_cam.json")
+spec = json.loads(path.read_text())
+spec["capabilities"]["profile_id"] = None
+spec["capabilities"]["model_name"] = "Acme PTZ"
+path.write_text(json.dumps(spec, indent=2) + "\n")
+PY
+```
+
+Now compare every copied fact with Acme's model and firmware documentation.
+Remove unsupported grants and matching encoding selections together; use
+absent domain records or narrower inventories where appropriate. Keep every
+required key. Template inheritance is not model evidence, including for ports,
+coordinate polarity, shutter tables, socket limits, cancellation and timing.
+Keep this working JSON under `target/` or outside the repository when preparing
+an actual contribution.
+
+### 2. Validate and run through the existing API
+
+```sh
+cargo +1.98.0 run --example profile_spec --no-default-features --features serde -- \
+  check acme_cam.json
+```
+
+`check` deserializes the complete spec and prints its identity, actual granted
+surfaces, encoding choices and allowed transports. It performs no camera I/O.
+An error must be resolved in the facts before trying a connection.
+
+After reviewing the draft against the camera's evidence, a blocking application
+with `blocking,serde` enabled can load it directly:
+
+```rust,no_run
+use grafton_visca::{
+    blocking::CameraSession,
+    config::{CameraConfig, TransportOptions},
+    profiles::ProfileSpec,
+};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let spec: ProfileSpec = serde_json::from_reader(std::fs::File::open("acme_cam.json")?)?;
+    let config = CameraConfig::new(spec, TransportOptions::tcp("10.0.0.30"));
+    let session = CameraSession::connect(&config)?;
+    let camera = session.camera(); // Camera<AnyProfile>
+    println!("Power: {:?}", camera.power().status()?);
+    session.close()?;
+    Ok(())
+}
+```
+
+The async route uses `r#async::CameraSession::connect(&config, runtime).await`.
+The same concrete nouns, values and operation handles serve the custom spec.
+An ungranted method fails before a frame is sent. Applications do not need a
+separate dynamic API or a new profile-specific control trait.
+
+### 3. Collect read-only evidence
+
+The ignored unit test below probes the built-in inquiry inventory using raw
+requests and the built-in decoders, independently of typed grants:
+
+```sh
+VISCA_CAMERA_IP=10.0.0.30 VISCA_PROFILE_SPEC=acme_cam.json \
+  cargo +1.98.0 test --features serde --lib profile_probe::profile_probe -- \
+  --ignored --exact --nocapture
+```
+
+For an existing built-in, replace `VISCA_PROFILE_SPEC` with one explicit
+`VISCA_PROFILE`, for example `VISCA_PROFILE=generic_visca`. The id is its
+canonical `snake_case` string. Set `VISCA_TRANSPORT=tcp` or `udp` to choose a
+supported network transport; otherwise the probe chooses the first one allowed
+by the spec. `VISCA_CAMERA_IP` accepts a host and the profile's default port, or
+an explicit host/port address.
+
+For serial hardware:
+
+```sh
+VISCA_SERIAL_PORT=/dev/ttyUSB0 VISCA_PROFILE=sony_evi_h100 \
+  cargo +1.98.0 test --features serde,transport-serial --lib profile_probe::profile_probe -- \
+  --ignored --exact --nocapture
+```
+
+`VISCA_BAUD_RATE` is optional and defaults to 9600. Choose exactly one endpoint,
+`VISCA_CAMERA_IP` or `VISCA_SERIAL_PORT`, and exactly one profile selector. Serial
+startup stays silent: the probe sends no Address Set or interface-clear command.
+The hardware test is refused under `CI`.
+
+Reports are written to `target/profile-probe/<label>.json`; use
+`VISCA_PROBE_LABEL` for a safe report filename. They include the full profile,
+version result, query/surface identity, request bytes, reply payload, decoder
+result or error and latency. Request hex is the complete VISCA frame without a
+transport envelope. Reply hex is the VISCA data payload without its response
+header, terminator or transport envelope.
+
+Printed candidates are query/decoder observations for review, not installable
+grants. Shared bytes may have several interpretations. Decoder acceptance alone
+cannot identify the intended semantics or justify a writable control. Attach
+the report, exact model, firmware, transport and reproducible setup to the
+contribution; record the supported conclusion and its limits in
+`docs/visca_reference.md`. Reports and raw logs remain issue or CI artifacts,
+while authored evidence entries belong in source.
+
+### 4. Promote the reviewed facts
+
+Once the facts and grants have evidence, add one row to
+[`src/camera/profile_registry.rs`](../src/camera/profile_registry.rs). Start from
+its complete `GenericVisca` row as a structural template, then transfer the
+reviewed Acme values from `acme_cam.json` into its `facts` tree. The fact keys
+and nesting are the exported JSON schema, not a second naming convention:
+
+| Reviewed JSON fact | Registry row |
+| --- | --- |
+| `capabilities.model_name` | Same `model_name` fact in `facts.capabilities` |
+| `capabilities.pan_tilt.coordinates` | Same nested coordinate record |
+| `capabilities.focus.zones` | Same explicit zone inventory |
+| `transports.tcp_port`, `udp_port`, `serial` | Same three facts in `facts.transports` |
+| A duration's `secs` and `nanos` | The same duration as a typed Rust `Duration` expression |
+| `capabilities.typed_support` | `grants(...)`, with one checked source reference per grant |
+| `encodings` | Variant choices on those grants, derived with `from_grants` |
+| Custom `capabilities.profile_id: null` | `profile_id: from_id`, derived from the new row id |
+
+Use an `AcmePtz` type and `acme_ptz` id only when actually adding the reviewed
+profile. Keep its public documentation, id documentation, vendor, description,
+withheld rationale and evidence metadata outside `facts`. The row owns the id
+once; `from_id` projects its new built-in identity. Retain every fact key,
+including `None` and empty records or inventories. Typed Rust expressions are
+the values; key names and record structure stay aligned with JSON.
+
+Each grant's `source!` names the source register id, exact model set and checked
+evidence anchor in `docs/visca_reference.md`. A borrowed generic or another
+model's source reference is not Acme evidence. Evidence rows name the final
+`grant.<Surface>` subject and its exact command/inquiry packet set. New facts
+may need command or inquiry evidence as well as a grant row. Keep existing
+anchors stable and let the source completeness tests catch omissions or
+orphans. An encoding variant additionally needs literal byte cases for every
+new encoder branch.
+
+The registry generates the static profile, markers, runtime grants, default
+ports and validated spec from that row. Its
+`authored_row_fact_keys_match_every_exported_profile` test compares each
+row's authored fact keys recursively with its actual serialized spec;
+`row_key_alignment_detects_new_missing_and_renamed_record_facts` checks the
+tripwire itself. Update the row shape when the JSON schema intentionally changes
+instead of adding a separate conversion table or generated row emitter.
+
+After promotion, a rig's `ProfileSelection` value can change from the custom spec
+object to the new `"acme_ptz"` string. `Camera<AnyProfile>` callers keep the same
+code and noun contracts. Promotion does not change the meaning of an existing
+model's grants or claim hardware validation beyond the attached evidence.
+
+## Generated support documentation
+
+The support tables and closed lists are generated from the registry, typed
+support vocabulary and noun ledger. Contributors edit facts, grants, evidence
+and tests, then regenerate the marked blocks; they never maintain table rows by
+hand. Authored source explanations and hardware limits remain authored.
+
+`grafton_visca_test_support::bless_or_assert(path, block, generated)` checks the
+exact text between `<!-- BEGIN <block> -->` and `<!-- END <block> -->`. With
+`GRAFTON_VISCA_BLESS=1` it writes the block and deliberately fails so the diff
+must be reviewed. Blessing is refused under `CI`. Review the changed profile
+availability, method permissions, source-key index and literal wire bytes, then
+rerun the same tests with the variable unset. The wire golden uses this same
+variable.
+
+Regenerate all support-doc blocks from the repository root:
+
+```sh
+GRAFTON_VISCA_BLESS=1 cargo +1.98.0 test --all-features --lib \
+  generated_docs::generated_documents
+```
+
+After reviewing the deliberate-failure run's diff, verify the blocks:
+
+```sh
+cargo +1.98.0 test --all-features --lib generated_docs::generated_documents
+cargo +1.98.0 test --features serde --lib authored_row_fact_keys_match_every_exported_profile
+```
+
+For an intentional encoding change, regenerate the wire fixture separately:
+
+```sh
+GRAFTON_VISCA_BLESS=1 cargo +1.98.0 test --lib wire_ledger_matches_literal_golden_inventory
+```
+
+Review its literal packets against the model source, then rerun that test with
+`GRAFTON_VISCA_BLESS` unset. Generated bytes alone are not independent evidence.
+
+The generated vocabulary and current model boundaries follow. The method table
+shows each method's complete gate set and result type, so a profile contribution's
+full public impact is visible in the documentation diff.
 
 <!-- BEGIN GENERATED TYPED SUPPORT VOCABULARY -->
 | Area | Marker | Typed surface |
 | ---- | ------ | ------------- |
-| Zoom | `HasDirectZoom` | `zoom().set_position`, `zoom().set_normalized` |
+| Zoom | `HasDirectZoom` | `zoom().set_position`, `zoom().set_normalized`, `zoom().normalized` |
 | Zoom | `HasDigitalZoomToggle` | `zoom().set_digital_zoom` |
 | Zoom | `HasDigitalZoomRange` | Runtime-only gate for `zoom().set_normalized(..., ZoomDomain::OpticalPlusDigital)`; also requires a documented digital maximum |
-| Exposure | `HasIrisControl` | `exposure().iris`, `exposure().iris_reset`, `exposure().iris_up`, `exposure().iris_down`, `exposure().iris_direct` |
+| Exposure | `HasIris` | `exposure().iris`, `exposure().iris_reset`, `exposure().iris_up`, `exposure().iris_down`, `exposure().set_iris` |
 | Focus | `HasOnePushFocus` | `focus().one_push` |
-| Focus | `HasPtzOpticsSnapFocus` | `focus().snap` |
+| Focus | `HasSnapFocus` | `focus().snap` |
 | Focus | `HasFocusLock` | `focus().set_lock` |
-| Focus | `HasPushAutoFocus` | `focus().push_af_press`, `focus().push_af_release` |
+| Focus | `HasPushAutoFocus` | `focus().push_auto_focus_press`, `focus().push_auto_focus_release` |
 | Focus | `HasFocusZone` | `focus().set_zone` |
 | Focus | `HasAutoFocusSensitivity` | `focus().set_sensitivity`, `focus().sensitivity` |
-| Focus | `HasFocusNearLimitInquiry` | `focus().set_near_limit`, `focus().near_limit` |
-| Exposure | `HasBacklightCompensation` | `image().backlight`, `image().set_backlight` |
-| Exposure | `HasWideDynamicRange` | `exposure().set_dynamic_range` |
-| Exposure | `HasExposureCompensation` | `exposure().compensation`, `exposure().compensation_enabled`, `exposure().compensation_position`, `exposure().compensation_on`, `exposure().compensation_off`, `exposure().compensation_reset`, `exposure().compensation_up`, `exposure().compensation_down`, `exposure().compensation_direct` |
-| Exposure | `HasBrightnessControl` | `exposure().brightness`, `exposure().brightness_reset`, `exposure().brightness_up`, `exposure().brightness_down`, `exposure().brightness_set` |
-| White balance | `HasOnePushWhiteBalance` | `white_balance().one_push`, `white_balance().one_push_trigger` |
-| White balance | `HasAutoTrackingWhiteBalance` | `white_balance().atw` |
+| Focus | `HasFocusNearLimit` | `focus().set_near_limit`, `focus().near_limit` |
+| Exposure | `HasBacklightCompensation` | `exposure().backlight_compensation`, `exposure().set_backlight_compensation` |
+| Exposure | `HasWideDynamicRange` | `exposure().set_wide_dynamic_range` |
+| Exposure | `HasExposureCompensation` | `exposure().compensation`, `exposure().compensation_enabled`, `exposure().set_compensation_enabled`, `exposure().compensation_reset`, `exposure().compensation_up`, `exposure().compensation_down`, `exposure().set_compensation` |
+| Exposure | `HasBrightness` | `exposure().brightness`, `exposure().brightness_reset`, `exposure().brightness_up`, `exposure().brightness_down`, `exposure().set_brightness` |
+| White balance | `HasOnePushWhiteBalance` | `white_balance().one_push` |
 | White balance | `HasAutoWhiteBalanceSensitivity` | `white_balance().set_sensitivity`, `white_balance().sensitivity` |
-| Color | `HasColorTemperature` | `white_balance().color_temperature_mode`, `white_balance().reset_color_temperature`, `white_balance().increase_color_temperature`, `white_balance().decrease_color_temperature`, `white_balance().set_color_temperature` |
-| Color | `HasRgbGain` | `white_balance().red_gain`, `white_balance().reset_red_gain`, `white_balance().increase_red_gain`, `white_balance().decrease_red_gain`, `white_balance().set_red_gain`, `white_balance().blue_gain`, `white_balance().reset_blue_gain`, `white_balance().increase_blue_gain`, `white_balance().decrease_blue_gain`, `white_balance().set_blue_gain` |
+| Color | `HasColorTemperature` | `white_balance().color_temperature_reset`, `white_balance().color_temperature_up`, `white_balance().color_temperature_down`, `white_balance().set_color_temperature` |
+| Color | `HasRgbGain` | `white_balance().red_gain`, `white_balance().red_gain_reset`, `white_balance().red_gain_up`, `white_balance().red_gain_down`, `white_balance().set_red_gain`, `white_balance().blue_gain`, `white_balance().blue_gain_reset`, `white_balance().blue_gain_up`, `white_balance().blue_gain_down`, `white_balance().set_blue_gain` |
 | Color | `HasRgbTuning` | `white_balance().set_red_tuning`, `white_balance().set_blue_tuning`, `white_balance().red_tuning`, `white_balance().blue_tuning` |
-| Image | `HasImageFlip` | `image().disable_flip`, `image().enable_flip`, `image().flip` |
-| Image | `HasImageMirror` | `image().enable_horizontal_flip`, `image().disable_horizontal_flip` |
-| Image | `HasCombinedImageFlip` | `image().set_flip_both`, `image().set_flip_mode`, `image().flip_mode` |
-| Image | `HasContrastControl` | `image().contrast`, `image().set_contrast` |
-| Image | `HasSharpnessControl` | `image().sharpness_level`, `image().reset_sharpness`, `image().increase_sharpness`, `image().decrease_sharpness`, `image().set_sharpness` |
-| Image | `HasSaturationControl` | `image().saturation`, `image().set_saturation` |
-| Image | `HasHueControl` | `image().hue`, `image().set_hue` |
-| Image | `HasLuminanceControl` | `image().luminance`, `image().set_luminance` |
-| Image | `HasGammaControl` | `image().gamma`, `image().set_gamma` |
-| Image | `HasNoiseReduction2D` | `image().noise_reduction_2d` |
-| Image | `HasNoiseReduction3D` | `image().noise_reduction_3d` |
+| Image | `HasImageFlip` | `image().set_flip`, `image().flip` |
+| Image | `HasImageMirror` | `image().set_mirror` |
+| Image | `HasCombinedImageFlip` | `image().set_flip_mode`, `image().flip_mode` |
+| Image | `HasContrast` | `image().contrast`, `image().set_contrast` |
+| Image | `HasSharpness` | `image().sharpness`, `image().sharpness_reset`, `image().sharpness_up`, `image().sharpness_down`, `image().set_sharpness` |
+| Image | `HasSaturation` | `image().saturation`, `image().set_saturation` |
+| Image | `HasHue` | `image().hue`, `image().set_hue` |
+| Image | `HasLuminance` | `image().luminance`, `image().set_luminance` |
+| Image | `HasGamma` | `image().gamma`, `image().set_gamma` |
+| Image | `HasNoiseReduction2D` | `image().noise_reduction_2d`, `image().set_noise_reduction_2d` |
+| Image | `HasNoiseReduction3D` | `image().noise_reduction_3d`, `image().set_noise_reduction_3d` |
 | Image | `HasPictureEffect` | `image().picture_effect`, `image().set_picture_effect` |
-| Tally | `HasTally` | `tally().red_on`, `tally().red_off`, `tally().bright_lo`, `tally().bright_hi`, `tally().green_on`, `tally().green_off`, `tally().flash`, `tally().on`, `tally().off`, `tally().red_status`, `tally().green_status` |
-| Menu | `HasDirectMenuControl` | `menu().direct`, `menu().toggle_display` |
-| ND filter | `HasNdFilter` | `nd_filter().position`, `nd_filter().preset`, `nd_filter().set_mode`, `nd_filter().set_value`, `nd_filter().step_up`, `nd_filter().step_down`, `nd_filter().auto_on`, `nd_filter().auto_off` |
-| Variable speed | `HasVariableSpeed` | `advanced().set_variable_speed_mode` |
-| Motion Sync | `HasMotionSync` | `motion_sync().mode`, `motion_sync().set_mode`, `motion_sync().set_speed` |
+| Tally | `HasTally` | `tally().set_red`, `tally().set_brightness`, `tally().set_green`, `tally().set_mode`, `tally().red`, `tally().green` |
+| Menu | `HasDirectMenu` | `menu().direct`, `menu().toggle_visible` |
+| ND filter | `HasNdFilter` | `nd_filter().density`, `nd_filter().preset`, `nd_filter().set_mode`, `nd_filter().set_density`, `nd_filter().density_up`, `nd_filter().density_down`, `nd_filter().set_auto` |
+| Variable speed | `HasPanTiltSpeedMode` | `pan_tilt().set_speed_mode` |
+| Motion Sync | `HasMotionSync` | `motion_sync().enabled`, `motion_sync().set_enabled`, `motion_sync().set_speed` |
 | Focus | `HasFocusZoneInquiry` | `focus().zone` |
-| Streaming | `HasUsbAudio` | `advanced().usb_audio_enabled`, `advanced().usb_audio_on`, `advanced().usb_audio_off` |
-| Exposure | `HasPtzOpticsAntiFlicker` | `exposure().set_anti_flicker`, `exposure().flicker_mode` |
-| System | `HasPtzOpticsSettingsSave` | `system().save_settings` |
-| Presets | `HasPtzOpticsPresetRecallSpeed` | `presets().set_recall_speed` |
-| Exposure | `HasSonySpotlight` | `exposure().spotlight_on`, `exposure().spotlight_off` |
-| Exposure | `HasSonyAutoSlowShutter` | `exposure().auto_slow_shutter_on`, `exposure().auto_slow_shutter_off` |
-| Streaming | `HasPtzOpticsMulticastStreaming` | `advanced().multicast_on`, `advanced().multicast_off` |
-| Streaming | `HasPtzOpticsNdiQuality` | `advanced().set_ndi_quality` |
+| Streaming | `HasUsbAudio` | `streaming().usb_audio`, `streaming().set_usb_audio` |
+| Exposure | `HasAntiFlicker` | `exposure().set_anti_flicker`, `exposure().anti_flicker` |
+| System | `HasSettingsSave` | `system().save_settings` |
+| Presets | `HasPresetRecallSpeed` | `presets().set_recall_speed` |
+| Presets | `HasPresetRecallSpeedInquiry` | `presets().recall_speed` |
+| Exposure | `HasSpotlight` | `exposure().set_spotlight` |
+| Exposure | `HasAutoSlowShutter` | `exposure().set_auto_slow_shutter` |
+| Streaming | `HasMulticastStreaming` | `streaming().set_multicast` |
+| Streaming | `HasNdiQuality` | `streaming().set_ndi_quality` |
 | Exposure | `HasExposureMode` | `exposure().mode`, `exposure().set_mode` |
-| Image | `HasNoiseReduction2DControl` | `image().set_noise_reduction_2d`, `image().disable_noise_reduction_2d` |
-| Image | `HasNoiseReduction3DControl` | `image().set_noise_reduction_3d`, `image().disable_noise_reduction_3d` |
-| Image | `HasImageFreeze` | `image().freeze_on`, `image().freeze_off` |
-| Tally | `HasTallyBrightness` | `tally().bright_lo`, `tally().bright_hi` |
-| Tally | `HasPtzOpticsTally` | `tally().flash`, `tally().on`, `tally().off` |
+| Image | `HasImageFreeze` | `image().set_freeze` |
+| Tally | `HasTallyBrightness` | `tally().set_brightness` |
+| Tally | `HasTallyMode` | `tally().set_mode` |
 | System | `HasVersionInquiry` | `system().version` |
 | Color | `HasColorTemperatureInquiry` | `white_balance().color_temperature` |
 | Image | `HasNoiseReduction2DMode` | `image().noise_reduction_2d_mode`, `image().set_noise_reduction_2d_mode` |
-| Exposure | `HasSonyFr7AeLevel` | `exposure().ae_level_up`, `exposure().ae_level_down`, `exposure().ae_level` |
-| Exposure | `HasSonyFr7AutoGain` | `exposure().set_auto_gain`, `exposure().auto_gain` |
-| Exposure | `HasSonyFr7AutoShutter` | `exposure().set_auto_shutter`, `exposure().auto_shutter` |
-| Exposure | `HasSonyFr7Iris` | `exposure().set_auto_iris`, `exposure().auto_iris`, `exposure().iris_up_by`, `exposure().iris_down_by` |
-| WhiteBalance | `HasSonyFr7WhiteBalance` | `white_balance().set_from_scene`, `white_balance().preset` |
-| WhiteBalance | `HasSonyFr7PresetWhite` | `white_balance().preset_white_up`, `white_balance().preset_white_down`, `white_balance().set_preset_white`, `white_balance().preset_white` |
-| WhiteBalance | `HasSonyFr7MemoryColorTemperature` | `white_balance().memory_temperature_up`, `white_balance().memory_temperature_down`, `white_balance().set_memory_temperature`, `white_balance().memory_temperature` |
-| WhiteBalance | `HasSonyFr7MemoryGain` | `white_balance().memory_red_gain_up`, `white_balance().memory_red_gain_down`, `white_balance().set_memory_red_gain`, `white_balance().memory_red_gain`, `white_balance().memory_blue_gain_up`, `white_balance().memory_blue_gain_down`, `white_balance().set_memory_blue_gain`, `white_balance().memory_blue_gain` |
-| WhiteBalance | `HasSonyFr7MemoryTint` | `white_balance().memory_tint_up`, `white_balance().memory_tint_down`, `white_balance().set_memory_tint`, `white_balance().memory_tint` |
-| WhiteBalance | `HasSonyFr7AtwOffsets` | `white_balance().atw_temperature_offset_up`, `white_balance().atw_temperature_offset_down`, `white_balance().set_atw_temperature_offset`, `white_balance().atw_temperature_offset`, `white_balance().atw_tint_offset_up`, `white_balance().atw_tint_offset_down`, `white_balance().set_atw_tint_offset`, `white_balance().atw_tint_offset` |
-| Image | `HasSonyFr7Black` | `image().master_black_up`, `image().master_black_down`, `image().set_master_black`, `image().master_black`, `image().red_black_up`, `image().red_black_down`, `image().set_red_black`, `image().red_black`, `image().blue_black_up`, `image().blue_black_down`, `image().set_blue_black`, `image().blue_black` |
-| Image | `HasSonyFr7Detail` | `image().set_detail`, `image().detail` |
-| Image | `HasSonyFr7Knee` | `image().set_knee`, `image().knee`, `image().set_knee_mode`, `image().knee_mode`, `image().set_knee_slope`, `image().knee_slope`, `image().set_knee_point`, `image().knee_point`, `image().knee_permission` |
-| Zoom | `HasSonyFr7HighResolutionZoom` | `zoom().tele_high_resolution`, `zoom().wide_high_resolution`, `zoom().stop_high_resolution` |
-| Zoom | `HasSonyFr7ClearImageZoom` | `zoom().clear_image_position` |
-| Presets | `HasSonyFr7PresetSpeed` | `presets().select_speed`, `presets().speed_selection`, `presets().set_common_speed`, `presets().common_speed`, `presets().set_separate_mode`, `presets().separate_mode`, `presets().set_separate_speed`, `presets().separate_speed` |
-| Presets | `HasSonyFr7PresetDuration` | `presets().set_separate_duration`, `presets().separate_duration` |
+| Exposure | `HasAeLevel` | `exposure().ae_level_up`, `exposure().ae_level_down`, `exposure().ae_level` |
+| Exposure | `HasAutoGain` | `exposure().set_auto_gain`, `exposure().auto_gain` |
+| Exposure | `HasAutoShutter` | `exposure().set_auto_shutter`, `exposure().auto_shutter` |
+| Exposure | `HasIrisSteps` | `exposure().iris_up_by`, `exposure().iris_down_by` |
+| Exposure | `HasAutoIris` | `exposure().set_auto_iris`, `exposure().auto_iris` |
+| WhiteBalance | `HasPresetWhite` | `white_balance().preset_white_up_by`, `white_balance().preset_white_down_by`, `white_balance().set_preset_white`, `white_balance().preset_white` |
+| WhiteBalance | `HasMemoryColorTemperature` | `white_balance().memory_color_temperature_up_by`, `white_balance().memory_color_temperature_down_by`, `white_balance().set_memory_color_temperature`, `white_balance().memory_color_temperature` |
+| WhiteBalance | `HasMemoryGain` | `white_balance().memory_red_gain_up_by`, `white_balance().memory_red_gain_down_by`, `white_balance().set_memory_red_gain`, `white_balance().memory_red_gain`, `white_balance().memory_blue_gain_up_by`, `white_balance().memory_blue_gain_down_by`, `white_balance().set_memory_blue_gain`, `white_balance().memory_blue_gain` |
+| WhiteBalance | `HasMemoryTint` | `white_balance().memory_tint_up_by`, `white_balance().memory_tint_down_by`, `white_balance().set_memory_tint`, `white_balance().memory_tint` |
+| WhiteBalance | `HasAtwOffsets` | `white_balance().atw_color_temperature_offset_up_by`, `white_balance().atw_color_temperature_offset_down_by`, `white_balance().set_atw_color_temperature_offset`, `white_balance().atw_color_temperature_offset`, `white_balance().atw_tint_offset_up_by`, `white_balance().atw_tint_offset_down_by`, `white_balance().set_atw_tint_offset`, `white_balance().atw_tint_offset` |
+| Image | `HasBlackLevels` | `image().master_black_up_by`, `image().master_black_down_by`, `image().set_master_black`, `image().master_black`, `image().red_black_up_by`, `image().red_black_down_by`, `image().set_red_black`, `image().red_black`, `image().blue_black_up_by`, `image().blue_black_down_by`, `image().set_blue_black`, `image().blue_black` |
+| Image | `HasDetail` | `image().set_detail`, `image().detail` |
+| Image | `HasKnee` | `image().set_knee`, `image().knee`, `image().set_knee_mode`, `image().knee_mode`, `image().set_knee_slope`, `image().knee_slope`, `image().set_knee_point`, `image().knee_point`, `image().knee_permission` |
+| Zoom | `HasHighResolutionZoom` | `zoom().tele_high_resolution`, `zoom().wide_high_resolution`, `zoom().stop_high_resolution` |
+| Zoom | `HasClearImageZoom` | `zoom().clear_image_position` |
+| Presets | `HasSeparatePresetSpeed` | `presets().set_speed_selection`, `presets().speed_selection`, `presets().set_separate_mode`, `presets().separate_mode`, `presets().set_separate_speed`, `presets().separate_speed` |
+| Presets | `HasSeparatePresetDuration` | `presets().set_separate_duration`, `presets().separate_duration` |
 | Image | `HasSharpnessMode` | `image().sharpness_mode`, `image().set_sharpness_mode` |
 | Focus | `HasFocusInfinity` | `focus().infinity` |
-| Presets | `HasPresetMemory` | `presets().set`, `presets().reset` |
-| Exposure | `HasShutterControl` | `exposure().shutter`, `exposure().shutter_reset`, `exposure().shutter_up`, `exposure().shutter_down` |
-| Exposure | `HasGainControl` | `exposure().gain`, `exposure().gain_reset`, `exposure().gain_up`, `exposure().gain_down`, `exposure().gain_direct` |
+| Presets | `HasPresetMemory` | `presets().store`, `presets().clear` |
+| Exposure | `HasShutter` | `exposure().shutter`, `exposure().shutter_reset`, `exposure().shutter_up`, `exposure().shutter_down` |
+| Exposure | `HasGain` | `exposure().gain`, `exposure().gain_reset`, `exposure().gain_up`, `exposure().gain_down`, `exposure().set_gain` |
 | Exposure | `HasGainLimit` | `exposure().gain_limit`, `exposure().set_gain_limit` |
-| White balance | `HasStandardWhiteBalanceModes` | `white_balance().auto`, `white_balance().indoor`, `white_balance().outdoor` |
-| Menu | `HasMenuDisplay` | `menu().display` |
-| Menu | `HasMenuEnterReturn` | `menu().select`, `menu().cancel` |
-| Menu | `HasMenuStatusInquiry` | `menu().status` |
-| Exposure | `HasShutterDirect` | `exposure().shutter_direct` |
-| Power | `HasPowerStandby` | `power().off` |
+| Menu | `HasMenuDisplay` | `menu().set_visible` |
+| Menu | `HasMenuEnterReturn` | `menu().enter`, `menu().back` |
+| Menu | `HasMenuDisplayInquiry` | `menu().visible` |
+| Exposure | `HasDirectShutter` | `exposure().set_shutter` |
+| Power | `HasPowerStandby` | `power().standby` |
 <!-- END GENERATED TYPED SUPPORT VOCABULARY -->
+
+<!-- BEGIN GENERATED TYPED METHODS -->
+| Method | Required markers | Result payload | Built-in profiles |
+| --- | --- | --- | --- |
+| `power().status` | `HasPower` | `types :: PowerStatus` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `power().on` | `HasPower` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `power().standby` | `HasPower`, `HasPowerStandby` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100` |
+| `zoom().position` | `HasZoom` | `types :: ZoomPosition` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `zoom().tele` | `HasZoom` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `zoom().wide` | `HasZoom` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `zoom().stop` | `HasZoom` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `zoom().tele_variable` | `HasZoom` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `zoom().wide_variable` | `HasZoom` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `zoom().set_position` | `HasZoom`, `HasDirectZoom` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `zoom().set_normalized` | `HasZoom`, `HasDirectZoom` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `zoom().set_digital_zoom` | `HasZoom`, `HasDigitalZoomToggle` | `()` | `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `zoom().tele_high_resolution` | `HasZoom`, `HasHighResolutionZoom` | `Operation<AppliedOnly>` | `SonyFr7` |
+| `zoom().wide_high_resolution` | `HasZoom`, `HasHighResolutionZoom` | `Operation<AppliedOnly>` | `SonyFr7` |
+| `zoom().stop_high_resolution` | `HasZoom`, `HasHighResolutionZoom` | `Operation<AppliedOnly>` | `SonyFr7` |
+| `zoom().clear_image_position` | `HasZoom`, `HasClearImageZoom` | `types :: ClearImageZoomPosition` | `SonyFr7` |
+| `zoom().normalized` | `HasZoom`, `HasDirectZoom` | `types :: UnitInterval` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `system().version` | `HasVersionInquiry` | `types :: VersionInfo` | `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `system().save_settings` | `HasSettingsSave` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `pan_tilt().position` | `HasPanTilt` | `types :: PanTiltPosition` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().home` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().reset` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().drive` | `HasPanTilt` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().stop` | `HasPanTilt` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().absolute` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().relative` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().set_limit` | `HasPanTilt` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().clear_limit` | `HasPanTilt` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().set_speed_mode` | `HasPanTilt`, `HasPanTiltSpeedMode` | `()` | `SonyFr7` |
+| `focus().position` | `HasFocus` | `types :: FocusPosition` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().mode` | `HasFocus` | `types :: FocusMode` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().far` | `HasFocus` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().near` | `HasFocus` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().far_variable` | `HasFocus` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().near_variable` | `HasFocus` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().stop` | `HasFocus` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().set_position` | `HasFocus` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().one_push` | `HasFocus`, `HasOnePushFocus` | `Operation<AppliedOnly>` | `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().infinity` | `HasFocus`, `HasFocusInfinity` | `Operation<Targeted>` | `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().toggle_mode` | `HasFocus` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `focus().snap` | `HasFocus`, `HasSnapFocus` | `Operation<AppliedOnly>` | No built-in profile |
+| `focus().set_zone` | `HasFocus`, `HasFocusZone` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `focus().set_sensitivity` | `HasFocus`, `HasAutoFocusSensitivity` | `()` | No built-in profile |
+| `focus().set_near_limit` | `HasFocus`, `HasFocusNearLimit` | `()` | `SonyEviH100` |
+| `focus().set_lock` | `HasFocus`, `HasFocusLock` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `focus().push_auto_focus_press` | `HasFocus`, `HasPushAutoFocus` | `Operation<AppliedOnly>` | `SonyFr7` |
+| `focus().push_auto_focus_release` | `HasFocus`, `HasPushAutoFocus` | `Operation<AppliedOnly>` | `SonyFr7` |
+| `focus().near_limit` | `HasFocus`, `HasFocusNearLimit` | `types :: FocusPosition` | `SonyEviH100` |
+| `focus().zone` | `HasFocus`, `HasFocusZoneInquiry` | `types :: FocusZone` | `PtzOpticsG2`, `PtzOptics30x` |
+| `focus().sensitivity` | `HasFocus`, `HasAutoFocusSensitivity` | `types :: AutoFocusSensitivity` | No built-in profile |
+| `focus().set_mode` | `HasFocus` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `presets().recall` | `HasPresets` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `presets().set_recall_speed` | `HasPresets`, `HasPresetRecallSpeed` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7` |
+| `presets().store` | `HasPresets`, `HasPresetMemory` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `presets().clear` | `HasPresets`, `HasPresetMemory` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `presets().set_speed_selection` | `HasPresets`, `HasSeparatePresetSpeed` | `()` | `SonyFr7` |
+| `presets().speed_selection` | `HasPresets`, `HasSeparatePresetSpeed` | `types :: PresetSpeedSelection` | `SonyFr7` |
+| `presets().recall_speed` | `HasPresets`, `HasPresetRecallSpeedInquiry` | `types :: PresetSpeed` | `SonyFr7` |
+| `presets().set_separate_mode` | `HasPresets`, `HasSeparatePresetSpeed` | `()` | `SonyFr7` |
+| `presets().separate_mode` | `HasPresets`, `HasSeparatePresetSpeed` | `types :: PresetSeparateMode` | `SonyFr7` |
+| `presets().set_separate_speed` | `HasPresets`, `HasSeparatePresetSpeed` | `()` | `SonyFr7` |
+| `presets().separate_speed` | `HasPresets`, `HasSeparatePresetSpeed` | `types :: PresetSpeed` | `SonyFr7` |
+| `presets().set_separate_duration` | `HasPresets`, `HasSeparatePresetDuration` | `()` | `SonyFr7` |
+| `presets().separate_duration` | `HasPresets`, `HasSeparatePresetDuration` | `std :: time :: Duration` | `SonyFr7` |
+| `exposure().mode` | `HasExposure`, `HasExposureMode` | `types :: ExposureMode` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().set_mode` | `HasExposure`, `HasExposureMode` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().shutter` | `HasExposure`, `HasShutter` | `types :: ShutterSpeed` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().shutter_reset` | `HasExposure`, `HasShutter` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().shutter_up` | `HasExposure`, `HasShutter` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().shutter_down` | `HasExposure`, `HasShutter` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().set_shutter` | `HasExposure`, `HasDirectShutter` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().compensation` | `HasExposure`, `HasExposureCompensation` | `types :: ExposureCompensationLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().compensation_enabled` | `HasExposure`, `HasExposureCompensation` | `bool` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().set_compensation_enabled` | `HasExposure`, `HasExposureCompensation` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().compensation_reset` | `HasExposure`, `HasExposureCompensation` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().compensation_up` | `HasExposure`, `HasExposureCompensation` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().compensation_down` | `HasExposure`, `HasExposureCompensation` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().set_compensation` | `HasExposure`, `HasExposureCompensation` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().set_wide_dynamic_range` | `HasExposure`, `HasWideDynamicRange` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `exposure().iris` | `HasExposure`, `HasIris` | `types :: IrisLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().iris_reset` | `HasExposure`, `HasIris` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().iris_up` | `HasExposure`, `HasIris` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().iris_down` | `HasExposure`, `HasIris` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().set_iris` | `HasExposure`, `HasIris` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().brightness` | `HasExposure`, `HasBrightness` | `types :: BrightnessLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().brightness_reset` | `HasExposure`, `HasBrightness` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().brightness_up` | `HasExposure`, `HasBrightness` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().brightness_down` | `HasExposure`, `HasBrightness` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().set_brightness` | `HasExposure`, `HasBrightness` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().gain` | `HasExposure`, `HasGain` | `types :: GainLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().gain_reset` | `HasExposure`, `HasGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().gain_up` | `HasExposure`, `HasGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().gain_down` | `HasExposure`, `HasGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().set_gain` | `HasExposure`, `HasGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `exposure().gain_limit` | `HasExposure`, `HasGainLimit` | `types :: GainLimit` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `exposure().set_gain_limit` | `HasExposure`, `HasGainLimit` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `exposure().set_anti_flicker` | `HasExposure`, `HasAntiFlicker` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `exposure().anti_flicker` | `HasExposure`, `HasAntiFlicker` | `types :: AntiFlickerMode` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `exposure().set_spotlight` | `HasExposure`, `HasSpotlight` | `()` | `SonyFr7` |
+| `exposure().set_auto_slow_shutter` | `HasExposure`, `HasAutoSlowShutter` | `()` | `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().ae_level_up` | `HasExposure`, `HasAeLevel` | `()` | `SonyFr7` |
+| `exposure().ae_level_down` | `HasExposure`, `HasAeLevel` | `()` | `SonyFr7` |
+| `exposure().ae_level` | `HasExposure`, `HasAeLevel` | `types :: AeLevel` | `SonyFr7` |
+| `exposure().set_auto_gain` | `HasExposure`, `HasAutoGain` | `()` | `SonyFr7` |
+| `exposure().auto_gain` | `HasExposure`, `HasAutoGain` | `bool` | `SonyFr7` |
+| `exposure().set_auto_shutter` | `HasExposure`, `HasAutoShutter` | `()` | `SonyFr7` |
+| `exposure().auto_shutter` | `HasExposure`, `HasAutoShutter` | `bool` | `SonyFr7` |
+| `exposure().set_auto_iris` | `HasExposure`, `HasAutoIris` | `()` | `SonyFr7` |
+| `exposure().auto_iris` | `HasExposure`, `HasAutoIris` | `bool` | `SonyFr7` |
+| `exposure().iris_up_by` | `HasExposure`, `HasIrisSteps` | `Operation<AppliedOnly>` | `SonyFr7` |
+| `exposure().iris_down_by` | `HasExposure`, `HasIrisSteps` | `Operation<AppliedOnly>` | `SonyFr7` |
+| `exposure().backlight_compensation` | `HasExposure`, `HasBacklightCompensation` | `bool` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `exposure().set_backlight_compensation` | `HasExposure`, `HasBacklightCompensation` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().mode` | `HasWhiteBalance` | `types :: WhiteBalanceMode` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `white_balance().set_sensitivity` | `HasWhiteBalance`, `HasAutoWhiteBalanceSensitivity` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().sensitivity` | `HasWhiteBalance`, `HasAutoWhiteBalanceSensitivity` | `types :: AutoWhiteBalanceSensitivity` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().one_push` | `HasWhiteBalance`, `HasOnePushWhiteBalance` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `white_balance().set_red_tuning` | `HasWhiteBalance`, `HasRgbTuning` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().set_blue_tuning` | `HasWhiteBalance`, `HasRgbTuning` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().color_temperature` | `HasWhiteBalance`, `HasColorTemperatureInquiry` | `types :: Kelvin` | `PtzOpticsG2`, `PtzOptics30x` |
+| `white_balance().color_temperature_reset` | `HasWhiteBalance`, `HasColorTemperature` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().color_temperature_up` | `HasWhiteBalance`, `HasColorTemperature` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().color_temperature_down` | `HasWhiteBalance`, `HasColorTemperature` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().set_color_temperature` | `HasWhiteBalance`, `HasColorTemperature` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().red_gain` | `HasWhiteBalance`, `HasRgbGain` | `types :: RgbGain` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().red_gain_reset` | `HasWhiteBalance`, `HasRgbGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().red_gain_up` | `HasWhiteBalance`, `HasRgbGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().red_gain_down` | `HasWhiteBalance`, `HasRgbGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().set_red_gain` | `HasWhiteBalance`, `HasRgbGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().blue_gain` | `HasWhiteBalance`, `HasRgbGain` | `types :: RgbGain` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().blue_gain_reset` | `HasWhiteBalance`, `HasRgbGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().blue_gain_up` | `HasWhiteBalance`, `HasRgbGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().blue_gain_down` | `HasWhiteBalance`, `HasRgbGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().set_blue_gain` | `HasWhiteBalance`, `HasRgbGain` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `white_balance().red_tuning` | `HasWhiteBalance`, `HasRgbTuning` | `types :: RgbTuning` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().blue_tuning` | `HasWhiteBalance`, `HasRgbTuning` | `types :: RgbTuning` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `white_balance().preset_white_up_by` | `HasWhiteBalance`, `HasPresetWhite` | `()` | `SonyFr7` |
+| `white_balance().preset_white_down_by` | `HasWhiteBalance`, `HasPresetWhite` | `()` | `SonyFr7` |
+| `white_balance().set_preset_white` | `HasWhiteBalance`, `HasPresetWhite` | `()` | `SonyFr7` |
+| `white_balance().preset_white` | `HasWhiteBalance`, `HasPresetWhite` | `types :: Kelvin` | `SonyFr7` |
+| `white_balance().memory_color_temperature_up_by` | `HasWhiteBalance`, `HasMemoryColorTemperature` | `()` | `SonyFr7` |
+| `white_balance().memory_color_temperature_down_by` | `HasWhiteBalance`, `HasMemoryColorTemperature` | `()` | `SonyFr7` |
+| `white_balance().set_memory_color_temperature` | `HasWhiteBalance`, `HasMemoryColorTemperature` | `()` | `SonyFr7` |
+| `white_balance().memory_color_temperature` | `HasWhiteBalance`, `HasMemoryColorTemperature` | `types :: Kelvin` | `SonyFr7` |
+| `white_balance().memory_red_gain_up_by` | `HasWhiteBalance`, `HasMemoryGain` | `()` | `SonyFr7` |
+| `white_balance().memory_red_gain_down_by` | `HasWhiteBalance`, `HasMemoryGain` | `()` | `SonyFr7` |
+| `white_balance().set_memory_red_gain` | `HasWhiteBalance`, `HasMemoryGain` | `()` | `SonyFr7` |
+| `white_balance().memory_red_gain` | `HasWhiteBalance`, `HasMemoryGain` | `types :: WhiteBalanceGain` | `SonyFr7` |
+| `white_balance().memory_blue_gain_up_by` | `HasWhiteBalance`, `HasMemoryGain` | `()` | `SonyFr7` |
+| `white_balance().memory_blue_gain_down_by` | `HasWhiteBalance`, `HasMemoryGain` | `()` | `SonyFr7` |
+| `white_balance().set_memory_blue_gain` | `HasWhiteBalance`, `HasMemoryGain` | `()` | `SonyFr7` |
+| `white_balance().memory_blue_gain` | `HasWhiteBalance`, `HasMemoryGain` | `types :: WhiteBalanceGain` | `SonyFr7` |
+| `white_balance().memory_tint_up_by` | `HasWhiteBalance`, `HasMemoryTint` | `()` | `SonyFr7` |
+| `white_balance().memory_tint_down_by` | `HasWhiteBalance`, `HasMemoryTint` | `()` | `SonyFr7` |
+| `white_balance().set_memory_tint` | `HasWhiteBalance`, `HasMemoryTint` | `()` | `SonyFr7` |
+| `white_balance().memory_tint` | `HasWhiteBalance`, `HasMemoryTint` | `types :: WhiteBalanceOffset` | `SonyFr7` |
+| `white_balance().atw_color_temperature_offset_up_by` | `HasWhiteBalance`, `HasAtwOffsets` | `()` | `SonyFr7` |
+| `white_balance().atw_color_temperature_offset_down_by` | `HasWhiteBalance`, `HasAtwOffsets` | `()` | `SonyFr7` |
+| `white_balance().set_atw_color_temperature_offset` | `HasWhiteBalance`, `HasAtwOffsets` | `()` | `SonyFr7` |
+| `white_balance().atw_color_temperature_offset` | `HasWhiteBalance`, `HasAtwOffsets` | `types :: WhiteBalanceOffset` | `SonyFr7` |
+| `white_balance().atw_tint_offset_up_by` | `HasWhiteBalance`, `HasAtwOffsets` | `()` | `SonyFr7` |
+| `white_balance().atw_tint_offset_down_by` | `HasWhiteBalance`, `HasAtwOffsets` | `()` | `SonyFr7` |
+| `white_balance().set_atw_tint_offset` | `HasWhiteBalance`, `HasAtwOffsets` | `()` | `SonyFr7` |
+| `white_balance().atw_tint_offset` | `HasWhiteBalance`, `HasAtwOffsets` | `types :: WhiteBalanceOffset` | `SonyFr7` |
+| `white_balance().set_mode` | `HasWhiteBalance` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `image().saturation` | `HasImage`, `HasSaturation` | `types :: SaturationLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100` |
+| `image().set_saturation` | `HasImage`, `HasSaturation` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100` |
+| `image().hue` | `HasImage`, `HasHue` | `types :: HueLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100` |
+| `image().set_hue` | `HasImage`, `HasHue` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100` |
+| `image().luminance` | `HasImage`, `HasLuminance` | `types :: LuminanceLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().set_luminance` | `HasImage`, `HasLuminance` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().contrast` | `HasImage`, `HasContrast` | `types :: ContrastLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().set_contrast` | `HasImage`, `HasContrast` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().gamma` | `HasImage`, `HasGamma` | `types :: GammaLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100` |
+| `image().set_gamma` | `HasImage`, `HasGamma` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100` |
+| `image().sharpness_mode` | `HasImage`, `HasSharpnessMode` | `types :: SharpnessMode` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().sharpness` | `HasImage`, `HasSharpness` | `types :: SharpnessLevel` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100` |
+| `image().set_sharpness_mode` | `HasImage`, `HasSharpnessMode` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().sharpness_reset` | `HasImage`, `HasSharpness` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100` |
+| `image().sharpness_up` | `HasImage`, `HasSharpness` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100` |
+| `image().sharpness_down` | `HasImage`, `HasSharpness` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100` |
+| `image().set_sharpness` | `HasImage`, `HasSharpness` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100` |
+| `image().noise_reduction_2d` | `HasImage`, `HasNoiseReduction2D` | `types :: NoiseReduction2D` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100` |
+| `image().noise_reduction_2d_mode` | `HasImage`, `HasNoiseReduction2DMode` | `types :: NoiseReduction2DMode` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().noise_reduction_3d` | `HasImage`, `HasNoiseReduction3D` | `types :: NoiseReduction3D` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().set_noise_reduction_2d_mode` | `HasImage`, `HasNoiseReduction2DMode` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().set_noise_reduction_2d` | `HasImage`, `HasNoiseReduction2D` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100` |
+| `image().set_noise_reduction_3d` | `HasImage`, `HasNoiseReduction3D` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().set_flip` | `HasImage`, `HasImageFlip` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrc300`, `NearusBrc300` |
+| `image().set_mirror` | `HasImage`, `HasImageMirror` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().set_flip_mode` | `HasImage`, `HasCombinedImageFlip` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().set_freeze` | `HasImage`, `HasImageFreeze` | `()` | No built-in profile |
+| `image().flip` | `HasImage`, `HasImageFlip` | `bool` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyBrc300`, `NearusBrc300` |
+| `image().flip_mode` | `HasImage`, `HasCombinedImageFlip` | `types :: ImageFlipMode` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().picture_effect` | `HasImage`, `HasPictureEffect` | `types :: PictureEffectMode` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().set_picture_effect` | `HasImage`, `HasPictureEffect` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `image().master_black_up_by` | `HasImage`, `HasBlackLevels` | `()` | `SonyFr7` |
+| `image().master_black_down_by` | `HasImage`, `HasBlackLevels` | `()` | `SonyFr7` |
+| `image().set_master_black` | `HasImage`, `HasBlackLevels` | `()` | `SonyFr7` |
+| `image().master_black` | `HasImage`, `HasBlackLevels` | `types :: BlackLevel` | `SonyFr7` |
+| `image().red_black_up_by` | `HasImage`, `HasBlackLevels` | `()` | `SonyFr7` |
+| `image().red_black_down_by` | `HasImage`, `HasBlackLevels` | `()` | `SonyFr7` |
+| `image().set_red_black` | `HasImage`, `HasBlackLevels` | `()` | `SonyFr7` |
+| `image().red_black` | `HasImage`, `HasBlackLevels` | `types :: BlackLevel` | `SonyFr7` |
+| `image().blue_black_up_by` | `HasImage`, `HasBlackLevels` | `()` | `SonyFr7` |
+| `image().blue_black_down_by` | `HasImage`, `HasBlackLevels` | `()` | `SonyFr7` |
+| `image().set_blue_black` | `HasImage`, `HasBlackLevels` | `()` | `SonyFr7` |
+| `image().blue_black` | `HasImage`, `HasBlackLevels` | `types :: BlackLevel` | `SonyFr7` |
+| `image().set_detail` | `HasImage`, `HasDetail` | `()` | `SonyFr7` |
+| `image().detail` | `HasImage`, `HasDetail` | `bool` | `SonyFr7` |
+| `image().set_knee` | `HasImage`, `HasKnee` | `()` | `SonyFr7` |
+| `image().knee` | `HasImage`, `HasKnee` | `bool` | `SonyFr7` |
+| `image().set_knee_mode` | `HasImage`, `HasKnee` | `()` | `SonyFr7` |
+| `image().knee_mode` | `HasImage`, `HasKnee` | `types :: KneeMode` | `SonyFr7` |
+| `image().set_knee_slope` | `HasImage`, `HasKnee` | `()` | `SonyFr7` |
+| `image().knee_slope` | `HasImage`, `HasKnee` | `types :: KneeSlope` | `SonyFr7` |
+| `image().set_knee_point` | `HasImage`, `HasKnee` | `()` | `SonyFr7` |
+| `image().knee_point` | `HasImage`, `HasKnee` | `types :: KneePoint` | `SonyFr7` |
+| `image().knee_permission` | `HasImage`, `HasKnee` | `types :: KneePermission` | `SonyFr7` |
+| `tally().set_red` | `HasTally` | `()` | `SonyFr7` |
+| `tally().set_brightness` | `HasTally`, `HasTallyBrightness` | `()` | No built-in profile |
+| `tally().set_green` | `HasTally` | `()` | `SonyFr7` |
+| `tally().set_mode` | `HasTally`, `HasTallyMode` | `()` | No built-in profile |
+| `tally().red` | `HasTally` | `bool` | `SonyFr7` |
+| `tally().green` | `HasTally` | `bool` | `SonyFr7` |
+| `nd_filter().density` | `HasNdFilter` | `types :: NdFilterDensity` | `SonyFr7` |
+| `nd_filter().preset` | `HasNdFilter` | `types :: NdFilterPreset` | `SonyFr7` |
+| `nd_filter().set_mode` | `HasNdFilter` | `()` | `SonyFr7` |
+| `nd_filter().set_density` | `HasNdFilter` | `Operation<Targeted>` | `SonyFr7` |
+| `nd_filter().density_up` | `HasNdFilter` | `Operation<Targeted>` | `SonyFr7` |
+| `nd_filter().density_down` | `HasNdFilter` | `Operation<Targeted>` | `SonyFr7` |
+| `nd_filter().set_auto` | `HasNdFilter` | `()` | `SonyFr7` |
+| `motion_sync().enabled` | `HasMotionSync` | `bool` | No built-in profile |
+| `motion_sync().set_enabled` | `HasMotionSync` | `()` | No built-in profile |
+| `motion_sync().set_speed` | `HasMotionSync` | `()` | No built-in profile |
+| `menu().visible` | `HasMenu`, `HasMenuDisplayInquiry` | `bool` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900` |
+| `menu().set_visible` | `HasMenu`, `HasMenuDisplay` | `()` | `SonyFr7` |
+| `menu().navigate` | `HasMenu` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `menu().enter` | `HasMenu`, `HasMenuEnterReturn` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `menu().back` | `HasMenu`, `HasMenuEnterReturn` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `menu().direct` | `HasMenu`, `HasDirectMenu` | `()` | `SonyFr7` |
+| `menu().toggle_visible` | `HasMenu`, `HasDirectMenu` | `()` | `SonyFr7` |
+| `streaming().usb_audio` | `HasUsbAudio` | `bool` | `PtzOpticsG2`, `PtzOptics30x` |
+| `streaming().set_multicast` | `HasMulticastStreaming` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `streaming().set_ndi_quality` | `HasNdiQuality` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
+| `streaming().set_usb_audio` | `HasUsbAudio` | `()` | `PtzOpticsG2`, `PtzOptics30x` |
+| `motion().stop_all` | none | `crate :: operation :: HaltReport` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `motion().is_moving` | none | `bool` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `motion().wait_until_idle` | none | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+<!-- END GENERATED TYPED METHODS -->
 
 The image inquiry registers are separate evidence boundaries. `image().flip()`
 uses the sourced vertical `09 04 66` register under `HasImageFlip` and returns
@@ -185,7 +687,7 @@ through the dynamic API (#855).
 Persisted `ProfileSpec` facts require every current key, including optional
 facts nested in capabilities, ranges and transport compatibility. Explicit
 `null` means an absent fact; omitting the key is refused with the regeneration
-instruction. Rebuild built-ins with `ProfileSpec::from_compile_time::<P>()` or
+instruction. Rebuild built-ins with `ProfileId::spec()` or
 custom profiles with `ProfileSpec::builder`, then persist the current result
 (#855).
 
@@ -204,41 +706,44 @@ are validated against the same registry before protocol startup. Custom
 transports that do not expose a standard kind remain an intentional unchecked
 escape hatch for simulators and downstream integrations.
 
-| Profile | TCP default | UDP default | Serial | Standard envelope |
-| ------- | ----------: | ----------: | ------ | ----------------- |
-| `PtzOpticsG2` | 5678 | 1259 | yes | Raw VISCA |
-| `PtzOpticsG3` | 5678 | 1259 | yes | Raw VISCA |
-| `PtzOptics30X` | 5678 | 1259 | yes | Raw VISCA |
-| `SonyFR7` | n/a | 52381 | no | Sony encapsulated UDP |
-| `SonyBRCH900` | n/a | 52381 | no | Sony encapsulated UDP |
-| `SonyEVIH100` | n/a | n/a | yes | Raw VISCA |
-| `SonyBRC300` | n/a | n/a | yes | Raw VISCA |
-| `NearusBRC300` | n/a | n/a | yes | Raw VISCA |
-| `GenericVisca` | 5678 | 1259 | yes | Raw VISCA |
+<!-- BEGIN GENERATED PROFILE TRANSPORTS -->
+| Profile | TCP default | UDP default | Serial | Envelope |
+| --- | --- | --- | --- | --- |
+| `PtzOpticsG2` | 5678 | 1259 | yes | `RawVisca` |
+| `PtzOpticsG3` | 5678 | 1259 | yes | `RawVisca` |
+| `PtzOptics30x` | 5678 | 1259 | yes | `RawVisca` |
+| `SonyFr7` | n/a | 52381 | no | `SonyEncapsulated` |
+| `SonyBrcH900` | n/a | 52381 | no | `SonyEncapsulated` |
+| `SonyEviH100` | n/a | n/a | yes | `RawVisca` |
+| `SonyBrc300` | n/a | n/a | yes | `RawVisca` |
+| `NearusBrc300` | n/a | n/a | yes | `RawVisca` |
+| `GenericVisca` | 5678 | 1259 | yes | `RawVisca` |
+<!-- END GENERATED PROFILE TRANSPORTS -->
 
 ## Built-In Profile Marker Matrix
 
-The table below lists the optional typed support markers emitted for each
-built-in profile by the registry. Baseline metadata may still exist for every
-profile so runtime discovery can return a complete `Capabilities` value; these
-markers are the compile-time contract for typed accessors and control traits.
+The table below lists optional typed support markers emitted by the registry.
+Domain records and their separate domain markers establish which nouns exist;
+optional markers establish the supported methods within those nouns.
 
-Do not add one of these markers to a heterogeneous typed aggregate unless every
-profile behind that aggregate implements the marker. For `dyn-api` cameras, use
-`camera.capabilities().supports_typed(TypedSupportSurface::...)` before calling
-optional typed operations when a capability is not universal.
+Do not add a marker to a heterogeneous typed aggregate unless every profile
+behind it implements the marker. Runtime-selected callers check
+`camera.capabilities().supports(TypedSupportSurface::...)` before selecting an
+optional operation.
 
+<!-- BEGIN GENERATED PROFILE MARKERS -->
 | Profile | Typed support markers |
-| ------- | --------------------- |
-| `PtzOpticsG2` | `HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusLock`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasFocusZoneInquiry`<br>`HasUsbAudio`<br>`HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasColorTemperatureInquiry`<br>`HasNoiseReduction2DMode`<br>`HasSharpnessMode`<br>`HasPresetMemory`<br>`HasShutterControl`<br>`HasGainControl`<br>`HasGainLimit`<br>`HasStandardWhiteBalanceModes`<br>`HasMenuEnterReturn`<br>`HasMenuStatusInquiry`<br>`HasShutterDirect`<br>`HasPowerStandby` |
-| `PtzOpticsG3` | `HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusLock`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasNoiseReduction2DMode`<br>`HasSharpnessMode`<br>`HasPresetMemory`<br>`HasShutterControl`<br>`HasGainControl`<br>`HasGainLimit`<br>`HasStandardWhiteBalanceModes`<br>`HasMenuEnterReturn`<br>`HasMenuStatusInquiry`<br>`HasShutterDirect`<br>`HasPowerStandby` |
-| `PtzOptics30X` | `HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusLock`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasFocusZoneInquiry`<br>`HasUsbAudio`<br>`HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasColorTemperatureInquiry`<br>`HasNoiseReduction2DMode`<br>`HasSharpnessMode`<br>`HasPresetMemory`<br>`HasShutterControl`<br>`HasGainControl`<br>`HasGainLimit`<br>`HasStandardWhiteBalanceModes`<br>`HasMenuEnterReturn`<br>`HasMenuStatusInquiry`<br>`HasShutterDirect`<br>`HasPowerStandby` |
-| `SonyFR7` | `HasDirectZoom`<br>`HasPushAutoFocus`<br>`HasBacklightCompensation`<br>`HasAutoTrackingWhiteBalance`<br>`HasSharpnessControl`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed`<br>`HasSonySpotlight`<br>`HasVersionInquiry`<br>`HasSonyFr7AeLevel`<br>`HasSonyFr7AutoGain`<br>`HasSonyFr7AutoShutter`<br>`HasSonyFr7Iris`<br>`HasSonyFr7WhiteBalance`<br>`HasSonyFr7PresetWhite`<br>`HasSonyFr7MemoryColorTemperature`<br>`HasSonyFr7MemoryGain`<br>`HasSonyFr7MemoryTint`<br>`HasSonyFr7AtwOffsets`<br>`HasSonyFr7Black`<br>`HasSonyFr7Detail`<br>`HasSonyFr7Knee`<br>`HasSonyFr7HighResolutionZoom`<br>`HasSonyFr7ClearImageZoom`<br>`HasSonyFr7PresetSpeed`<br>`HasSonyFr7PresetDuration`<br>`HasPresetMemory`<br>`HasMenuDisplay`<br>`HasMenuStatusInquiry`<br>`HasPowerStandby` |
-| `SonyBRCH900` | `HasIrisControl`<br>`HasExposureMode`<br>`HasVersionInquiry`<br>`HasFocusInfinity`<br>`HasShutterControl`<br>`HasGainControl`<br>`HasStandardWhiteBalanceModes`<br>`HasMenuStatusInquiry`<br>`HasPowerStandby` |
-| `SonyEVIH100` | `HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasOnePushFocus`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasOnePushWhiteBalance`<br>`HasRgbGain`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasNoiseReduction2DControl`<br>`HasVersionInquiry`<br>`HasFocusInfinity`<br>`HasPresetMemory`<br>`HasShutterControl`<br>`HasGainControl`<br>`HasStandardWhiteBalanceModes`<br>`HasShutterDirect`<br>`HasPowerStandby` |
-| `SonyBRC300` | `HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasOnePushFocus`<br>`HasBacklightCompensation`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasOnePushWhiteBalance`<br>`HasRgbGain`<br>`HasImageFlip`<br>`HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasVersionInquiry`<br>`HasFocusInfinity`<br>`HasPresetMemory`<br>`HasShutterControl`<br>`HasGainControl`<br>`HasStandardWhiteBalanceModes`<br>`HasShutterDirect` |
-| `NearusBRC300` | `HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasOnePushFocus`<br>`HasBacklightCompensation`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasOnePushWhiteBalance`<br>`HasRgbGain`<br>`HasImageFlip`<br>`HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasVersionInquiry`<br>`HasFocusInfinity`<br>`HasPresetMemory`<br>`HasShutterControl`<br>`HasGainControl`<br>`HasStandardWhiteBalanceModes`<br>`HasShutterDirect` |
-| `GenericVisca` | `HasIrisControl`<br>`HasOnePushFocus`<br>`HasOnePushWhiteBalance`<br>`HasExposureMode`<br>`HasVersionInquiry`<br>`HasFocusInfinity`<br>`HasPresetMemory`<br>`HasShutterControl`<br>`HasGainControl`<br>`HasStandardWhiteBalanceModes`<br>`HasShutterDirect` |
+| --- | --- |
+| `PtzOpticsG2` | `HasDirectZoom`, `HasIris`, `HasFocusLock`, `HasFocusZone`, `HasBacklightCompensation`, `HasWideDynamicRange`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasAutoWhiteBalanceSensitivity`, `HasColorTemperature`, `HasRgbGain`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror`, `HasCombinedImageFlip`, `HasContrast`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasLuminance`, `HasGamma`, `HasNoiseReduction2D`, `HasNoiseReduction3D`, `HasPictureEffect`, `HasFocusZoneInquiry`, `HasUsbAudio`, `HasAntiFlicker`, `HasSettingsSave`, `HasPresetRecallSpeed`, `HasMulticastStreaming`, `HasNdiQuality`, `HasExposureMode`, `HasColorTemperatureInquiry`, `HasNoiseReduction2DMode`, `HasSharpnessMode`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasGainLimit`, `HasMenuEnterReturn`, `HasMenuDisplayInquiry`, `HasDirectShutter`, `HasPowerStandby` |
+| `PtzOpticsG3` | `HasDirectZoom`, `HasIris`, `HasFocusLock`, `HasFocusZone`, `HasBacklightCompensation`, `HasWideDynamicRange`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasAutoWhiteBalanceSensitivity`, `HasColorTemperature`, `HasRgbGain`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror`, `HasCombinedImageFlip`, `HasContrast`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasLuminance`, `HasGamma`, `HasNoiseReduction2D`, `HasNoiseReduction3D`, `HasPictureEffect`, `HasAntiFlicker`, `HasSettingsSave`, `HasPresetRecallSpeed`, `HasMulticastStreaming`, `HasNdiQuality`, `HasExposureMode`, `HasNoiseReduction2DMode`, `HasSharpnessMode`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasGainLimit`, `HasMenuEnterReturn`, `HasMenuDisplayInquiry`, `HasDirectShutter`, `HasPowerStandby` |
+| `PtzOptics30x` | `HasDirectZoom`, `HasIris`, `HasFocusLock`, `HasFocusZone`, `HasBacklightCompensation`, `HasWideDynamicRange`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasAutoWhiteBalanceSensitivity`, `HasColorTemperature`, `HasRgbGain`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror`, `HasCombinedImageFlip`, `HasContrast`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasLuminance`, `HasGamma`, `HasNoiseReduction2D`, `HasNoiseReduction3D`, `HasPictureEffect`, `HasFocusZoneInquiry`, `HasUsbAudio`, `HasAntiFlicker`, `HasSettingsSave`, `HasPresetRecallSpeed`, `HasMulticastStreaming`, `HasNdiQuality`, `HasExposureMode`, `HasColorTemperatureInquiry`, `HasNoiseReduction2DMode`, `HasSharpnessMode`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasGainLimit`, `HasMenuEnterReturn`, `HasMenuDisplayInquiry`, `HasDirectShutter`, `HasPowerStandby` |
+| `SonyFr7` | `HasDirectZoom`, `HasPushAutoFocus`, `HasBacklightCompensation`, `HasOnePushWhiteBalance`, `HasSharpness`, `HasTally`, `HasDirectMenu`, `HasNdFilter`, `HasPanTiltSpeedMode`, `HasPresetRecallSpeed`, `HasPresetRecallSpeedInquiry`, `HasSpotlight`, `HasVersionInquiry`, `HasAeLevel`, `HasAutoGain`, `HasAutoShutter`, `HasIrisSteps`, `HasAutoIris`, `HasPresetWhite`, `HasMemoryColorTemperature`, `HasMemoryGain`, `HasMemoryTint`, `HasAtwOffsets`, `HasBlackLevels`, `HasDetail`, `HasKnee`, `HasHighResolutionZoom`, `HasClearImageZoom`, `HasSeparatePresetSpeed`, `HasSeparatePresetDuration`, `HasPresetMemory`, `HasMenuDisplay`, `HasMenuDisplayInquiry`, `HasPowerStandby` |
+| `SonyBrcH900` | `HasIris`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasShutter`, `HasGain`, `HasMenuDisplayInquiry`, `HasPowerStandby` |
+| `SonyEviH100` | `HasDirectZoom`, `HasDigitalZoomToggle`, `HasDigitalZoomRange`, `HasIris`, `HasOnePushFocus`, `HasFocusNearLimit`, `HasBacklightCompensation`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasRgbGain`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasGamma`, `HasNoiseReduction2D`, `HasAutoSlowShutter`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter`, `HasPowerStandby` |
+| `SonyBrc300` | `HasDirectZoom`, `HasDigitalZoomToggle`, `HasDigitalZoomRange`, `HasIris`, `HasOnePushFocus`, `HasBacklightCompensation`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasRgbGain`, `HasImageFlip`, `HasAutoSlowShutter`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter` |
+| `NearusBrc300` | `HasDirectZoom`, `HasDigitalZoomToggle`, `HasDigitalZoomRange`, `HasIris`, `HasOnePushFocus`, `HasBacklightCompensation`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasRgbGain`, `HasImageFlip`, `HasAutoSlowShutter`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter` |
+| `GenericVisca` | `HasIris`, `HasOnePushFocus`, `HasOnePushWhiteBalance`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter` |
+<!-- END GENERATED PROFILE MARKERS -->
 
 Focus-zone selection is source-backed for PtzOptics G2, G3, and 30X, while the
 matching inquiry is enabled only for G2 and 30X: the `09 04 AA` inquiry comes
@@ -265,16 +770,14 @@ says which image area it weights; it is not focus lock, which is the separate
 values are evidence-driven vendor values rather than one fixed protocol table.
 
 Sending a zone is gated per value, following the `ExposureCaps::modes` precedent.
-`Focus::FOCUS_ZONES` lists the values a profile may send (default: empty,
-with no focus-zone selection) and `Capabilities::focus.as_ref().map(|focus| &focus.zones)` mirrors it at runtime; it is
+`FocusCaps::zones` lists the values a profile may send; it is
 empty exactly when focus-zone selection is unsupported and must be
-duplicate-free. `FocusZoneCommand` refuses a value outside the list with
+duplicate-free. `command::focus::SetZone` refuses a value outside the list with
 `Error::InvalidParameter { parameter: "focus_zone", .. }` before any I/O, on
-the static, dynamic and runtime-profile paths alike.
+both compile-time and runtime-selected paths.
 
-The table below is checked against the registry by
-`camera_profile_support_focus_zone_table_matches_registry`. `Zone03` is
-admitted for `PtzOpticsG2` and `PtzOptics30X` from bench evidence; G3 was not
+The table below is generated from the registry. `Zone03` is
+admitted for `PtzOpticsG2` and `PtzOptics30x` from bench evidence; G3 was not
 bench-tested.
 
 <!-- BEGIN GENERATED FOCUS ZONES -->
@@ -282,12 +785,12 @@ bench-tested.
 | ------- | ------------- |
 | `PtzOpticsG2` | `Top`, `Center`, `Bottom`, `Zone03` |
 | `PtzOpticsG3` | `Top`, `Center`, `Bottom` |
-| `PtzOptics30X` | `Top`, `Center`, `Bottom`, `Zone03` |
-| `SonyFR7` | none |
-| `SonyBRCH900` | none |
-| `SonyEVIH100` | none |
-| `SonyBRC300` | none |
-| `NearusBRC300` | none |
+| `PtzOptics30x` | `Top`, `Center`, `Bottom`, `Zone03` |
+| `SonyFr7` | none |
+| `SonyBrcH900` | none |
+| `SonyEviH100` | none |
+| `SonyBrc300` | none |
+| `NearusBrc300` | none |
 | `GenericVisca` | none |
 <!-- END GENERATED FOCUS ZONES -->
 
@@ -300,17 +803,17 @@ that names the regeneration call. See
 
 ### Color-temperature inquiry (`HasColorTemperatureInquiry`)
 
-`HasColorTemperature` gates the color-temperature mode and the reset, up,
-down and direct setters. The `09 04 20` inquiry is gated separately, because
+`HasColorTemperature` gates the color-temperature reset, up, down and direct
+setters. White-balance mode selection uses the domain's mode inventory. The `09 04 20` inquiry is gated separately, because
 its reply layout is sourced only for the PTZOptics G2 family: the PTZOptics G2
 bench (hardware inquiry test, #498) replies with one data byte, `90 50 pq FF`,
 where `pq` is the `04 20` direct code ([VISCA reference §7.10](visca_reference.md)).
-`PtzOpticsG2` and the legacy G2 `PtzOptics30X` implement
+`PtzOpticsG2` and the legacy G2 `PtzOptics30x` implement
 `HasColorTemperatureInquiry`. `PtzOpticsG3` retains the setters; BRC-H900 has no
 shared color-temperature grant. Neither has a sourced reply for this inquiry, so
 `camera.white_balance().color_temperature()` does not compile for them and the
-dyn/runtime path refuses it with `FeatureNotSupported` before any I/O; send
-`raw::Inquiry` with `81 09 04 20 FF` to read the bytes.
+runtime-selected path refuses it with `FeatureNotSupported` before any I/O; send
+`raw::InquiryRequest` with `81 09 04 20 FF` to read the bytes.
 
 ### Version inquiry (`HasVersionInquiry`)
 
@@ -324,24 +827,18 @@ on the PTZOptics G2 bench (2026-10-04) the cameras answered `81 09 00 02 FF`
 with the 2-byte payload `90 50 00 52 FF`, and no PTZOptics source documents
 that reply or its fields. G3 was not bench-tested and is gated under the same
 source-evidence rule. Rather than guess at field meanings, the typed inquiry
-does not compile for those profiles and the dyn/runtime path refuses it with
-`FeatureNotSupported` before any I/O; send `raw::Inquiry` with
+does not compile for those profiles and the runtime-selected path refuses it with
+`FeatureNotSupported` before any I/O; send `raw::InquiryRequest` with
 `81 09 00 02 FF` to read the bytes.
 
-A custom profile keeps the typed version inquiry only if all three of these
-hold:
-
-1. its compile-time profile type implements `HasVersionInquiry`;
-2. its `ProfileTypedSupport::TYPED_SUPPORT` includes
-   `TypedSupportSurface::VersionInquiry`;
-3. every persisted runtime profile lists `"version-inquiry"` in
-   `capabilities.typed_support`. A custom runtime profile without the tag
-   loads, but `version()` then fails with `FeatureNotSupported`; add the tag
-   to the stored JSON (or to the `TypedSupportSet` before building the
-   `ProfileSpec`).
+A runtime profile grants the version inquiry by including `"version_inquiry"`
+in `capabilities.typed_support`. Without it, `version()` fails with
+`FeatureNotSupported` before I/O. A registry row's evidenced `VersionInquiry`
+grant emits the matching static marker and runtime entry together. The
+source-backed reply layout remains necessary for either representation.
 
 The row-specific surfaces `HasImageFreeze`, `HasTallyBrightness`, and
-`HasPtzOpticsTally` currently have no built-in profile grant. Image freeze
+`HasTallyMode` currently have no built-in profile grant. Image freeze
 remains firmware/path-specific until its VISCA command path is validated;
 extended tally brightness and PTZOptics tally extensions remain
 custom/evidenced-profile surfaces. Defog inquiries have no typed built-in
@@ -358,34 +855,27 @@ the typed setter admits the full `0–8` public domain and both ranges are
 source-backed, the decoder accepts every `NoiseReduction3DLevel` instead of
 classifying levels `6–8` as malformed (#717).
 
-Accordingly, `HasNoiseReduction2D` and `HasNoiseReduction3D` gate the level
-inquiries, `HasNoiseReduction2DControl` and `HasNoiseReduction3DControl` the
-level controls, and `HasNoiseReduction2DMode` the `04 50` auto/manual mode
-control and inquiry. All five markers are emitted for `PtzOpticsG2`,
-`PtzOpticsG3`, and `PtzOptics30X`. Sony EVI-H100 carries only
-`HasNoiseReduction2D` and `HasNoiseReduction2DControl`: R8 documents
-`CAM_NR` `8x 01 04 53 0p FF` (0 off, levels 1–5) and `CAM_NRInq`
-`8x 09 04 53 FF` → `y0 50 0p FF`, which are exactly the 2D level control and
-inquiry, and no `04 50` mode or `04 54` 3D level. `PtzOptics30X` names the
+Accordingly, `HasNoiseReduction2D` and `HasNoiseReduction3D` each gate their
+level controls and inquiries. `HasNoiseReduction2DMode` gates the separate
+`04 50` auto/manual mode control and inquiry. These three markers are emitted
+for `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30x`. Sony EVI-H100 carries
+only `HasNoiseReduction2D`: R8 documents `CAM_NR` `8x 01 04 53 0p FF`
+(0 off, levels 1–5) and `CAM_NRInq` `8x 09 04 53 FF` → `y0 50 0p FF`,
+which establish the 2D level control and inquiry, with no `04 50` mode or
+`04 54` 3D level. `PtzOptics30x` names the
 legacy PT30X SDI/NDI G2/Gen-2 profile explicitly listed by PTZOptics; it is not
 a generic 30X grant and does not cover Move, Link, or newer 30X products. The
 R14 portal describes its list as the full G2/G3 VISCA list, so a row R14 itself
 lists (here the NR controls and inquiries) is G3 evidence; a row found only in
 the archived Gen-2 tables (R1/U1) is not. No profile is admitted by group
 membership alone.
-Runtime NR discovery facts and both inquiry/control typed markers agree for
-every built-in profile. Profile validation requires each 2D/3D metadata bit to
-equal both halves of its typed pair, so an inquiry-only or control-only runtime
-profile cannot claim that NR capability. A model without source-backed shared
-NR command-family evidence reports the conservative false metadata rather than
-advertising a feature that typed requests must reject. Aggregate aliases remain absent (`HasNoiseReduction`,
-aggregate `TypedSupportSurface::NoiseReduction` and its `noise-reduction` serde
-tag, `noise_reduction_level`, `noise_reduction_mode`, and aggregate
-modes/speeds/strength mappings); raw/custom requests remain the extension path
-for unsupported profiles and aggregate vendor dialects.
+Each 2D/3D permission is one source-backed grant shared by control and
+inquiry. A camera without that command-family evidence has no grant; it cannot
+advertise an unrelated metadata boolean as a substitute. Raw/custom requests remain the extension path for unsupported profiles and
+aggregate vendor dialects.
 
 The typed camera/session decoder and the public
-`NoiseReduction3DInquiry::from_response` conversion therefore share one
+`command::image::NoiseReduction3DInquiry` therefore share one
 profile-neutral `0–8` domain. G2, G3, and 30X all decode a well-formed level
 `6`, `7`, or `8`; no mutable profile identity or whole-`ProfileSpec` comparison
 changes the numeric response domain. Profile markers still decide whether the
@@ -409,12 +899,12 @@ grants only the Sony-standard families that R8, R12 and R21 all document
 identically: the `04 39` AE modes, standard iris, and the One Push white
 balance mode and trigger.
 The inventory and marker are equivalent for built-ins. Custom runtime profiles
-must still provide both before a dynamic call can encode.
+must still provide both before a runtime-selected call can encode.
 
 Sony EVI-H100 (R8), BRC-300 (R12) and Nearus BRC-300 (R21) document the standard
 exposure-compensation (`04 3E`/`04 0E`/`04 4E`), Bright (`04 0D`/`04 4D`) and
 R/B gain (`04 03`/`04 04`, `04 43`/`04 44`) commands with their inquiries, so
-all three carry `HasExposureCompensation`, `HasBrightnessControl` and
+all three carry `HasExposureCompensation`, `HasBrightness` and
 `HasRgbGain`; BRC-300 and Nearus also document `CAM_ImgFlip` `04 66` with its
 inquiry (`HasImageFlip`, no mirror). `BrightnessLevel` is the `0p 0q` wire byte
 of `CAM_Bright` Direct, so each profile's `ExposureCaps::brightness_range` is the sole
@@ -438,7 +928,7 @@ Sony R7 pp. 12, 18 and 22 specify signed twenty-bit pan and tilt words, with
 235.9 units/degree on each axis. Positive R7 pan is counterclockwise, so the
 library's positive rightward angle uses a negative pan scale. Desktop tilt
 uses −30° to +195°; Ceiling uses −210° to +15°. Configure the matching mount
-with `SessionConfig::set_mount(target, MountPosition::Ceiling)` before opening
+with `SessionConfig::with_mount(target, MountPosition::Ceiling)` before opening
 the session. `camera.registration().tilt_range()` reports the effective target
 limits; `camera.profile()` remains the canonical source inventory.
 
@@ -477,12 +967,12 @@ in the hardware release checklist.
   families remain available through explicit caller-owned custom requests.
 
 - **FR7 shutter codes (R7).** No checked R7 shutter-code inventory has
-  been transcribed, so `SonyFR7` advertises no shutter codes
+  been transcribed, so `SonyFr7` advertises no shutter codes
   (`ExposureCaps::shutter_speeds` is empty) and `ShutterSpeed` positions are refused before any I/O.
 - **BRC-H900 shutter codes (R11).** No checked R11 shutter-code inventory has
-  been transcribed, so `SonyBRCH900` advertises no shutter codes either.
-  Its sourced reset/step commands and inquiry use `HasShutterControl`; direct
-  positioning requires `HasShutterDirect`, which is withheld until those codes
+  been transcribed, so `SonyBrcH900` advertises no shutter codes either.
+  Its sourced reset/step commands and inquiry use `HasShutter`; direct
+  positioning requires `HasDirectShutter`, which is withheld until those codes
   have positive evidence.
 - **Pan/tilt direction of PTZOptics and BRC-H900.** Degrees are positive
   right and positive up for every profile. R8 (EVI-H100) documents increasing
@@ -497,7 +987,7 @@ in the hardware release checklist.
 
 The FR7 and BRC-H900 shutter entries are gaps in the evidence, not statements
 that the cameras lack shutter control. Send the shutter command as a
-`raw::Plain` request until a source-backed table is recorded in
+`raw::PlainRequest` request until a source-backed table is recorded in
 [VISCA reference](visca_reference.md) and added to the profile.
 
 ### Facts verified on the PTZOptics G2 bench
@@ -508,10 +998,10 @@ PT12X-NDI G2 cameras; models, firmware and run evidence are in the
 
 - **PTZOptics G2-family shutter codes.** The PTZOptics sources document only
   `pq = Shutter Position`, not a code-to-time table, so `PtzOpticsG2`,
-  `PtzOpticsG3` and `PtzOptics30X` ship the table `01` (1/30 s) through `11`
+  `PtzOpticsG3` and `PtzOptics30x` ship the table `01` (1/30 s) through `11`
   (1/10000 s). `hw05_shutter_round_trip` (`tests/hardware_wire_rows_test.rs`)
   set codes `01`, `06`, `09` and `11` in shutter-priority mode and read each
-  back unchanged on all five cameras, with `PtzOptics30X` on the PT30X-NDI G2
+  back unchanged on all five cameras, with `PtzOptics30x` on the PT30X-NDI G2
   and `PtzOpticsG2` on the others. The bench did not measure exposure time, so
   the fraction attached to each code is still the shipped table's.
 - **PTZOptics G2 tilt polarity.** `hw05_tilt_polarity` passed on all five
@@ -522,12 +1012,12 @@ PT12X-NDI G2 cameras; models, firmware and run evidence are in the
 Sony EVI-H100 (R8) also documents `CAM_ColorGain` `8x 01 04 49 00 00 00 0p FF`
 and `CAM_ColorHue` `8x 01 04 4F 00 00 00 0p FF` (`0h`..`Eh`) with their
 `09 04 49`/`09 04 4F` inquiries, byte for byte the typed saturation and hue
-controls, so it carries `HasSaturationControl` and `HasHueControl`. R8's
+controls, so it carries `HasSaturation` and `HasHue`. R8's
 `CAM_Aperture` (`04 02`/`04 42`, level `00`..`0F`, and `09 04 42` inquiry)
-supports `HasSharpnessControl`. Sharpness auto/manual mode uses the separate
+supports `HasSharpness`. Sharpness auto/manual mode uses the separate
 `HasSharpnessMode` marker, granted only to the PTZOptics profiles: R8 and FR7's
 R7 do not list the shared `04 05`/`09 04 05` mode family. FR7 detail enablement
-uses its own `HasSonyFr7Detail` family. EVI-H100 picture-effect metadata remains
+uses its own `HasDetail` family. EVI-H100 picture-effect metadata remains
 available, but its typed surface is withheld: R8's inquiry reports Off as `00`
 and Neg.Art as `02`, which the shared typed inquiry would decode as Off.
 
@@ -548,21 +1038,20 @@ documents.
 `camera.image()`, not a consequence of broad exposure metadata. For Sony
 BRC-300, R12 explicitly lists `CAM_BackLight` `8x 01 04 33 02/03 FF` on manual
 p. 11 and `CAM_BackLightModeInq` `8x 09 04 33 FF` with `y0 50 02/03 FF` replies
-on manual p. 14. Runtime profiles must therefore provide image base support,
-the backlight fact, and the typed marker together.
+on manual p. 14. Runtime profiles must therefore provide the image domain, backlight fact and
+typed grant together.
 
 An iris range in runtime metadata is a discovery fact, not a typed-support
 grant. `IrisLevel` covers the built-in wire-domain union (`0x00..=0x1E`) and
 `GainLevel` covers the union of built-in gain codes (`0x00..=0x19`, including
 BRC-H900); profile ranges make
-the model-specific admission decision for either value. `HasIrisControl`
+the model-specific admission decision for either value. `HasIris`
 covers standard iris reset/up/down/direct control and the `09 04 4B` position
 inquiry. It is enabled for the same eight built-ins:
 the three PTZOptics profiles, BRC-H900, EVI-H100, BRC-300, Nearus BRC-300, and
 Generic VISCA. R10/R14, R11, R8, R12 and R21 establish the model-specific rows.
 Iris and bright positions are `CapabilityDomain` values: a table's bounds minus
-the positions it does not list, checked by one admission rule in both the
-`*Ext` helpers and request preparation (a gap is `Error::InvalidParameter`, a
+the positions it does not list, checked during request preparation (a gap is `Error::InvalidParameter`, a
 value past the bounds `Error::ParameterOutOfRange`). EVI-H100's iris table (R8
 p. 44) lists `00` CLOSE and `05`..`11` and its Bright table (p. 45) `00` and
 `05`..`1F`, so both domains exclude `01`..`04`. BRC-300 and Nearus BRC-300 list
@@ -573,8 +1062,8 @@ The unsourced auto/manual status inquiry is removed from the typed surface.
 Caller-owned requests and decoders can model an extension once its packet and
 reply are established for that camera. The FR7 command list
 documents a vendor-relative `7E 04 4B` Up/Down family and `05 34` Auto Iris
-control and inquiry. `HasSonyFr7Iris` exposes them through
-`exposure().iris_up_by(...)`, `iris_down_by(...)`, `set_auto_iris(...)` and
+control and inquiry. `HasIrisSteps` exposes `exposure().iris_up_by(...)` and
+`iris_down_by(...)`; `HasAutoIris` exposes `set_auto_iris(...)` and
 `auto_iris()`. The step commands are applied-only operations on Iris; the
 auto-iris inquiry reports a mode and supplies no position or settlement probe.
 R7 does not establish the shared `04 39` exposure-mode or `09 04 4B` iris-position
@@ -596,101 +1085,8 @@ custom inquiries additionally implement `Inquiry` and return a
 `ResponseDecoder` for their response type. Keep routing and profile validation
 explicit in those typed request implementations.
 
-## Adding Or Updating A Profile
 
-1. Add or update the relevant evidence in `docs/visca_reference.md`.
-2. Record any model/firmware limitations near the relevant capability section.
-3. Update the built-in profile registry in `src/camera/profile_registry.rs` from those sources, including transport support and default ports.
-4. Use `false`, `None`, or conservative ranges when the docs do not establish support.
-5. Implement optional metadata with supported values only when runtime discovery should report support.
-6. Add optional typed support surfaces to the registry entry only when typed APIs are intentionally supported for that profile; the registry emits both marker impls and the runtime `TypedSupportSet`.
-7. Add pass API-contract fixtures for newly supported typed surfaces.
-8. Add compile-fail fixtures proving unsupported profiles cannot call those typed surfaces.
-9. Add or update `Capabilities::from_profile` tests for every affected built-in profile.
-10. Update README, examples docs, crate docs, and the Unreleased changelog entry.
-
-Custom compile-time profiles must explicitly declare
-`ProfileMetadata::INQUIRY_SUPPORT`, `ProfileMetadata::SUPPORTS_COMMAND_CANCEL`,
-and `Focus::MAX_FOCUS_SPEED`. Declare cancellation only with model evidence;
-a socket-cancel packet accepted by another model is insufficient.
-`Zoom::SUPPORTS_DIRECT_ZOOM`, `Zoom::SUPPORTS_VARIABLE_ZOOM`, and
-`Focus::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY` default to `false`.
-
-The remaining defaults in these traits describe absence: no built-in identity,
-no completion/USB audio grant, no focus zones or extra focus modes, and no busy
-period or send pacing. A zero busy/spacing value declares that no delay is
-needed; set documented delays explicitly when the model needs them. Numeric
-focus speed limits have no permissive default. Standard TCP, UDP, and serial
-constructors check that their marker agrees with `TRANSPORTS` at compile time;
-`validate()`, `session_config()`, and opening also check custom profile transport
-facts before any I/O (#876).
-
-## Common Decisions
-
-| Situation | Profile metadata | Support marker | Notes |
-| --------- | ---------------- | -------------- | ----- |
-| Model docs say the feature exists and typed APIs exist | Supported value | Implement marker and include the matching `TypedSupportSurface` | Add pass and runtime discovery tests. |
-| Model docs say the feature does not exist | Unsupported default | No marker | Add compile-fail coverage if the typed API could be accidentally exposed. |
-| Command list has an opcode but model capability docs do not list support | Unsupported default | No marker | Document the ambiguity; raw commands remain available. |
-| Hardware testing proves support not shown in a manual | Supported value if reproducible | Implement marker only if typed API is intentional | Add model, firmware, test setup, and protocol evidence to docs. |
-| Feature exists but the crate lacks a typed control surface | Supported metadata may be OK | No marker yet | Open or reference follow-up work for typed support. |
-
-## Test Expectations
-
-Profile support changes should include focused tests before relying on the full
-feature matrix:
-
-```sh
-# Root exports and the feature matrix.
-cargo test --test api_stability_test --no-default-features
-cargo test --test api_stability_test --no-default-features --features async
-
-# Runtime discovery metadata and the typed support markers derived from it.
-cargo test --no-default-features --lib capabilities::discovery
-
-# The closed profile, transport, capability-gate, and noun inventories. These
-# are the tests that fail when a marker or registry row changes without the
-# matching inventory update.
-cargo test --no-default-features --test issue_548_supported_surface_inventory
-cargo test --no-default-features --test issue_542_semantic_inventory
-
-# Profile/transport pair rejection before any socket work.
-cargo test --no-default-features --features blocking --test issue_527_transport_compatibility
-
-# Blocking/async facade parity: `Session`, `CameraSession`, `Camera` and
-# `Operation` expose the same methods in both modes. The noun accessors and
-# the dynamic projection need no parity test: one noun-table row generates all
-# three surfaces and their capability gates.
-cargo test --no-default-features --features blocking,async --lib facade_parity
-
-# The compile-fail contract for the typed request and marker gates.
-cargo test --no-default-features --test issue_551_compile_contract
-
-cargo clippy --all-targets --all-features -- -D warnings
-```
-
-Before merging 2.0 profile-contract work, run the declared matrix:
-
-```sh
-bash .github/scripts/test-all-features.sh
-```
-
-If a matrix failure is unrelated or flaky, note the exact failing command and
-test in the PR so reviewers know what remains unresolved.
-
-## Documentation Checklist
-
-- README support matrix reflects the implemented typed API surface.
-- `docs/visca_reference.md` explains protocol, model, firmware, and capability boundaries.
-- `examples/type_safe_commands.rs` demonstrates metadata and marker bounds without using unsupported built-in profiles.
-- `CHANGELOG.md` describes breaking changes and migration guidance.
-- Public examples and snippets use the inherent noun accessors on `Camera<P>`,
-  `camera` module re-exports, checked `UnitInterval` values, and checked camera
-  ID conversion. Root control traits are 1.x vocabulary and are not 2.0 API.
-- Any source conflict is documented near the relevant capability, not only in the PR discussion.
-
-
-### Grouped runtime facts
+## Grouped runtime facts
 
 `Capabilities` owns optional domain records. `None` means the domain is absent;
 its bounds, speeds and refinements cannot survive independently. Use validated
@@ -715,24 +1111,12 @@ each nominal endpoint is within one wire unit, and clamps that final rounding
 cell. Values outside the nominal degree range are always refused. Relative
 moves use the selected source range's full span and the same conversion rule.
 
-`PositionInquirySupport` remains the sole per-axis low-level settlement matrix
-in `ProfileSpec`. These facts describe settlement queries, distinct from public
+`ProfileSpec::position_inquiries()` returns `Option<types::AffectedAxes>` as
+the sole per-axis low-level settlement matrix; `None` means no position inquiries. These facts describe settlement queries, distinct from public
 typed inquiry grants. `PresetCaps::recall_axes` describes exact recall effects;
 completionless profiles need every corresponding settlement inquiry.
 
 Profile defaults use the validated `IndividualCameraId` and cannot select
 broadcast. `SessionConfig::new` registers that proven default directly. Every
-optional persisted field remains required (explicit `null` represents absence),
+optional persisted profile fact remains required (explicit `null` represents absence),
 and every record refuses unknown keys; regenerate specs with the current shape.
-
-
-The flat validator at `8899a3e7` had 33 explicit refusal sites across 727 lines.
-After grouping, `ProfileFacts::validate` has 13 refusal sites: transport and
-framing, timing/socket/name facts, exact built-in identity, typed-to-metadata
-permission, settlement queries, and preset axes. Domain validation has nine
-refusal sites including its shared range-fit helper, covering typed bounds,
-endpoint quantization, unique inventories and remaining physical constraints.
-The combined count is 22. Equality-only refusals for domain flags, stored degree
-ranges, zoom starts, completion copies, preset presence/names, RGB half-pairs,
-combined-flip strategy copies and noise-reduction copies are gone; their former
-mutation tests are replaced by construction, derived-value and boundary checks.

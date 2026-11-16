@@ -16,11 +16,8 @@
 use grafton_visca_test_support::{fake_camera, profile_fixtures, runtime_matrix};
 
 use grafton_visca::{
-    completion::AppliedOnly,
-    observability::MetricsSnapshot,
-    profile::ProfileSpec,
-    request::builtin::{FocusStop, ZoomDrive, ZoomStop},
-    Error, Executor, SessionConfig,
+    config::SessionConfig, observability::MetricsSnapshot, operation::AppliedOnly,
+    profiles::ProfileSpec, runtime::Executor, Error,
 };
 
 use fake_camera::{frames, FakeCamera};
@@ -136,7 +133,7 @@ impl Scenario {
                 vec!["Ok(())", "Ok(())", "Ok(ZoomPosition(4660))"]
             }
             Self::QueuedSubmissions => vec!["Ok(())"; 3],
-            Self::Cancellation => vec!["Ok(Cancelled)", "Ok(Cancelled)", "Err(CommandCanceled)"],
+            Self::Cancellation => vec!["Ok(Cancelled)", "Ok(Cancelled)", "Err(CommandCancelled)"],
             Self::UrgentStopWhileExecuting => vec!["Ok(())", "Ok(Cancelled)"],
             Self::Halt => {
                 vec!["Ok(HaltReport { pan_tilt: Applied, zoom: Applied, focus: Applied })"]
@@ -161,29 +158,31 @@ fn run_blocking(scenario: Scenario) -> Run {
     use grafton_visca::blocking::Session;
 
     let fake = scenario.camera();
-    let session = Session::open(fake.blocking_wire(), config()).expect("blocking session");
-    let camera = session.camera::<Raw>().expect("raw camera");
+    let session = Session::open(fake.blocking_wire(), &config()).expect("blocking session");
+    let camera = session
+        .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("raw camera");
     let mut outcomes = Vec::new();
     match scenario {
-        Scenario::Halt => outcomes.push(outcome(camera.motion().stop_all_motion())),
+        Scenario::Halt => outcomes.push(outcome(camera.motion().stop_all())),
         Scenario::Sequential | Scenario::MalformedDatagram => {
             outcomes.push(outcome(
                 camera
-                    .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+                    .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
                     .and_then(|mut op| op.applied()),
             ));
             outcomes.push(outcome(
                 camera
-                    .submit::<AppliedOnly, _>(&ZoomStop)
+                    .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
                     .and_then(|mut op| op.applied()),
             ));
             outcomes.push(outcome(camera.zoom().position()));
         }
         Scenario::QueuedSubmissions => {
             let mut handles = [
-                camera.submit::<AppliedOnly, _>(&ZoomDrive::Tele),
-                camera.submit::<AppliedOnly, _>(&ZoomStop),
-                camera.submit::<AppliedOnly, _>(&FocusStop),
+                camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele),
+                camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop),
+                camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop),
             ];
             for handle in &mut handles {
                 let result = match handle {
@@ -195,7 +194,7 @@ fn run_blocking(scenario: Scenario) -> Run {
         }
         Scenario::Cancellation => {
             let mut zoom = camera
-                .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+                .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
                 .expect("zoom admitted");
             outcomes.push(outcome(zoom.cancel()));
             outcomes.push(outcome(zoom.cancel()));
@@ -203,12 +202,12 @@ fn run_blocking(scenario: Scenario) -> Run {
         }
         Scenario::UrgentStopWhileExecuting => {
             let mut zoom = camera
-                .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+                .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
                 .expect("zoom admitted");
             fake.wait_for_writes(1);
             outcomes.push(outcome(
                 camera
-                    .submit::<AppliedOnly, _>(&ZoomStop)
+                    .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
                     .and_then(|mut op| op.applied()),
             ));
             outcomes.push(outcome(zoom.cancel()));
@@ -224,26 +223,38 @@ fn run_blocking(scenario: Scenario) -> Run {
 }
 
 async fn run_async<E: Executor>(scenario: Scenario, executor: &E) -> Run {
-    use grafton_visca::Session;
+    use grafton_visca::r#async::Session;
 
     let fake = scenario.camera();
-    let session = Session::open(fake.async_wire(), config(), executor.clone())
+    let session = Session::open(fake.async_wire(), &config(), executor.clone())
         .await
         .expect("async session");
-    let camera = session.camera::<Raw>().expect("raw camera");
+    let camera = session
+        .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("raw camera");
     let mut outcomes = Vec::new();
     match scenario {
-        Scenario::Halt => outcomes.push(outcome(camera.motion().stop_all_motion().await)),
+        Scenario::Halt => outcomes.push(outcome(camera.motion().stop_all().await)),
         Scenario::Sequential | Scenario::MalformedDatagram => {
-            outcomes.push(outcome(applied_async(&camera, &ZoomDrive::Tele).await));
-            outcomes.push(outcome(applied_async(&camera, &ZoomStop).await));
+            outcomes.push(outcome(
+                applied_async(&camera, &grafton_visca::command::zoom::Tele).await,
+            ));
+            outcomes.push(outcome(
+                applied_async(&camera, &grafton_visca::command::zoom::Stop).await,
+            ));
             outcomes.push(outcome(camera.zoom().position().await));
         }
         Scenario::QueuedSubmissions => {
             let mut handles = [
-                camera.submit::<AppliedOnly, _>(&ZoomDrive::Tele).await,
-                camera.submit::<AppliedOnly, _>(&ZoomStop).await,
-                camera.submit::<AppliedOnly, _>(&FocusStop).await,
+                camera
+                    .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
+                    .await,
+                camera
+                    .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
+                    .await,
+                camera
+                    .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
+                    .await,
             ];
             for handle in &mut handles {
                 let result = match handle {
@@ -255,7 +266,7 @@ async fn run_async<E: Executor>(scenario: Scenario, executor: &E) -> Run {
         }
         Scenario::Cancellation => {
             let mut zoom = camera
-                .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+                .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
                 .await
                 .expect("zoom admitted");
             outcomes.push(outcome(zoom.cancel().await));
@@ -264,11 +275,13 @@ async fn run_async<E: Executor>(scenario: Scenario, executor: &E) -> Run {
         }
         Scenario::UrgentStopWhileExecuting => {
             let mut zoom = camera
-                .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+                .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
                 .await
                 .expect("zoom admitted");
             fake.wait_for_writes_async(executor, 1).await;
-            outcomes.push(outcome(applied_async(&camera, &ZoomStop).await));
+            outcomes.push(outcome(
+                applied_async(&camera, &grafton_visca::command::zoom::Stop).await,
+            ));
             outcomes.push(outcome(zoom.cancel().await));
         }
     }
@@ -281,9 +294,12 @@ async fn run_async<E: Executor>(scenario: Scenario, executor: &E) -> Run {
     }
 }
 
-async fn applied_async<R>(camera: &grafton_visca::Camera<Raw>, request: &R) -> Result<(), Error>
+async fn applied_async<R>(
+    camera: &grafton_visca::r#async::Camera<Raw>,
+    request: &R,
+) -> Result<(), Error>
 where
-    R: grafton_visca::OperationCommand<AppliedOnly>,
+    R: grafton_visca::request::OperationCommand<AppliedOnly>,
 {
     camera
         .submit::<AppliedOnly, _>(request)
@@ -359,16 +375,18 @@ runtime_matrix!(
     halt
 );
 
-#[cfg(feature = "dyn-api")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch<E: Executor>(
     executor: E,
 ) {
     let blocking = off_thread(|| {
         let fake = Scenario::Halt.camera();
-        let session = grafton_visca::blocking::Session::open(fake.blocking_wire(), config())
+        let session = grafton_visca::blocking::Session::open(fake.blocking_wire(), &config())
             .expect("session");
-        let camera = session.camera_dyn().expect("dynamic blocking camera");
-        let outcomes = vec![outcome(camera.motion().stop_all_motion())];
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .expect("dynamic blocking camera");
+        let outcomes = vec![outcome(camera.motion().stop_all())];
         let metrics = session.metrics().expect("metrics");
         session.close().expect("close");
         Run {
@@ -379,11 +397,14 @@ async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch
     })
     .await;
     let fake = Scenario::Halt.camera();
-    let session = grafton_visca::Session::open(fake.async_wire(), config(), executor.clone())
-        .await
-        .expect("session");
-    let camera = session.camera_dyn().expect("dynamic camera");
-    let outcomes = vec![outcome(camera.motion().stop_all_motion().await)];
+    let session =
+        grafton_visca::r#async::Session::open(fake.async_wire(), &config(), executor.clone())
+            .await
+            .expect("session");
+    let camera = session
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("dynamic camera");
+    let outcomes = vec![outcome(camera.motion().stop_all().await)];
     let metrics = session.metrics().await.expect("metrics");
     session.shutdown().expect("shutdown");
     let asynchronous = Run {
@@ -396,5 +417,5 @@ async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch
     assert_eq!(asynchronous, run_async(Scenario::Halt, &executor).await);
 }
 
-#[cfg(feature = "dyn-api")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 runtime_matrix!(multi_thread: dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch);

@@ -17,14 +17,19 @@ pub(crate) mod owner;
 #[cfg(feature = "async")]
 mod traits;
 
-#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
-pub use traits::RuntimeSerial;
 #[cfg(all(feature = "async", feature = "runtime-smol"))]
 pub use traits::SmolRuntime;
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 pub use traits::TokioRuntime;
 #[cfg(feature = "async")]
 pub use traits::{Runtime, TransportHandle};
+
+#[cfg(feature = "async")]
+pub use crate::executor::{ExecError, Executor, ResettableTimer};
+#[cfg(all(feature = "async", feature = "runtime-smol"))]
+pub use crate::executor::{SmolExecutor, SmolTimer};
+#[cfg(all(feature = "async", feature = "runtime-tokio"))]
+pub use crate::executor::{TokioExecutor, TokioTimer};
 
 #[cfg(test)]
 mod tests {

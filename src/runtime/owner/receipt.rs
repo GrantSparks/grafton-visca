@@ -55,7 +55,7 @@ where
 {
     pub(super) observation: OperationObservation,
     pub(super) affected_axes: AffectedAxes,
-    pub(super) settlement: completion::Settlement<K>,
+    pub(super) settlement: completion::SettlementPlan<K>,
     pub(super) owner: H,
 }
 
@@ -232,7 +232,7 @@ pub(super) fn observer_deadline(now: Instant, timeout: Duration) -> Result<Insta
 /// The budget a targeted settlement wait runs under: the caller's, or the
 /// profile's configured default.
 pub(super) fn settlement_budget(
-    settlement: &completion::Settlement<completion::Targeted>,
+    settlement: &completion::SettlementPlan<completion::Targeted>,
     timeout: Option<Duration>,
 ) -> Duration {
     timeout.unwrap_or_else(|| settlement.default_budget())
@@ -250,7 +250,7 @@ pub(super) struct PositionPoll<'a> {
 /// `observation`, or `None` when the profile declares its applied protocol
 /// completion to be the settlement evidence.
 pub(super) fn position_poll(
-    settlement: &completion::Settlement<completion::Targeted>,
+    settlement: &completion::SettlementPlan<completion::Targeted>,
 ) -> Option<PositionPoll<'_>> {
     match settlement.plan() {
         SettlementPlan::CompletionIsSettled { .. } => None,

@@ -25,46 +25,30 @@
 //!
 //! ## Usage
 //!
-//! For blocking transports (using camera-first API):
-//! ```rust,ignore
+//! For blocking transports:
+//! ```no_run
 //! # #[cfg(feature = "blocking")]
-//! use grafton_visca::{
-//!     camera::{Connect, profiles::PtzOpticsG2},
-//! };
+//! # fn example() -> Result<(), grafton_visca::Error> {
+//! use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2};
 //!
-//! # #[cfg(feature = "blocking")]
-//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! # #[cfg(feature = "blocking")]
-//! let camera = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110:5678")?;
-//! # #[cfg(feature = "blocking")]
-//! // Camera is ready to use with accessor pattern
-//! # #[cfg(feature = "blocking")]
-//! camera.power().on()?;
-//! # #[cfg(feature = "blocking")]
-//! camera.zoom().tele()?;
-//! # Ok(())
+//! let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110:5678")?;
+//! let camera = session.camera();
+//! println!("Power: {:?}", camera.power().status()?);
+//! session.close()
 //! # }
 //! ```
 //!
-//! For async transports (with tokio):
-//! ```rust,ignore
+//! For async transports with Tokio:
+//! ```no_run
 //! # #[cfg(feature = "runtime-tokio")]
-//! use grafton_visca::{
-//!     camera::{Connect, profiles::PtzOpticsG2},
-//!     runtime::{Runtime, TokioRuntime},
-//! };
+//! # async fn example() -> Result<(), grafton_visca::Error> {
+//! use grafton_visca::{profiles::PtzOpticsG2, r#async::CameraSession, runtime::TokioRuntime};
 //!
-//! # #[cfg(feature = "runtime-tokio")]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = TokioRuntime::from_current()?;
-//! let camera = Connect::open_tcp::<PtzOpticsG2, _>(
-//!     "192.168.0.110:5678",
-//!     runtime
-//! ).await?;
-//! // Camera is ready to use with accessor pattern
-//! camera.power().on().await?;
-//! camera.zoom().tele().await?;
-//! # Ok(())
+//! let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110:5678", runtime).await?;
+//! let camera = session.camera();
+//! println!("Power: {:?}", camera.power().status().await?);
+//! session.close().await
 //! # }
 //! ```
 /// Send semantics for transport classification.
@@ -137,12 +121,16 @@ pub(crate) mod datagram;
 #[cfg(test)]
 mod entry_point_tests;
 pub(crate) mod envelope;
+#[path = "serial/config.rs"]
+pub(crate) mod serial_config;
+pub use serial_config::{SerialConfig, SerialStartup};
+
 #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
-pub mod serial;
+pub(crate) mod serial;
 #[cfg(all(feature = "blocking", feature = "transport-serial"))]
 pub(crate) mod serial_blocking;
 #[cfg(all(feature = "async", feature = "runtime-smol"))]
-pub(crate) mod smol;
+pub mod smol;
 #[cfg(all(
     any(unix, windows),
     any(
@@ -153,19 +141,15 @@ pub(crate) mod smol;
 ))]
 pub(crate) mod socket_options;
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
-pub(crate) mod tokio;
+pub mod tokio;
 
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
-#[cfg(feature = "blocking")]
-pub use blocking_transport::BlockingTransportHandle;
 pub use blocking_transport::{
     AddressedBus, BlockingTransport, HasTransportConfig, TransportIdentity,
 };
 pub use buffer::BufferConfig;
 pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig};
-#[cfg(feature = "blocking")]
-pub use builder::{NetTransportBuilder, Transport};
 pub use datagram::ReceiveOutcome;
 pub use envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulated};
 
@@ -195,3 +179,11 @@ pub(crate) fn stream_read(read: usize, closed: &'static str) -> crate::Result<us
 
 mod receive_errors;
 pub use receive_errors::FATAL_RECEIVE_IO_KINDS;
+
+#[cfg(all(
+    test,
+    not(feature = "blocking"),
+    any(feature = "runtime-tokio", feature = "runtime-smol")
+))]
+#[path = "blocking/tests/issue_843_udp_transient.rs"]
+mod issue_843_udp_transient_tests;

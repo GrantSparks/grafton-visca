@@ -72,7 +72,6 @@ macro_rules! black_control {
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         #[cfg_attr(feature = "serde", serde(rename_all = "snake_case", deny_unknown_fields))]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         pub enum $name {
             /// Increase the black level by the given number of steps.
             Up(BlackStep),
@@ -115,7 +114,6 @@ macro_rules! boolean_setting {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(deny_unknown_fields))]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         pub struct $name {
             enabled: bool,
         }
@@ -129,6 +127,7 @@ macro_rules! boolean_setting {
 
             /// Returns the requested enablement state.
             #[must_use]
+            #[cfg(test)]
             pub const fn enabled(self) -> bool {
                 self.enabled
             }
@@ -191,7 +190,6 @@ macro_rules! knee_setting {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(deny_unknown_fields))]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         pub struct $name {
             $field: $value,
         }
@@ -205,6 +203,7 @@ macro_rules! knee_setting {
 
             /// Returns the requested setting.
             #[must_use]
+            #[cfg(test)]
             pub const fn $field(self) -> $value {
                 self.$field
             }

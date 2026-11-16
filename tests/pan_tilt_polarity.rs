@@ -11,16 +11,13 @@
 use std::collections::BTreeSet;
 
 use grafton_visca::{
-    camera::profiles::ProfileId,
-    capabilities::{PanTiltWireCodec, ProfileMetadata},
+    capabilities::PanTiltWireCodec,
     profiles::{
-        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
+        CompileTimeProfile, GenericVisca, NearusBrc300, ProfileId, ProfileSpec, PtzOptics30x,
+        PtzOpticsG2, PtzOpticsG3, SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
     },
-    request::builtin::PanTiltAbsolute,
-    types::{PanSpeed, TiltSpeed},
-    units::Degrees,
-    CameraId, CompileTimeProfile, ProfileSpec, Request,
+    request::Request,
+    types::{CameraId, Degrees, PanSpeed, TiltSpeed},
 };
 
 /// Which way an increasing raw word moves the camera.
@@ -42,7 +39,7 @@ struct Polarity {
 
 fn polarity<P: CompileTimeProfile>(right: Raw, up: Raw, basis: &'static str) -> Polarity {
     Polarity {
-        id: <P as ProfileMetadata>::PROFILE_ID.expect("built-in profile identity"),
+        id: P::ID.expect("built-in profile identity"),
         spec: ProfileSpec::from_compile_time::<P>().expect("built-in profile"),
         right,
         up,
@@ -61,28 +58,28 @@ fn table() -> Vec<Polarity> {
     vec![
         polarity::<PtzOpticsG2>(Increasing, Increasing, STANDARD),
         polarity::<PtzOpticsG3>(Increasing, Increasing, STANDARD),
-        polarity::<PtzOptics30X>(Increasing, Increasing, STANDARD),
-        polarity::<SonyFR7>(
+        polarity::<PtzOptics30x>(Increasing, Increasing, STANDARD),
+        polarity::<SonyFr7>(
             Decreasing,
             Increasing,
             "R7 p.12: 09CA7 is +170° CCW/left; 0B3B0 is +195° up",
         ),
-        polarity::<SonyBRCH900>(
+        polarity::<SonyBrcH900>(
             Decreasing,
             Increasing,
             "R11 v2.20 p.37: positive pan 09BDE is left; tilt 52F8 is up",
         ),
-        polarity::<SonyEVIH100>(
+        polarity::<SonyEviH100>(
             Increasing,
             Increasing,
             "R8 limit table: UpRight pan 0001..1E1B, tilt 0001..0FF0 (+90°)",
         ),
-        polarity::<SonyBRC300>(
+        polarity::<SonyBrc300>(
             Decreasing,
             Increasing,
             "R12 value table: 08A58 left end, 493D up end",
         ),
-        polarity::<NearusBRC300>(
+        polarity::<NearusBrc300>(
             Decreasing,
             Increasing,
             "R21 limit table: 08A58 left end, 493D up end",
@@ -148,19 +145,23 @@ fn positive_degrees_are_right_and_up_for_every_built_in_profile() {
             .pan_tilt_coordinates()
             .expect("absolute pan/tilt conversion")
             .wire_codec();
-        let request = PanTiltAbsolute::for_target(
-            Degrees::new(45.0).expect("valid degrees"),
-            Degrees::new(45.0).expect("valid degrees"),
-            PanSpeed::new(1).expect("pan speed"),
-            TiltSpeed::new(1).expect("tilt speed"),
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+        let request = grafton_visca::command::pan_tilt::Absolute::for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 row.spec.clone(),
             )
             .expect("target registration"),
+            grafton_visca::types::PanTiltPosition {
+                pan: Degrees::new(45.0).expect("valid degrees"),
+                tilt: Degrees::new(45.0).expect("valid degrees"),
+            },
+            grafton_visca::types::PanTiltSpeed {
+                pan: PanSpeed::new(1).expect("pan speed"),
+                tilt: TiltSpeed::new(1).expect("tilt speed"),
+            },
         )
         .unwrap_or_else(|error| panic!("{:?}: +45°/+45° must encode: {error}", row.id));
-        let mut frame = vec![0_u8; PanTiltAbsolute::MAX_SIZE];
+        let mut frame = vec![0_u8; grafton_visca::command::pan_tilt::Absolute::MAX_SIZE];
         let written = request
             .write_into(CameraId::CAMERA_1, &mut frame)
             .expect("absolute position frame");

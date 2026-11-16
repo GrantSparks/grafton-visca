@@ -8,7 +8,7 @@ fn projected_command() -> RuntimeRequest {
         unreachable!();
     };
     *applied_state = Some(AppliedStateProjection::set(KnownState::TallyBrightness(
-        true,
+        crate::types::TallyBrightness::High,
     )));
     request
 }
@@ -73,12 +73,14 @@ fn refused_first_write_is_not_accepted_and_never_poisons_or_invalidates() {
             let effects = result(
                 &mut engine,
                 &write,
-                WriteOutcome::NotSent(Error::InvalidRequest("pre-write refusal".into())),
+                WriteOutcome::NotSent(Error::InvalidRequest {
+                    reason: "pre-write refusal".into(),
+                }),
                 now,
             );
             let error = terminal_failure(&effects, request).unwrap();
             assert!(matches!(&error, Error::TransmissionNotSent { source, .. }
-                if matches!(source.as_ref(), Error::InvalidRequest(_))));
+                if matches!(source.as_ref(), Error::InvalidRequest { .. })));
             assert_eq!(
                 error.failure_context(),
                 Some(FailureContext::new(
@@ -118,7 +120,9 @@ fn refused_retry_preserves_prior_effect_and_invalidates_before_observation() {
     let effects = result(
         &mut engine,
         &retry,
-        WriteOutcome::NotSent(Error::InvalidRequest("mode changed before retry".into())),
+        WriteOutcome::NotSent(Error::InvalidRequest {
+            reason: "mode changed before retry".into(),
+        }),
         ready,
     );
     let error = terminal_failure(&effects, request).unwrap();
@@ -281,7 +285,9 @@ fn refusing_a_retry_after_conclusive_rejection_preserves_known_state() {
     let effects = result(
         &mut engine,
         &retry,
-        WriteOutcome::NotSent(Error::InvalidRequest("pre-write refusal".into())),
+        WriteOutcome::NotSent(Error::InvalidRequest {
+            reason: "pre-write refusal".into(),
+        }),
         ready,
     );
     assert_eq!(
@@ -317,9 +323,9 @@ fn refused_cancellation_keeps_the_written_operation_and_its_socket_live() {
             Input::TransmissionFinished {
                 request,
                 transmission,
-                result: WriteOutcome::NotSent(Error::InvalidRequest(
-                    "cancel framing refused".into(),
-                )),
+                result: WriteOutcome::NotSent(Error::InvalidRequest {
+                    reason: "cancel framing refused".into(),
+                }),
             },
             now,
         );
@@ -379,7 +385,9 @@ fn a_result_with_another_requests_identity_cannot_consume_the_active_write() {
         Input::TransmissionFinished {
             request: first_id,
             transmission,
-            result: WriteOutcome::NotSent(Error::InvalidRequest("wrong request".into())),
+            result: WriteOutcome::NotSent(Error::InvalidRequest {
+                reason: "wrong request".into(),
+            }),
         },
         now,
         EngineTurn::InputOnly,

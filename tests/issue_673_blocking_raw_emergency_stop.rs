@@ -5,8 +5,8 @@
 //! (the single-candidate gate), so a socketless ACK is never guessed. Before
 //! the fix, a second operation submitted while a first raw command was still
 //! awaiting its ACK was rejected with zero bytes on the wire, so
-//! `motion().stop_all_motion()` and typed `Urgent` stops (`ZoomStop`,
-//! `FocusStop`, `PanTiltStop`) could not reach a moving camera.
+//! `motion().stop_all()` and typed `Urgent` stops (`ZoomStop`,
+//! `grafton_visca::command::focus::Stop`, `PanTiltStop`) could not reach a moving camera.
 //!
 //! The blocking owner is now a native worker thread (#780): a submission is
 //! admitted into its queue and written when the scheduler allows, exactly as
@@ -26,12 +26,14 @@ use std::{
 };
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    completion::{AppliedOnly, Targeted},
+    blocking::Session,
+    config::{OperationalTuning, SessionConfig},
+    operation::{AppliedOnly, Targeted},
     raw,
-    request::builtin::{FocusStop, ZoomDrive},
+    request::RetryClass,
     transport::{AddressingMode, TransportConfig},
-    AffectedAxes, CameraId, Error, OperationalTuning, RetryClass,
+    types::{AffectedAxes, CameraId},
+    Error,
 };
 
 use fake_camera::{frames, FakeCamera, ZOOM_STOP};
@@ -67,7 +69,7 @@ fn session_with_config(steps: Vec<Vec<Vec<u8>>>, config: SessionConfig) -> (Sess
         .blocking_wire()
         .with_config(TransportConfig::default())
         .with_addressing(AddressingMode::Serial);
-    let session = Session::open(wire, config).expect("owner session");
+    let session = Session::open(wire, &config).expect("owner session");
     (session, camera)
 }
 
@@ -77,30 +79,30 @@ fn session(steps: Vec<Vec<Vec<u8>>>) -> (Session, FakeCamera) {
 
 fn raw_policy(reply_shape: raw::OperationReplyShape) -> raw::OperationPolicy {
     grafton_visca::raw::OperationPolicy::new(
-        grafton_visca::CommandCategory::Quick,
+        grafton_visca::profiles::CommandTimeoutClass::Quick,
         RetryClass::Never,
-        grafton_visca::SubmissionClass::Normal,
+        grafton_visca::request::SubmissionClass::Normal,
     )
     .with_reply_shape(reply_shape)
 }
 
-fn raw_applied_only(reply_shape: raw::OperationReplyShape) -> raw::AppliedOnly {
-    raw::AppliedOnly::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
+fn raw_applied_only(reply_shape: raw::OperationReplyShape) -> raw::AppliedOnlyRequest {
+    raw::AppliedOnlyRequest::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("raw applied-only operation")
 }
 
 fn raw_applied_only_for(
     target: CameraId,
     reply_shape: raw::OperationReplyShape,
-) -> raw::AppliedOnly {
+) -> raw::AppliedOnlyRequest {
     let mut wire = ZOOM_STOP.to_vec();
     wire[0] = 0x80 | target.value();
-    raw::AppliedOnly::with_policy(wire, AffectedAxes::ZOOM, raw_policy(reply_shape))
+    raw::AppliedOnlyRequest::with_policy(wire, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("targeted raw applied-only operation")
 }
 
-fn raw_targeted(reply_shape: raw::OperationReplyShape) -> raw::Targeted {
-    raw::Targeted::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
+fn raw_targeted(reply_shape: raw::OperationReplyShape) -> raw::TargetedRequest {
+    raw::TargetedRequest::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("raw targeted operation")
 }
 
@@ -113,19 +115,19 @@ fn urgent_stop_reaches_the_wire_behind_a_live_raw_operation_handle() {
         vec![frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     // A continuous zoom drive is submitted and its handle held un-awaited: its
     // command is on the wire and executing on socket one.
     let drive = camera
-        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
         .expect("drive submitted");
     probe.wait_for_writes(1);
     probe.wait_for_reads(1);
 
     let mut stop = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
         .expect("the emergency stop is admitted behind the live drive handle");
     stop.applied()
         .expect("the stop reaches the wire and applies on the free socket");
@@ -148,7 +150,7 @@ fn two_unawaited_operation_handles_both_reach_the_wire() {
         vec![frames::ack(2), frames::complete(1), frames::complete(2)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let first_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
@@ -177,7 +179,7 @@ fn completion_only_raw_operations_wait_for_an_idle_target() {
         ($kind:ty, $operation:expr, $label:literal) => {{
             let (session, probe) = session(vec![vec![frames::ack(1)]]);
             let camera = session
-                .camera::<NonDefaultCompileTimeProfile>()
+                .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
                 .expect("camera view");
             let predecessor = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
             let mut predecessor = camera
@@ -216,7 +218,7 @@ fn completion_only_raw_operations_wait_for_an_idle_target() {
     );
 }
 
-/// The issue's exact scenario: `motion().stop_all_motion()` reaches the wire
+/// The issue's exact scenario: `motion().stop_all()` reaches the wire
 /// while a drive handle is live. It submits pan/tilt, zoom, and focus stops in
 /// turn, each of which applies on the socket the drive leaves free.
 #[test]
@@ -228,18 +230,18 @@ fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
         vec![frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let drive = camera
-        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
         .expect("drive submitted");
     probe.wait_for_writes(1);
     probe.wait_for_reads(1);
 
     camera
         .motion()
-        .stop_all_motion()
+        .stop_all()
         .expect("every stop applies while the drive is live")
         .into_result()
         .expect("each supported STOP applied");
@@ -260,11 +262,11 @@ fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
 fn ordinary_successor_waits_for_lost_ack_quarantine() {
     let (session, probe) = session(vec![vec![], vec![frames::ack(1), frames::complete(1)]]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let mut predecessor = camera
-        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
         .expect("predecessor admission");
     probe.wait_for_writes(1);
     let first_written_at = Instant::now();
@@ -305,16 +307,16 @@ fn urgent_stop_bypasses_lost_ack_gate_and_ambiguous_ack_binds_to_neither() {
         vec![frames::ack(1), frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let mut predecessor = camera
-        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
         .expect("predecessor admission");
     probe.wait_for_writes(1);
     let urgent_started = Instant::now();
     let mut urgent = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)
         .expect("urgent admission");
     probe.wait_for_writes(2);
     assert!(
@@ -350,17 +352,18 @@ fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
             vec![],
             vec![frames::ack(1), frames::complete(1)],
         ],
-        two_camera_session_config().with_tuning(OperationalTuning::new().command_spacing(SPACING)),
+        two_camera_session_config()
+            .with_tuning(OperationalTuning::new().with_command_spacing(SPACING)),
     );
     let camera_one = session
-        .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
         .expect("camera one view");
     let camera_two = session
-        .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+        .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
         .expect("camera two view");
 
     let mut predecessor = camera_two
-        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
         .expect("camera two predecessor admission");
     probe.wait_for_writes(1);
     let socket_successor = camera_two
@@ -411,7 +414,7 @@ fn socket_capacity_contention_queues_until_a_socket_frees() {
         vec![frames::ack(1), frames::complete(1)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let first_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);

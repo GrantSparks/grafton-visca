@@ -8,7 +8,7 @@ use crate::{
         test_support::{prepare_command, prepare_operation},
         ClassSelection,
     },
-    profiles::SonyFR7,
+    profiles::SonyFr7,
     request::builtin::PanTiltDrive,
     types::{PanSpeed, TiltSpeed},
     OperationalTuning, PanTiltDirection, ProfileSpec, TargetRegistration,
@@ -40,7 +40,7 @@ fn drive_request(registration: &TargetRegistration, tuning: OperationalTuning) -
 fn queued_mode_refusal(invalidate: bool) {
     let registration = TargetRegistration::new(
         crate::CameraId::CAMERA_1,
-        ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
     )
     .unwrap();
     let mut policy = owner_policy(EnvelopeKind::Sony);
@@ -80,7 +80,10 @@ fn queued_mode_refusal(invalidate: bool) {
         state.state_cache_registry(),
         TargetSlot::CAMERA_1,
     );
-    assert_eq!(cache.variable_speed_mode(), Some(PanTiltSpeedMode::Fine50));
+    assert_eq!(
+        cache.pan_tilt().speed_mode(),
+        Some(PanTiltSpeedMode::Fine50)
+    );
 
     let now = initial + Duration::from_secs(1);
     let _changing = sent(
@@ -109,7 +112,7 @@ fn queued_mode_refusal(invalidate: bool) {
         );
     }
     assert_eq!(
-        cache.variable_speed_mode(),
+        cache.pan_tilt().speed_mode(),
         Some(PanTiltSpeedMode::Fine50),
         "preparation must not pretend a queued mode change has applied"
     );
@@ -132,7 +135,7 @@ fn queued_mode_refusal(invalidate: bool) {
         }
     }
     assert_eq!(
-        cache.variable_speed_mode(),
+        cache.pan_tilt().speed_mode(),
         if invalidate {
             None
         } else {
@@ -141,7 +144,7 @@ fn queued_mode_refusal(invalidate: bool) {
     );
     let staged = staged.expect("the queued drive becomes dispatchable after the setter ends");
     let error = state.prepare_write(&staged).unwrap_err();
-    assert!(matches!(error, Error::InvalidRequest(_)));
+    assert!(matches!(error, Error::InvalidRequest { .. }));
     for effect in state.finish_write(&staged, WriteOutcome::NotSent(error), now) {
         state.apply_effect(effect);
     }
@@ -177,8 +180,8 @@ fn a_queued_drive_observes_mode_invalidation_after_an_unconfirmed_setter() {
 
 #[test]
 fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertainty() {
-    let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
-    let spacing = profile.timing().minimum_command_spacing();
+    let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
+    let spacing = profile.timing().command_spacing();
     let ack_timeout = profile.timing().ack_timeout();
     assert!(spacing < ack_timeout);
     let registration = TargetRegistration::new(crate::CameraId::CAMERA_1, profile).unwrap();
@@ -212,7 +215,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
     );
 
     let now = initial + Duration::from_secs(1);
-    let request = drive_request(&registration, OperationalTuning::new().retry_limit(1));
+    let request = drive_request(&registration, OperationalTuning::new().with_retry_limit(1));
     let observer = sent(&mut state, request, Some(2), now);
     // The drive may have reached the camera, but it has not acknowledged.
     // A second Sony slot can process a mode change while that reply is lost.
@@ -248,7 +251,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
         state.state_cache_registry(),
         TargetSlot::CAMERA_1,
     );
-    assert_eq!(cache.variable_speed_mode(), None);
+    assert_eq!(cache.pan_tilt().speed_mode(), None);
 
     let expiry = now + ack_timeout;
     for effect in state.advance(expiry) {

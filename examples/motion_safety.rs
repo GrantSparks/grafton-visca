@@ -1,8 +1,8 @@
 //! Blocking motion safety and observation: `is_moving`, `wait_until_idle`,
-//! and the `stop_all_motion` owner halt.
+//! and the `stop_all` owner halt.
 //!
 //! `camera.motion()` is the one camera-level motion safety/observation view.
-//! `stop_all_motion()` attempts pan/tilt, zoom, and focus STOP even when an
+//! `stop_all()` attempts pan/tilt, zoom, and focus STOP even when an
 //! earlier axis fails, returning a per-axis report under one common deadline.
 //! This example prints every axis outcome and treats a pan/tilt or zoom failure
 //! as its error.
@@ -25,9 +25,8 @@ mod support;
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    blocking::{Camera, Connect},
-    camera::{profiles::PtzOpticsG2, IdleWait, MotionQuery},
-    AffectedAxes, Error, FocusMode, HaltOutcome,
+    blocking::Camera, blocking::CameraSession, operation::HaltOutcome, profiles::PtzOpticsG2,
+    types::AffectedAxes, types::FocusMode, types::IdleWait, types::MotionQuery, Error,
 };
 
 use support::finish_session;
@@ -38,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
         .ok_or("camera address required (argument or VISCA_CAMERA_ADDR)")?;
 
-    let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
+    let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address)?;
     let camera = session.camera();
     let result = observe_and_stop(camera);
     finish_session(result, session.close())?;
@@ -70,10 +69,10 @@ fn observe_and_stop(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     println!("pan/tilt idle");
 
     // Fence older declared motion, then inspect the supported STOP outcomes.
-    let report = camera.motion().stop_all_motion()?;
-    println!("stop_all_motion pan/tilt: {}", describe(&report.pan_tilt));
-    println!("stop_all_motion zoom: {}", describe(&report.zoom));
-    println!("stop_all_motion focus: {}", describe(&report.focus));
+    let report = camera.motion().stop_all()?;
+    println!("stop_all pan/tilt: {}", describe(&report.pan_tilt));
+    println!("stop_all zoom: {}", describe(&report.zoom));
+    println!("stop_all focus: {}", describe(&report.focus));
 
     // Pan/tilt and zoom failures are real motion hazards. A G2 in auto focus
     // rejects the focus STOP as not executable, so that one focus failure is
@@ -88,7 +87,7 @@ fn observe_and_stop(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
             return Err(error);
         }
     }
-    println!("stop_all_motion complete");
+    println!("stop_all complete");
 
     Ok(())
 }

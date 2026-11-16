@@ -26,15 +26,14 @@ use std::time::Duration;
 
 use grafton_visca::{
     blocking::Session,
-    command::ZoomPositionInquiry,
-    completion::AppliedOnly,
-    request::builtin::ZoomStop,
+    config::OperationalTuning,
+    operation::AppliedOnly,
     testing::testkit::{
         helpers::{self, errors},
         ScriptedBlockingTransport, Step,
     },
     types::ZoomPosition,
-    Error, OperationalTuning,
+    Error,
 };
 
 use profile_fixtures::{session_config, NonDefaultCompileTimeProfile};
@@ -52,7 +51,7 @@ const TUNED_QUICK_WRITES: usize = 4;
 fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
     let transport = ScriptedBlockingTransport::new(steps);
     let probe = transport.clone();
-    let session = Session::open(transport, session_config()).expect("owner session");
+    let session = Session::open(transport, &session_config()).expect("owner session");
     (session, probe)
 }
 
@@ -66,13 +65,14 @@ fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
 fn tuned_open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
     let transport = ScriptedBlockingTransport::new(steps);
     let probe = transport.clone();
-    let config =
-        session_config().with_tuning(OperationalTuning::new().retry_limit(1).retry_timing(
-            Duration::from_millis(50),
-            Duration::from_millis(500),
-            Duration::from_secs(30),
-        ));
-    let session = Session::open(transport, config).expect("owner session");
+    let config = session_config().with_tuning(
+        OperationalTuning::new()
+            .with_retry_limit(1)
+            .with_initial_retry_backoff(Duration::from_millis(50))
+            .with_maximum_retry_backoff(Duration::from_millis(500))
+            .with_retry_budget(Duration::from_secs(30)),
+    );
+    let session = Session::open(transport, &config).expect("owner session");
     (session, probe)
 }
 
@@ -81,7 +81,7 @@ fn tuned_open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
 fn a_busy_camera_is_replayed_once_and_then_succeeds() {
     let (session, probe) = open(helpers::buffer_full_then_success(1));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -97,7 +97,7 @@ fn a_busy_camera_is_replayed_once_and_then_succeeds() {
 fn a_repeatedly_busy_camera_stays_inside_its_retry_budget() {
     let (session, probe) = open(helpers::buffer_full_sequence_then_success(1, 3));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -113,7 +113,7 @@ fn a_repeatedly_busy_camera_stays_inside_its_retry_budget() {
 fn a_refused_movement_command_is_replayed_once_and_then_succeeds() {
     let (session, probe) = open(helpers::not_executable_then_success(0));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -130,11 +130,11 @@ fn a_refused_movement_command_is_replayed_once_and_then_succeeds() {
 fn a_refused_typed_stop_is_terminal() {
     let (session, probe) = open(helpers::not_executable_then_success(0));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
         .expect("submission")
         .applied_with_timeout(Duration::from_secs(5))
         .expect_err("a refused STOP surfaces the camera's refusal");
@@ -155,7 +155,7 @@ fn a_refused_typed_stop_is_terminal() {
 fn a_repeatedly_refused_movement_command_stays_inside_its_budget() {
     let (session, probe) = open(helpers::not_executable_sequence_then_success(0, 3));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -172,7 +172,7 @@ fn a_repeatedly_refused_movement_command_stays_inside_its_budget() {
 fn a_refused_standard_command_is_terminal() {
     let (session, probe) = open(helpers::not_executable_sequence_then_success(0, 1));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera
@@ -192,7 +192,7 @@ fn a_refused_standard_command_is_terminal() {
 fn a_camera_with_no_free_socket_is_replayed() {
     let (session, probe) = open(vec![errors::no_socket(), helpers::auto_respond_step()]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -214,11 +214,11 @@ fn a_builtin_facade_inquiry_syntax_error_is_replayed_once() {
         vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xff],
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
     let position = camera
-        .inquire(&ZoomPositionInquiry)
+        .inquire(&grafton_visca::command::zoom::PositionInquiry)
         .expect("a generated built-in inquiry must retry transient 0x02 once");
     assert_eq!(position, ZoomPosition::new(0x1234).expect("zoom position"));
     assert_eq!(
@@ -239,10 +239,12 @@ fn a_healthy_inquiry_is_answered_on_the_first_write() {
         vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xff],
     )]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
 
-    let position = camera.inquire(&ZoomPositionInquiry).expect("inquiry reply");
+    let position = camera
+        .inquire(&grafton_visca::command::zoom::PositionInquiry)
+        .expect("inquiry reply");
     assert_eq!(position, ZoomPosition::new(0x1234).expect("zoom position"));
     assert_eq!(probe.sent().len(), 1);
     session.shutdown().expect("owner shutdown");
@@ -259,7 +261,7 @@ fn a_busy_camera_exhausts_exactly_the_configured_retry_budget() {
         TUNED_QUICK_WRITES - 1,
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
     camera
         .execute(&StandardCommand)
@@ -274,7 +276,7 @@ fn a_busy_camera_exhausts_exactly_the_configured_retry_budget() {
         TUNED_QUICK_WRITES,
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
     let error = camera
         .execute(&StandardCommand)
@@ -296,7 +298,7 @@ fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
         TUNED_QUICK_WRITES - 1,
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
     camera
         .execute(&MovementCommand)
@@ -309,7 +311,7 @@ fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
         TUNED_QUICK_WRITES,
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera view");
     let error = camera
         .execute(&MovementCommand)

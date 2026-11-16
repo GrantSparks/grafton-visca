@@ -18,15 +18,16 @@ use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 use crate::{
     completion,
     prepared::ClassSelection,
+    profiles::{AnyProfile, CameraProfile, CompileTimeProfile},
     runtime::owner::{
         BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter, Clock,
     },
     target::TargetSlot,
-    CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
-    MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, Result, SubmissionClass,
+    CameraId, CancellationOutcome, Error, Inquiry, MetricsSnapshot, OperationCommand,
+    OperationalTuning, PlainCommand, Result, SubmissionClass,
 };
 
-pub use crate::OperationId;
+use crate::OperationId;
 
 /// A blocking handle on one admitted operation.
 ///
@@ -57,7 +58,7 @@ pub use crate::OperationId;
 /// the typed STOP — see the guard pattern in `docs/migration_2_0.md` and
 /// `examples/operation_handles.rs`. For an explicit stop on a path you
 /// control, use `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
-/// `camera.focus().stop()`, or `camera.motion().stop_all_motion()`;
+/// `camera.focus().stop()`, or `camera.motion().stop_all()`;
 /// [`cancel`](Self::cancel) is protocol cancellation and does not by itself
 /// prove motion ended.
 #[must_use = "observe, cancel, or explicitly detach this operation"]
@@ -104,8 +105,8 @@ where
     /// Cancels the operation and waits for the cancellation's conclusion,
     /// bounded by the configured cancellation deadline.
     ///
-    /// The result is [`CancellationOutcome::Cancelled`] when cancellation
-    /// won, [`CancellationOutcome::Completed`] when the operation was applied
+    /// The result is [`crate::operation::CancellationOutcome::Cancelled`] when cancellation
+    /// won, [`crate::operation::CancellationOutcome::Completed`] when the operation was applied
     /// first, and the operation's own error when it failed first.
     ///
     /// Cancelling is idempotent. The handle has one cancellation intent;
@@ -118,9 +119,9 @@ where
     /// Cancelling a request that is still queued always succeeds. Cancelling
     /// one that has already been written needs profile support for the
     /// standard VISCA socket-cancel command; without it — the built-in
-    /// PTZOptics profiles ([`PtzOpticsG2`], [`PtzOpticsG3`] and
-    /// [`PtzOptics30X`]) are in that position — the owner refuses with
-    /// [`Error::NotSupported`] and leaves the original request scheduled,
+    /// PTZOptics profiles ([`crate::profiles::PtzOpticsG2`], [`crate::profiles::PtzOpticsG3`] and
+    /// [`crate::profiles::PtzOptics30x`]) are in that position — the owner refuses with
+    /// [`Error::CancellationNotSupported`] and leaves the original request scheduled,
     /// retryable, and able to complete. The handle is unaffected and can
     /// still wait for it. A refusal does not stop the camera; a moving axis
     /// ends with an applied typed STOP.
@@ -130,9 +131,9 @@ where
     /// expired) returns that error; the handle still observes the operation's
     /// own outcome.
     ///
-    /// [`PtzOpticsG2`]: crate::profiles::PtzOpticsG2
-    /// [`PtzOpticsG3`]: crate::profiles::PtzOpticsG3
-    /// [`PtzOptics30X`]: crate::profiles::PtzOptics30X
+    /// [`crate::profiles::PtzOpticsG2`]: crate::profiles::PtzOpticsG2
+    /// [`crate::profiles::PtzOpticsG3`]: crate::profiles::PtzOpticsG3
+    /// [`crate::profiles::PtzOptics30x`]: crate::profiles::PtzOptics30x
     pub fn cancel(&mut self) -> Result<CancellationOutcome, Error> {
         self.receipt.cancel(None)
     }
@@ -187,73 +188,53 @@ where
     }
 }
 
-/// Re-export the mode-independent profile/target settings from the blocking
-/// facade namespace.
-pub use crate::SessionConfig;
+use crate::{camera::CameraConfig, SessionConfig};
 
-#[cfg(feature = "blocking")]
-mod construction {
-    use super::*;
+/// A bounded blocking diagnostic stream from one session.
+///
+/// Dropping this stream releases its subscription without keeping the owner
+/// alive. Queued events remain readable before the owner's original terminal cause.
+pub struct Diagnostics {
+    inner: crate::observability::DiagnosticSubscription,
+}
 
-    /// Final owner-backed standard construction namespace.
+impl Diagnostics {
+    fn from_owner(inner: crate::runtime::owner::DiagnosticSubscription) -> Self {
+        Self {
+            inner: crate::observability::DiagnosticSubscription::from_owner(inner),
+        }
+    }
+
+    /// Receives one queued event without waiting; an empty or closed queue returns None.
+    #[must_use]
+    pub fn try_recv(&self) -> Option<crate::observability::DiagnosticEvent> {
+        self.inner.try_recv()
+    }
+
+    /// Waits for an event, preserving the owner's terminal cause after the queue drains.
+    pub fn recv(&self) -> Result<crate::observability::DiagnosticEvent> {
+        self.inner.recv_blocking()
+    }
+
+    /// Waits at most `timeout` on the owner's clock for an event.
     ///
-    /// Standard network construction is owner-backed and returns a
-    /// [`CameraSession`]. Serial and custom transports retain the multi-target
-    /// [`Session`] path.
-    pub use crate::camera::CameraConfig;
-
-    /// One-line owner-backed blocking connection constructor.
-    #[derive(Debug, Clone, Copy)]
-    pub struct Connect;
-
-    impl Connect {
-        /// Opens a standard TCP or UDP transport selected at runtime.
-        ///
-        /// Unlike [`Self::open_tcp`] and [`Self::open_udp`], this entry point
-        /// only requires [`CompileTimeProfile`]. Transport compatibility and
-        /// the profile's default port are resolved before any socket I/O.
-        /// Serial transports use `Connect::open_serial`, and custom transports
-        /// use [`Session::open`].
-        pub fn open<P>(transport: crate::camera::TransportOptions) -> Result<CameraSession<P>>
-        where
-            P: CompileTimeProfile,
-        {
-            CameraConfig::<P>::new().transport(transport).open()
-        }
-
-        /// Opens one owner-backed blocking TCP camera session.
-        pub fn open_tcp<P>(address: impl Into<String>) -> Result<CameraSession<P>>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsTcp,
-        {
-            CameraConfig::<P>::tcp(address).open()
-        }
-
-        /// Opens one owner-backed blocking UDP camera session.
-        pub fn open_udp<P>(address: impl Into<String>) -> Result<CameraSession<P>>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsUdp,
-        {
-            CameraConfig::<P>::udp(address).open()
-        }
-
-        /// Opens one owner-backed blocking serial session.
-        ///
-        /// Opening writes nothing to the bus: no Address Set and no I/F
-        /// Clear. Select startup writes with
-        /// [`CameraConfig::serial_startup`](crate::camera::CameraConfig::serial_startup).
-        #[cfg(feature = "transport-serial")]
-        pub fn open_serial<P>(port: impl Into<String>, baud_rate: u32) -> Result<Session>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsSerial,
-        {
-            CameraConfig::<P>::serial(port, baud_rate).open_serial()
-        }
+    /// Returns `Ok(None)` when the queue remains empty, or the owner's
+    /// original terminal cause once every queued event has been received.
+    pub fn recv_with_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<crate::observability::DiagnosticEvent>> {
+        self.inner.recv_timeout(timeout)
     }
 }
 
-#[cfg(feature = "blocking")]
-pub use construction::{CameraConfig, Connect};
+impl fmt::Debug for Diagnostics {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Diagnostics")
+            .finish_non_exhaustive()
+    }
+}
 
 /// One blocking owner session.
 ///
@@ -284,6 +265,41 @@ impl fmt::Debug for Session {
 }
 
 impl Session {
+    /// Connects the configured standard transport and starts one owner session.
+    ///
+    /// Profile, policy, transport and endpoint validation complete before DNS,
+    /// device opening or owner startup. A serial session may register several targets.
+    pub fn connect(config: &SessionConfig) -> Result<Self> {
+        if let crate::camera::TransportOptions::Serial { port, baud_rate } = config.transport() {
+            let session_config = config.clone().validated()?;
+            session_config.validate_for_transport(crate::transport::TransportIdentity::Serial {
+                bus: None,
+            })?;
+            let serial_config = config.serial_config(port, *baud_rate)?;
+            #[cfg(feature = "transport-serial")]
+            {
+                return crate::camera::construction::connect_blocking_serial(
+                    serial_config,
+                    session_config,
+                );
+            }
+            #[cfg(not(feature = "transport-serial"))]
+            {
+                let _ = serial_config;
+                return Err(Error::FeatureNotSupported {
+                    feature: "blocking serial transport",
+                });
+            }
+        }
+        let plan = config.standard_connection_plan()?;
+        crate::camera::construction::connect_blocking(
+            plan.kind,
+            &plan.endpoint,
+            plan.transport_config,
+            plan.session_config,
+        )
+    }
+
     /// Opens a blocking session over a configured transport and profile.
     ///
     /// Startup validates the profiles, tuning, transport buffers, and the
@@ -291,11 +307,11 @@ impl Session {
     /// the calling thread, before it starts exactly one worker thread. Any
     /// failure, including a failed thread spawn, drops the transport and
     /// returns the error; no worker is left running.
-    pub fn open<T>(transport: T, config: SessionConfig) -> Result<Self, Error>
+    pub fn open<T>(transport: T, config: &SessionConfig) -> Result<Self, Error>
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
-        Self::open_validated(transport, config.validated()?)
+        Self::open_validated(transport, config.clone().validated()?)
     }
 
     /// [`Self::open`] for a configuration whose session policy is already
@@ -338,22 +354,15 @@ impl Session {
         })
     }
 
-    /// Returns the statically checked view for the sole registered target.
-    pub fn camera<P>(&self) -> Result<Camera<P>, Error>
-    where
-        P: CompileTimeProfile,
-    {
-        self.camera_for::<P>(self.config.sole_target_for("camera_for")?)
-    }
-
-    /// Returns a target-specific statically checked camera view.
-    pub fn camera_for<P>(&self, target: CameraId) -> Result<Camera<P>, Error>
-    where
-        P: CompileTimeProfile,
-    {
+    /// Returns a camera view for the registered target.
+    ///
+    /// Typed profiles require exact equality with their validated profile facts;
+    /// [`crate::profiles::AnyProfile`] accepts the registered runtime profile.
+    pub fn camera<P: CameraProfile>(&self, target: CameraId) -> Result<Camera<P>, Error> {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_target_for::<P>(target)?;
-        Ok(Camera::from_core(self.core(profile)))
+        let registration = self.config.registered_target(target)?;
+        P::validate_spec(registration.profile())?;
+        Ok(Camera::from_core(self.core(registration)))
     }
 
     /// The erased view of `target`, registered with `profile`.
@@ -363,86 +372,6 @@ impl Session {
             registration,
             class: ClassSelection::Request,
         }
-    }
-
-    /// Returns the runtime-profile camera view for the sole registered target.
-    ///
-    /// Unlike [`Self::camera`], this selector does not require a
-    /// [`CompileTimeProfile`] marker. Every request is still validated against
-    /// the registered [`crate::ProfileSpec`] before encoding or transport I/O.
-    ///
-    /// # Example: a blocking runtime-only profile
-    ///
-    /// ```no_run
-    /// use std::time::Duration;
-    /// use grafton_visca::{
-    ///     blocking::Session,
-    ///     capabilities::{Capabilities, PowerCaps},
-    ///     command::PowerOn,
-    ///     profile::{
-    ///         PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming,
-    ///         TransportCompatibility,
-    ///     },
-    ///     transport::Transport,
-    ///     CommandTimeouts, SessionConfig,
-    /// };
-    ///
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
-    /// capabilities.power = Some(PowerCaps {
-    ///     on_time: Duration::from_secs(1),
-    ///     standby: None,
-    ///     wake_on_lan: false,
-    ///     retains_settings: false,
-    ///     home_on_up: false,
-    /// });
-    ///
-    /// let timing = ProfileTiming::builder()
-    ///     .ack_timeout(Duration::from_millis(100))
-    ///     .command_timeouts(CommandTimeouts::default())
-    ///     .inquiry_timeout(Duration::from_secs(1))
-    ///     .cancellation_timeout(Duration::from_secs(1))
-    ///     .ambiguity_timeout(Duration::from_secs(1))
-    ///     .busy_timeout(Duration::ZERO)
-    ///     .raw_inquiry_reply_skew(Duration::ZERO)
-    ///     .minimum_inquiry_spacing(Duration::ZERO)
-    ///     .minimum_command_spacing(Duration::ZERO)
-    ///     .build()?;
-    /// let profile = ProfileSpec::builder(capabilities)
-    ///     .transports(TransportCompatibility::new(Some(5678), None, false))
-    ///     .envelope(ProfileEnvelope::RawVisca)
-    ///     .timing(timing)
-    ///     .maximum_command_sockets(1)
-    ///     .supports_operation_complete(true)
-    ///     .supports_command_cancel(false)
-    ///     .position_inquiries(PositionInquirySupport::new(false, false, false))
-    ///     .build()?;
-    ///
-    /// let transport = Transport::tcp()
-    ///     .address("192.168.0.110:5678")
-    ///     .build_blocking()?;
-    /// let session = Session::open(transport, SessionConfig::new(profile))?;
-    /// session.camera_dyn()?.execute(&PowerOn::new())?;
-    /// session.close()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "dyn-api")]
-    pub fn camera_dyn(&self) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
-        self.camera_dyn_for(self.config.sole_target_for("camera_dyn_for")?)
-    }
-
-    /// Returns a target-specific runtime-profile camera view.
-    #[cfg(feature = "dyn-api")]
-    pub fn camera_dyn_for(
-        &self,
-        target: CameraId,
-    ) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
-        let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_target(target)?;
-        Ok(crate::dynapi::BlockingDynSessionCamera::new(
-            self.core(profile),
-        ))
     }
 
     /// Returns the operational tuning this session is currently preparing
@@ -477,7 +406,7 @@ impl Session {
     ///
     /// The update is not a merge: a field left unset returns to its profile
     /// default rather than keeping the value a previous call installed.
-    /// Construction-only recovery policy lives on [`SessionConfig`], outside
+    /// Construction-only recovery policy lives on [`crate::config::SessionConfig`], outside
     /// `OperationalTuning`, and is therefore unaffected by this call.
     ///
     /// The update travels through the owner's control boundary and the owner is
@@ -546,19 +475,19 @@ impl Session {
     /// operation can return before that operation's terminal event is queued
     /// here. Once [`Self::close`] returns, every event the owner published is
     /// queued.
-    pub fn subscribe_diagnostics(&self, capacity: usize) -> Result<DiagnosticSubscription, Error> {
+    pub fn subscribe_diagnostics(&self, capacity: usize) -> Result<Diagnostics, Error> {
         self.owner
             .subscribe_diagnostics(capacity)
-            .map(DiagnosticSubscription::from_owner)
+            .map(Diagnostics::from_owner)
     }
 }
 
-/// One blocking owner session that owns exactly one compile-time bound camera.
+/// One blocking owner session with one typed or runtime-profile camera.
 ///
 /// This is the single-target counterpart of [`Session`]. The profile is named
 /// once, at construction, and the [`Camera`] this type hands out was built from
 /// that same profile parameter: the session path's second, runtime-checked
-/// profile naming (`session.camera::<P>()?`) has no equivalent here, so a
+/// profile naming (`session.camera::<P>(target)?`) has no equivalent here, so a
 /// profile mismatch is not expressible.
 ///
 /// The value owns its session, so it is self-sufficient: the connection lives
@@ -566,12 +495,12 @@ impl Session {
 /// Dropping the final owner handle stops the worker and releases the
 /// transport, but does not emit a protocol STOP. Use [`close`](Self::close)
 /// for the explicit teardown that mirrors [`Session::close`].
-pub struct CameraSession<P: CompileTimeProfile> {
+pub struct CameraSession<P: CameraProfile = AnyProfile> {
     session: Session,
     camera: Camera<P>,
 }
 
-impl<P: CompileTimeProfile> fmt::Debug for CameraSession<P> {
+impl<P: CameraProfile> fmt::Debug for CameraSession<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CameraSession")
@@ -581,19 +510,54 @@ impl<P: CompileTimeProfile> fmt::Debug for CameraSession<P> {
     }
 }
 
-impl<P: CompileTimeProfile> CameraSession<P> {
-    /// Builds the single-camera view for a session whose sole target was
-    /// registered from the same `P`.
+impl<P: CameraProfile> CameraSession<P> {
+    /// Binds the sole camera selected by a validated `CameraConfig<P>`.
     ///
-    /// This is crate-private and is only reachable from the `P`-typed
-    /// construction paths, where the registered [`crate::ProfileSpec`] was lowered
-    /// from this exact `P`. That is what makes the bind structural instead of
-    /// a runtime profile comparison.
+    /// Construction already checked the selection's `CameraProfile` contract,
+    /// so this internal bind reuses those facts without another profile resolution.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
         let target = TargetSlot::try_from(target)?;
         let profile = session.config.registered_target(target)?;
         let camera = Camera::from_core(session.core(profile));
         Ok(Self { session, camera })
+    }
+
+    /// Connects a typed or runtime-selected camera configuration to one owner.
+    ///
+    /// TCP, UDP and serial return the same single-camera session shape.
+    pub fn connect(config: &CameraConfig<P>) -> Result<Self> {
+        if let crate::camera::TransportOptions::Serial { port, baud_rate } = config.transport() {
+            let session_config = config.validated_session_config()?;
+            let target = session_config.sole_target_for("CameraConfig::with_camera_id")?;
+            session_config.validate_for_transport(crate::transport::TransportIdentity::Serial {
+                bus: None,
+            })?;
+            let serial_config = config.serial_config(port, *baud_rate)?;
+            #[cfg(feature = "transport-serial")]
+            {
+                let session = crate::camera::construction::connect_blocking_serial(
+                    serial_config,
+                    session_config,
+                )?;
+                return Self::from_session(session, target);
+            }
+            #[cfg(not(feature = "transport-serial"))]
+            {
+                let _ = (serial_config, target);
+                return Err(Error::FeatureNotSupported {
+                    feature: "blocking serial transport",
+                });
+            }
+        }
+        let plan = config.standard_connection_plan()?;
+        let target = plan.camera_id;
+        let session = crate::camera::construction::connect_blocking(
+            plan.kind,
+            &plan.endpoint,
+            plan.transport_config,
+            plan.session_config,
+        )?;
+        Self::from_session(session, target)
     }
 
     /// Opens one single-camera owner session over a caller-owned transport.
@@ -606,11 +570,30 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
-        let session = Session::open_validated(transport, config.validated_session_config()?)?;
-        Self::from_session(session, config.camera_id)
+        let session_config = config.validated_session_config()?;
+        let target = session_config.sole_target_for("CameraConfig::with_camera_id")?;
+        let session = Session::open_validated(transport, session_config)?;
+        Self::from_session(session, target)
     }
 
-    /// Returns this session's compile-time bound camera view.
+    /// Erases only the compile-time profile parameter, retaining the same owner.
+    #[must_use]
+    pub fn into_any(self) -> CameraSession<AnyProfile> {
+        CameraSession {
+            session: self.session,
+            camera: self.camera.into_any(),
+        }
+    }
+
+    /// Checks the complete registered profile before selecting a typed view.
+    pub fn into_typed<T: CompileTimeProfile>(self) -> Result<CameraSession<T>> {
+        Ok(CameraSession {
+            session: self.session,
+            camera: self.camera.into_typed::<T>()?,
+        })
+    }
+
+    /// Returns this session's profile-bound camera view.
     ///
     /// The profile is not named again and the call cannot fail.
     pub const fn camera(&self) -> &Camera<P> {
@@ -695,6 +678,33 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     }
 }
 
+impl<P: CompileTimeProfile> CameraSession<P> {
+    /// Connects a typed camera using its documented TCP port for host-only addresses.
+    pub fn connect_tcp(address: impl Into<String>) -> Result<Self>
+    where
+        P: crate::capabilities::SupportsTcp,
+    {
+        Self::connect(&CameraConfig::<P>::tcp(address))
+    }
+
+    /// Connects a typed camera using its documented UDP port for host-only addresses.
+    pub fn connect_udp(address: impl Into<String>) -> Result<Self>
+    where
+        P: crate::capabilities::SupportsUdp,
+    {
+        Self::connect(&CameraConfig::<P>::udp(address))
+    }
+
+    /// Connects one typed serial camera; opening writes only the configured startup.
+    #[cfg(feature = "transport-serial")]
+    pub fn connect_serial(port: impl Into<String>, baud_rate: u32) -> Result<Self>
+    where
+        P: crate::capabilities::SupportsSerial,
+    {
+        Self::connect(&CameraConfig::<P>::serial(port, baud_rate))
+    }
+}
+
 crate::camera_core::camera_core! {
     core: BlockingCameraCore,
     owner: BlockingOwnerHandle,
@@ -709,12 +719,12 @@ crate::camera_core::camera_core! {
 /// `Clone + Send + Sync` and borrows nothing: it keeps the session's owner
 /// alive, and concurrent calls through it are serialized by the owner worker.
 #[must_use]
-pub struct Camera<P: CompileTimeProfile> {
+pub struct Camera<P: CameraProfile = AnyProfile> {
     core: BlockingCameraCore,
     _profile: PhantomData<fn() -> P>,
 }
 
-impl<P: CompileTimeProfile> Clone for Camera<P> {
+impl<P: CameraProfile> Clone for Camera<P> {
     fn clone(&self) -> Self {
         Self {
             core: self.core.clone(),
@@ -723,7 +733,7 @@ impl<P: CompileTimeProfile> Clone for Camera<P> {
     }
 }
 
-impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
+impl<P: CameraProfile> fmt::Debug for Camera<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
@@ -733,7 +743,7 @@ impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
     }
 }
 
-impl<P: CompileTimeProfile> Camera<P> {
+impl<P: CameraProfile> Camera<P> {
     pub(crate) fn from_core(core: BlockingCameraCore) -> Self {
         Self {
             core,
@@ -747,14 +757,26 @@ impl<P: CompileTimeProfile> Camera<P> {
 
     crate::camera_view::camera_view_getters!();
 
+    /// Erases only the compile-time profile parameter, retaining this owner and target.
+    pub fn into_any(self) -> Camera<AnyProfile> {
+        Camera::from_core(self.core)
+    }
+
+    /// Checks the complete registered profile before selecting a typed view.
+    pub fn into_typed<T: CompileTimeProfile>(self) -> Result<Camera<T>> {
+        T::validate_spec(self.core.profile())?;
+        Ok(Camera::from_core(self.core))
+    }
+
     /// Executes a plain command through this camera's shared owner.
     ///
-    /// This intentionally has no request-specific `P: Has*` bound. Noun and
-    /// accessor methods carry the `Has*` marker bounds that define the
-    /// compile-time profile-permission surface; this direct method is the
-    /// uniform typed/downstream extension boundary.
+    /// This intentionally has no request-specific `Permits` bound. Noun and
+    /// accessor methods use sealed `Permits<gate::X>` bounds: evidenced typed
+    /// profiles and `AnyProfile` permit calls, while preparation checks the
+    /// registered profile before I/O. `Has*` markers remain evidence claims;
+    /// this direct method is the uniform typed/downstream extension boundary.
     ///
-    /// Preparation calls [`crate::Request::validate_for_target`] before
+    /// Preparation calls [`crate::request::Request::validate_for_target`] before
     /// encoding, owner admission, or transport I/O. Crate-provided requests
     /// submitted directly return [`crate::Error::FeatureNotSupported`] there
     /// when the selected profile lacks their required feature. Raw and other
@@ -773,12 +795,13 @@ impl<P: CompileTimeProfile> Camera<P> {
 
     /// Sends an inquiry and decodes its response through the shared owner.
     ///
-    /// This intentionally has no request-specific `P: Has*` bound. Noun and
-    /// accessor methods carry the `Has*` marker bounds that define the
-    /// compile-time profile-permission surface; this direct method is the
-    /// uniform typed/downstream extension boundary.
+    /// This intentionally has no request-specific `Permits` bound. Noun and
+    /// accessor methods use sealed `Permits<gate::X>` bounds: evidenced typed
+    /// profiles and `AnyProfile` permit calls, while preparation checks the
+    /// registered profile before I/O. `Has*` markers remain evidence claims;
+    /// this direct method is the uniform typed/downstream extension boundary.
     ///
-    /// Preparation calls [`crate::Request::validate_for_target`] before
+    /// Preparation calls [`crate::request::Request::validate_for_target`] before
     /// encoding, owner admission, or transport I/O. Crate-provided inquiries
     /// submitted directly return [`crate::Error::FeatureNotSupported`] there
     /// when the selected profile lacks their required feature. Raw and other
@@ -817,7 +840,7 @@ mod tests {
 
     use crate::{
         capabilities::Capabilities,
-        profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
+        profiles::{ProfileEnvelope, ProfileTiming, TransportCompatibility},
         testing::testkit::{helpers, ScriptedBlockingTransport, Step},
         transport::{BlockingTransport, HasTransportConfig, TransportConfig},
         CommandTimeouts, ProfileSpec,
@@ -883,12 +906,15 @@ mod tests {
     fn partial_motion_profile(has_zoom: bool, has_focus: bool) -> ProfileSpec {
         let mut capabilities =
             Capabilities::runtime_baseline("Partial motion test camera", 1).expect("baseline");
-        let domains = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        let domains = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("valid built-in profile")
+            .capabilities()
+            .clone();
         capabilities.zoom = has_zoom.then(|| domains.zoom.expect("generic zoom domain"));
         capabilities.focus = has_focus.then(|| domains.focus.expect("generic focus domain"));
 
         ProfileSpec::builder(capabilities)
-            .transports(TransportCompatibility::new(Some(5678), None, false))
+            .transports(TransportCompatibility::new().with_tcp(5678))
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
                 ProfileTiming::builder()
@@ -899,15 +925,15 @@ mod tests {
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
                     .raw_inquiry_reply_skew(Duration::ZERO)
-                    .minimum_inquiry_spacing(Duration::ZERO)
-                    .minimum_command_spacing(Duration::ZERO)
+                    .inquiry_spacing(Duration::ZERO)
+                    .command_spacing(Duration::ZERO)
                     .build()
                     .expect("valid timing"),
             )
             .maximum_command_sockets(1)
             .supports_operation_complete(true)
             .supports_command_cancel(false)
-            .position_inquiries(PositionInquirySupport::new(false, false, false))
+            .position_inquiries(None)
             .build()
             .expect("valid partial motion profile")
     }
@@ -933,10 +959,14 @@ mod tests {
         ]);
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap();
-        let session = Session::open(transport, config).unwrap();
+        let session = Session::open(transport, &config).unwrap();
 
-        let first = session.camera::<crate::profiles::PtzOpticsG2>().unwrap();
-        let second = session.camera::<crate::profiles::PtzOpticsG2>().unwrap();
+        let first = session
+            .camera::<crate::profiles::PtzOpticsG2>(CameraId::CAMERA_1)
+            .unwrap();
+        let second = session
+            .camera::<crate::profiles::PtzOpticsG2>(CameraId::CAMERA_1)
+            .unwrap();
         assert_eq!(first.target(), second.target());
 
         first.zoom().stop().unwrap().applied().unwrap();
@@ -961,7 +991,7 @@ mod tests {
         let transport = ScriptedBlockingTransport::new([helpers::auto_respond_step()]);
         let session = Session::open(
             transport,
-            SessionConfig::new(partial_motion_profile(true, false)),
+            &SessionConfig::new(partial_motion_profile(true, false)),
         )
         .expect("zoom session");
         let mut operation = partial_motion_core(&session)
@@ -981,13 +1011,13 @@ mod tests {
     fn session_open_rejects_invalid_tuning_before_any_write() {
         let transport = ScriptedBlockingTransport::new([]);
         let probe = transport.clone();
-        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
+        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()
             .with_sony_sequence_reset_on_connect(true)
-            .with_tuning(OperationalTuning::new().maximum_command_sockets(u8::MAX));
+            .with_tuning(OperationalTuning::new().with_maximum_command_sockets(u8::MAX));
         assert!(matches!(
-            Session::open(transport, config),
-            Err(Error::InvalidRequest(_) | Error::InvalidParameter { .. })
+            Session::open(transport, &config),
+            Err(Error::InvalidRequest { .. } | Error::InvalidParameter { .. })
         ));
         assert!(probe.sent().is_empty());
     }
@@ -996,11 +1026,11 @@ mod tests {
     fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
         let transport = ScriptedBlockingTransport::new([]);
         let probe = transport.clone();
-        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
+        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()
             .with_sony_sequence_reset_on_connect(true);
 
-        let session = Session::open(transport, config).expect("Sony session opens after RESET");
+        let session = Session::open(transport, &config).expect("Sony session opens after RESET");
 
         assert_eq!(
             probe.sent(),
@@ -1015,7 +1045,7 @@ mod tests {
         let probe = transport.clone();
         let session = Session::open(
             transport,
-            SessionConfig::new(partial_motion_profile(true, false)),
+            &SessionConfig::new(partial_motion_profile(true, false)),
         )
         .expect("zoom-only session");
 
@@ -1039,7 +1069,7 @@ mod tests {
         let probe = transport.clone();
         let session = Session::open(
             transport,
-            SessionConfig::new(partial_motion_profile(false, false)),
+            &SessionConfig::new(partial_motion_profile(false, false)),
         )
         .expect("no-axis session");
 
@@ -1061,7 +1091,7 @@ mod tests {
         let (transport, writes) = FailFirstZoomStopSend::new([helpers::auto_respond_step()]);
         let session = Session::open(
             transport,
-            SessionConfig::new(partial_motion_profile(true, true)),
+            &SessionConfig::new(partial_motion_profile(true, true)),
         )
         .expect("zoom-focus session");
 
@@ -1083,5 +1113,136 @@ mod tests {
             "the focus stop must follow the failed zoom stop, while unsupported pan/tilt stays absent"
         );
         session.shutdown().expect("session shutdown");
+    }
+    #[test]
+    fn profile_erasure_and_typed_conversion_preserve_one_owner_and_view_settings() {
+        use crate::{
+            profiles::{PtzOpticsG2, SonyFr7},
+            testing::testkit::{helpers, ScriptedBlockingTransport},
+        };
+        let transport = ScriptedBlockingTransport::new([helpers::auto_respond_step()]);
+        let probe = transport.clone();
+        let config =
+            SessionConfig::from_compile_time::<PtzOpticsG2>().expect("typed configuration");
+        let session = Session::open(transport, &config).expect("owner session");
+        let selected = session
+            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .expect("typed camera")
+            .with_submission_class(SubmissionClass::Background);
+        let erased: Camera = selected.into_any();
+        assert_eq!(erased.submission_class(), Some(SubmissionClass::Background));
+        assert!(erased.clone().into_typed::<SonyFr7>().is_err());
+        assert!(matches!(
+            erased.nd_filter().set_auto(true),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        assert!(
+            probe.sent().is_empty(),
+            "conversion and unsupported gates perform no I/O"
+        );
+        let typed = erased
+            .into_typed::<PtzOpticsG2>()
+            .expect("matching complete profile");
+        assert_eq!(typed.target(), CameraId::CAMERA_1);
+        assert_eq!(typed.submission_class(), Some(SubmissionClass::Background));
+        let mut single =
+            CameraSession::<PtzOpticsG2>::from_session(session.clone(), CameraId::CAMERA_1)
+                .expect("single camera");
+        single.set_submission_class(Some(SubmissionClass::User));
+        let single: CameraSession = single.into_any();
+        let single = single
+            .into_typed::<PtzOpticsG2>()
+            .expect("typed session conversion");
+        assert_eq!(single.submission_class(), Some(SubmissionClass::User));
+        typed
+            .zoom()
+            .stop()
+            .expect("stop admission")
+            .applied()
+            .expect("applied stop");
+        assert_eq!(probe.sent(), [vec![0x81, 1, 4, 7, 0, 0xff]]);
+        session.close().expect("one owner closes");
+    }
+    #[test]
+    fn diagnostics_wait_on_the_manual_clock_and_preserve_shutdown_after_queued_events() {
+        use crate::{
+            profiles::GenericVisca,
+            testing::testkit::{helpers, ManualClock, ScriptedBlockingTransport},
+        };
+        fn send_sync<T: Send + Sync>() {}
+        send_sync::<Diagnostics>();
+        let clock = ManualClock::new();
+        let participant = clock.enter();
+        let config = SessionConfig::from_compile_time::<GenericVisca>().expect("configuration");
+        let session = clock
+            .open_blocking_session(
+                &participant,
+                ScriptedBlockingTransport::new([helpers::auto_respond_step()]),
+                config,
+            )
+            .expect("manual-clock session");
+        let diagnostics = session.subscribe_diagnostics(128).expect("subscription");
+        let start = clock.now();
+        assert!(diagnostics
+            .recv_with_timeout(Duration::from_secs(3))
+            .expect("empty timed observation")
+            .is_none());
+        assert_eq!(clock.now() - start, Duration::from_secs(3));
+        let sender = session.clone();
+        let work = clock.spawn(move || {
+            sender
+                .camera::<GenericVisca>(CameraId::CAMERA_1)
+                .expect("camera")
+                .zoom()
+                .stop()
+                .expect("stop")
+                .applied()
+                .expect("applied stop");
+        });
+        let _event = diagnostics
+            .recv()
+            .expect("unbounded receive waits for the worker");
+        work.join().expect("command worker");
+        session
+            .close()
+            .expect("owner closes while subscription exists");
+        // Ready events win even when the observation budget is zero.
+        assert!(diagnostics
+            .recv_with_timeout(Duration::ZERO)
+            .expect("queued event")
+            .is_some());
+        while diagnostics.try_recv().is_some() {}
+        assert!(matches!(diagnostics.recv(), Err(Error::RuntimeShutdown)));
+        assert!(matches!(
+            diagnostics.recv_with_timeout(Duration::ZERO),
+            Err(Error::RuntimeShutdown)
+        ));
+    }
+
+    #[test]
+    fn diagnostics_keep_the_transport_terminal_cause_after_close() {
+        use crate::{
+            profiles::GenericVisca,
+            testing::testkit::{helpers, ScriptedBlockingTransport, Step},
+            types::FocusMode,
+        };
+        let config = SessionConfig::from_compile_time::<GenericVisca>().expect("configuration");
+        let transport = ScriptedBlockingTransport::new([
+            Step::on_send(None, vec![]),
+            helpers::errors::connection_lost(),
+        ]);
+        let session = Session::open(transport, &config).expect("session");
+        let diagnostics = session.subscribe_diagnostics(128).expect("subscription");
+        assert!(session
+            .camera::<GenericVisca>(CameraId::CAMERA_1)
+            .expect("camera")
+            .focus()
+            .set_mode(FocusMode::Manual)
+            .is_err());
+        let terminal = session.close().expect_err("transport terminal cause");
+        while diagnostics.try_recv().is_some() {}
+        let observed = diagnostics.recv().expect_err("diagnostic terminal cause");
+        assert_eq!(observed.kind(), terminal.kind());
+        assert_eq!(observed.to_string(), terminal.to_string());
     }
 }

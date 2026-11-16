@@ -1,9 +1,10 @@
 use grafton_visca::{
-    command::{BoolConvention, ImageFlipMode, Nibbles, Payload, Response},
-    CameraId, UnitInterval, ViscaSocket, ZoomDomain,
+    types::CameraId, types::ImageFlipMode, types::UnitInterval, types::ViscaSocket,
+    types::ZoomDomain, wire::BoolConvention, wire::Nibbles, wire::Payload, wire::Response,
 };
 
 fn main() {
+    let _: Option<grafton_visca::error::Error> = None;
     let camera_id = CameraId::CAMERA_1;
     assert_eq!((0x80 | camera_id.value()), 0x81);
 
@@ -18,7 +19,7 @@ fn main() {
         .unwrap();
     let _ = Nibbles::<4>::try_from(Payload::new(&[0, 1, 2, 3])).unwrap();
     let root_value = UnitInterval::new(0.5).unwrap();
-    let units_value: grafton_visca::units::UnitInterval = root_value;
+    let units_value: grafton_visca::types::UnitInterval = root_value;
     assert_eq!(units_value.value(), 0.5);
     let _domain = ZoomDomain::Optical;
 

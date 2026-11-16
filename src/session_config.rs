@@ -1,6 +1,6 @@
 //! Shared profile/target configuration for the owner-backed session facades.
 //!
-//! [`SessionConfig`] is intentionally independent of either execution mode.
+//! [`crate::config::SessionConfig`] is intentionally independent of either execution mode.
 //! It is therefore available in builds that select only the blocking facade,
 //! only the async facade, or neither facade.  A configuration may be edited
 //! while it is being built; once passed to a session, the resulting registry
@@ -9,7 +9,8 @@
 use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
-    profile::{CompileTimeProfile, OperationalTuning, ProfileSpec},
+    config::OperationalTuning,
+    profiles::{CompileTimeProfile, ProfileSelection, ProfileSpec},
     target::{PerTarget, TargetSlot},
     CameraId, Error, Result,
 };
@@ -27,9 +28,9 @@ impl ValidatedTuning {
     ) -> Result<Self> {
         let mut profiles = profiles.into_iter().peekable();
         if profiles.peek().is_none() {
-            return Err(Error::InvalidRequest(
-                "tuning validation requires a registered profile".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "tuning validation requires a registered profile".into(),
+            });
         }
         for profile in profiles {
             profile.validate_tuning(tuning)?;
@@ -48,19 +49,28 @@ impl ValidatedTuning {
     }
 }
 
-/// Maximum number of individually addressable cameras in one session.
-pub(crate) const MAX_REGISTERED_TARGETS: usize = TargetSlot::COUNT;
-
 /// Default number of requests a session may admit before fail-fast rejection.
 #[allow(clippy::unwrap_used)]
 pub const DEFAULT_ADMISSION_CAPACITY: NonZeroUsize = NonZeroUsize::new(64).unwrap();
 
-/// The construction-time session policy both [`SessionConfig`] and
-/// [`CameraConfig`](crate::camera::CameraConfig) carry, stored once and
+/// The construction-time session policy both [`crate::config::SessionConfig`] and
+/// [`crate::config::CameraConfig`](crate::config::CameraConfig) carry, stored once and
 /// validated once, when a session opens (#805).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(
+    feature = "schemars",
+    derive(schemars::JsonSchema),
+    schemars(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub(crate) struct SessionPolicy {
     pub(crate) tuning: OperationalTuning,
+    #[cfg_attr(feature = "ts-rs", ts(type = "number"))]
     pub(crate) admission_capacity: NonZeroUsize,
     pub(crate) sony_sequence_reset_on_connect: bool,
     pub(crate) strict_unconfirmed_poison: bool,
@@ -89,7 +99,7 @@ macro_rules! session_policy_accessors {
         /// rejects values that weaken pacing minima, raise a socket limit,
         /// undercut a deadline, or specify incoherent retry timing.
         #[must_use]
-        pub const fn with_tuning(mut self, tuning: $crate::OperationalTuning) -> Self {
+        pub const fn with_tuning(mut self, tuning: $crate::config::OperationalTuning) -> Self {
             self.policy.tuning = tuning;
             self
         }
@@ -100,7 +110,7 @@ macro_rules! session_policy_accessors {
         /// since have been reconfigured at runtime; read the session's own
         /// `tuning` for the value requests are actually prepared under.
         #[must_use]
-        pub const fn tuning(&self) -> $crate::OperationalTuning {
+        pub const fn tuning(&self) -> $crate::config::OperationalTuning {
             self.policy.tuning
         }
 
@@ -196,9 +206,20 @@ pub(crate) use session_policy_accessors;
 /// [`Arc`] so cloning a configuration or producing async camera views does not
 /// copy the validated profile inventory.
 #[derive(Debug, Clone)]
+#[cfg_attr(
+    feature = "schemars",
+    derive(schemars::JsonSchema),
+    schemars(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct SessionConfig {
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<SessionTargetData>"))]
+    #[cfg_attr(feature = "ts-rs", ts(as = "Vec<SessionTargetData>"))]
     targets: PerTarget<Option<Arc<crate::TargetRegistration>>>,
     policy: SessionPolicy,
+    transport: crate::camera::config::TransportOptions,
+    transport_config: Option<crate::transport::TransportConfig>,
+    serial_startup: crate::transport::SerialStartup,
 }
 
 impl SessionConfig {
@@ -222,28 +243,23 @@ impl SessionConfig {
         Ok(Self::new(ProfileSpec::from_compile_time::<P>()?))
     }
 
-    /// Adds one target/profile registration to this not-yet-open config.
-    ///
-    /// Registration is bounded to seven individual camera IDs.  Broadcast,
-    /// duplicate IDs, and registrations beyond capacity are rejected before
-    /// mutating the configuration. The session policy, including tuning, is
-    /// checked against every registered profile when the session opens.
-    pub fn register_target(&mut self, target: CameraId, profile: ProfileSpec) -> Result<&mut Self> {
+    /// Adds one individual target using a built-in ID or a custom specification.
+    /// Duplicate and broadcast IDs are rejected before registration changes.
+    pub fn with_target(
+        mut self,
+        target: CameraId,
+        profile: impl Into<ProfileSelection>,
+    ) -> Result<Self> {
         let slot = TargetSlot::try_from(target)?;
         if self.targets[slot].is_some() {
-            return Err(Error::InvalidRequest(
-                "session target is already registered".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "session target is already registered".into(),
+            });
         }
+        let profile = profile.into().spec()?;
         self.targets[slot] = Some(Arc::new(crate::TargetRegistration::from_profile(
             slot, profile,
         )));
-        Ok(self)
-    }
-
-    /// Builder-style equivalent of [`Self::register_target`].
-    pub fn with_target(mut self, target: CameraId, profile: ProfileSpec) -> Result<Self> {
-        self.register_target(target, profile)?;
         Ok(self)
     }
 
@@ -260,15 +276,13 @@ impl SessionConfig {
     ///
     /// The canonical profile remains unchanged. Profiles without source-backed
     /// mount-dependent limits refuse this setting before the config changes.
-    pub fn set_mount(
-        &mut self,
-        target: CameraId,
-        mount: crate::MountPosition,
-    ) -> Result<&mut Self> {
+    pub fn with_mount(mut self, target: CameraId, mount: crate::MountPosition) -> Result<Self> {
         let slot = TargetSlot::try_from(target)?;
         let registration = self.targets[slot]
             .as_deref()
-            .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))?;
+            .ok_or_else(|| Error::InvalidRequest {
+                reason: "session target is not registered".into(),
+            })?;
         let selected = registration.clone().with_mount(mount)?;
         self.targets[slot] = Some(Arc::new(selected));
         Ok(self)
@@ -282,35 +296,71 @@ impl SessionConfig {
             .and_then(|slot| self.targets[slot].as_deref())
     }
 
-    /// Returns the registered individual target IDs in camera-number order.
-    ///
-    /// Empty slots are represented by `None`; the fixed-size result preserves
-    /// the registry's bounded shape without allocating.
-    #[must_use]
-    pub fn targets(&self) -> [Option<CameraId>; MAX_REGISTERED_TARGETS] {
-        std::array::from_fn(|index| {
-            let target = TargetSlot::ALL[index];
-            self.targets[target].as_ref().map(|_| target.camera())
-        })
-    }
-
-    /// Returns the sole registered target, or `None` for an empty or
-    /// multi-target registry.
-    #[must_use]
-    pub fn sole_target(&self) -> Option<CameraId> {
-        if self.target_count() != 1 {
-            return None;
-        }
-        self.targets().into_iter().flatten().next()
-    }
-
-    /// Returns the number of registered individual targets.
-    #[must_use]
-    pub fn target_count(&self) -> usize {
+    /// Returns registered target IDs in camera-number order without allocating.
+    pub fn targets(&self) -> impl Iterator<Item = CameraId> + '_ {
         self.targets
             .iter()
-            .filter(|(_, profile)| profile.is_some())
-            .count()
+            .filter_map(|(target, registration)| registration.as_ref().map(|_| target.camera()))
+    }
+    /// Returns the only target, or `None` when there are zero or several.
+    pub fn sole_target(&self) -> Option<CameraId> {
+        let mut targets = self.targets();
+        let first = targets.next()?;
+        targets.next().is_none().then_some(first)
+    }
+    /// Returns the transport selected for standard session connection.
+    pub const fn transport(&self) -> &crate::camera::config::TransportOptions {
+        &self.transport
+    }
+    /// Selects a standard transport; the default is a caller-supplied custom transport.
+    #[must_use]
+    pub fn with_transport(mut self, transport: crate::camera::config::TransportOptions) -> Self {
+        self.transport = transport;
+        self
+    }
+    /// Returns explicit transport settings, or `None` for the transport defaults.
+    pub const fn transport_config(&self) -> Option<crate::transport::TransportConfig> {
+        self.transport_config
+    }
+    /// Selects explicit transport timeout and buffer settings.
+    #[must_use]
+    pub const fn with_transport_config(
+        mut self,
+        config: crate::transport::TransportConfig,
+    ) -> Self {
+        self.transport_config = Some(config);
+        self
+    }
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) const fn with_optional_transport_config(
+        mut self,
+        config: Option<crate::transport::TransportConfig>,
+    ) -> Self {
+        self.transport_config = config;
+        self
+    }
+    /// Returns the optional serial startup writes; the default writes nothing.
+    pub const fn serial_startup(&self) -> crate::transport::SerialStartup {
+        self.serial_startup
+    }
+    /// Selects optional serial Address Set and I/F Clear startup writes.
+    #[must_use]
+    pub const fn with_serial_startup(mut self, startup: crate::transport::SerialStartup) -> Self {
+        self.serial_startup = startup;
+        self
+    }
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn serial_config(
+        &self,
+        port: &str,
+        baud_rate: u32,
+    ) -> Result<crate::transport::SerialConfig> {
+        crate::camera::config::serial_device_config(
+            port,
+            baud_rate,
+            self.transport_config,
+            self.serial_startup,
+        )
     }
 
     session_policy_accessors!();
@@ -344,16 +394,15 @@ impl SessionConfig {
     /// I/O.
     #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn validated(self) -> Result<ValidatedSessionConfig> {
-        if self.target_count() == 0 {
-            return Err(Error::InvalidRequest(
-                "session requires at least one registered target".into(),
-            ));
+        if self.targets().next().is_none() {
+            return Err(Error::InvalidRequest {
+                reason: "session requires at least one registered target".into(),
+            });
         }
         let capacity = self.policy.admission_capacity.get();
-        let invalid_capacity = || {
-            Error::InvalidRequest(
-                "session admission capacity overflows control-reserve or correlation bounds".into(),
-            )
+        let invalid_capacity = || Error::InvalidRequest {
+            reason: "session admission capacity overflows control-reserve or correlation bounds"
+                .into(),
         };
         let mut total_capacity = capacity;
         for profile in self.targets.iter().filter_map(|(_, registration)| {
@@ -372,9 +421,9 @@ impl SessionConfig {
         // Flume's receive path temporarily accounts for one additional
         // pending sender on top of ordinary and control-reserve capacity.
         if total_capacity.checked_add(1).is_none() {
-            return Err(Error::InvalidRequest(
-                "session admission capacity leaves no room for channel bookkeeping".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "session admission capacity leaves no room for channel bookkeeping".into(),
+            });
         }
         if self.policy.sony_sequence_reset_on_connect
             && self
@@ -386,12 +435,12 @@ impl SessionConfig {
                         .map(crate::TargetRegistration::profile)
                 })
                 .any(|profile| {
-                    profile.envelope() != crate::profile::ProfileEnvelope::SonyEncapsulated
+                    profile.envelope() != crate::profiles::ProfileEnvelope::SonyEncapsulated
                 })
         {
-            return Err(Error::InvalidRequest(
-                "Sony sequence reset on connect requires Sony encapsulated profiles".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "Sony sequence reset on connect requires Sony encapsulated profiles".into(),
+            });
         }
         let tuning = self.validate_tuning(self.policy.tuning)?;
         Ok(ValidatedSessionConfig(self, tuning))
@@ -418,25 +467,9 @@ impl SessionConfig {
     ) -> Result<Arc<crate::TargetRegistration>> {
         self.targets[target]
             .clone()
-            .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))
-    }
-
-    /// [`Self::registered_target`], only when its capabilities, coordinate
-    /// codec, and envelope match `P`.
-    ///
-    /// This is the shared pure projection boundary used by both execution
-    /// facades. It performs no owner, transport, or protocol work.
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn registered_target_for<P>(
-        &self,
-        target: TargetSlot,
-    ) -> Result<Arc<crate::TargetRegistration>>
-    where
-        P: CompileTimeProfile,
-    {
-        let registration = self.registered_target(target)?;
-        registration.profile().ensure_compile_time::<P>()?;
-        Ok(registration)
+            .ok_or_else(|| Error::InvalidRequest {
+                reason: "session target is not registered".into(),
+            })
     }
 
     fn with_profile(target: TargetSlot, profile: ProfileSpec) -> Self {
@@ -453,12 +486,160 @@ impl Default for SessionConfig {
         Self {
             targets: PerTarget::default(),
             policy: SessionPolicy::DEFAULT,
+            transport: crate::camera::config::TransportOptions::Custom,
+            transport_config: None,
+            serial_startup: crate::transport::SerialStartup::default(),
         }
     }
 }
 
-/// A [`SessionConfig`] whose session policy was validated against its
-/// registered profiles ([`SessionConfig::validated`]). Opening a session
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl SessionConfig {
+    pub(crate) fn standard_connection_plan(
+        &self,
+    ) -> Result<crate::camera::config::SessionConnectionPlan> {
+        use crate::camera::config::{SessionConnectionPlan, TransportKind, TransportOptions};
+        use crate::transport::TransportConfig;
+        let session_config = self.clone().validated()?;
+        crate::camera::config::validate_selected_transport(&session_config, &self.transport)?;
+        let (kind, address, configured_default) = match &self.transport {
+            TransportOptions::Tcp { address } => (
+                TransportKind::Tcp,
+                address.as_str(),
+                TransportConfig::for_tcp(),
+            ),
+            TransportOptions::Udp { address } => (
+                TransportKind::Udp,
+                address.as_str(),
+                TransportConfig::for_udp(),
+            ),
+            TransportOptions::Serial { .. } => {
+                return Err(Error::InvalidState {
+                    reason: "serial transport requires its serial construction path".into(),
+                })
+            }
+            TransportOptions::Custom => {
+                return Err(Error::InvalidState {
+                    reason: "custom transport requires Session::open".into(),
+                })
+            }
+        };
+        let port = |profile: &ProfileSpec| match kind {
+            TransportKind::Tcp => profile.transports().tcp_port(),
+            TransportKind::Udp => profile.transports().udp_port(),
+            _ => None,
+        };
+        let mut ports = self.targets.iter().filter_map(|(_, registration)| {
+            registration.as_deref().map(|target| port(target.profile()))
+        });
+        let first = ports.next().flatten();
+        // A mixed registry can supply an explicit endpoint port. A host-only
+        // endpoint needs a single default agreed by every registered profile.
+        let default_port = if ports.all(|candidate| candidate == first) {
+            first
+        } else {
+            None
+        };
+        let transport_config = self.transport_config.unwrap_or(configured_default);
+        transport_config.validate()?;
+        let endpoint = crate::transport::address::canonicalize_endpoint(address, default_port)?;
+        Ok(SessionConnectionPlan {
+            kind,
+            endpoint,
+            transport_config,
+            session_config,
+        })
+    }
+}
+
+#[cfg(any(feature = "serde", feature = "schemars", feature = "ts-rs"))]
+#[derive(Debug, Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(
+    feature = "schemars",
+    derive(schemars::JsonSchema),
+    schemars(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+struct SessionTargetData {
+    camera_id: CameraId,
+    profile: ProfileSelection,
+    mount: Option<crate::MountPosition>,
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SessionConfigData {
+    targets: Vec<SessionTargetData>,
+    policy: SessionPolicy,
+    transport: crate::camera::config::TransportOptions,
+    transport_config: Option<crate::transport::TransportConfig>,
+    serial_startup: crate::transport::SerialStartup,
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for SessionConfig {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        let targets = self
+            .targets
+            .iter()
+            .filter_map(|(_, registration)| registration.as_deref())
+            .map(|target| SessionTargetData {
+                camera_id: target.target(),
+                profile: crate::camera::config::selection_for_spec(target.profile().clone()),
+                mount: target.mount(),
+            })
+            .collect();
+        serde::Serialize::serialize(
+            &SessionConfigData {
+                targets,
+                policy: self.policy,
+                transport: self.transport.clone(),
+                transport_config: self.transport_config,
+                serial_startup: self.serial_startup,
+            },
+            serializer,
+        )
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for SessionConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let data = <SessionConfigData as serde::Deserialize>::deserialize(deserializer)?;
+        let mut config = SessionConfig {
+            targets: PerTarget::default(),
+            policy: data.policy,
+            transport: data.transport,
+            transport_config: data.transport_config,
+            serial_startup: data.serial_startup,
+        };
+        for target in data.targets {
+            config = config
+                .with_target(target.camera_id, target.profile)
+                .map_err(serde::de::Error::custom)?;
+            if let Some(mount) = target.mount {
+                config = config
+                    .with_mount(target.camera_id, mount)
+                    .map_err(serde::de::Error::custom)?;
+            }
+        }
+        Ok(config)
+    }
+}
+
+/// A [`crate::config::SessionConfig`] whose session policy was validated against its
+/// registered profiles ([`crate::config::SessionConfig::validated`]). Opening a session
 /// consumes one, so the policy is validated exactly once per open.
 #[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug, Clone)]
@@ -466,6 +647,10 @@ pub(crate) struct ValidatedSessionConfig(SessionConfig, ValidatedTuning);
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl ValidatedSessionConfig {
+    pub(crate) fn target_count(&self) -> usize {
+        self.targets.iter().count()
+    }
+
     pub(crate) const fn validated_tuning(&self) -> ValidatedTuning {
         self.1
     }
@@ -507,13 +692,7 @@ impl ValidatedSessionConfig {
             return Ok(());
         };
         let addressed = bus.cameras;
-        match self
-            .0
-            .targets()
-            .into_iter()
-            .flatten()
-            .find(|target| target.value() > addressed)
-        {
+        match self.0.targets().find(|target| target.value() > addressed) {
             None => Ok(()),
             Some(missing) => Err(Error::connection_failed(
                 bus.port.clone(),
@@ -535,11 +714,9 @@ impl ValidatedSessionConfig {
     /// `targeted` is the selector a caller with several targets uses instead;
     /// a validated configuration always has at least one target.
     pub(crate) fn sole_target_for(&self, targeted: &'static str) -> Result<CameraId> {
-        self.0.sole_target().ok_or_else(|| {
-            Error::InvalidState(
-                format!("session has multiple registered targets; select one with {targeted}")
-                    .into(),
-            )
+        self.0.sole_target().ok_or_else(|| Error::InvalidState {
+            reason: format!("session has multiple registered targets; select one with {targeted}")
+                .into(),
         })
     }
 }
@@ -564,7 +741,7 @@ mod tests {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap();
         assert!(ValidatedTuning::validate(OperationalTuning::new(), []).is_err());
         assert!(ValidatedTuning::validate(
-            OperationalTuning::new().ack_timeout(std::time::Duration::ZERO),
+            OperationalTuning::new().with_ack_timeout(std::time::Duration::ZERO),
             [&profile],
         )
         .is_err());
@@ -576,7 +753,7 @@ mod tests {
     }
 
     use super::*;
-    use crate::profiles::{GenericVisca, SonyFR7};
+    use crate::profiles::{GenericVisca, SonyFr7};
 
     #[test]
     fn sony_sequence_reset_is_opt_in_and_requires_the_sony_envelope() {
@@ -585,11 +762,11 @@ mod tests {
             .with_sony_sequence_reset_on_connect(true);
         assert!(matches!(
             raw.validated(),
-            Err(Error::InvalidRequest(message))
+            Err(Error::InvalidRequest { reason: message })
                 if message == "Sony sequence reset on connect requires Sony encapsulated profiles"
         ));
 
-        let sony = SessionConfig::from_compile_time::<SonyFR7>()
+        let sony = SessionConfig::from_compile_time::<SonyFr7>()
             .unwrap()
             .with_sony_sequence_reset_on_connect(true);
         assert!(sony.sony_sequence_reset_on_connect());
@@ -611,5 +788,74 @@ mod tests {
         assert!(strict.strict_unconfirmed_poison());
         assert_eq!(strict.tuning(), OperationalTuning::new());
         strict.validated().unwrap();
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod config_value_tests {
+    use super::*;
+    use crate::profiles::ProfileId;
+
+    #[test]
+    fn consuming_target_updates_keep_individual_ids_sorted_and_reject_duplicates() -> Result<()> {
+        let config = SessionConfig::default()
+            .with_target(CameraId::CAMERA_2, ProfileId::PtzOpticsG2)?
+            .with_target(CameraId::CAMERA_1, ProfileId::GenericVisca)?;
+        assert_eq!(
+            config.targets().collect::<Vec<_>>(),
+            [CameraId::CAMERA_1, CameraId::CAMERA_2]
+        );
+        assert_eq!(config.sole_target(), None);
+        assert!(config
+            .clone()
+            .with_target(CameraId::CAMERA_2, ProfileId::PtzOpticsG2)
+            .is_err());
+        assert!(config
+            .with_target(CameraId::BROADCAST, ProfileId::PtzOpticsG2)
+            .is_err());
+        Ok(())
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn session_config_round_trips_transport_targets_mount_and_closed_policy() -> Result<()> {
+        let config = SessionConfig::default()
+            .with_target(CameraId::CAMERA_2, ProfileId::SonyFr7)?
+            .with_mount(CameraId::CAMERA_2, crate::MountPosition::Ceiling)?
+            .with_transport(crate::camera::config::TransportOptions::udp("camera.local"))
+            .with_strict_unconfirmed_poison(true);
+        let json = serde_json::to_value(&config).expect("session config serialization");
+        assert_eq!(json["targets"][0]["profile"], "sony_fr7");
+        let restored: SessionConfig =
+            serde_json::from_value(json.clone()).expect("session config round trip");
+        assert_eq!(restored.targets().collect::<Vec<_>>(), [CameraId::CAMERA_2]);
+        assert_eq!(
+            restored
+                .registration(CameraId::CAMERA_2)
+                .expect("target")
+                .mount(),
+            Some(crate::MountPosition::Ceiling)
+        );
+        assert_eq!(restored.transport(), config.transport());
+        assert!(restored.strict_unconfirmed_poison());
+        assert_eq!(
+            serde_json::to_value(restored).expect("session reserialization"),
+            json
+        );
+        let mut unknown = json.clone();
+        unknown["unexpected"] = true.into();
+        assert!(serde_json::from_value::<SessionConfig>(unknown).is_err());
+        let mut duplicate = json.clone();
+        let row = duplicate["targets"][0].clone();
+        duplicate["targets"]
+            .as_array_mut()
+            .expect("targets array")
+            .push(row);
+        assert!(serde_json::from_value::<SessionConfig>(duplicate).is_err());
+        let mut unknown_target = json;
+        unknown_target["targets"][0]["unexpected"] = true.into();
+        assert!(serde_json::from_value::<SessionConfig>(unknown_target).is_err());
+        Ok(())
     }
 }

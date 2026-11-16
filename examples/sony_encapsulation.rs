@@ -15,7 +15,8 @@ mod support;
 use std::{env, io};
 
 use grafton_visca::{
-    camera::profiles::SonyFR7, capabilities::ProfileMetadata, runtime::TokioRuntime, Connect, Error,
+    profiles::CompileTimeProfile, profiles::SonyFr7, r#async::CameraSession, runtime::TokioRuntime,
+    Error,
 };
 
 use support::finish_session;
@@ -27,15 +28,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = camera_address()?;
 
     println!("Sony encapsulation example");
-    println!("Profile: {}", SonyFR7::MODEL_NAME);
+    println!("Profile: {}", SonyFr7::spec()?.name());
     println!("Address: {address}");
 
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_udp::<SonyFR7, _>(&address, runtime).await?;
+    let session = CameraSession::<SonyFr7>::connect_udp(&address, runtime).await?;
     let camera = session.camera();
 
     let inquiry_result: Result<(), Error> = async {
-        let power_status = camera.power().state().await?;
+        let power_status = camera.power().status().await?;
         let pan_tilt = camera.pan_tilt().position().await?;
         let zoom = camera.zoom().position().await?;
 

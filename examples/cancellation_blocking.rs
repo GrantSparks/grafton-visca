@@ -10,11 +10,10 @@
 use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    profile::ProfileSpec,
-    profiles::SonyFR7,
-    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
-    CancellationOutcome, Error,
+    blocking::Session, config::SessionConfig, operation::CancellationOutcome,
+    profiles::ProfileSpec, profiles::SonyFr7, transport::BlockingTransport,
+    transport::HasTransportConfig, transport::ReceiveOutcome, transport::TransportConfig,
+    types::CameraId, Error,
 };
 
 #[derive(Debug)]
@@ -32,11 +31,12 @@ impl CancelCamera {
     }
 
     fn queue_reply(&mut self, request: &[u8], payload: &[u8]) -> Result<(), Error> {
-        let sequence = request.get(4..8).ok_or_else(|| {
-            Error::InvalidRequest("Sony request did not contain a sequence header".into())
+        let sequence = request.get(4..8).ok_or_else(|| Error::InvalidRequest {
+            reason: "Sony request did not contain a sequence header".into(),
         })?;
-        let payload_len = u16::try_from(payload.len())
-            .map_err(|_| Error::InvalidRequest("scripted reply is too large".into()))?;
+        let payload_len = u16::try_from(payload.len()).map_err(|_| Error::InvalidRequest {
+            reason: "scripted reply is too large".into(),
+        })?;
         let mut framed = Vec::with_capacity(8 + payload.len());
         framed.extend_from_slice(&[0x01, 0x11]);
         framed.extend_from_slice(&payload_len.to_be_bytes());
@@ -71,9 +71,9 @@ impl BlockingTransport for CancelCamera {
                 self.queue_reply(bytes, &[0x90, 0x41, 0xff])?;
                 self.queue_reply(bytes, &[0x90, 0x51, 0xff])
             }
-            _ => Err(Error::InvalidRequest(
-                "scripted camera received an unexpected command".into(),
-            )),
+            _ => Err(Error::InvalidRequest {
+                reason: "scripted camera received an unexpected command".into(),
+            }),
         }
     }
 
@@ -88,9 +88,9 @@ impl BlockingTransport for CancelCamera {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>()?);
-    let session = Session::open(CancelCamera::new(), config)?;
-    let camera = session.camera::<SonyFR7>()?;
+    let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>()?);
+    let session = Session::open(CancelCamera::new(), &config)?;
+    let camera = session.camera::<SonyFr7>(CameraId::CAMERA_1)?;
 
     let mut drive = camera.zoom().tele()?;
     let outcome = drive.cancel_with_timeout(Duration::from_secs(1))?;

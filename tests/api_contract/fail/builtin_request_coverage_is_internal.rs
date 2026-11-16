@@ -4,6 +4,7 @@ use grafton_visca::request::builtin::{
 
 fn main() {}
 
+//~ E0432
 //~ E0603
-//~ "struct `BuiltinTypedRequestCoverage` is private"
-//~ "static `BUILTIN_TYPED_REQUEST_INVENTORY` is private"
+//~ "unresolved imports `grafton_visca::request::builtin::BuiltinTypedRequestCoverage`, `grafton_visca::request::builtin::BUILTIN_TYPED_REQUEST_INVENTORY`"
+//~ "module `builtin` is private"

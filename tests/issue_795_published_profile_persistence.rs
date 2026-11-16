@@ -26,13 +26,16 @@
 #![cfg(feature = "serde")]
 #![allow(clippy::expect_used)]
 
+#[path = "common/profile_encodings.rs"]
+mod profile_encodings;
+
 use grafton_visca::{
     capabilities::TypedSupportSurface,
     profiles::{
-        GenericVisca, NearusBRC300, ProfileId, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
+        GenericVisca, NearusBrc300, ProfileId, ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3,
+        SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
     },
-    Error, ProfileSpec,
+    Error,
 };
 
 const RC2_SONY_FR7: &str = include_str!("fixtures/issue_795_rc2_profile_specs/sony_fr7.json");
@@ -92,7 +95,9 @@ fn every_rc2_built_in_spec_is_refused_with_a_regeneration_instruction() {
         assert_rc2_shape(fixture, missing_tag);
         let error = refusal(fixture);
         assert!(
-            error.contains("missing field") || error.contains("unknown field"),
+            error.contains("missing field")
+                || error.contains("unknown field")
+                || error.contains("unknown variant"),
             "{error}"
         );
         assert_regeneration_instruction(&error);
@@ -123,12 +128,12 @@ fn all_current_specs() -> Vec<ProfileSpec> {
         ProfileSpec::from_compile_time::<GenericVisca>().expect("GenericVisca"),
         ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PtzOpticsG2"),
         ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("PtzOpticsG3"),
-        ProfileSpec::from_compile_time::<PtzOptics30X>().expect("PtzOptics30X"),
-        ProfileSpec::from_compile_time::<SonyEVIH100>().expect("SonyEVIH100"),
-        ProfileSpec::from_compile_time::<SonyBRC300>().expect("SonyBRC300"),
-        ProfileSpec::from_compile_time::<NearusBRC300>().expect("NearusBRC300"),
-        ProfileSpec::from_compile_time::<SonyBRCH900>().expect("SonyBRCH900"),
-        ProfileSpec::from_compile_time::<SonyFR7>().expect("SonyFR7"),
+        ProfileSpec::from_compile_time::<PtzOptics30x>().expect("PtzOptics30x"),
+        ProfileSpec::from_compile_time::<SonyEviH100>().expect("SonyEviH100"),
+        ProfileSpec::from_compile_time::<SonyBrc300>().expect("SonyBrc300"),
+        ProfileSpec::from_compile_time::<NearusBrc300>().expect("NearusBrc300"),
+        ProfileSpec::from_compile_time::<SonyBrcH900>().expect("SonyBrcH900"),
+        ProfileSpec::from_compile_time::<SonyFr7>().expect("SonyFr7"),
     ];
     let covered: std::collections::HashSet<_> = specs
         .iter()
@@ -188,6 +193,10 @@ fn removing_any_current_key_is_refused_for_every_builtin_and_custom_spec() {
             // than reporting it as a missing struct field.
             let missing_fact = if parent == "/capabilities/pan_tilt/tilt_ranges" {
                 error.contains("expected value")
+            } else if parent == "/encodings" {
+                // Encoding selections form a sparse map. Removing a granted
+                // selection is refused by identity or grant validation.
+                error.contains("encodings")
             } else {
                 error.contains("missing field")
             };
@@ -215,26 +224,29 @@ fn explicit_null_optional_facts_still_round_trip() {
 /// the identity check has always used.
 #[test]
 fn stale_builtin_typed_support_keeps_the_invalid_request_variant() {
-    let current = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7");
+    let current = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7");
     let mut capabilities = current.capabilities().clone();
     capabilities.typed_support = capabilities
         .typed_support
         .without(TypedSupportSurface::VersionInquiry);
-    let error = ProfileSpec::builder(capabilities)
-        .transports(current.transports())
-        .envelope(current.envelope())
-        .timing(current.timing())
-        .maximum_command_sockets(current.maximum_command_sockets())
-        .supports_operation_complete(current.supports_operation_complete())
-        .supports_command_cancel(current.supports_command_cancel())
-        .position_inquiries(current.position_inquiries())
-        .build()
-        .expect_err("a stale built-in identity must not build");
+    let error = crate::profile_encodings::with_source_encodings(
+        ProfileSpec::builder(capabilities)
+            .transports(current.transports())
+            .envelope(current.envelope())
+            .timing(current.timing())
+            .maximum_command_sockets(current.maximum_command_sockets())
+            .supports_operation_complete(current.supports_operation_complete())
+            .supports_command_cancel(current.supports_command_cancel())
+            .position_inquiries(current.position_inquiries()),
+        &current,
+    )
+    .build()
+    .expect_err("a stale built-in identity must not build");
     assert!(
-        matches!(&error, Error::InvalidRequest(message)
-            if message.contains("built-in profile `SonyFR7`")
+        matches!(&error, Error::InvalidRequest { reason: message }
+            if message.contains("built-in profile `SonyFr7`")
                 && message.contains("missing: VersionInquiry")
-                && message.contains("ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFR7>()")),
+                && message.contains("ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFr7>()")),
         "unexpected error: {error:?}"
     );
 }
@@ -243,7 +255,7 @@ fn stale_builtin_typed_support_keeps_the_invalid_request_variant() {
 fn regenerated_specs_round_trip() {
     for (spec, version_inquiry) in [
         (
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+            ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
             true,
         ),
         (
@@ -261,7 +273,7 @@ fn regenerated_specs_round_trip() {
         assert_eq!(
             restored
                 .capabilities()
-                .supports_typed(TypedSupportSurface::VersionInquiry),
+                .supports(TypedSupportSurface::VersionInquiry),
             version_inquiry
         );
     }

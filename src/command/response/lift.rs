@@ -5,18 +5,17 @@ use super::{
     payload::Payload,
     types::Response,
 };
-use crate::command::{inquiry_structs::InquiryKind, pan_tilt::PanTiltFraming};
+use crate::command::{inquiry_structs::InquiryKind, pan_tilt_wire::PanTiltFraming};
 use crate::{
-    capabilities::{PanTilt, Profile},
     error::Error,
     protocol::response::{decode_basic, BasicKind, BasicResponse},
-    PanTiltCoordinateConversion,
+    CompileTimeProfile, ProfileSpec,
 };
 
 /// Lift a basic protocol response to a high-level Response.
 ///
 /// A data reply is decoded as `expected`, with `framing` selecting the pan/tilt
-/// position layout; without an expected kind it stays [`Response::Unknown`].
+/// position layout; without an expected kind it stays [`crate::wire::Response::Unknown`].
 pub(crate) fn lift_inquiry(
     basic: &BasicResponse<'_>,
     expected: Option<&InquiryKind>,
@@ -81,12 +80,20 @@ impl Response {
     /// This method enables profile-aware parsing for responses that require
     /// coordinate system conversion (e.g., PanTiltPosition on cameras with
     /// unsigned-centered coordinates).
-    pub fn parse_with_profile<P: Profile + PanTilt>(
+    pub fn parse_with_profile<P: CompileTimeProfile>(
         bytes: &[u8],
         response_type: &InquiryKind,
     ) -> Result<Self, Error> {
-        let framing =
-            PanTiltFraming::for_conversion(PanTiltCoordinateConversion::for_profile::<P>());
+        let profile = ProfileSpec::from_compile_time::<P>()?;
+        let framing = match profile.pan_tilt_coordinates() {
+            Some(conversion) => PanTiltFraming::for_conversion(conversion),
+            None if matches!(response_type, InquiryKind::PanTiltPosition) => {
+                return Err(Error::FeatureNotSupported {
+                    feature: "pan/tilt position inquiry",
+                });
+            }
+            None => PanTiltFraming::STANDARD,
+        };
         lift_inquiry(&decode_frame(bytes)?, Some(response_type), framing)
     }
 }

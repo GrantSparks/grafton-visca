@@ -8,12 +8,12 @@
 //!
 //! # Example
 //! ```rust
-//! use grafton_visca::{CameraId, Request};
-//! use grafton_visca::request::builtin::ZoomDrive;
+//! use grafton_visca::command::zoom::Tele;
+//! use grafton_visca::{request::Request, types::CameraId};
 //!
 //! // Typed requests write directly into caller-owned storage.
-//! let request = ZoomDrive::Tele;
-//! let mut bytes = [0_u8; ZoomDrive::MAX_SIZE];
+//! let request = Tele;
+//! let mut bytes = [0_u8; Tele::MAX_SIZE];
 //! let written = request.write_into(CameraId::CAMERA_1, &mut bytes).unwrap();
 //! assert_eq!(bytes[0..written], [0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]);
 //! ```
@@ -40,7 +40,6 @@ use crate::{
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum Zoom {
     /// Stop zoom movement.
     Stop,

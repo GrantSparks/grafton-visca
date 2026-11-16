@@ -9,7 +9,11 @@
 /// The enum is `#[non_exhaustive]` so later releases can report further
 /// honest outcomes; match it with a wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
@@ -23,6 +27,13 @@ pub enum CancellationOutcome {
 /// Evidence establishing a targeted operation's settlement.
 /// Polled stability does not establish arrival at the requested endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum Settlement {
     /// The profile declares this operation's protocol completion exact.
@@ -37,6 +48,7 @@ pub enum Settlement {
         /// The sampled axes.
         axes: crate::AffectedAxes,
         /// Minimum time from the first snapshot's end to the second's start.
+        #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
         window: std::time::Duration,
         /// Maximum stable position delta for each axis.
         tolerance: crate::camera::MovementTolerance,
@@ -108,5 +120,131 @@ impl HaltReport {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+#[allow(clippy::unwrap_used)]
+mod serialization_tests {
+    use super::CancellationOutcome;
+
+    #[test]
+    fn cancellation_outcomes_serialize_and_deserialize_snake_case() {
+        for (outcome, name) in [
+            (CancellationOutcome::Cancelled, "cancelled"),
+            (CancellationOutcome::Completed, "completed"),
+        ] {
+            let json = serde_json::json!(name);
+            assert_eq!(serde_json::to_value(outcome).unwrap(), json);
+            assert_eq!(
+                serde_json::from_value::<CancellationOutcome>(json).unwrap(),
+                outcome
+            );
+        }
+        assert!(
+            serde_json::from_value::<CancellationOutcome>(serde_json::json!("Cancelled")).is_err()
+        );
+    }
+
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    #[test]
+    fn outcome_schema_and_typescript_match_serde_names() {
+        let schema = schemars::schema_for!(CancellationOutcome);
+        let values = schema
+            .get("enum")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_else(|| {
+                schema
+                    .get("oneOf")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|variant| variant["const"].clone())
+                    .collect()
+            });
+        assert_eq!(
+            values,
+            serde_json::json!(["cancelled", "completed"])
+                .as_array()
+                .unwrap()
+                .to_vec()
+        );
+        assert_eq!(
+            <CancellationOutcome as ts_rs::TS>::decl(&ts_rs::Config::default()),
+            "type CancellationOutcome = \"cancelled\" | \"completed\";"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+#[allow(clippy::expect_used)]
+mod settlement_portable_tests {
+    use super::Settlement;
+    use crate::types::{AffectedAxes, MovementTolerance};
+
+    #[test]
+    fn settlement_round_trips_snake_case_evidence_with_portable_duration() {
+        let completion = Settlement::profile_completion(AffectedAxes::ZOOM);
+        let data = serde_json::to_value(completion).expect("serialize completion");
+        assert_eq!(
+            data,
+            serde_json::json!({"profile_completion": {"axes": serde_json::to_value(AffectedAxes::ZOOM).expect("axes")}})
+        );
+        assert_eq!(
+            serde_json::from_value::<Settlement>(data.clone()).expect("restore completion"),
+            completion
+        );
+        let mut legacy_name = data;
+        let record = legacy_name.as_object_mut().expect("evidence record");
+        let payload = record
+            .remove("profile_completion")
+            .expect("completion payload");
+        record.insert("ProfileCompletion".to_owned(), payload);
+        assert!(serde_json::from_value::<Settlement>(legacy_name).is_err());
+        let stable = Settlement::observed_stable(
+            AffectedAxes::PAN_TILT,
+            std::time::Duration::new(2, 3),
+            MovementTolerance::default(),
+        );
+        let data = serde_json::to_value(stable).expect("serialize stability");
+        assert_eq!(
+            data["observed_stable"]["window"],
+            serde_json::json!({"secs": 2, "nanos": 3})
+        );
+        assert_eq!(
+            serde_json::from_value::<Settlement>(data.clone()).expect("restore stability"),
+            stable
+        );
+        let mut unknown = data.clone();
+        unknown["observed_stable"]["extra"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<Settlement>(unknown).is_err());
+    }
+
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    #[test]
+    fn settlement_schema_and_typescript_preserve_the_evidence_record_shape() {
+        let schema = serde_json::to_value(schemars::schema_for!(Settlement)).expect("schema JSON");
+        let rendered = serde_json::to_string(&schema).expect("schema text");
+        for name in [
+            "profile_completion",
+            "observed_stable",
+            "axes",
+            "window",
+            "tolerance",
+        ] {
+            assert!(rendered.contains(name), "missing {name}");
+        }
+        let declaration = <Settlement as ts_rs::TS>::decl(&ts_rs::Config::default());
+        for name in [
+            "profile_completion",
+            "observed_stable",
+            "secs: number",
+            "nanos: number",
+            "MovementTolerance",
+        ] {
+            assert!(declaration.contains(name), "{declaration}");
+        }
     }
 }

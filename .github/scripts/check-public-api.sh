@@ -5,9 +5,7 @@ set -euo pipefail
 base_ref="${1:?usage: check-public-api.sh BASE_REF SURFACE}"
 surface="${2:?usage: check-public-api.sh BASE_REF SURFACE}"
 case "${surface}" in
-    blocking) cargo_args=(--no-default-features --features blocking) ;;
-    tokio-dyn) cargo_args=(--no-default-features --features runtime-tokio,dyn-api) ;;
-    all-features) cargo_args=(--all-features) ;;
+    blocking | async | all-features) ;;
     *) echo "unknown public API surface: ${surface}" >&2; exit 2 ;;
 esac
 
@@ -23,6 +21,31 @@ git -C "${repo_root}" archive "${base_commit}" | tar -x -C "${base_source}"
 generate() {
     local source="$1"
     local destination="$2"
+    local -a cargo_args
+    case "${surface}" in
+        blocking) cargo_args=(--no-default-features --features blocking) ;;
+        async)
+            # Generate each revision's complete async facade. Older revisions
+            # expose runtime-profile views through dyn-api; the normal camera
+            # surface includes those views after that feature is removed.
+            # Read the exact source manifest rather than inferring the base's
+            # features from HEAD or silently omitting the old dynamic API.
+            local async_features
+            async_features="$(python3 - "${source}/Cargo.toml" <<'PYFEATURES'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as manifest:
+    features = tomllib.load(manifest).get("features", {})
+if not isinstance(features, dict):
+    raise TypeError("Cargo manifest features must be a table")
+print("runtime-tokio,dyn-api" if "dyn-api" in features else "runtime-tokio")
+PYFEATURES
+)"
+            cargo_args=(--no-default-features --features "${async_features}")
+            ;;
+        all-features) cargo_args=(--all-features) ;;
+    esac
     (
         cd "${source}"
         CARGO_TARGET_DIR="${output}/build" \

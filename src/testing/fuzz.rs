@@ -11,18 +11,18 @@ use crate::{
         framer::{Framer, RawFramer, SonyFramer},
         sony::{PayloadType, SonyHeader},
     },
-    raw::Plain,
+    raw::PlainRequest,
     runtime::owner::{decode_response_target, RoutingState, TargetRegistry},
     target::TargetSlot,
     transport::{AddressingMode, BufferConfig, Envelope, SonyEncapsulated},
-    CommandCategory, RetryClass, SubmissionClass,
+    CommandTimeoutClass, RetryClass, SubmissionClass,
 };
 
 /// Exercise raw admission and every generated built-in inquiry decoder.
 pub fn response_parser(bytes: &[u8]) {
-    let _ = Plain::new(
+    let _ = PlainRequest::new(
         bytes,
-        CommandCategory::Quick,
+        CommandTimeoutClass::Quick,
         RetryClass::Never,
         SubmissionClass::Normal,
     );
@@ -153,9 +153,9 @@ pub fn serial_startup(bytes: &[u8]) {
 
 #[cfg(feature = "transport-serial")]
 fn drive_serial_startup(bytes: &[u8], inject_writes: bool) -> Option<crate::Result<Option<u8>>> {
-    use crate::transport::serial::{
-        handshake::{Action, SerialStartup, StartupTiming},
-        Config, Startup,
+    use crate::transport::{
+        serial::handshake::{Action, SerialStartup as StartupMachine, StartupTiming},
+        SerialConfig, SerialStartup,
     };
     use std::{
         io::ErrorKind,
@@ -166,14 +166,15 @@ fn drive_serial_startup(bytes: &[u8], inject_writes: bool) -> Option<crate::Resu
         recv_buffer_size: 64,
         max_buffer_size: 128,
     };
-    let config = Config::new("fuzz")
-        .startup(Startup {
-            address_set: true,
-            interface_clear: true,
-        })
-        .read_timeout(Duration::from_millis(2))
-        .write_timeout(Duration::from_millis(2))
-        .buffer_config(buffers);
+    let config = SerialConfig::new("fuzz")
+        .with_startup(
+            SerialStartup::default()
+                .with_address_set(true)
+                .with_interface_clear(true),
+        )
+        .with_read_timeout(Duration::from_millis(2))
+        .with_write_timeout(Duration::from_millis(2))
+        .with_buffer_config(buffers);
     let timing = StartupTiming {
         address_set_attempt: Duration::from_millis(10),
         address_set_attempts: 3,
@@ -182,7 +183,7 @@ fn drive_serial_startup(bytes: &[u8], inject_writes: bool) -> Option<crate::Resu
         if_clear_operation: Duration::from_millis(10),
         if_clear_settle: Duration::from_millis(2),
     };
-    let mut startup = match SerialStartup::new(&config, timing) {
+    let mut startup = match StartupMachine::new(&config, timing) {
         Ok(startup) => startup,
         Err(error) => return Some(Err(error)),
     };

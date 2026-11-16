@@ -49,9 +49,9 @@ The following boundaries are release gates:
   monotonic within a session and are never reused. Exhausting a 64-bit identity
   space fails admission/transmission with `RuntimeIdentityExhausted` instead of
   allowing a stale owner input to alias new work.
-* Dynamic noun calls do not add an unnecessary outer future box compared with
-  one explicitly boxed static async call. Dynamic/static construction parity is
-  measured at the future-construction boundary.
+* Runtime-profile noun calls use the same concrete futures and operation
+  handles as compile-time profiles; `AnyProfile` introduces no trait-object
+  projection or extra future box.
 
 These guarantees do not prohibit one allocation when an API explicitly returns
 an owned collection, such as a blocking diagnostic drain. They prohibit hidden
@@ -72,7 +72,6 @@ The stable test boundaries are:
 | Warmed owner-thread executor timer reset | `tests/issue_548_allocation_baselines.rs::{warmed_tokio_timer_resets_do_not_allocate,warmed_smol_timer_resets_do_not_allocate,warmed_manual_clock_timer_resets_do_not_allocate}`. The generic executor checks keep timers pending; ManualClock additionally checks immediate wakes, completed rearming and duplicate pending resets with a retained noop waker. Its wake batch stores four wakes inline; larger fanouts may spill. The actual runtime-free `ManualClockExecutor::local` retains four factories across forty applied commands, control and idle turns in `tests/issue_866_owner_timers.rs::local_manual_clock_actor_reuses_four_timer_factories`; `owner_turns_reuse_the_same_four_manual_timers` also covers the private owner clock fixture. |
 | TCP read size and kernel retention | Linux `transport::entry_point_tests::tcp_queue::{blocking_reads_leave_unrequested_bytes_in_kernel,tokio_reads_leave_unrequested_bytes_in_kernel,smol_reads_leave_unrequested_bytes_in_kernel}` compare the receive queue after one-byte and 256-byte caller reads; async coverage includes split transports |
 | Bounded submission and completion observers | `tests/issue_561_blocking_queue.rs` and the `runtime::owner` unit tests |
-| Dynamic/static future construction | `tests/dyn_api_integration_test.rs`, `tokio_dynamic_future_construction_matches_one_explicit_static_box` |
 | Downstream derive encoding | `tests/issue_517_inquiry_encoding` coverage |
 
 The commands in this section are the canonical local/release validation

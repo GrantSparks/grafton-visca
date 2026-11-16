@@ -1,7 +1,7 @@
 //! A profile's unsupported envelope payload fails before admission and I/O.
 
 #![cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     any(
         feature = "runtime-tokio",
         all(
@@ -12,10 +12,17 @@
 ))]
 #![allow(clippy::expect_used)]
 
+#[path = "common/profile_encodings.rs"]
+mod profile_encodings;
+
 use grafton_visca::{
-    camera::TransportKind, capabilities::Capabilities, profiles::GenericVisca, raw, CameraId,
-    Error, OperationalTuning, ProfileEnvelope, ProfileSpec, RetryClass, SessionConfig,
-    SessionStatus, TransportCompatibility,
+    config::{OperationalTuning, SessionConfig, TransportKind},
+    observability::SessionStatus,
+    profiles::{GenericVisca, ProfileEnvelope, ProfileSpec, TransportCompatibility},
+    raw,
+    request::RetryClass,
+    types::CameraId,
+    Error,
 };
 use grafton_visca_test_support::{
     facade_matrix,
@@ -41,18 +48,25 @@ impl CameraWire {
 
 fn sony_profile() -> ProfileSpec {
     let baseline = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
-    let mut capabilities = Capabilities::from_profile::<GenericVisca>();
+    let mut capabilities =
+        grafton_visca::profiles::ProfileSpec::from_compile_time::<GenericVisca>()
+            .expect("validated profile")
+            .capabilities()
+            .clone();
     capabilities.profile_id = None;
-    ProfileSpec::builder(capabilities)
-        .transports(TransportCompatibility::new(Some(5678), Some(52381), false))
-        .envelope(ProfileEnvelope::SonyEncapsulated)
-        .timing(baseline.timing())
-        .maximum_command_sockets(baseline.maximum_command_sockets())
-        .supports_operation_complete(baseline.supports_operation_complete())
-        .supports_command_cancel(baseline.supports_command_cancel())
-        .position_inquiries(baseline.position_inquiries())
-        .build()
-        .expect("Sony-envelope runtime profile")
+    crate::profile_encodings::with_source_encodings(
+        ProfileSpec::builder(capabilities)
+            .transports(TransportCompatibility::new().with_tcp(5678).with_udp(52381))
+            .envelope(ProfileEnvelope::SonyEncapsulated)
+            .timing(baseline.timing())
+            .maximum_command_sockets(baseline.maximum_command_sockets())
+            .supports_operation_complete(baseline.supports_operation_complete())
+            .supports_command_cancel(baseline.supports_command_cancel())
+            .position_inquiries(baseline.position_inquiries()),
+        &baseline,
+    )
+    .build()
+    .expect("Sony-envelope runtime profile")
 }
 
 facade_matrix! {
@@ -66,21 +80,21 @@ facade_matrix! {
             let wire = CameraWire { camera: fake.clone(), kind };
             let session = open!(wire, SessionConfig::new(sony_profile())
                 .with_tuning(OperationalTuning::new())).expect("session");
-            let view = session.camera_dyn().expect("runtime camera");
+            let view = session.camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1).expect("runtime camera");
             let mut bytes = vec![0; 17];
             bytes[0] = 0x80 | CameraId::CAMERA_1.value();
             bytes[16] = 0xff;
-            let oversized = raw::Plain::new(bytes, grafton_visca::CommandCategory::Quick,
-                RetryClass::Never, grafton_visca::SubmissionClass::Normal).expect("bounded raw value");
-            assert!(matches!(wait!(view.execute(&oversized)), Err(Error::InvalidRequest(_))));
+            let oversized = raw::PlainRequest::new(bytes, grafton_visca::profiles::CommandTimeoutClass::Quick,
+                RetryClass::Never, grafton_visca::request::SubmissionClass::Normal).expect("bounded raw value");
+            assert!(matches!(wait!(view.execute(&oversized)), Err(Error::InvalidRequest { .. })));
             let metrics = wait!(session.metrics()).expect("metrics");
             assert_eq!(metrics.admitted, 0);
             assert_eq!(metrics.write_failures, 0);
             assert_eq!(metrics.session, SessionStatus::Running);
             assert_eq!(fake.write_count(), 0);
 
-            let valid = raw::Plain::new([0x81, 1, 4, 0, 2, 0xff], grafton_visca::CommandCategory::Quick,
-                RetryClass::Never, grafton_visca::SubmissionClass::Normal).expect("ordinary command");
+            let valid = raw::PlainRequest::new([0x81, 1, 4, 0, 2, 0xff], grafton_visca::profiles::CommandTimeoutClass::Quick,
+                RetryClass::Never, grafton_visca::request::SubmissionClass::Normal).expect("ordinary command");
             wait!(view.execute(&valid)).expect("later command applies on the same session");
             let metrics = wait!(session.metrics()).expect("metrics");
             assert_eq!(metrics.admitted, 1);

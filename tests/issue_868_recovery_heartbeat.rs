@@ -2,8 +2,13 @@
 #![cfg(all(feature = "blocking", feature = "test-utils"))]
 #![allow(clippy::expect_used)]
 use grafton_visca::{
-    profiles::PtzOpticsG2, testing::testkit::ManualClock, transport::SendSemantics, Error,
-    PowerStatus, ProfileSpec, Recovery, SessionConfig,
+    config::SessionConfig,
+    error::Recovery,
+    profiles::{ProfileSpec, PtzOpticsG2},
+    testing::testkit::ManualClock,
+    transport::SendSemantics,
+    types::PowerStatus,
+    Error,
 };
 use grafton_visca_test_support::fake_camera::{frames, FakeCamera};
 
@@ -31,11 +36,13 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
             SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile")),
         )
         .expect("session");
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera");
     let mut unanswered = 0;
     for attempt in 0..2 {
         let before = session.metrics().expect("metrics").received_frames;
-        let failure = camera.power().state().expect_err("first reply is missing");
+        let failure = camera.power().status().expect_err("first reply is missing");
         assert_ne!(failure.recovery(), Recovery::ReopenSession);
         if session.metrics().expect("metrics").received_frames == before {
             unanswered += 1;
@@ -64,7 +71,7 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
         .expect("STOP applied");
     let before = session.metrics().expect("metrics").received_frames;
     assert_eq!(
-        camera.power().state().expect("new power reply"),
+        camera.power().status().expect("new power reply"),
         PowerStatus::On
     );
     assert!(session.metrics().expect("metrics").received_frames > before);
@@ -90,12 +97,15 @@ fn a_closed_heartbeat_preserves_terminal_metrics_for_the_reopen_decision() {
         .expect("session");
     let before = session.metrics().expect("running metrics");
     let probe = session
-        .camera::<PtzOpticsG2>()
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
         .expect("camera")
         .power()
-        .state();
+        .status();
     let after = session.metrics().expect("closed metrics");
-    assert_eq!(after.session, grafton_visca::SessionStatus::Closed);
+    assert_eq!(
+        after.session,
+        grafton_visca::observability::SessionStatus::Closed
+    );
     assert_eq!(after.active, 0);
     assert_eq!(after.pending, 0);
     assert_eq!(after.received_frames, before.received_frames);

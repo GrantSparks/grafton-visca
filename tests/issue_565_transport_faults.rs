@@ -36,11 +36,12 @@ use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 use std::{sync::Arc, time::Duration};
 
 use grafton_visca::{
-    completion::AppliedOnly,
-    profiles::SonyFR7,
-    request::builtin::{FocusDrive, FocusStop, ZoomStop},
+    error::{ErrorKind, Recovery},
+    operation::{AppliedOnly, CancellationOutcome},
+    profiles::SonyFr7,
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    CameraId, CancellationOutcome, Error, ErrorKind, Recovery,
+    types::CameraId,
+    Error,
 };
 
 use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP};
@@ -106,9 +107,9 @@ impl Rig {
 }
 
 fn connection_refused() -> Error {
-    Error::Io(Arc::new(std::io::Error::from(
-        std::io::ErrorKind::ConnectionRefused,
-    )))
+    Error::Io {
+        source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+    }
 }
 
 /// The Sony sequence number of a written frame.
@@ -139,11 +140,11 @@ facade_matrix! {
         let camera = receive_fault_on_first_write();
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         let error = wait!(
-            wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
                 .expect("submission")
                 .applied()
         )
@@ -162,7 +163,7 @@ facade_matrix! {
         // The session survived the receive fault: later ordinary work waits out
         // the inert keyed hold, then completes normally.
         wait!(
-            wait!(view.submit::<AppliedOnly, _>(&FocusDrive::Far))
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Far))
                 .expect("the session survives a transient receive fault")
                 .applied()
         )
@@ -184,11 +185,11 @@ facade_matrix! {
         )
         .expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         let error = wait!(
-            wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
                 .expect("submission")
                 .applied()
         )
@@ -210,10 +211,10 @@ facade_matrix! {
     fn sony_transient_receive_fault_retries_same_sequence_and_keeps_session() {
         let camera = receive_fault_on_first_write();
         let session = open!(Rig::datagram(&camera), sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFR7>().expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
 
         wait!(
-            wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
                 .expect("submission")
                 .applied()
         )
@@ -233,7 +234,7 @@ facade_matrix! {
 
         // The session survived, so later work still runs on it.
         wait!(
-            wait!(view.submit::<AppliedOnly, _>(&FocusStop))
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop))
                 .expect("the session is still usable")
                 .applied()
         )
@@ -257,16 +258,16 @@ facade_matrix! {
         });
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
-        let mut failing = wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+        let mut failing = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
             .expect("the submission is admitted before its write");
         let error = wait!(failing.applied()).expect_err("the first write fails on the wire");
         let Error::TransportError { source, .. } = &error else {
             panic!("the failed datagram write is operation-scoped, got {error:?}");
         };
-        let Error::Io(cause) = source.as_ref() else {
+        let Error::Io { source: cause } = source.as_ref() else {
             panic!("the transport wrapper must preserve the original OS error, got {source:?}");
         };
         assert_eq!(cause.kind(), std::io::ErrorKind::ConnectionRefused);
@@ -292,7 +293,7 @@ facade_matrix! {
         );
 
         wait!(
-            wait!(view.submit::<AppliedOnly, _>(&FocusStop))
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop))
                 .expect("the session survives an isolated datagram write failure")
                 .applied()
         )
@@ -321,10 +322,10 @@ facade_matrix! {
                     answer.reply(frames::ack(1));
                 }
                 2 => {
-                    answer.fail_send(Error::Io(Arc::new(std::io::Error::new(
+                    answer.fail_send(Error::Io { source: Arc::new(std::io::Error::new(
                         std::io::ErrorKind::WriteZero,
                         "peer went away mid-frame",
-                    ))));
+                    )) });
                 }
                 _ => {}
             }
@@ -332,22 +333,22 @@ facade_matrix! {
         let session = open!(Rig::serial_stream(&camera), two_camera_session_config())
             .expect("owner session");
         let first_camera = session
-            .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
             .expect("camera one view");
         let second_camera = session
-            .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
             .expect("camera two view");
 
         let mut held =
-            wait!(first_camera.submit::<AppliedOnly, _>(&ZoomStop)).expect("first submission");
-        let mut failing = wait!(second_camera.submit::<AppliedOnly, _>(&FocusStop))
+            wait!(first_camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("first submission");
+        let mut failing = wait!(second_camera.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop))
             .expect("the second submission is admitted before its write");
 
         let error = wait!(failing.applied()).expect_err("the second write fails on the wire");
         let Error::StreamPoisoned { source, .. } = &error else {
             panic!("a stream write failure is terminal for the session, got {error:?}");
         };
-        assert!(matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::WriteZero));
+        assert!(matches!(source.as_ref(), Error::Io { source: io } if io.kind() == std::io::ErrorKind::WriteZero));
         assert!(std::error::Error::source(&error).is_some());
         assert!(error.requires_new_session());
 
@@ -375,11 +376,11 @@ facade_matrix! {
         });
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(
-            wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
                 .expect("submission")
                 .applied()
         )
@@ -406,11 +407,11 @@ facade_matrix! {
         });
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(
-            wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
                 .expect("submission")
                 .applied()
         )
@@ -458,11 +459,11 @@ facade_matrix! {
             previous_sequence = Some(sequence);
         });
         let session = open!(Rig::datagram(&camera), sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFR7>().expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
 
-        let mut first = wait!(view.submit::<AppliedOnly, _>(&ZoomStop)).expect("first submission");
+        let mut first = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("first submission");
         let mut second =
-            wait!(view.submit::<AppliedOnly, _>(&FocusStop)).expect("second submission");
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)).expect("second submission");
 
         wait!(first.applied()).expect("first operation applied");
         assert_eq!(
@@ -499,11 +500,11 @@ facade_matrix! {
         let camera = FakeCamera::acking(1);
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(
-            wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
+            wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
                 .expect("submission")
                 .applied()
         )

@@ -32,7 +32,7 @@
 //!
 //! ## Features
 //!
-//! - **Owner-backed Camera API**: `Connect` and noun accessors across the blocking and async facades
+//! - **Owner-backed Camera API**: `CameraSession::connect_tcp` and noun accessors across the blocking and async facades
 //! - **Type-Safe Camera Profiles**: Compile-time validation with camera-specific profiles
 //! - **Feature-Gated Methods**: Choose blocking or async at compile time with zero runtime overhead
 //! - **Multi-Runtime Support**: Tokio and smol can coexist with explicit runtime selection
@@ -44,24 +44,24 @@
 //! - **Unified Error Handling**: Consistent error mapping across all transport types
 //! - **Configurable Timeouts**: Per-category timeout configuration for different command types
 //! - **Lifecycle-Exact Operation Handles**: Exact applied waits and profile-selected
-//!   protocol-settlement waits, cancellation, and detach across blocking, async, and dynamic APIs
+//!   protocol-settlement waits, cancellation, and detach across blocking and async APIs
 //! - **Serialization Support**: Optional serde/schemars integration for all value types
 //!
 //! ## 2.0 API Shape
 //!
 //! The primary API is camera-first:
 //!
-//! - Use `camera::Connect` for simple TCP, UDP, and serial connections.
-//! - Use [`camera::CameraConfig`] when a standard transport needs explicit
+//! - Use `CameraSession::connect_tcp`, `connect_udp`, or `connect_serial` for a single camera.
+//! - Use [`config::CameraConfig`] when a standard transport needs explicit
 //!   timeout, retry, keepalive, camera ID, or serial settings.
 //! - Use accessor-style controls such as `camera.power().on()` and
 //!   `camera.pan_tilt().position()` for normal operation.
-//! - Use `Session::open` (async) or `blocking::Session::open` when you already
+//! - Use `r#async::Session::open` or `blocking::Session::open` when you already
 //!   own a custom transport and need to attach it to the owner.
-//! - Use [`UnitInterval`] for normalized `0.0..=1.0` control values and
-//!   [`CameraId`] for configured VISCA camera addresses.
-//! - Use the typed [`Request`] and [`Inquiry`] contracts for built-in and custom
-//!   requests, and [`command::ResponseParser`] for typed inquiry responses.
+//! - Use [`crate::types::UnitInterval`] for normalized `0.0..=1.0` control values and
+//!   [`crate::types::CameraId`] for configured VISCA camera addresses.
+//! - Use the typed [`crate::request::Request`] and [`crate::request::Inquiry`] contracts for built-in and custom
+//!   requests, and [`wire::ResponseParser`] for typed inquiry responses.
 //!
 //! ## Terminology
 //!
@@ -77,13 +77,13 @@
 //!   and the session metrics. A blocking session owns one native worker thread;
 //!   an async session owns one detached actor task. Every camera view is a
 //!   view onto this one owner, never a second connection.
-//! - **Target** — one registered camera: a [`CameraId`] plus a validated
+//! - **Target** — one registered camera: a [`crate::types::CameraId`] plus a validated
 //!   profile. Targets are registered before the owner starts and are immutable
 //!   while it runs.
 //! - **Prepared** — a request that passed domain, profile, range, encoding,
 //!   routing, classification, and settlement selection and now carries every
 //!   immutable datum the owner needs. Preparation is pure and shared by the
-//!   blocking, async, and dynamic facades; a preparation failure never touches
+//!   blocking and async facades; a preparation failure never touches
 //!   session state.
 //! - **Admitted** — the owner inserted a prepared request into engine state,
 //!   assigned its private request id, and reserved its bounded capacity.
@@ -142,9 +142,9 @@
 //! - **Cancelled** — the engine proved the operation cannot later succeed: it
 //!   was removed before transmission, a conclusive rejection left no executing
 //!   attempt with retry suppressed, or the camera returned the socket-specific
-//!   protocol-cancel terminal. Reported as [`CancellationOutcome::Cancelled`].
+//!   protocol-cancel terminal. Reported as [`crate::operation::CancellationOutcome::Cancelled`].
 //! - **Completed** — the original operation succeeded before a confirmed
-//!   cancellation could win, reported as [`CancellationOutcome::Completed`].
+//!   cancellation could win, reported as [`crate::operation::CancellationOutcome::Completed`].
 //!   Cancellation never claims physical motion stopped.
 //! - **Cancellation unconfirmed** — a cancellation could not be assigned a
 //!   socket or conclusively resolved before its ambiguity deadline. This is
@@ -180,7 +180,7 @@
 //!   unsequenced command on a raw-VISCA envelope that merely loses its
 //!   ACK/completion does *not* poison (see *cancellation unconfirmed* above);
 //!   the whole-session poison is restored only behind the opt-in
-//!   [`SessionConfig::with_strict_unconfirmed_poison`] policy.
+//!   [`crate::config::SessionConfig::with_strict_unconfirmed_poison`] policy.
 //!
 //! Recovery from a poisoned or closed session builds a fresh session from the
 //! reused configuration, starts with an unknown state cache, re-queries camera
@@ -193,11 +193,11 @@
 //! ```no_run
 //! # #[cfg(feature = "blocking")]
 //! # fn terminology_walkthrough() -> Result<(), grafton_visca::Error> {
-//! use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
+//! use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2};
 //! use std::time::Duration;
 //!
 //! // A session owns the transport; the camera is a view onto its one owner.
-//! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//! let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")?;
 //! let camera = session.camera();
 //!
 //! // `home` is targeted: `settled` waits past applied for protocol settlement.
@@ -205,7 +205,10 @@
 //!
 //! // `stop` is applied-only: it has an applied wait and no settled state. The
 //! // `_with_timeout` form overrides only the observer deadline.
-//! camera.zoom().stop()?.applied_with_timeout(Duration::from_secs(2))?;
+//! camera
+//!     .zoom()
+//!     .stop()?
+//!     .applied_with_timeout(Duration::from_secs(2))?;
 //!
 //! session.close()
 //! # }
@@ -214,11 +217,10 @@
 //! ## Typed Request Extensions
 //!
 //! The final request contract classifies every value at the type level. Implement
-//! [`Request`] with one closed [`request`] class, then implement [`Inquiry`] or
-//! [`OperationCommand`] only when that class requires it. [`PlainCommand`] is
-//! provided automatically for every plain request. The homogeneous built-ins in
-//! [`request::builtin`] show the corresponding targeted, applied-only, plain, and
-//! inquiry shapes.
+//! [`crate::request::Request`] with one closed [`request`] class, then implement [`crate::request::Inquiry`] or
+//! [`crate::request::OperationCommand`] only when that class requires it. [`crate::request::PlainCommand`] is
+//! provided automatically for every plain request. Built-ins under [`command`]
+//! show the corresponding targeted, applied-only, plain, and inquiry shapes.
 //!
 //! Request values carry their timeout, retry, and control-policy classes. Camera
 //! targets, completion kinds, and retry behavior cannot be overridden at
@@ -228,21 +230,21 @@
 //!
 //! ## Submission priority
 //!
-//! [`ControlClass`] is the request-owned intrinsic class; [`SubmissionClass`]
+//! [`crate::request::ControlClass`] is the request-owned intrinsic class; [`crate::request::SubmissionClass`]
 //! is the caller's ordinary-traffic QoS. The owner
 //! dispatches ready work from the highest occupied class first and FIFO within
 //! a class, so the class only decides which **queued** request is written next;
 //! it never interrupts, cancels, or reorders a request already on the wire.
 //!
 //! Every request classifies itself — ordinary control traffic is
-//! [`ControlClass::Normal`], direct movement is [`ControlClass::User`], and the
-//! typed stops and cancels are [`ControlClass::Urgent`] so an emergency stop
+//! [`crate::request::ControlClass::Normal`], direct movement is [`crate::request::ControlClass::User`], and the
+//! typed stops and cancels are [`crate::request::ControlClass::Urgent`] so an emergency stop
 //! preempts queued work with no extra ceremony. `SubmissionClass` deliberately
 //! has no urgent variant: caller QoS cannot create or demote the safety lane.
 //! Two camera-view routes select ordinary submission QoS:
 //!
 //! - Per handle: `set_submission_class(Some(class))` on a camera view, its
-//!   single-camera session, or the dynamic projection. Every later submission
+//!   single-camera session. Every later submission
 //!   from *that handle* uses `class`, including the ones its noun accessors
 //!   make. An urgent request ignores it.
 //! - Derived view: `with_submission_class(class)` returns another camera view
@@ -250,30 +252,36 @@
 //!   The source view is unchanged, and an urgent request still ignores the
 //!   selected ordinary class.
 //!
-//! ```ignore
-//! use grafton_visca::SubmissionClass;
+//! ```no_run
+//! # #[cfg(feature = "async")]
+//! # async fn prioritize(
+//! #     camera: &grafton_visca::r#async::Camera<grafton_visca::profiles::PtzOpticsG2>,
+//! #     command: &impl grafton_visca::request::PlainCommand,
+//! # ) -> Result<(), grafton_visca::Error> {
+//! use grafton_visca::request::SubmissionClass;
 //!
 //! // Keep a telemetry poller out of the operator's way.
 //! let mut poller = camera.clone();
 //! poller.set_submission_class(Some(SubmissionClass::Background));
-//! let zoom = poller.zoom().position().await?;   // queued behind operator input
-//! poller.pan_tilt().stop().await?;              // still urgent
+//! let _zoom = poller.zoom().position().await?; // queued behind operator input
+//! poller.pan_tilt().stop().await?.applied().await?; // still urgent
 //!
-//! // Raise one ordinary command for direct user interaction without changing
-//! // the source handle. `Urgent` is intentionally not caller-selectable.
+//! // Raise one ordinary command for direct user interaction.
 //! camera
 //!     .with_submission_class(SubmissionClass::User)
-//!     .execute(&command)
+//!     .execute(command)
 //!     .await?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! [Submission priority]: #submission-priority
 //!
 //! Runtime-only camera models start with
 //! [`capabilities::Capabilities::runtime_baseline`] and must explicitly provide
-//! all protocol facts through [`ProfileSpec::builder`]. Built-in and downstream
-//! compile-time profiles expose fact-only [`CompileTimeProfile`] implementations
-//! and lower through [`ProfileSpec::from_compile_time`] to the same validated
+//! all protocol facts through [`crate::profiles::ProfileSpec::builder`]. Built-in and downstream
+//! compile-time profiles expose fact-only [`crate::profiles::CompileTimeProfile`] implementations
+//! and lower through [`crate::profiles::ProfileSpec::from_compile_time`] to the same validated
 //! immutable representation.
 //!
 //! ## Serialization Support
@@ -289,7 +297,7 @@
 //!
 //! ```rust
 //! # #[cfg(feature = "serde")] {
-//! use grafton_visca::types::{PanSpeed, ZoomPosition, SpeedLevel};
+//! use grafton_visca::{types::PanSpeed, types::SpeedLevel, types::ZoomPosition};
 //!
 //! // Serialize to JSON
 //! let speed = PanSpeed::new(12).unwrap();
@@ -314,13 +322,13 @@
 //!
 //! ```rust
 //! # #[cfg(feature = "serde")] {
-//! use grafton_visca::camera::TransportOptions;
-//! use grafton_visca::camera::profiles::ProfileId;
+//! use grafton_visca::config::TransportOptions;
+//! use grafton_visca::profiles::ProfileId;
 //!
 //! // Serialize camera profile
 //! let profile = ProfileId::PtzOpticsG2;
 //! let json = serde_json::to_string(&profile).unwrap();
-//! assert_eq!(json, "\"ptz-optics-g2\"");
+//! assert_eq!(json, "\"ptzoptics_g2\"");
 //!
 //! // Serialize transport configuration
 //! let transport = TransportOptions::tcp("192.168.0.110:5678".to_string());
@@ -351,7 +359,7 @@
 //! preparation enforces the selected model's range. FR7 pan/tilt speeds above
 //! 24 also require session-confirmed Extended speed-step mode.
 //! ```rust
-//! use grafton_visca::types::{PanSpeed, Speed, SpeedLevel, ZoomSpeed};
+//! use grafton_visca::{types::PanSpeed, types::Speed, types::SpeedLevel, types::ZoomSpeed};
 //!
 //! // All range types expose MIN/MAX constants for validation
 //! assert_eq!(PanSpeed::MIN.value(), 0);
@@ -373,11 +381,20 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn absolute_move() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, types::{Degrees, SpeedLevel}};
+//!     use grafton_visca::{
+//!         blocking::CameraSession, profiles::PtzOpticsG2, types::PanTiltPosition,
+//!         types::SpeedLevel,
+//!     };
 //!
-//!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//!     let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")?;
 //!     let camera = session.camera();
-//!     camera.pan_tilt().absolute(Degrees::new(45.0)?, Degrees::new(10.0)?, SpeedLevel::Medium)?.settled()?;
+//!     camera
+//!         .pan_tilt()
+//!         .absolute(
+//!             PanTiltPosition::from_degrees(45.0, 10.0)?,
+//!             SpeedLevel::Medium,
+//!         )?
+//!         .settled()?;
 //!     session.close()
 //! }
 //! ```
@@ -388,9 +405,9 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn toggle_focus_lock() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
+//!     use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2};
 //!
-//!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//!     let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")?;
 //!     let camera = session.camera();
 //!     camera.focus().set_lock(true)?;
 //!     camera.focus().set_lock(false)?;
@@ -409,14 +426,14 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn quick_start() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
+//!     use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2};
 //!
-//!     // Create one owner-backed session using the convenience Connect helper
-//!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//!     // Create one owner-backed session with an inherent constructor.
+//!     let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")?;
 //!     let camera = session.camera();
 //!
 //!     // Quick starts are read-only by default.
-//!     let power_status = camera.power().state()?;
+//!     let power_status = camera.power().status()?;
 //!     let zoom = camera.zoom().position()?;
 //!     println!("Power: {power_status:?}, zoom: 0x{:04X}", zoom.value());
 //!
@@ -428,14 +445,14 @@
 //! ```rust
 //! # #[cfg(feature = "runtime-tokio")]
 //! async fn quick_start() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{camera::profiles::PtzOpticsG2, runtime::TokioRuntime, Connect};
+//!     use grafton_visca::{profiles::PtzOpticsG2, r#async::CameraSession, runtime::TokioRuntime};
 //!
-//!     // Create one owner-backed session using Connect with a runtime
+//!     // Pass the runtime last when constructing an async session.
 //!     let runtime = TokioRuntime::from_current()?;
-//!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+//!     let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110", runtime).await?;
 //!     let camera = session.camera();
 //!
-//!     let power_status = camera.power().state().await?;
+//!     let power_status = camera.power().status().await?;
 //!     let zoom = camera.zoom().position().await?;
 //!     println!("Power: {power_status:?}, zoom: 0x{:04X}", zoom.value());
 //!
@@ -455,15 +472,15 @@
 //! ```rust
 //! # #[cfg(feature = "runtime-smol")]
 //! fn quick_start() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{camera::profiles::PtzOpticsG2, runtime::SmolRuntime, Connect};
+//!     use grafton_visca::{profiles::PtzOpticsG2, r#async::CameraSession, runtime::SmolRuntime};
 //!
 //!     smol::block_on(async {
 //!         let runtime = SmolRuntime::new();
 //!         let session =
-//!             Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+//!             CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110", runtime).await?;
 //!         let camera = session.camera();
 //!
-//!         let power_status = camera.power().state().await?;
+//!         let power_status = camera.power().status().await?;
 //!         println!("Power: {power_status:?}");
 //!
 //!         session.close().await
@@ -476,20 +493,23 @@
 //! # #[cfg(feature = "runtime-smol")]
 //! fn configured() -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::{
-//!         camera::{profiles::PtzOpticsG2, CameraConfig},
-//!         runtime::SmolRuntime,
-//!         transport::{TcpKeepaliveConfig, TransportConfig},
+//!         config::CameraConfig, profiles::PtzOpticsG2, runtime::SmolRuntime,
+//!         transport::TcpKeepaliveConfig, transport::TransportConfig,
 //!     };
 //!     use std::time::Duration;
 //!
 //!     smol::block_on(async {
-//!         let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!             .transport_config({ let mut config = TransportConfig::for_tcp(); config.tcp_keepalive = Some(TcpKeepaliveConfig::new(Duration::from_secs(30))); config });
+//!         let config =
+//!             CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
+//!                 .with_transport_config(TransportConfig::for_tcp().with_tcp_keepalive(Some(
+//!                     TcpKeepaliveConfig::new(Duration::from_secs(30)),
+//!                 )));
 //!
-//!         let session = config.open_async(SmolRuntime::new()).await?;
+//!         let session =
+//!             grafton_visca::r#async::CameraSession::connect(&config, SmolRuntime::new()).await?;
 //!         let camera = session.camera();
 //!
-//!         let power_status = camera.power().state().await?;
+//!         let power_status = camera.power().status().await?;
 //!         println!("Power: {power_status:?}");
 //!
 //!         session.close().await
@@ -506,13 +526,19 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn bounded_moves() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
+//!     use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2};
 //!     use std::time::Duration;
 //!
-//!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//!     let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")?;
 //!     let camera = session.camera();
-//!     camera.pan_tilt().home()?.settled_with_timeout(Duration::from_secs(20))?;
-//!     camera.zoom().stop()?.applied_with_timeout(Duration::from_secs(2))?;
+//!     camera
+//!         .pan_tilt()
+//!         .home()?
+//!         .settled_with_timeout(Duration::from_secs(20))?;
+//!     camera
+//!         .zoom()
+//!         .stop()?
+//!         .applied_with_timeout(Duration::from_secs(2))?;
 //!     session.close()
 //! }
 //! ```
@@ -524,8 +550,8 @@
 //! ## Camera Profiles
 //!
 //! The library includes pre-defined profiles such as `PtzOpticsG2`,
-//! `SonyFR7`, and `GenericVisca`. Profiles are selected at construction time
-//! with `Connect` or `CameraConfig` and then drive compile-time capability
+//! `SonyFr7`, and `GenericVisca`. Profiles are selected at construction time
+//! with `CameraSession::connect_tcp` or `CameraConfig` and then drive compile-time capability
 //! checks for the accessor API.
 //!
 //! ### Compile-Time Type Safety
@@ -537,12 +563,10 @@
 //! fn profile_gated_controls() -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::prelude::blocking::*;
 //!
-//!     let sony = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
-//!     sony.camera()
-//!         .nd_filter()
-//!         .set_mode(NdFilterMode::Preset)?;
+//!     let sony = CameraSession::<SonyFr7>::connect_udp("192.168.0.110")?;
+//!     sony.camera().nd_filter().set_mode(NdFilterMode::Preset)?;
 //!
-//!     let g2 = Connect::open_tcp::<PtzOpticsG2>("192.168.0.111")?;
+//!     let g2 = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.111")?;
 //!     let g2_camera = g2.camera();
 //!     // g2_camera.nd_filter().set_mode(NdFilterMode::Preset)?;
 //!     // ^ Compile error: G2 has no ND filter capability
@@ -553,10 +577,10 @@
 //! }
 //! ```
 //!
-//! Runtime discovery metadata is available for every profile through
-//! `Capabilities::from_profile::<P>()`. Typed optional vendor controls use
+//! Runtime discovery is available through `camera.capabilities()`. Typed
+//! optional controls use
 //! separate support markers, so the public API exposes only documented support:
-//! `SonyFR7` has typed ND filter and variable speed controls, plus separate
+//! `SonyFr7` has typed ND filter and variable speed controls, plus separate
 //! exposure, white-balance, image, zoom and preset-setting families.
 //! For example, these settings configure white balance and a later preset
 //! recall without starting a recall:
@@ -564,26 +588,37 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn configure_fr7(
-//!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::SonyFR7>,
+//!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::SonyFr7>,
 //! ) -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::{
-//!         types::{Kelvin, PresetNumber, PresetSeparateMode, PresetSpeedSelection},
+//!         types::Kelvin, types::PresetNumber, types::PresetSeparateMode,
+//!         types::PresetSpeedSelection,
 //!     };
-//!     camera.white_balance().preset()?;
-//!     camera.white_balance().set_preset_white(Kelvin::new(5600)?)?;
+//!     camera
+//!         .white_balance()
+//!         .set_mode(grafton_visca::types::WhiteBalanceMode::Preset)?;
+//!     camera
+//!         .white_balance()
+//!         .set_preset_white(Kelvin::new(5600)?)?;
 //!     let preset = PresetNumber::new(0)?;
-//!     camera.presets().select_speed(PresetSpeedSelection::Separate)?;
-//!     camera.presets().set_separate_mode(preset, PresetSeparateMode::Duration)?;
-//!     camera.presets().set_separate_duration(preset, std::time::Duration::from_millis(2_500))?;
+//!     camera
+//!         .presets()
+//!         .set_speed_selection(PresetSpeedSelection::Separate)?;
+//!     camera
+//!         .presets()
+//!         .set_separate_mode(preset, PresetSeparateMode::Duration)?;
+//!     camera
+//!         .presets()
+//!         .set_separate_duration(preset, std::time::Duration::from_millis(2_500))?;
 //!     Ok(())
 //! }
 //! ```
 //!
-//! Dyn-api callers can query the same permission model with
-//! `Capabilities::supports_typed(...)`;
-//! overlapping metadata fields remain discovery facts, not typed permission
-//! checks. Built-in PTZOptics profiles are not marked for typed Motion Sync from
-//! the current model capability specs.
+//! Runtime-selected `Camera<profiles::AnyProfile>` callers use the same noun
+//! methods and inspect `camera.capabilities().supports(surface)` for optional
+//! controls. Domain records describe their own supported ranges. Built-in
+//! PTZOptics profiles are not marked for typed Motion Sync from the current
+//! model capability specs.
 //!
 //! ## Transport Implementation
 //!
@@ -597,10 +632,11 @@
 //! [`transport::HasTransportConfig`] carries.
 //!
 //! ```rust
-//! use grafton_visca::transport::{
-//!     BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-//! };
 //! use grafton_visca::Error;
+//! use grafton_visca::{
+//!     transport::BlockingTransport, transport::HasTransportConfig, transport::ReceiveOutcome,
+//!     transport::SendSemantics, transport::TransportConfig,
+//! };
 //! use std::time::Duration;
 //!
 //! struct MyTransport {
@@ -609,11 +645,7 @@
 //! }
 //!
 //! impl BlockingTransport for MyTransport {
-//!     fn send_with_timeout(
-//!         &mut self,
-//!         bytes: &[u8],
-//!         timeout: Duration,
-//!     ) -> Result<(), Error> {
+//!     fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
 //!         // Complete the owner-framed write within `timeout`.
 //!         let _ = (bytes, timeout);
 //!         Ok(())
@@ -630,7 +662,6 @@
 //!         let _ = (dst, timeout);
 //!         Err(Error::io_timeout())
 //!     }
-//!
 //! }
 //!
 //! impl HasTransportConfig for MyTransport {
@@ -670,7 +701,7 @@
 //!
 //! **Multiple Runtime Support**: Runtime features can be enabled simultaneously.
 //! This allows libraries to support multiple runtime ecosystems without forcing users to choose.
-//! Pass the runtime explicitly to `Connect` or `CameraConfig` when multiple
+//! Pass the runtime explicitly to `CameraSession::connect_tcp` or `connect` when multiple
 //! runtime features are available.
 //!
 //! ### Send Future Guarantees
@@ -703,19 +734,16 @@
 //! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
-//! Pass the runtime explicitly through `Connect` or `CameraConfig`; standard
+//! Pass the runtime explicitly through `CameraSession::connect_tcp` or `connect`; standard
 //! network construction returns the canonical owner-backed `CameraSession<P>`:
 //!
 //! ```rust
 //! # #[cfg(feature = "runtime-tokio")]
 //! async fn with_tokio() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{
-//!         camera::{profiles::PtzOpticsG2, Connect},
-//!         runtime::TokioRuntime,
-//!     };
+//!     use grafton_visca::{profiles::PtzOpticsG2, r#async::CameraSession, runtime::TokioRuntime};
 //!
 //!     let runtime = TokioRuntime::from_current()?;
-//!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+//!     let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110", runtime).await?;
 //!     let camera = session.camera();
 //!     let _ = camera;
 //!     session.close().await
@@ -723,13 +751,10 @@
 //!
 //! # #[cfg(feature = "runtime-smol")]
 //! async fn with_smol() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{
-//!         camera::{profiles::PtzOpticsG2, Connect},
-//!         runtime::SmolRuntime,
-//!     };
+//!     use grafton_visca::{profiles::PtzOpticsG2, r#async::CameraSession, runtime::SmolRuntime};
 //!
 //!     let runtime = SmolRuntime::new();
-//!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+//!     let session = CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110", runtime).await?;
 //!     let camera = session.camera();
 //!     let _ = camera;
 //!     session.close().await
@@ -787,12 +812,15 @@
 //! fn position_units(
 //!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::types::{Degrees, SpeedLevel};
+//!     use grafton_visca::{types::PanTiltPosition, types::SpeedLevel};
 //!
 //!     // Work in degrees (recommended)
 //!     camera
 //!         .pan_tilt()
-//!         .absolute(Degrees::new(45.0)?, Degrees::new(-15.0)?, SpeedLevel::Medium)?
+//!         .absolute(
+//!             PanTiltPosition::from_degrees(45.0, -15.0)?,
+//!             SpeedLevel::Medium,
+//!         )?
 //!         .settled()?;
 //!
 //!     // Stop all movement
@@ -809,40 +837,37 @@
 //! Configure validated timeout overrides per command category:
 //!
 //! ```rust
-//! use grafton_visca::OperationalTuning;
+//! use grafton_visca::config::OperationalTuning;
 //! use std::time::Duration;
 //!
 //! let tuning = OperationalTuning::new()
-//!     .ack_timeout(Duration::from_millis(600))
-//!     .quick_timeout(Duration::from_secs(6))
-//!     .movement_timeout(Duration::from_secs(40))
-//!     .preset_timeout(Duration::from_secs(90))
-//!     .long_running_timeout(Duration::from_secs(360))
-//!     .network_timeout(Duration::from_secs(6));
+//!     .with_ack_timeout(Duration::from_millis(600))
+//!     .with_quick_timeout(Duration::from_secs(6))
+//!     .with_movement_timeout(Duration::from_secs(40))
+//!     .with_preset_timeout(Duration::from_secs(90))
+//!     .with_long_running_timeout(Duration::from_secs(360))
+//!     .with_network_timeout(Duration::from_secs(6));
 //!
 //! // For the async facade
 //! # #[cfg(feature = "runtime-tokio")]
 //! async fn configured_async(tuning: OperationalTuning) -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraConfig};
 //!     use grafton_visca::runtime::TokioRuntime;
+//!     use grafton_visca::{config::CameraConfig, profiles::PtzOpticsG2};
 //!
 //!     let runtime = TokioRuntime::from_current()?;
-//!     let session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!         .with_tuning(tuning)
-//!         .open_async(runtime)
-//!         .await?;
+//!     let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110").with_tuning(tuning);
+//!     let session = grafton_visca::r#async::CameraSession::connect(&config, runtime).await?;
 //!     session.close().await
 //! }
 //!
 //! // For the blocking facade
 //! # #[cfg(feature = "blocking")]
 //! fn configured_blocking(tuning: OperationalTuning) -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::camera::profiles::PtzOpticsG2;
-//!     use grafton_visca::blocking::CameraConfig;
+//!     use grafton_visca::config::CameraConfig;
+//!     use grafton_visca::profiles::PtzOpticsG2;
 //!
-//!     let session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!         .with_tuning(tuning)
-//!         .open()?;
+//!     let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110").with_tuning(tuning);
+//!     let session = grafton_visca::blocking::CameraSession::connect(&config)?;
 //!     session.close()
 //! }
 //! # let _ = tuning;
@@ -855,13 +880,15 @@
 //! ```rust
 //! # #[cfg(feature = "async")]
 //! async fn cancel_a_zoom(
-//!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
+//!     camera: &grafton_visca::r#async::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
 //!     use std::time::Duration;
 //!
 //!     // Submit one typed operation and retain its owner-backed lifecycle handle.
 //!     let mut operation = camera.zoom().tele().await?;
-//!     let outcome = operation.cancel_with_timeout(Duration::from_secs(2)).await?;
+//!     let outcome = operation
+//!         .cancel_with_timeout(Duration::from_secs(2))
+//!         .await?;
 //!     println!("cancellation outcome: {outcome:?}");
 //!     Ok(())
 //! }
@@ -869,7 +896,7 @@
 //!
 //! Queued commands can always be removed locally. Cancelling a command that has
 //! already been sent requires profile support for the standard VISCA socket-cancel
-//! command and otherwise fails with [`Error::NotSupported`]. For bounded continuous
+//! command and otherwise fails with [`Error::CancellationNotSupported`]. For bounded continuous
 //! movement, send the relevant STOP command and await its application.
 //!
 //! A refused cancellation is not cancellation intent: the owner leaves the
@@ -880,7 +907,7 @@
 //! ```rust
 //! # #[cfg(feature = "async")]
 //! async fn stop_a_zoom_the_profile_cannot_cancel(
-//!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
+//!     camera: &grafton_visca::r#async::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::Error;
 //!
@@ -893,7 +920,7 @@
 //!         // The G2 has no socket-cancel. The recourse that actually ends
 //!         // movement on such a profile is an applied STOP, and the same
 //!         // handle still observes the original zoom.
-//!         Err(Error::NotSupported) => {
+//!         Err(Error::CancellationNotSupported) => {
 //!             camera.zoom().stop().await?.applied().await?;
 //!             operation.applied().await
 //!         }
@@ -905,16 +932,16 @@
 //! ## Movement Completion Tracking
 //!
 //! Observe or wait for the protocol position samples of exactly selected axes with
-//! [`camera::MotionQuery`] and [`camera::IdleWait`]. Unselected axes are never
+//! [`types::MotionQuery`] and [`types::IdleWait`]. Unselected axes are never
 //! queried:
 //!
 //! ```rust
 //! # #[cfg(feature = "async")]
 //! async fn observe_motion(
-//!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
+//!     camera: &grafton_visca::r#async::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::camera::{IdleWait, MotionQuery};
-//!     use grafton_visca::AffectedAxes;
+//!     use grafton_visca::types::AffectedAxes;
+//!     use grafton_visca::{types::IdleWait, types::MotionQuery};
 //!     use std::time::Duration;
 //!
 //!     let axes = AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM);
@@ -937,15 +964,14 @@
 //! ```rust
 //! # #[cfg(feature = "async")]
 //! async fn classify_errors(
-//!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
+//!     camera: &grafton_visca::r#async::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) {
-//!     use grafton_visca::{types::{Degrees, SpeedLevel}, Error};
+//!     use grafton_visca::{types::PanTiltPosition, types::SpeedLevel, Error};
 //!
-//!     let pan = Degrees::new(180.0).expect("finite literal");
-//!     let tilt = Degrees::new(0.0).expect("finite literal");
+//!     let position = PanTiltPosition::from_degrees(180.0, 0.0).expect("finite literals");
 //!     let applied = match camera
 //!         .pan_tilt()
-//!         .absolute(pan, tilt, SpeedLevel::Medium)
+//!         .absolute(position, SpeedLevel::Medium)
 //!         .await
 //!     {
 //!         Ok(mut operation) => operation.applied().await,
@@ -987,7 +1013,7 @@ pub mod __macro_support {
     /// Build the canonical profile-aware inquiry decoder without boxed context.
     #[doc(hidden)]
     pub fn inquiry_decoder<R>(
-        kind: crate::command::InquiryKind,
+        kind: InquiryKind,
         profile: &crate::ProfileSpec,
         lift: fn(crate::command::Response) -> crate::Result<R>,
     ) -> crate::ResponseDecoder<R> {
@@ -997,7 +1023,7 @@ pub mod __macro_support {
     /// Return structural payload evidence from the canonical inquiry table.
     #[doc(hidden)]
     pub fn inquiry_payload_shape(
-        kind: crate::command::InquiryKind,
+        kind: InquiryKind,
         profile: Option<&crate::ProfileSpec>,
     ) -> crate::PayloadShape {
         crate::command::inquiry_structs::payload_shape_for_profile(kind, profile)
@@ -1010,9 +1036,11 @@ pub mod __macro_support {
     #[doc(hidden)]
     pub use crate::command::bytes::{frame_len, write_frame};
     #[doc(hidden)]
+    pub use crate::command::inquiry_structs::{InquiryData, InquiryKind};
+    #[doc(hidden)]
     pub use crate::macros::public::invalid_value;
     #[doc(hidden)]
-    pub use grafton_visca_macros::__value;
+    pub use grafton_visca_macros::{__capability_encodings, __noun_signature_types, __value};
     #[cfg(feature = "schemars")]
     pub use schemars;
     #[cfg(feature = "serde")]
@@ -1021,36 +1049,46 @@ pub mod __macro_support {
     pub use ts_rs;
 }
 
-pub use crate::{
+pub(crate) use crate::{
     camera_id::{CameraId, IndividualCameraId},
-    command::{
-        AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, NdFilterMode,
-        PanTiltDirection, PanTiltLimitCorner, PictureEffectMode, PowerStatus, PresetNumber,
-        WhiteBalanceMode,
-    },
-    error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Recovery, Result},
+    command::WhiteBalanceMode,
+    error::ErrorKind,
     inquiry_conversions::ZoomDomain,
-    types::{FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
-    units::UnitInterval,
     visca_socket::ViscaSocket,
 };
 
-#[cfg(feature = "async")]
-pub use crate::executor::{ExecError, Executor, ResettableTimer};
-#[cfg(all(feature = "async", feature = "runtime-smol"))]
-pub use crate::executor::{SmolExecutor, SmolTimer};
-#[cfg(all(feature = "async", feature = "runtime-tokio"))]
-pub use crate::executor::{TokioExecutor, TokioTimer};
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) use crate::error::{Certainty, FailureContext, FailureStage};
+#[cfg(all(
+    test,
+    feature = "async",
+    feature = "runtime-smol",
+    feature = "test-utils"
+))]
+pub(crate) use crate::executor::SmolExecutor;
 
-#[cfg(all(feature = "async", feature = "runtime-smol"))]
-pub use crate::runtime::SmolRuntime;
-#[cfg(all(feature = "async", feature = "runtime-tokio"))]
-pub use crate::runtime::TokioRuntime;
-#[cfg(feature = "async")]
-pub use crate::runtime::{Runtime, TransportHandle};
+#[cfg(all(
+    test,
+    feature = "async",
+    feature = "runtime-tokio",
+    feature = "test-utils"
+))]
+pub(crate) use crate::executor::TokioExecutor;
+#[cfg(all(test, unix, feature = "transport-serial-tokio"))]
+pub(crate) use crate::runtime::{TokioRuntime, TransportHandle};
+#[cfg(test)]
+pub(crate) use crate::types::PresetNumber;
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+pub(crate) use crate::{
+    error::Recovery,
+    types::{PanTiltDirection, UnitInterval},
+};
 
-mod error;
+pub mod error;
+pub use error::{Error, Result};
 pub(crate) mod macros;
+mod profile_selection;
+mod tuning;
 
 /// The single row table behind all three noun facades.
 pub(crate) mod noun_table;
@@ -1063,6 +1101,15 @@ mod camera_core;
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) mod noun_facade;
 
+#[cfg(test)]
+pub(crate) mod noun_metadata;
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+#[path = "../tests/api_conventions.rs"]
+mod api_conventions_source;
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+api_conventions_source::api_convention_tests!();
+
 #[cfg(all(test, feature = "async", feature = "blocking"))]
 mod facade_parity;
 
@@ -1070,10 +1117,12 @@ mod facade_parity;
 pub(crate) mod executor;
 
 /// Closed operation completion kinds used by typed requests.
-pub mod completion;
+#[path = "completion.rs"]
+pub mod operation;
+pub(crate) use operation as completion;
 
 /// Camera profile system for type-safe, model-specific control
-pub mod camera;
+pub(crate) mod camera;
 
 mod camera_id;
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -1103,18 +1152,19 @@ pub mod request;
 pub mod raw;
 
 mod requests;
-pub use requests::{
-    AffectedAxes, AffectedAxis, AffectedAxisIter, ControlClass, Inquiry, OperationCommand,
-    PayloadShape, PlainCommand, Request, ResponseDecoder, RetryClass, SubmissionClass,
-    TimeoutClass,
+pub(crate) use requests::{
+    AffectedAxes, ControlClass, Inquiry, OperationCommand, PayloadShape, Request, ResponseDecoder,
+    RetryClass, SubmissionClass, TimeoutClass,
 };
+
+#[cfg(any(feature = "blocking", feature = "async", test))]
+pub(crate) use requests::PlainCommand;
 
 // Request preparation feeds only the owner, so like the engine it is compiled
 // only with a facade.
 #[cfg(any(feature = "blocking", feature = "async"))]
 mod prepared;
 
-#[cfg(any(feature = "blocking", feature = "async"))]
 mod stop_request;
 
 /// Bounded owner metrics and diagnostic subscriptions.
@@ -1124,62 +1174,62 @@ pub mod observability;
 pub mod state_cache;
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-pub use observability::DiagnosticSubscription;
-pub use observability::{
-    DiagnosticCancellation, DiagnosticDeadline, DiagnosticEvent, DiagnosticId,
-    DiagnosticIgnoreReason, DiagnosticLane, DiagnosticOutcome, DiagnosticPhase, DiagnosticResponse,
-    MetricsSnapshot, SessionStatus,
-};
+pub(crate) use observability::MetricsSnapshot;
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+pub(crate) use observability::SessionStatus;
 #[cfg(any(feature = "blocking", feature = "async"))]
-pub use state_cache::StateCache;
-pub use state_cache::{KnownState, PanTiltLimitUpdate, StateEntry, StateKey};
+pub(crate) use state_cache::PanTiltLimitUpdate;
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) use state_cache::StateCache;
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+pub(crate) use state_cache::StateEntry;
+pub(crate) use state_cache::{KnownState, StateKey};
 
 mod session_config;
 mod target;
-pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
+#[cfg(any(feature = "blocking", feature = "async", test))]
+pub(crate) use session_config::SessionConfig;
+#[cfg(all(
+    any(test, feature = "test-utils"),
+    any(feature = "blocking", feature = "async")
+))]
+pub(crate) use session_config::DEFAULT_ADMISSION_CAPACITY;
 mod source_evidence;
 mod target_registration;
-pub use target_registration::{MountPosition, TargetRegistration};
+pub(crate) use target_registration::{MountPosition, TargetRegistration};
 
 mod outcome;
-pub use outcome::{CancellationOutcome, HaltOutcome, HaltReport, Settlement};
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) use outcome::{CancellationOutcome, HaltOutcome, HaltReport, Settlement};
 
 mod operation_id;
-pub use operation_id::OperationId;
+pub(crate) use operation_id::OperationId;
 
 #[cfg(feature = "async")]
-mod operation;
-#[cfg(feature = "async")]
-pub use operation::Operation;
+#[path = "operation.rs"]
+mod async_operation;
 
 #[cfg(feature = "async")]
 mod async_nouns;
 #[cfg(feature = "async")]
 mod async_session;
+#[cfg(all(test, feature = "async"))]
+pub(crate) use async_session::Camera;
+/// Owner-backed async session, camera, operation and noun facade.
 #[cfg(feature = "async")]
-use noun_table::reexport_nouns;
-#[cfg(feature = "async")]
-noun_table::noun_table!(reexport_nouns, [accessor], [async_nouns]);
-#[cfg(feature = "async")]
-noun_table::motion_table!(reexport_nouns, [accessor], [async_nouns]);
-#[cfg(feature = "async")]
-pub use async_session::{Camera, CameraSession, Session};
-#[cfg(feature = "async")]
-pub mod session {
-    //! Profile-generic async session facade.
-    pub use crate::camera::{CameraConfig, Connect};
-    use crate::noun_table::reexport_nouns;
-    pub use crate::{
-        async_session::Camera, async_session::CameraSession, async_session::Session, SessionConfig,
-    };
-    crate::noun_table::noun_table!(reexport_nouns, [accessor], [crate]);
-    crate::noun_table::motion_table!(reexport_nouns, [accessor], [crate]);
+pub mod r#async {
+    pub use crate::async_nouns::*;
+    pub use crate::async_operation::Operation;
+    pub use crate::async_session::{Camera, CameraSession, Diagnostics, Session};
 }
 
-// Final construction names are available at the crate root in canonical
-// async builds.
-#[cfg(feature = "async")]
-pub use crate::camera::{CameraConfig, Connect};
+/// Connection and owner configuration values.
+pub mod config {
+    pub use crate::camera::{CameraConfig, TransportKind, TransportOptions};
+    pub use crate::session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
+    pub use crate::target_registration::{MountPosition, TargetRegistration};
+    pub use crate::tuning::OperationalTuning;
+}
 
 // The module documents itself: an outer doc here would make rustdoc resolve
 // the module's intra-doc links at the crate root, against the async facade's
@@ -1188,34 +1238,33 @@ pub use crate::camera::{CameraConfig, Connect};
 pub mod blocking;
 
 /// Inquiry conversion utilities for raw to user-friendly values
-pub mod inquiry_conversions;
+pub(crate) mod inquiry_conversions;
 
 pub mod prelude;
 
 /// Validated runtime and compile-time camera profile lowering.
-pub mod profile;
+#[path = "profile.rs"]
+pub mod profiles;
 
-pub use profile::{
-    CompileTimeProfile, OperationalTuning, PanTiltCoordinateConversion, PositionInquirySupport,
-    ProfileEnvelope, ProfileSpec, ProfileSpecBuilder, ProfileTiming, ProfileTimingBuilder,
-    TransportCompatibility,
+pub(crate) use profiles::{
+    CompileTimeProfile, PanTiltCoordinateConversion, ProfileEnvelope, ProfileSpec,
 };
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+pub(crate) use profiles::{ProfileTiming, TransportCompatibility};
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) use tuning::OperationalTuning;
 
 pub(crate) mod protocol;
 
 /// VISCA runtime with flume-based scheduling
 pub mod runtime;
 
-/// Runtime-specific transport adapters
-#[cfg(feature = "async")]
-pub mod runtime_adapters;
-
 /// Testing utilities for deterministic downstream tests.
 #[cfg(any(test, feature = "test-utils"))]
 pub mod testing;
 
 pub(crate) mod timeout;
-pub use timeout::{CommandCategory, CommandTimeouts};
+pub(crate) use timeout::{CommandTimeoutClass, CommandTimeouts};
 
 /// Transport layer for implementing custom transports
 pub mod transport;
@@ -1224,45 +1273,12 @@ pub mod transport;
 pub mod types;
 
 /// Semantic unit types for intuitive API usage
-pub mod units;
+pub(crate) mod units;
 
 /// Wire-value codecs used by protocol encoders and decoders.
 pub mod wire;
 
 mod visca_socket;
-
-/// Owner-backed runtime-profile camera projections.
-///
-/// Enable this module with the `dyn-api` feature. With `blocking`, it provides
-/// a native runtime-profile camera without futures or an executor. With
-/// `async`, it additionally provides object-safe noun/custom-operation views
-/// and erased operation handles. Every projection retains the canonical
-/// session owner and operation lifecycle.
-#[cfg(all(feature = "dyn-api", any(feature = "async", feature = "blocking")))]
-pub mod dynapi;
-
-/// Owner-backed dynamic projections and noun traits.
-#[cfg(all(feature = "dyn-api", any(feature = "async", feature = "blocking")))]
-pub use dynapi::*;
-
-// `dyn-api` projects the camera views of the enabled session facades, so on
-// its own it has nothing to project. Cargo cannot express "requires `blocking`
-// or `async`", so the shape is rejected here rather than compiling to an
-// empty feature (#828).
-#[cfg(all(feature = "dyn-api", not(any(feature = "async", feature = "blocking"))))]
-compile_error!(
-    "feature `dyn-api` projects a session facade's camera views: enable it with \
-     `blocking`, `async`, `runtime-tokio` or `runtime-smol`"
-);
-
-/// Camera profiles with compositional capabilities
-pub mod profiles {
-    crate::camera::profiles::profile_registry::builtin_profile_registry!(
-        crate::camera::profiles::profile_registry::reexport_builtin_profiles
-    );
-    pub use crate::camera::profiles::{ProfileGroup, ProfileId};
-    pub use crate::capabilities::InquirySupport;
-}
 
 /// Detailed owner, protocol-engine, scheduling, and lifecycle architecture.
 ///
@@ -1316,3 +1332,9 @@ mod issue_715_wire_golden;
 
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 mod issue_871_gates;
+
+#[cfg(test)]
+mod generated_docs;
+
+#[cfg(all(test, feature = "blocking", feature = "serde"))]
+mod profile_probe;

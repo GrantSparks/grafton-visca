@@ -1,48 +1,212 @@
-//! Synthetic compile-time profiles and the session configurations built on
-//! them, shared by the integration suite; each test binary uses a different
-//! subset.
+//! Synthetic compile-time profiles and their validated runtime specifications.
+//!
+//! Fixtures deliberately use the same public builder as community profiles.
+//! Timing and physical facts are explicit so lifecycle tests do not inherit
+//! changes to a built-in camera's defaults.
 
 use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
-        self, exposure::ShutterSpeedEntry, CapabilityDomain, CapabilityRange, Exposure, Focus,
-        HasDirectZoom, HasMotionSync, ImageProcessing, InquirySupport, MenuCapability,
-        MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
-        ProfileTypedSupport, Tally, TypedSupportSet, TypedSupportSurface, VariableSpeedMetadata,
-        WhiteBalance, Zoom,
+        self, Capabilities, CapabilityDomain, CapabilityRange, CoordinateSystem,
+        EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, InquirySupport,
+        MenuCaps, PanTiltCaps, PanTiltWireCodec, PowerCaps, PresetCaps, RgbGainRanges,
+        RgbTuningRanges, ShutterSpeedEntry, TiltRanges, TypedSupportSet, TypedSupportSurface,
+        WhiteBalanceCaps, ZoomCaps,
     },
-    command::{ExposureMode, FocusZone},
-    transport::RawVisca,
-    AffectedAxes, CameraId, CommandTimeouts, CompileTimeProfile, PositionInquirySupport,
-    ProfileSpec, SessionConfig, TransportCompatibility, WhiteBalanceMode,
+    config::SessionConfig,
+    profiles::{
+        CommandTimeouts, CompileTimeProfile, PanTiltCoordinateConversion, ProfileEnvelope,
+        ProfileId, ProfileSpec, ProfileTiming, TransportCompatibility,
+    },
+    types::{AffectedAxes, CameraId, ExposureMode, FocusZone, WhiteBalanceMode},
 };
 
-const EXPOSURE_MODES: &[ExposureMode] = &[
-    ExposureMode::Auto,
-    ExposureMode::Manual,
-    ExposureMode::Shutter,
-    ExposureMode::Iris,
-    ExposureMode::Bright,
-];
-const SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[ShutterSpeedEntry::new(
-    {
-        let checked = grafton_visca::units::ExposureTime::new(1, 60);
-        match &checked {
-            Ok(exposure) => {
-                let exposure = *exposure;
-                core::mem::forget(checked);
-                exposure
-            }
-            Err(_) => {
-                core::mem::forget(checked);
-                panic!("nonzero denominator")
-            }
-        }
-    },
-    0x01,
-)];
-const WB_MODES: &[WhiteBalanceMode] = &[WhiteBalanceMode::Auto, WhiteBalanceMode::Manual];
+fn synthetic_spec(
+    model: &str,
+    typed_support: TypedSupportSet,
+    ambiguity_timeout: Duration,
+    command_timeouts: CommandTimeouts,
+) -> grafton_visca::Result<ProfileSpec> {
+    use TypedSupportSurface as S;
+    let mut caps = Capabilities::runtime_baseline(model, 1)?;
+    caps.typed_support = typed_support;
+    caps.inquiry_support = InquirySupport::Full;
+    caps.pan_tilt = Some(PanTiltCaps {
+        pan_range: CapabilityRange::<i32>::new(-1700, 1700),
+        tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-300, 900)),
+        pan_speed: CapabilityRange::<u8>::new(1, 24),
+        tilt_speed: CapabilityRange::<u8>::new(1, 20),
+        coordinates: PanTiltCoordinateConversion::new(
+            CoordinateSystem::SignedCentered,
+            PanTiltWireCodec::StandardVisca,
+            10.0,
+            10.0,
+        )?,
+        endpoint_quantization: EndpointQuantization::Exact,
+        simultaneous: true,
+        preset_recovery_time: Duration::ZERO,
+        variable_speed: false,
+        motion_sync_speed_range: typed_support
+            .contains(S::MotionSync)
+            .then(|| CapabilityRange::<u8>::new(1, 24)),
+    });
+    caps.zoom = Some(ZoomCaps {
+        optical_max: 0x4000,
+        digital_max: Some(0x7000),
+        speed: CapabilityRange::<u8>::new(0, 7),
+        direct: true,
+        variable: true,
+        optical_ratio: None,
+    });
+    caps.focus = Some(FocusCaps {
+        range: CapabilityRange::<u16>::new(0x1000, 0xf000),
+        near_end: FocusNearEnd::Minimum,
+        speed: CapabilityRange::<u8>::new(0, 7),
+        auto_focus: true,
+        one_push: true,
+        zone_inquiry: typed_support.contains(S::FocusZoneInquiry),
+        zones: vec![FocusZone::Top, FocusZone::Center, FocusZone::Bottom],
+        af_sensitivity: true,
+        near_limit_inquiry: true,
+    });
+    caps.exposure = Some(ExposureCaps {
+        modes: vec![
+            ExposureMode::Auto,
+            ExposureMode::Manual,
+            ExposureMode::Shutter,
+            ExposureMode::Iris,
+            ExposureMode::Bright,
+        ],
+        backlight_compensation: typed_support.contains(S::BacklightCompensation),
+        wide_dynamic_range: typed_support.contains(S::WideDynamicRange),
+        compensation_range: typed_support
+            .contains(S::ExposureCompensation)
+            .then(|| CapabilityRange::<i8>::new(-7, 7)),
+        iris_range: typed_support
+            .contains(S::Iris)
+            .then(|| CapabilityDomain::<u16>::new(0, 30)),
+        gain_range: Some(CapabilityRange::<u8>::new(0, 15)),
+        shutter_speeds: vec![ShutterSpeedEntry::new(
+            grafton_visca::types::ExposureTime::new(1, 60)?,
+            0x01,
+        )],
+        brightness_range: typed_support
+            .contains(S::Brightness)
+            .then(|| CapabilityDomain::<u8>::new(0, 0xff)),
+    });
+    let color_temperature = typed_support.contains(S::ColorTemperature)
+        || typed_support.contains(S::ColorTemperatureInquiry);
+    let mut white_modes = vec![WhiteBalanceMode::Auto, WhiteBalanceMode::Manual];
+    if color_temperature {
+        white_modes.push(WhiteBalanceMode::ColorTemperature);
+    }
+    caps.white_balance = Some(WhiteBalanceCaps {
+        modes: white_modes,
+        one_push: typed_support.contains(S::OnePushWhiteBalance),
+        color_temp_range: color_temperature.then(|| CapabilityRange::<u16>::new(2500, 8000)),
+        color_temperature_steps: if color_temperature {
+            (0..=55)
+                .map(|step| 2500 + 100 * step)
+                .collect::<Vec<_>>()
+                .into()
+        } else {
+            std::sync::Arc::from([])
+        },
+        rgb_gain: typed_support.contains(S::RgbGain).then(|| RgbGainRanges {
+            red: CapabilityRange::<u8>::new(0, 0xff),
+            blue: CapabilityRange::<u8>::new(0, 0xff),
+        }),
+        rgb_tuning: typed_support
+            .contains(S::RgbTuning)
+            .then(|| RgbTuningRanges {
+                red: CapabilityRange::<i8>::new(-10, 10),
+                blue: CapabilityRange::<i8>::new(-10, 10),
+            }),
+    });
+    // This broad fixture exists only to instantiate generic noun contracts.
+    // Unlike the old metadata-trait fixture, its granted surfaces have facts.
+    if typed_support.contains(S::Contrast) {
+        caps.image = Some(ImageCaps {
+            contrast_range: Some(CapabilityRange::<u8>::new(0, 14)),
+            sharpness_range: Some(CapabilityRange::<u8>::new(0, 15)),
+            saturation_range: Some(CapabilityRange::<u8>::new(0, 14)),
+            hue_range: Some(CapabilityRange::<u8>::new(0, 14)),
+            luminance_range: Some(CapabilityRange::<u8>::new(0, 14)),
+            gamma_range: Some(CapabilityRange::<u8>::new(0, 4)),
+            flip: true,
+            mirror: true,
+            requires_settings_save_for_flip: false,
+            picture_effect: true,
+        });
+    }
+    caps.presets = Some(PresetCaps {
+        highest: 6,
+        recall_axes: AffectedAxes::PAN_TILT
+            .union(AffectedAxes::ZOOM)
+            .union(AffectedAxes::FOCUS),
+        recall_speed_range: Some(CapabilityRange::<u8>::new(1, 23)),
+        tour: false,
+        thumbnail: false,
+        recall_delay: Duration::ZERO,
+        names: None,
+    });
+    caps.power = Some(PowerCaps {
+        on_time: Duration::from_secs(5),
+        standby: typed_support
+            .contains(S::PowerStandby)
+            .then_some(Duration::from_secs(5)),
+        wake_on_lan: false,
+        retains_settings: true,
+        home_on_up: false,
+    });
+    if typed_support.contains(S::MenuDisplay) {
+        caps.menu = Some(MenuCaps {});
+    }
+    // These profiles settle targeted operations by polling. Scalar controls
+    // need their own query only when the fixture declares that permission.
+    let mut position_inquiries = AffectedAxes::MOVEMENT;
+    if typed_support.contains(S::Iris) {
+        position_inquiries = position_inquiries.union(AffectedAxes::IRIS);
+    }
+    if typed_support.contains(S::NdFilter) {
+        position_inquiries = position_inquiries.union(AffectedAxes::ND_FILTER);
+    }
+    let mut builder = ProfileSpec::builder(caps)
+        .transports(
+            TransportCompatibility::new()
+                .with_tcp(5678)
+                .with_udp(1259)
+                .with_serial(),
+        )
+        .envelope(ProfileEnvelope::RawVisca)
+        .timing(
+            ProfileTiming::builder()
+                .ack_timeout(Duration::from_millis(100))
+                .command_timeouts(command_timeouts)
+                .inquiry_timeout(Duration::from_secs(1))
+                .cancellation_timeout(Duration::from_secs(1))
+                .ambiguity_timeout(ambiguity_timeout)
+                .busy_timeout(Duration::ZERO)
+                .raw_inquiry_reply_skew(Duration::ZERO)
+                .inquiry_spacing(Duration::ZERO)
+                .command_spacing(Duration::ZERO)
+                .build()?,
+        )
+        .maximum_command_sockets(2)
+        .supports_operation_complete(false)
+        .supports_command_cancel(true)
+        .position_inquiries(position_inquiries);
+    // These caller-owned fixtures choose concrete encoding families explicitly.
+    // Grants describe permission and do not infer profile wire encodings.
+    if typed_support.contains(S::PresetRecallSpeed) {
+        builder = builder.encoding(capabilities::PresetRecallSpeedEncoding::PtzOptics);
+    }
+    if typed_support.contains(S::OnePushWhiteBalance) {
+        builder = builder.encoding(capabilities::OnePushWhiteBalanceEncoding::Standard);
+    }
+    builder.build()
+}
 
 macro_rules! synthetic_profile_default {
     (default, $profile:ident) => {
@@ -57,13 +221,12 @@ macro_rules! synthetic_profile_default {
 
 macro_rules! synthetic_command_timeouts {
     () => {
-        CommandTimeouts::new(
-            Duration::from_secs(5),
-            Duration::from_secs(30),
-            Duration::from_secs(60),
-            Duration::from_secs(300),
-            Duration::from_secs(5),
-        )
+        CommandTimeouts::DEFAULT
+            .with_quick_timeout(Duration::from_secs(5))
+            .with_movement_timeout(Duration::from_secs(30))
+            .with_preset_timeout(Duration::from_secs(60))
+            .with_long_running_timeout(Duration::from_secs(300))
+            .with_network_timeout(Duration::from_secs(5))
     };
     ($command_timeouts:expr) => {
         $command_timeouts
@@ -74,112 +237,22 @@ macro_rules! synthetic_profile_impl {
     ($profile:ident, $model:literal, $typed_support:expr, $default:ident, $ambiguity_timeout:expr $(, $command_timeouts:expr)?) => {
         #[derive(Debug, Clone, Copy)]
         pub struct $profile;
-
         synthetic_profile_default!($default, $profile);
-
-        impl ProfileMetadata for $profile {
-            const SUPPORTS_COMMAND_CANCEL: bool = true;
-
-            const MODEL_NAME: &'static str = $model;
-            const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId = grafton_visca::IndividualCameraId::MIN;
-            type Envelope = RawVisca;
-            const ACK_TIMEOUT: Duration = Duration::from_millis(100);
-            const COMMAND_TIMEOUTS: CommandTimeouts = synthetic_command_timeouts!($($command_timeouts)?);
-            const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
-        }
-
-        impl PanTilt for $profile {
-            const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-1700, 1700);
-            const TILT_RANGES: grafton_visca::capabilities::TiltRanges = grafton_visca::capabilities::TiltRanges::Single(CapabilityRange::<i32>::new(-300, 900));
-            const MAX_PAN_SPEED: u8 = 24;
-            const MAX_TILT_SPEED: u8 = 20;
-            const PAN_DEGREES_TO_UNITS: f32 = 10.0;
-            const TILT_DEGREES_TO_UNITS: f32 = 10.0;
-        }
-
-        impl Zoom for $profile {
-            const SUPPORTS_VARIABLE_ZOOM: bool = true;
-
-            const OPTICAL_ZOOM_MAX: u16 = 0x4000;
-            const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
-            const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
-            const SUPPORTS_DIRECT_ZOOM: bool = true;
-            const OPTICAL_ZOOM_RATIO: Option<f32> = None;
-        }
-
-        impl Focus for $profile {
-            const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
-
-            const MAX_FOCUS_SPEED: u8 = 7;
-
-            const FOCUS_RANGE: grafton_visca::capabilities::CapabilityRange<u16> = grafton_visca::capabilities::CapabilityRange::<u16>::new(0x1000, 0xF000);
-    const FOCUS_NEAR_END: grafton_visca::capabilities::FocusNearEnd = grafton_visca::capabilities::FocusNearEnd::Minimum;
-            const SUPPORTS_AUTO_FOCUS: bool = true;
-            const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
-            const FOCUS_ZONES: &'static [FocusZone] =
-                &[FocusZone::Top, FocusZone::Center, FocusZone::Bottom];
-            const SUPPORTS_AF_SENSITIVITY: bool = true;
-        }
-
-        impl Exposure for $profile {
-            const EXPOSURE_MODES: &'static [ExposureMode] = EXPOSURE_MODES;
-            const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
-            const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = SHUTTER_SPEEDS;
-            const GAIN_RANGE: Option<grafton_visca::capabilities::CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 15));
-            const SUPPORTS_BACKLIGHT_COMP: bool = false;
-        }
-
-        impl WhiteBalance for $profile {
-            const WB_MODES: &'static [WhiteBalanceMode] = WB_MODES;
-            const SUPPORTS_ONE_PUSH_WB: bool = false;
-            const RG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
-            const BG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
-        }
-
-        impl ImageProcessing for $profile {
-            const CONTRAST_RANGE: Option<CapabilityRange<u8>> = None;
-            const SHARPNESS_RANGE: Option<CapabilityRange<u8>> = None;
-            const SATURATION_RANGE: Option<CapabilityRange<u8>> = None;
-            const SUPPORTS_FLIP: bool = false;
-            const SUPPORTS_MIRROR: bool = false;
-        }
-
-        impl Presets for $profile {
-            const HIGHEST_PRESET: u8 = 6;
-            const PRESET_SPEED_RANGE: Option<CapabilityRange<u8>> =
-                Some(CapabilityRange::<u8>::new(1, 23));
-            const SUPPORTS_PRESET_TOUR: bool = false;
-        }
-
-        impl Power for $profile {
-            const POWER_ON_TIME: Duration = Duration::from_secs(5);
-            const SUPPORTS_STANDBY: bool = false;
-        }
-
-        impl MenuCapability for $profile {}
-        impl Tally for $profile {}
-        impl NdFilterMetadata for $profile {}
-        impl VariableSpeedMetadata for $profile {}
-
-        impl ProfileTypedSupport for $profile {
-            const TYPED_SUPPORT: TypedSupportSet = $typed_support;
-        }
-
         impl CompileTimeProfile for $profile {
-            const TRANSPORTS: TransportCompatibility =
-                TransportCompatibility::new(Some(5678), Some(1259), true);
-            const INQUIRY_TIMEOUT: Duration = Duration::from_secs(1);
-            const CANCELLATION_TIMEOUT: Duration = Duration::from_secs(1);
-            const AMBIGUITY_TIMEOUT: Duration = $ambiguity_timeout;
-            const MAXIMUM_COMMAND_SOCKETS: u8 = 2;
-            const PRESET_RECALL_AXES: Option<AffectedAxes> = Some(
-                AffectedAxes::PAN_TILT
-                    .union(AffectedAxes::ZOOM)
-                    .union(AffectedAxes::FOCUS),
-            );
-            const POSITION_INQUIRIES: PositionInquirySupport =
-                PositionInquirySupport::new(true, true, true);
+            const TYPED_SUPPORT: TypedSupportSet = $typed_support;
+            const ID: Option<ProfileId> = None;
+            fn spec() -> grafton_visca::Result<ProfileSpec> {
+                synthetic_spec($model, <Self as CompileTimeProfile>::TYPED_SUPPORT, $ambiguity_timeout,
+                    synthetic_command_timeouts!($($command_timeouts)?))
+            }
         }
+        impl capabilities::HasPower for $profile {}
+        impl capabilities::HasPanTilt for $profile {}
+        impl capabilities::HasZoom for $profile {}
+        impl capabilities::HasFocus for $profile {}
+        impl capabilities::HasPresets for $profile {}
+        impl capabilities::HasExposure for $profile {}
+        impl capabilities::HasWhiteBalance for $profile {}
     };
 }
 
@@ -220,8 +293,8 @@ synthetic_profile!(
         TypedSupportSurface::DigitalZoomRange,
     ])
 );
-impl MotionSyncMetadata for CombinedZoomTypedSupport {}
-impl HasDirectZoom for CombinedZoomTypedSupport {}
+
+impl capabilities::HasDirectZoom for CombinedZoomTypedSupport {}
 impl capabilities::HasDigitalZoomRange for CombinedZoomTypedSupport {}
 
 synthetic_profile!(
@@ -253,13 +326,12 @@ synthetic_profile_impl!(
     TypedSupportSet::EMPTY,
     no_default,
     Duration::from_millis(250),
-    CommandTimeouts::new(
-        Duration::from_millis(100),
-        Duration::from_millis(100),
-        Duration::from_millis(100),
-        Duration::from_millis(100),
-        Duration::from_millis(100),
-    )
+    CommandTimeouts::DEFAULT
+        .with_quick_timeout(Duration::from_millis(100))
+        .with_movement_timeout(Duration::from_millis(100))
+        .with_preset_timeout(Duration::from_millis(100))
+        .with_long_running_timeout(Duration::from_millis(100))
+        .with_network_timeout(Duration::from_millis(100))
 );
 
 // No built-in profile declares motion sync (see the profile registry's
@@ -282,31 +354,30 @@ synthetic_profile!(
     "Optional Surfaces Typed Support",
     TypedSupportSet::from_surfaces(&[
         TypedSupportSurface::PowerStandby,
-        TypedSupportSurface::ShutterDirect,
+        TypedSupportSurface::DirectShutter,
         TypedSupportSurface::FocusInfinity,
         TypedSupportSurface::PresetMemory,
-        TypedSupportSurface::ShutterControl,
-        TypedSupportSurface::GainControl,
+        TypedSupportSurface::Shutter,
+        TypedSupportSurface::Gain,
         TypedSupportSurface::GainLimit,
-        TypedSupportSurface::StandardWhiteBalanceModes,
         TypedSupportSurface::MenuDisplay,
         TypedSupportSurface::MenuEnterReturn,
-        TypedSupportSurface::MenuStatusInquiry,
+        TypedSupportSurface::MenuDisplayInquiry,
         TypedSupportSurface::AutoFocusSensitivity,
         TypedSupportSurface::AutoWhiteBalanceSensitivity,
         TypedSupportSurface::BacklightCompensation,
-        TypedSupportSurface::BrightnessControl,
+        TypedSupportSurface::Brightness,
         TypedSupportSurface::ColorTemperature,
         TypedSupportSurface::ColorTemperatureInquiry,
-        TypedSupportSurface::ContrastControl,
+        TypedSupportSurface::Contrast,
         TypedSupportSurface::ExposureCompensation,
-        TypedSupportSurface::FocusNearLimitInquiry,
+        TypedSupportSurface::FocusNearLimit,
         TypedSupportSurface::FocusZoneInquiry,
-        TypedSupportSurface::GammaControl,
-        TypedSupportSurface::HueControl,
+        TypedSupportSurface::Gamma,
+        TypedSupportSurface::Hue,
         TypedSupportSurface::ImageFlip,
-        TypedSupportSurface::IrisControl,
-        TypedSupportSurface::LuminanceControl,
+        TypedSupportSurface::Iris,
+        TypedSupportSurface::Luminance,
         TypedSupportSurface::MotionSync,
         TypedSupportSurface::NdFilter,
         TypedSupportSurface::NoiseReduction2D,
@@ -315,50 +386,34 @@ synthetic_profile!(
         TypedSupportSurface::PictureEffect,
         TypedSupportSurface::RgbGain,
         TypedSupportSurface::RgbTuning,
-        TypedSupportSurface::SaturationControl,
-        TypedSupportSurface::SharpnessControl,
+        TypedSupportSurface::Saturation,
+        TypedSupportSurface::Sharpness,
         TypedSupportSurface::SharpnessMode,
         TypedSupportSurface::Tally,
         TypedSupportSurface::WideDynamicRange,
     ])
 );
 
-impl MotionSyncMetadata for DirectZoomOnlyTypedSupport {}
-impl MotionSyncMetadata for NonDefaultCompileTimeProfile {}
-impl MotionSyncMetadata for MotionOwnerCompileTimeProfile {}
-impl MotionSyncMetadata for QuarantinedSocketCompileTimeProfile {}
+impl capabilities::HasDirectZoom for DirectZoomOnlyTypedSupport {}
 
-impl MotionSyncMetadata for OptionalSurfacesTypedSupport {
-    const MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>> =
-        Some(CapabilityRange::<u8>::new(1, 24));
-}
-
-/// The one fixture that documents the physical capability, so the typed
-/// `MotionSync` surface above has something real to gate.
-impl MotionSyncMetadata for MotionSyncTypedSupport {
-    const MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>> =
-        Some(CapabilityRange::<u8>::new(1, 24));
-}
-
-impl HasDirectZoom for DirectZoomOnlyTypedSupport {}
-
-impl HasMotionSync for MotionSyncTypedSupport {}
+// This profile supplies the motion-sync speed range as well as its permission.
+impl capabilities::HasMotionSync for MotionSyncTypedSupport {}
 
 impl capabilities::HasAutoFocusSensitivity for OptionalSurfacesTypedSupport {}
 impl capabilities::HasAutoWhiteBalanceSensitivity for OptionalSurfacesTypedSupport {}
 impl capabilities::HasBacklightCompensation for OptionalSurfacesTypedSupport {}
-impl capabilities::HasBrightnessControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasBrightness for OptionalSurfacesTypedSupport {}
 impl capabilities::HasColorTemperature for OptionalSurfacesTypedSupport {}
 impl capabilities::HasColorTemperatureInquiry for OptionalSurfacesTypedSupport {}
-impl capabilities::HasContrastControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasContrast for OptionalSurfacesTypedSupport {}
 impl capabilities::HasExposureCompensation for OptionalSurfacesTypedSupport {}
-impl capabilities::HasFocusNearLimitInquiry for OptionalSurfacesTypedSupport {}
+impl capabilities::HasFocusNearLimit for OptionalSurfacesTypedSupport {}
 impl capabilities::HasFocusZoneInquiry for OptionalSurfacesTypedSupport {}
-impl capabilities::HasGammaControl for OptionalSurfacesTypedSupport {}
-impl capabilities::HasHueControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasGamma for OptionalSurfacesTypedSupport {}
+impl capabilities::HasHue for OptionalSurfacesTypedSupport {}
 impl capabilities::HasImageFlip for OptionalSurfacesTypedSupport {}
-impl capabilities::HasIrisControl for OptionalSurfacesTypedSupport {}
-impl capabilities::HasLuminanceControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasIris for OptionalSurfacesTypedSupport {}
+impl capabilities::HasLuminance for OptionalSurfacesTypedSupport {}
 impl capabilities::HasMotionSync for OptionalSurfacesTypedSupport {}
 impl capabilities::HasNdFilter for OptionalSurfacesTypedSupport {}
 impl capabilities::HasNoiseReduction2D for OptionalSurfacesTypedSupport {}
@@ -367,12 +422,12 @@ impl capabilities::HasNoiseReduction3D for OptionalSurfacesTypedSupport {}
 impl capabilities::HasPictureEffect for OptionalSurfacesTypedSupport {}
 impl capabilities::HasRgbGain for OptionalSurfacesTypedSupport {}
 impl capabilities::HasRgbTuning for OptionalSurfacesTypedSupport {}
-impl capabilities::HasSaturationControl for OptionalSurfacesTypedSupport {}
-impl capabilities::HasSharpnessControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasSaturation for OptionalSurfacesTypedSupport {}
+impl capabilities::HasSharpness for OptionalSurfacesTypedSupport {}
 impl capabilities::HasSharpnessMode for OptionalSurfacesTypedSupport {}
 impl capabilities::HasTally for OptionalSurfacesTypedSupport {}
 impl capabilities::HasWideDynamicRange for OptionalSurfacesTypedSupport {}
-impl capabilities::HasImageProcessing for OptionalSurfacesTypedSupport {}
+impl capabilities::HasImage for OptionalSurfacesTypedSupport {}
 
 /// A session on camera 1 with [`NonDefaultCompileTimeProfile`], the
 /// two-socket raw profile.
@@ -386,35 +441,134 @@ pub fn session_config() -> SessionConfig {
 /// [`session_config`] with camera 2 registered on the same two-socket raw
 /// profile.
 pub fn two_camera_session_config() -> SessionConfig {
-    let mut config = session_config();
-    config
-        .register_target(
+    session_config()
+        .with_target(
             CameraId::CAMERA_2,
             ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
                 .expect("two-socket raw profile"),
         )
-        .expect("second target");
-    config
+        .expect("second target")
 }
 
 /// A session on camera 1 with the built-in Sony FR7 profile (Sony envelope).
 pub fn sony_session_config() -> SessionConfig {
     SessionConfig::new(
-        ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFR7>()
+        ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFr7>()
             .expect("Sony FR7 profile"),
     )
 }
 
 impl capabilities::HasFocusInfinity for OptionalSurfacesTypedSupport {}
 impl capabilities::HasPresetMemory for OptionalSurfacesTypedSupport {}
-impl capabilities::HasShutterControl for OptionalSurfacesTypedSupport {}
-impl capabilities::HasGainControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasShutter for OptionalSurfacesTypedSupport {}
+impl capabilities::HasGain for OptionalSurfacesTypedSupport {}
 impl capabilities::HasGainLimit for OptionalSurfacesTypedSupport {}
-impl capabilities::HasStandardWhiteBalanceModes for OptionalSurfacesTypedSupport {}
+
 impl capabilities::HasMenuDisplay for OptionalSurfacesTypedSupport {}
 impl capabilities::HasMenuEnterReturn for OptionalSurfacesTypedSupport {}
-impl capabilities::HasMenuStatusInquiry for OptionalSurfacesTypedSupport {}
+impl capabilities::HasMenuDisplayInquiry for OptionalSurfacesTypedSupport {}
 
-impl capabilities::HasShutterDirect for OptionalSurfacesTypedSupport {}
+impl capabilities::HasDirectShutter for OptionalSurfacesTypedSupport {}
 
 impl capabilities::HasPowerStandby for OptionalSurfacesTypedSupport {}
+
+impl capabilities::HasMenu for OptionalSurfacesTypedSupport {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_synthetic_profile_has_a_valid_checked_specification() -> grafton_visca::Result<()> {
+        for profile in [
+            ProfileSpec::from_compile_time::<DirectZoomOnlyTypedSupport>()?,
+            ProfileSpec::from_compile_time::<CombinedZoomTypedSupport>()?,
+            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()?,
+            ProfileSpec::from_compile_time::<MotionOwnerCompileTimeProfile>()?,
+            ProfileSpec::from_compile_time::<QuarantinedSocketCompileTimeProfile>()?,
+            ProfileSpec::from_compile_time::<MotionSyncTypedSupport>()?,
+            ProfileSpec::from_compile_time::<OptionalSurfacesTypedSupport>()?,
+        ] {
+            assert_eq!(profile.capabilities().profile_id, None);
+            assert_eq!(profile.maximum_command_sockets(), 2);
+            assert!(!profile.supports_operation_complete());
+            assert!(profile.supports_command_cancel());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn synthetic_polling_queries_match_the_declared_scalar_axes() -> grafton_visca::Result<()> {
+        for (support, queries) in [
+            (TypedSupportSet::EMPTY, AffectedAxes::MOVEMENT),
+            (
+                TypedSupportSet::from_surface(TypedSupportSurface::Iris),
+                AffectedAxes::MOVEMENT.union(AffectedAxes::IRIS),
+            ),
+            (
+                TypedSupportSet::from_surface(TypedSupportSurface::NdFilter),
+                AffectedAxes::MOVEMENT.union(AffectedAxes::ND_FILTER),
+            ),
+            (
+                TypedSupportSet::from_surfaces(&[
+                    TypedSupportSurface::Iris,
+                    TypedSupportSurface::NdFilter,
+                ]),
+                AffectedAxes::ALL,
+            ),
+        ] {
+            let profile = synthetic_spec(
+                "Scalar polling fixture",
+                support,
+                Duration::from_secs(1),
+                CommandTimeouts::DEFAULT,
+            )?;
+            assert_eq!(profile.capabilities().typed_support, support);
+            assert_eq!(profile.position_inquiries(), Some(queries));
+            assert!(!profile.supports_operation_complete());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn consuming_target_updates_preserve_both_fixture_registrations() {
+        let config = two_camera_session_config();
+        assert_eq!(
+            config.targets().collect::<Vec<_>>(),
+            [CameraId::CAMERA_1, CameraId::CAMERA_2]
+        );
+        assert_eq!(
+            config
+                .profile(CameraId::CAMERA_1)
+                .expect("first registration"),
+            config
+                .profile(CameraId::CAMERA_2)
+                .expect("second registration")
+        );
+        assert_eq!(config.sole_target(), None);
+    }
+
+    #[test]
+    fn synthetic_shared_concepts_select_their_wire_families_explicitly() -> grafton_visca::Result<()>
+    {
+        let support = TypedSupportSet::from_surfaces(&[
+            TypedSupportSurface::PresetRecallSpeed,
+            TypedSupportSurface::OnePushWhiteBalance,
+        ]);
+        let profile = synthetic_spec(
+            "Explicit encoding fixture",
+            support,
+            Duration::from_secs(1),
+            CommandTimeouts::DEFAULT,
+        )?;
+        assert_eq!(
+            profile.encodings().preset_recall_speed(),
+            Some(capabilities::PresetRecallSpeedEncoding::PtzOptics)
+        );
+        assert_eq!(
+            profile.encodings().one_push_white_balance(),
+            Some(capabilities::OnePushWhiteBalanceEncoding::Standard)
+        );
+        Ok(())
+    }
+}

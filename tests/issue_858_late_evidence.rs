@@ -13,8 +13,9 @@
 use std::time::Duration;
 
 use grafton_visca::{
-    completion::AppliedOnly, profiles::SonyFR7, request::builtin::ZoomStop, OperationalTuning,
-    ProfileSpec, SessionConfig,
+    config::{OperationalTuning, SessionConfig},
+    operation::AppliedOnly,
+    profiles::{ProfileSpec, SonyFr7},
 };
 use grafton_visca_test_support::{
     facade_matrix,
@@ -22,16 +23,17 @@ use grafton_visca_test_support::{
 };
 
 fn config() -> SessionConfig {
-    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"))
-        .with_tuning(OperationalTuning::new().retry_timing(
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(10),
-        ))
+    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"))
+        .with_tuning(
+            OperationalTuning::new()
+                .with_initial_retry_backoff(Duration::from_secs(1))
+                .with_maximum_retry_backoff(Duration::from_secs(1))
+                .with_retry_budget(Duration::from_secs(10)),
+        )
 }
 
 fn ack_timeout() -> Duration {
-    ProfileSpec::from_compile_time::<SonyFR7>()
+    ProfileSpec::from_compile_time::<SonyFr7>()
         .expect("FR7 profile")
         .timing()
         .ack_timeout()
@@ -43,7 +45,7 @@ facade_matrix! {
     fn a_sony_ack_ten_milliseconds_after_its_deadline_prevents_a_second_write() {
         let camera = FakeCamera::new(|_, _| {});
         let session = open!(camera, config()).expect("session");
-        let view = session.camera::<SonyFR7>().expect("FR7 view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 view");
         let replies = camera.clone();
         after!(ack_timeout() + Duration::from_millis(10), move || {
             let writes = replies.writes();
@@ -51,7 +53,7 @@ facade_matrix! {
             replies.push(frames::sony_reply(sequence, &frames::ack(1)));
             replies.push(frames::sony_reply(sequence, &frames::complete(1)));
         });
-        let mut operation = wait!(view.submit::<AppliedOnly, _>(&ZoomStop)).expect("admission");
+        let mut operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("admission");
         wait!(operation.applied_with_timeout(Duration::from_secs(5))).expect("late acceptance still applies the original command");
         pause!(Duration::from_secs(1));
         assert_eq!(camera.write_count(), 1, "a late exact-sequence ACK must cancel the pending retry");
@@ -61,14 +63,14 @@ facade_matrix! {
     fn a_sony_completion_during_retry_backoff_finishes_without_rewriting() {
         let camera = FakeCamera::new(|_, _| {});
         let session = open!(camera, config()).expect("session");
-        let view = session.camera::<SonyFR7>().expect("FR7 view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 view");
         let replies = camera.clone();
         after!(ack_timeout() + Duration::from_millis(250), move || {
             let writes = replies.writes();
             let sequence = frames::sony_sequence(&writes[0]).expect("Sony sequence");
             replies.push(frames::sony_reply(sequence, &frames::complete(1)));
         });
-        let mut operation = wait!(view.submit::<AppliedOnly, _>(&ZoomStop)).expect("admission");
+        let mut operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("admission");
         wait!(operation.applied_with_timeout(Duration::from_secs(5))).expect("an exact completion applies the retained attempt");
         pause!(Duration::from_secs(1));
         assert_eq!(camera.write_count(), 1, "the first execution completed during backoff");

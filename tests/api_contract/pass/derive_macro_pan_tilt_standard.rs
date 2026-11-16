@@ -1,6 +1,6 @@
 use grafton_visca::{
-    command::{InquiryData, VISCA_TERMINATOR},
-    CameraId, Request, ViscaInquiry,
+    __macro_support::InquiryData, request::Request, types::CameraId, wire::VISCA_TERMINATOR,
+    ViscaInquiry,
 };
 
 /// A downstream derive uses only the standard VISCA inquiry and reply forms.

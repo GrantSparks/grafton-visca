@@ -1,13 +1,11 @@
-//! Dynamic (profile-erased) API: a targeted and an applied-only handle.
+//! Runtime-selected profiles use the same concrete camera and operation types.
 //!
-//! `DynSessionCamera` erases the compile-time profile but shares the very same
-//! owner, timeouts, pacing, cancellation, and state cache as a static
-//! `Camera<P>`. Its nouns preserve the completion distinction:
-//! `pan_tilt().home()` returns a `DynTargetedOperation` (which has `settled`),
-//! while `zoom().stop()` returns a `DynAppliedOperation` (which does not).
-//! Capability discovery replaces the compile-time marker gates.
+//! `Camera<AnyProfile>` retains the registered profile's runtime validation,
+//! owner, pacing, cancellation, and state cache. Capability discovery replaces
+//! compile-time `Has*` bounds. Targeted operations expose `settled`; applied-only
+//! operations expose `applied`.
 //!
-//! Requires `--features runtime-tokio,dyn-api`. Moves real hardware. Set
+//! Requires `--features runtime-tokio`. Moves real hardware. Set
 //! `VISCA_CAMERA_ADDR` or pass an address on the command line.
 
 mod support;
@@ -15,11 +13,13 @@ mod support;
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
     capabilities::TypedSupportSurface,
-    dynapi::{DynAppliedOperation, DynTargetedOperation},
+    config::{CameraConfig, TransportOptions},
+    operation::{AppliedOnly, Targeted},
+    profiles::{AnyProfile, ProfileId},
+    r#async::{Camera, CameraSession, Operation},
     runtime::TokioRuntime,
-    Connect, Error,
+    Error,
 };
 
 use support::finish_session;
@@ -31,30 +31,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
         .ok_or("camera address required (argument or VISCA_CAMERA_ADDR)")?;
 
+    let config = CameraConfig::new(ProfileId::PtzOpticsG2, TransportOptions::tcp(address));
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
-    let result = dynamic_control(session.session()).await;
+    let session = CameraSession::connect(&config, runtime).await?;
+    let result = runtime_control(session.camera()).await;
     finish_session(result, session.close().await)?;
     Ok(())
 }
 
-async fn dynamic_control(session: &grafton_visca::Session) -> Result<(), Error> {
-    // One dynamic view onto the session's sole registered target.
-    let camera = session.camera_dyn()?;
-
-    // Runtime capability discovery replaces the compile-time `Has*` markers.
+async fn runtime_control(camera: &Camera<AnyProfile>) -> Result<(), Error> {
     println!(
         "direct-zoom supported: {}",
-        camera.supports_typed(TypedSupportSurface::DirectZoom)
+        camera
+            .capabilities()
+            .supports(TypedSupportSurface::DirectZoom)
     );
 
-    // A targeted dynamic operation exposes `settled` (profile-selected protocol settlement).
-    let mut home: DynTargetedOperation = camera.pan_tilt().home().await?;
+    let mut home: Operation<Targeted> = camera.pan_tilt().home().await?;
     home.settled_with_timeout(Duration::from_secs(20)).await?;
 
-    // An applied-only dynamic operation has no `settled`, only `applied`.
-    let mut stop: DynAppliedOperation = camera.zoom().stop().await?;
+    let mut stop: Operation<AppliedOnly> = camera.zoom().stop().await?;
     stop.applied_with_timeout(Duration::from_secs(2)).await?;
-
     Ok(())
 }

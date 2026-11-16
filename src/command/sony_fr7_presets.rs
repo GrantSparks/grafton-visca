@@ -10,7 +10,7 @@ use crate::wire::WireValue;
 use std::time::Duration;
 
 use crate::{
-    command::preset::PresetNumber,
+    command::preset_wire::PresetNumber,
     command::{
         bytes::{constants::sony_fr7_presets, FrameWriter},
         encode::WireEncode,
@@ -80,7 +80,6 @@ pub enum PresetSeparateMode {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7SetPresetSpeedSelection {
     mode: PresetSpeedSelection,
 }
@@ -89,12 +88,6 @@ impl Fr7SetPresetSpeedSelection {
     /// Creates the selection setting.
     pub const fn new(mode: PresetSpeedSelection) -> Self {
         Self { mode }
-    }
-
-    /// Returns the requested selection.
-    #[must_use]
-    pub const fn mode(self) -> PresetSpeedSelection {
-        self.mode
     }
 }
 
@@ -112,7 +105,6 @@ impl WireEncode for Fr7SetPresetSpeedSelection {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7SetCommonPresetSpeed {
     speed: PresetSpeed,
 }
@@ -121,12 +113,6 @@ impl Fr7SetCommonPresetSpeed {
     /// Creates the common-speed setting.
     pub const fn new(speed: PresetSpeed) -> Self {
         Self { speed }
-    }
-
-    /// Returns the requested speed.
-    #[must_use]
-    pub const fn speed(self) -> PresetSpeed {
-        self.speed
     }
 }
 
@@ -144,7 +130,6 @@ impl WireEncode for Fr7SetCommonPresetSpeed {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7SetSeparatePresetMode {
     preset: PresetNumber,
     mode: PresetSeparateMode,
@@ -160,12 +145,6 @@ impl Fr7SetSeparatePresetMode {
     #[must_use]
     pub const fn preset(self) -> PresetNumber {
         self.preset
-    }
-
-    /// Returns the requested mode.
-    #[must_use]
-    pub const fn mode(self) -> PresetSeparateMode {
-        self.mode
     }
 }
 
@@ -184,7 +163,6 @@ impl WireEncode for Fr7SetSeparatePresetMode {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7SetSeparatePresetSpeed {
     preset: PresetNumber,
     speed: PresetSpeed,
@@ -200,12 +178,6 @@ impl Fr7SetSeparatePresetSpeed {
     #[must_use]
     pub const fn preset(self) -> PresetNumber {
         self.preset
-    }
-
-    /// Returns the requested speed.
-    #[must_use]
-    pub const fn speed(self) -> PresetSpeed {
-        self.speed
     }
 }
 
@@ -224,10 +196,8 @@ impl WireEncode for Fr7SetSeparatePresetSpeed {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7SetSeparatePresetDuration {
     preset: PresetNumber,
-    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
     duration: Duration,
 }
 
@@ -246,6 +216,7 @@ impl Fr7SetSeparatePresetDuration {
 
     /// Returns the requested duration.
     #[must_use]
+    #[cfg(test)]
     pub const fn duration(self) -> Duration {
         self.duration
     }

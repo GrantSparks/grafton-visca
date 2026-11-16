@@ -12,8 +12,13 @@ use grafton_visca_test_support::fake_camera;
 use std::{future::Future, pin::Pin, time::Duration};
 
 use grafton_visca::{
-    profiles::PtzOpticsG2, transport::AddressingMode, CameraId, Error, ExecError, Executor,
-    ProfileSpec, Session, SessionConfig,
+    config::SessionConfig,
+    profiles::{ProfileSpec, PtzOpticsG2},
+    r#async::Session,
+    runtime::{ExecError, Executor},
+    transport::AddressingMode,
+    types::CameraId,
+    Error,
 };
 
 use fake_camera::FakeCamera;
@@ -32,7 +37,7 @@ impl Future for ThreadTimer {
     }
 }
 
-impl grafton_visca::ResettableTimer for ThreadTimer {
+impl grafton_visca::runtime::ResettableTimer for ThreadTimer {
     fn reset(self: Pin<&mut Self>, deadline: std::time::Instant) {
         self.get_mut().0.set_at(deadline);
     }
@@ -118,11 +123,11 @@ fn caller_owned_session_opens_and_closes_on_a_custom_executor() {
                 FakeCamera::silent()
                     .async_wire()
                     .with_addressing(AddressingMode::Ip),
-                SessionConfig::from_compile_time::<PtzOpticsG2>()?,
+                &SessionConfig::from_compile_time::<PtzOpticsG2>()?,
                 executor,
             )
             .await?;
-            let camera = session.camera::<PtzOpticsG2>()?;
+            let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)?;
             assert_eq!(camera.target(), CameraId::CAMERA_1);
             assert_eq!(camera.profile(), &expected_profile);
             session.close().await

@@ -43,12 +43,14 @@ impl ImageFreeze {
 
     /// Create a command that freezes the current image frame.
     #[must_use]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub const fn on() -> Self {
         Self::new(true)
     }
 
     /// Create a command that resumes live image output.
     #[must_use]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub const fn off() -> Self {
         Self::new(false)
     }

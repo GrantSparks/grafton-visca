@@ -1,4 +1,4 @@
-//! Runnable custom [`Executor`](grafton_visca::Executor) adapter.
+//! Runnable custom [`Executor`](grafton_visca::runtime::Executor) adapter.
 //!
 //! This deliberately small reference uses one OS thread per spawned task,
 //! `pollster` to drive futures, and `async-io` for timers. It favors clarity over
@@ -22,7 +22,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use grafton_visca::{Error, ExecError, Executor, ResettableTimer};
+use grafton_visca::{runtime::ExecError, runtime::Executor, runtime::ResettableTimer, Error};
 
 /// Minimal executor adapter built from runtime-neutral async crates.
 #[derive(Debug, Clone, Copy)]
@@ -157,9 +157,9 @@ fn main() -> Result<(), Error> {
         Err(Error::Timeout { .. }) => println!("slow future timed out as expected"),
         Err(error) => return Err(error),
         Ok(()) => {
-            return Err(Error::InvalidState(
-                "custom executor timeout completed unexpectedly".into(),
-            ));
+            return Err(Error::InvalidState {
+                reason: "custom executor timeout completed unexpectedly".into(),
+            });
         }
     }
 

@@ -6,7 +6,9 @@
 //! taking `self`. The derive attribute parsers share one integer-literal
 //! parser, so every Rust radix is accepted for VISCA byte fields.
 
-use grafton_visca::{command::VISCA_TERMINATOR, value, CameraId, Error, Request, ViscaInquiry};
+use grafton_visca::{
+    request::Request, types::CameraId, value, wire::VISCA_TERMINATOR, Error, ViscaInquiry,
+};
 
 #[grafton_visca::value(min = 2, max = 4)]
 /// Range wrapper declared through the public value attribute.

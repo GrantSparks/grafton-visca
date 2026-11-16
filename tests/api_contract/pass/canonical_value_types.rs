@@ -1,17 +1,24 @@
-// #806: one public type per value. The root, `types`, command, and request
-// paths all name the same `FocusSpeed`.
+// #806: noun parameters, request construction and request getters share one
+// checked value type at its canonical topical home.
 use grafton_visca::{
-    command::{Focus, SetMotionSyncPreset, VersionInfo},
-    request::builtin::FocusDrive,
-    types, FocusSpeed, MotionSyncSpeed,
+    command::{focus, motion_sync},
+    config::TargetRegistration,
+    profiles::{ProfileSpec, PtzOpticsG2},
+    types::{CameraId, FocusSpeed, MotionSyncSpeed, Speed, VersionInfo},
 };
 
 fn main() {
-    let root = FocusSpeed::new(3).unwrap();
-    let typed: types::FocusSpeed = root;
-    let _ = Focus::FarWithSpeed(root);
-    let _ = Focus::NearWithSpeed(typed);
-    let _ = FocusDrive::FarVariable(root);
+    let speed = FocusSpeed::new(3).unwrap();
+    let target = TargetRegistration::new(
+        CameraId::CAMERA_1,
+        ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("source profile"),
+    )
+    .expect("target registration");
+    let far = focus::FarVariable::for_target(&target, speed).expect("profile-aware request");
+    let near = focus::NearVariable::for_target(&target, speed).expect("profile-aware request");
+    let _: Speed<FocusSpeed> = far.speed();
+    assert_eq!(far.speed(), Speed::Exact(speed));
+    assert_eq!(near.speed(), Speed::Exact(speed));
     let _ = VersionInfo {
         vendor: 0,
         model: 0,
@@ -19,7 +26,7 @@ fn main() {
         max_socket: 1,
     };
     assert_eq!(
-        SetMotionSyncPreset::new(MotionSyncSpeed::SLOW).speed(),
-        MotionSyncSpeed::SLOW
+        motion_sync::SetSpeed::new(MotionSyncSpeed::MIN).speed(),
+        MotionSyncSpeed::MIN,
     );
 }

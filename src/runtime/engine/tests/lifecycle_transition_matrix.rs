@@ -522,8 +522,8 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
                                 observation: CancellationObservation::Failed(error),
                             } if *id == fixture.id && matches!(
                                 (state, error),
-                                (AwaitingReply, Error::InquiryNotCancelable)
-                                    | (AwaitingCompletion, Error::NotSupported)
+                                (AwaitingReply, Error::InquiryNotCancellable)
+                                    | (AwaitingCompletion, Error::CancellationNotSupported)
                             )
                         )));
                         assert_eq!(

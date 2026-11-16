@@ -1,6 +1,6 @@
-use grafton_visca::command::{DirectMenuControl, DirectMenuTarget};
+use grafton_visca::{command::menu::Direct, types::DirectMenuTarget};
 fn main() {
-    let _ = DirectMenuControl::new(DirectMenuTarget::NdFilter, 5u8);
+    let _ = Direct::new(DirectMenuTarget::NdFilter, 5u8);
 }
 //~ E0308
 //~ "expected `MenuButton`, found `u8`"

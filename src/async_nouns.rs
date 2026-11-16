@@ -1,10 +1,10 @@
 //! Static, owner-backed noun accessors for the async camera facade.
 //!
 //! Each accessor is a thin view over [`crate::async_session::AsyncCameraCore`]
-//! through its typed [`crate::Camera`] owner.  Request preparation, profile
+//! through its typed [`crate::r#async::Camera`] owner.  Request preparation, profile
 //! validation, admission, and operation completion therefore remain in the
-//! same path as [`crate::Camera::execute`], [`crate::Camera::inquire`], and
-//! [`crate::Camera::submit`].
+//! same path as [`crate::r#async::Camera::execute`], [`crate::r#async::Camera::inquire`], and
+//! [`crate::r#async::Camera::submit`].
 //!
 //! An async noun method borrows its accessor for the returned future. Bind the
 //! accessor before passing multiple noun futures to `join!`, `select!`, or a
@@ -20,15 +20,12 @@
 #![cfg(feature = "async")]
 
 use crate::{
+    async_operation::Operation,
     async_session::{AsyncCameraCore, Camera},
     command,
     noun_facade::{static_motion_facade, static_noun_facade},
     noun_table::{motion_table, noun_table},
-    operation::Operation,
-    request::builtin,
     types,
-    units::{Degrees, UnitInterval},
-    ZoomDomain,
 };
 
 noun_table!(static_noun_facade, [async], [.await]);

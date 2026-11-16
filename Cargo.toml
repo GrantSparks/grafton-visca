@@ -92,11 +92,6 @@ serde = ["dep:serde", "dep:serde_json"]
 schemars = ["serde", "dep:schemars"]
 ts-rs = ["serde", "dep:ts-rs"]
 
-# Runtime-profile camera projections. The blocking projection is native and
-# adds no executor or futures dependency; enabling `async` additionally exposes
-# the object-safe async noun/custom-operation surface.
-dyn-api = []
-
 # Internal features
 #
 # Build-time marker for the deterministic and scripted-transport testkits used
@@ -231,9 +226,6 @@ name = "transport_builder_demo"
 required-features = ["blocking"]
 
 [[example]]
-name = "validate_inquiries"
-
-[[example]]
 name = "validate_ae_commands"
 
 [[example]]
@@ -250,11 +242,11 @@ required-features = ["blocking"]
 
 [[example]]
 name = "dyn_quickstart"
-required-features = ["runtime-tokio", "dyn-api"]
+required-features = ["runtime-tokio"]
 
 [[example]]
 name = "custom_request"
-required-features = ["blocking", "dyn-api"]
+required-features = ["blocking"]
 
 [[example]]
 name = "multi_camera"
@@ -263,3 +255,7 @@ required-features = ["blocking"]
 [[example]]
 name = "recovery"
 required-features = ["blocking"]
+
+[[example]]
+name = "profile_spec"
+required-features = ["serde"]

@@ -49,9 +49,9 @@ impl EncodedMessage {
             });
         }
         if bytes.last().copied() != Some(0xff) {
-            return Err(Error::InvalidRequest(
-                "encoded VISCA message must end in 0xff".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "encoded VISCA message must end in 0xff".into(),
+            });
         }
         Ok(Self {
             bytes: SmallVec::from_slice(bytes),
@@ -65,22 +65,22 @@ impl EncodedMessage {
         write: impl FnOnce(&mut [u8]) -> Result<usize, Error>,
     ) -> Result<Self, Error> {
         if capacity > MAX_BYTES {
-            return Err(Error::InvalidRequest(
-                "encoded VISCA storage exceeds raw::MAX_BYTES".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "encoded VISCA storage exceeds raw::MAX_BYTES".into(),
+            });
         }
         let mut bytes = SmallVec::from_elem(0, capacity);
         let written = write(&mut bytes)?;
         if written > capacity {
-            return Err(Error::InvalidRequest(
-                "encoder returned a length beyond its supplied buffer".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "encoder returned a length beyond its supplied buffer".into(),
+            });
         }
         bytes.truncate(written);
         if bytes.last().copied() != Some(0xff) {
-            return Err(Error::InvalidRequest(
-                "encoded VISCA message must end in 0xff".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "encoded VISCA message must end in 0xff".into(),
+            });
         }
         Ok(Self { bytes })
     }
@@ -225,9 +225,9 @@ pub(crate) struct NonZeroDuration(Duration);
 impl NonZeroDuration {
     pub(crate) fn new(duration: Duration) -> Result<Self, Error> {
         if duration.is_zero() {
-            return Err(Error::InvalidRequest(
-                "engine timeout durations must be non-zero".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "engine timeout durations must be non-zero".into(),
+            });
         }
         Ok(Self(duration))
     }
@@ -303,9 +303,10 @@ impl Default for TimeoutPolicy {
 }
 
 fn duration_sum(left: Duration, right: Duration) -> Result<Duration, Error> {
-    left.checked_add(right).ok_or_else(|| {
-        Error::InvalidRequest("engine deadline interval sum is unrepresentable".into())
-    })
+    left.checked_add(right)
+        .ok_or_else(|| Error::InvalidRequest {
+            reason: "engine deadline interval sum is unrepresentable".into(),
+        })
 }
 
 /// Context-sensitive bounded retry rules, completely decided before admission.
@@ -326,9 +327,9 @@ pub(crate) struct RetryPolicy {
 impl RetryPolicy {
     pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {
         if self.initial_backoff > self.maximum_backoff {
-            return Err(Error::InvalidRequest(
-                "engine retry backoffs must be ordered".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "engine retry backoffs must be ordered".into(),
+            });
         }
         for duration in [self.initial_backoff, self.maximum_backoff] {
             crate::timeout::validate_duration_at(now, duration)?;

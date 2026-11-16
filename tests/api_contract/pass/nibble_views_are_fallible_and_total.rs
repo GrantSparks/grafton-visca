@@ -1,4 +1,4 @@
-use grafton_visca::{command::{Nibbles, Payload}, Error};
+use grafton_visca::{wire::Nibbles, wire::Payload, Error};
 
 fn checked(data: &[u8; 4]) -> Result<(), Error> {
     let view = Nibbles::from_array(data)?;

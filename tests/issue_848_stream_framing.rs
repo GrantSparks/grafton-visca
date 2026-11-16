@@ -9,12 +9,11 @@
 ))]
 
 use grafton_visca::{
-    completion::AppliedOnly,
+    config::SessionConfig,
     observability::SessionStatus,
-    profiles::{GenericVisca, SonyFR7},
-    request::builtin::ZoomStop,
+    operation::AppliedOnly,
+    profiles::{GenericVisca, ProfileSpec, SonyFr7},
     transport::{SendSemantics, TransportConfig},
-    ProfileSpec, SessionConfig,
 };
 use grafton_visca_test_support::{facade_matrix, fake_camera};
 
@@ -31,8 +30,8 @@ impl Stream {
 
     fn config() -> TransportConfig {
         let mut config = TransportConfig::default();
-        config.buffer_config.recv_buffer_size = 64;
-        config.buffer_config.max_buffer_size = 128;
+        config = config.with_buffer_config(config.buffer_config().with_recv_buffer_size(64));
+        config = config.with_buffer_config(config.buffer_config().with_max_buffer_size(128));
         config
     }
 
@@ -68,8 +67,8 @@ facade_matrix! {
         });
         let config = SessionConfig::new(ProfileSpec::from_compile_time::<GenericVisca>().unwrap());
         let session = open!(Stream::new(camera), config).expect("stream owner");
-        let view = session.camera::<GenericVisca>().unwrap();
-        wait!(wait!(view.submit::<AppliedOnly, _>(&ZoomStop)).unwrap().applied())
+        let view = session.camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied())
             .expect("only the following valid ACK and completion apply the command");
 
         let metrics = wait!(session.metrics()).expect("the owner remains usable");
@@ -87,8 +86,8 @@ facade_matrix! {
         });
         let config = SessionConfig::new(ProfileSpec::from_compile_time::<GenericVisca>().unwrap());
         let session = open!(Stream::new(camera), config).expect("stream owner");
-        let view = session.camera::<GenericVisca>().unwrap();
-        let error = wait!(wait!(view.submit::<AppliedOnly, _>(&ZoomStop)).unwrap().applied())
+        let view = session.camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied())
             .expect_err("193 boundary-free bytes exceed the configured 192-byte bound");
         assert!(error.requires_new_session(), "{error:?}");
     }
@@ -102,10 +101,10 @@ facade_matrix! {
             // makes a frame of 65 bytes, beyond the configured 64-byte limit.
             answer.reply(vec![0x01, 0x11, 0x00, 0x39, 0, 0, 0, 1]);
         });
-        let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().unwrap());
+        let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>().unwrap());
         let session = open!(Stream::new(camera), config).expect("Sony stream owner");
-        let view = session.camera::<SonyFR7>().unwrap();
-        let error = wait!(wait!(view.submit::<AppliedOnly, _>(&ZoomStop)).unwrap().applied())
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied())
             .expect_err("the declared Sony frame cannot be honoured");
         assert!(error.requires_new_session(), "{error:?}");
     }

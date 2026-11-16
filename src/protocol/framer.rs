@@ -1272,7 +1272,7 @@ mod tests {
     #[test]
     fn test_raw_visca_respects_recv_buffer_size_limit() {
         // Create framer with raw IP config (recv_buffer_size = 256)
-        let config = BufferConfig::for_raw_ip();
+        let config = BufferConfig::for_tcp();
         let mut framer = RawFramer::new(config);
 
         // Create a raw VISCA frame that exceeds recv_buffer_size

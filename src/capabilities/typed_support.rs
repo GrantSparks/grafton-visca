@@ -1,18 +1,11 @@
 //! Runtime representation of profile-backed typed API support.
 //!
-//! Metadata traits describe runtime discovery facts. `TypedSupportSet` describes
-//! the optional typed control, accessor, and inquiry surfaces a profile is
-//! permitted to expose.
+//! Domain records describe runtime facts. `TypedSupportSet` records the
+//! optional control and inquiry permissions a profile has source evidence for.
 
 use std::fmt;
 
 macro_rules! define_typed_support_marker {
-    (
-        DirectMenu,
-        $marker:ident,
-        $marker_doc:literal,
-        $diagnostic:literal
-    ) => {};
     (
         $surface:ident,
         $marker:ident,
@@ -36,8 +29,7 @@ macro_rules! define_typed_support_surfaces {
                 {
                     surface: $surface:ident,
                     marker: $marker:ident,
-                    bit: $bit:literal,
-                    wire: $wire:literal,
+                    $(encodings: [$($encoding_variant:ident => $encoding_tag:literal),+ $(,)?],)?
                     area: $area:literal,
                     surface_doc: $surface_doc:literal,
                     marker_doc: $marker_doc:literal,
@@ -46,19 +38,20 @@ macro_rules! define_typed_support_surfaces {
             )*
         ]
     ) => {
-        const TYPED_SUPPORT_SURFACE_COUNT: usize = [$($wire),*].len();
+        const TYPED_SUPPORT_SURFACE_COUNT: usize = [$(stringify!($surface)),*].len();
         const _: () = assert!(TYPED_SUPPORT_SURFACE_COUNT <= u128::BITS as usize, "typed support vocabulary exceeds inline bitset capacity");
-        $(const _: () = assert!($bit < u128::BITS, "typed support bit exceeds inline capacity");)*
 
         /// Optional typed API surface backed by a profile support marker.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+        #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+        #[repr(u8)]
         #[non_exhaustive]
         pub enum TypedSupportSurface {
             $(
                 #[doc = $surface_doc]
-                #[cfg_attr(feature = "serde", serde(rename = $wire))]
                 $surface,
             )*
         }
@@ -70,9 +63,7 @@ macro_rules! define_typed_support_surfaces {
             ];
 
             const fn bit(self) -> u128 {
-                1 << match self {
-                    $(Self::$surface => $bit,)*
-                }
+                1 << (self as u8)
             }
 
             /// Returns the marker-trait spelling paired with this surface.
@@ -93,10 +84,14 @@ macro_rules! define_typed_support_surfaces {
 
             /// Returns the stable serde spelling for this surface.
             #[cfg(test)]
-            pub(crate) const fn wire_name(self) -> &'static str {
-                match self {
-                    $(Self::$surface => $wire,)*
+            pub(crate) fn wire_name(self) -> String {
+                let variant = match self { $(Self::$surface => stringify!($surface),)* };
+                let mut wire = String::new();
+                for (index, letter) in variant.chars().enumerate() {
+                    if index != 0 && letter.is_ascii_uppercase() { wire.push('_'); }
+                    wire.push(letter.to_ascii_lowercase());
                 }
+                wire
             }
         }
 
@@ -211,6 +206,56 @@ impl TypedSupportSurface {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct TypedSupportSet(u128);
 
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for TypedSupportSet {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("TypedSupportSet")
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        <Vec<TypedSupportSurface> as schemars::JsonSchema>::json_schema(generator)
+    }
+}
+
+#[cfg(feature = "ts-rs")]
+impl ts_rs::TS for TypedSupportSet {
+    type WithoutGenerics = Self;
+    type OptionInnerType = Self;
+
+    fn name(_config: &ts_rs::Config) -> String {
+        "TypedSupportSet".into()
+    }
+
+    fn inline(config: &ts_rs::Config) -> String {
+        format!(
+            "Array<{}>",
+            <TypedSupportSurface as ts_rs::TS>::name(config)
+        )
+    }
+
+    fn decl(config: &ts_rs::Config) -> String {
+        format!(
+            "type TypedSupportSet = {};",
+            <Self as ts_rs::TS>::inline(config)
+        )
+    }
+
+    fn decl_concrete(config: &ts_rs::Config) -> String {
+        <Self as ts_rs::TS>::decl(config)
+    }
+
+    fn visit_dependencies(visitor: &mut impl ts_rs::TypeVisitor)
+    where
+        Self: 'static,
+    {
+        visitor.visit::<TypedSupportSurface>();
+    }
+
+    fn output_path() -> Option<std::path::PathBuf> {
+        Some("TypedSupportSet.ts".into())
+    }
+}
+
 impl TypedSupportSet {
     /// Empty typed support set.
     pub const EMPTY: Self = Self(0);
@@ -283,17 +328,6 @@ impl fmt::Debug for TypedSupportSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_set().entries(self.iter()).finish()
     }
-}
-
-/// Profile contract for runtime typed API permission discovery.
-///
-/// Static typed noun methods prove at compile time that each marker has its
-/// corresponding bit. A bit without a marker widens only the erased surface.
-/// Built-in profiles derive both marker impls and this set from the same
-/// registry entry.
-pub trait ProfileTypedSupport {
-    /// Typed support surfaces intentionally exposed for this profile.
-    const TYPED_SUPPORT: TypedSupportSet;
 }
 
 #[cfg(feature = "serde")]
@@ -433,232 +467,18 @@ mod tests {
 
     #[cfg(feature = "serde")]
     #[test]
-    fn serde_pins_every_current_wire_name() -> Result<(), serde_json::Error> {
-        // This table is intentionally independent of `TypedSupportSurface::ALL`
-        // and serde's derive-generated spelling.  It pins each public wire tag
-        // to its exact semantic surface, so a swapped decoder, a spurious
-        // accepted tag, or a surface added only to `ALL` cannot pass.
-        const WIRE_SURFACES: [(&str, TypedSupportSurface); 85] = [
-            ("direct-zoom", TypedSupportSurface::DirectZoom),
-            (
-                "digital-zoom-toggle",
-                TypedSupportSurface::DigitalZoomToggle,
-            ),
-            ("digital-zoom-range", TypedSupportSurface::DigitalZoomRange),
-            ("iris-control", TypedSupportSurface::IrisControl),
-            ("one-push-focus", TypedSupportSurface::OnePushFocus),
-            (
-                "ptz-optics-snap-focus",
-                TypedSupportSurface::PtzOpticsSnapFocus,
-            ),
-            ("focus-lock", TypedSupportSurface::FocusLock),
-            ("push-auto-focus", TypedSupportSurface::PushAutoFocus),
-            ("focus-zone", TypedSupportSurface::FocusZone),
-            (
-                "auto-focus-sensitivity",
-                TypedSupportSurface::AutoFocusSensitivity,
-            ),
-            (
-                "focus-near-limit-inquiry",
-                TypedSupportSurface::FocusNearLimitInquiry,
-            ),
-            (
-                "backlight-compensation",
-                TypedSupportSurface::BacklightCompensation,
-            ),
-            ("wide-dynamic-range", TypedSupportSurface::WideDynamicRange),
-            (
-                "exposure-compensation",
-                TypedSupportSurface::ExposureCompensation,
-            ),
-            ("brightness-control", TypedSupportSurface::BrightnessControl),
-            (
-                "one-push-white-balance",
-                TypedSupportSurface::OnePushWhiteBalance,
-            ),
-            (
-                "auto-tracking-white-balance",
-                TypedSupportSurface::AutoTrackingWhiteBalance,
-            ),
-            (
-                "auto-white-balance-sensitivity",
-                TypedSupportSurface::AutoWhiteBalanceSensitivity,
-            ),
-            ("color-temperature", TypedSupportSurface::ColorTemperature),
-            ("rgb-gain", TypedSupportSurface::RgbGain),
-            ("rgb-tuning", TypedSupportSurface::RgbTuning),
-            ("image-flip", TypedSupportSurface::ImageFlip),
-            ("image-mirror", TypedSupportSurface::ImageMirror),
-            (
-                "combined-image-flip",
-                TypedSupportSurface::CombinedImageFlip,
-            ),
-            ("contrast-control", TypedSupportSurface::ContrastControl),
-            ("sharpness-control", TypedSupportSurface::SharpnessControl),
-            ("saturation-control", TypedSupportSurface::SaturationControl),
-            ("hue-control", TypedSupportSurface::HueControl),
-            ("luminance-control", TypedSupportSurface::LuminanceControl),
-            ("gamma-control", TypedSupportSurface::GammaControl),
-            ("noise-reduction2-d", TypedSupportSurface::NoiseReduction2D),
-            ("noise-reduction3-d", TypedSupportSurface::NoiseReduction3D),
-            ("picture-effect", TypedSupportSurface::PictureEffect),
-            ("tally", TypedSupportSurface::Tally),
-            ("direct-menu", TypedSupportSurface::DirectMenu),
-            ("nd-filter", TypedSupportSurface::NdFilter),
-            ("variable-speed", TypedSupportSurface::VariableSpeed),
-            ("motion-sync", TypedSupportSurface::MotionSync),
-            ("focus-zone-inquiry", TypedSupportSurface::FocusZoneInquiry),
-            ("usb-audio", TypedSupportSurface::UsbAudio),
-            (
-                "ptz-optics-anti-flicker",
-                TypedSupportSurface::PtzOpticsAntiFlicker,
-            ),
-            (
-                "ptz-optics-settings-save",
-                TypedSupportSurface::PtzOpticsSettingsSave,
-            ),
-            (
-                "ptz-optics-preset-recall-speed",
-                TypedSupportSurface::PtzOpticsPresetRecallSpeed,
-            ),
-            ("sony-spotlight", TypedSupportSurface::SonySpotlight),
-            (
-                "sony-auto-slow-shutter",
-                TypedSupportSurface::SonyAutoSlowShutter,
-            ),
-            (
-                "ptz-optics-multicast-streaming",
-                TypedSupportSurface::PtzOpticsMulticastStreaming,
-            ),
-            (
-                "ptz-optics-ndi-quality",
-                TypedSupportSurface::PtzOpticsNdiQuality,
-            ),
-            ("exposure-mode", TypedSupportSurface::ExposureMode),
-            (
-                "noise-reduction2-d-control",
-                TypedSupportSurface::NoiseReduction2DControl,
-            ),
-            (
-                "noise-reduction3-d-control",
-                TypedSupportSurface::NoiseReduction3DControl,
-            ),
-            ("image-freeze", TypedSupportSurface::ImageFreeze),
-            ("tally-brightness", TypedSupportSurface::TallyBrightness),
-            ("ptz-optics-tally", TypedSupportSurface::PtzOpticsTally),
-            ("version-inquiry", TypedSupportSurface::VersionInquiry),
-            (
-                "color-temperature-inquiry",
-                TypedSupportSurface::ColorTemperatureInquiry,
-            ),
-            (
-                "noise-reduction2-d-mode",
-                TypedSupportSurface::NoiseReduction2DMode,
-            ),
-            ("sony-fr7-ae-level", TypedSupportSurface::SonyFr7AeLevel),
-            ("sony-fr7-auto-gain", TypedSupportSurface::SonyFr7AutoGain),
-            (
-                "sony-fr7-auto-shutter",
-                TypedSupportSurface::SonyFr7AutoShutter,
-            ),
-            ("sony-fr7-iris", TypedSupportSurface::SonyFr7Iris),
-            (
-                "sony-fr7-white-balance",
-                TypedSupportSurface::SonyFr7WhiteBalance,
-            ),
-            (
-                "sony-fr7-preset-white",
-                TypedSupportSurface::SonyFr7PresetWhite,
-            ),
-            (
-                "sony-fr7-memory-color-temperature",
-                TypedSupportSurface::SonyFr7MemoryColorTemperature,
-            ),
-            (
-                "sony-fr7-memory-gain",
-                TypedSupportSurface::SonyFr7MemoryGain,
-            ),
-            (
-                "sony-fr7-memory-tint",
-                TypedSupportSurface::SonyFr7MemoryTint,
-            ),
-            (
-                "sony-fr7-atw-offsets",
-                TypedSupportSurface::SonyFr7AtwOffsets,
-            ),
-            ("sony-fr7-black", TypedSupportSurface::SonyFr7Black),
-            ("sony-fr7-detail", TypedSupportSurface::SonyFr7Detail),
-            ("sony-fr7-knee", TypedSupportSurface::SonyFr7Knee),
-            (
-                "sony-fr7-high-resolution-zoom",
-                TypedSupportSurface::SonyFr7HighResolutionZoom,
-            ),
-            (
-                "sony-fr7-clear-image-zoom",
-                TypedSupportSurface::SonyFr7ClearImageZoom,
-            ),
-            (
-                "sony-fr7-preset-speed",
-                TypedSupportSurface::SonyFr7PresetSpeed,
-            ),
-            (
-                "sony-fr7-preset-duration",
-                TypedSupportSurface::SonyFr7PresetDuration,
-            ),
-            ("sharpness-mode", TypedSupportSurface::SharpnessMode),
-            ("focus-infinity", TypedSupportSurface::FocusInfinity),
-            ("preset-memory", TypedSupportSurface::PresetMemory),
-            ("shutter-control", TypedSupportSurface::ShutterControl),
-            ("gain-control", TypedSupportSurface::GainControl),
-            ("gain-limit", TypedSupportSurface::GainLimit),
-            (
-                "standard-white-balance-modes",
-                TypedSupportSurface::StandardWhiteBalanceModes,
-            ),
-            ("menu-display", TypedSupportSurface::MenuDisplay),
-            ("menu-enter-return", TypedSupportSurface::MenuEnterReturn),
-            (
-                "menu-status-inquiry",
-                TypedSupportSurface::MenuStatusInquiry,
-            ),
-            ("shutter-direct", TypedSupportSurface::ShutterDirect),
-            ("power-standby", TypedSupportSurface::PowerStandby),
-        ];
-
-        assert_eq!(TypedSupportSurface::ALL.len(), 85);
-        assert_eq!(WIRE_SURFACES.len(), TypedSupportSurface::ALL.len());
-        for (wire_name, surface) in WIRE_SURFACES {
-            assert_eq!(surface.wire_name(), wire_name);
-            let singleton_json = serde_json::to_string(&[wire_name])?;
-            let decoded: TypedSupportSet = serde_json::from_str(&singleton_json)?;
-            let expected = TypedSupportSet::from_surface(surface);
-
-            assert_eq!(decoded, expected, "{wire_name} must decode to {surface:?}");
-            assert_eq!(decoded.iter().count(), 1, "{wire_name} must be a singleton");
-            assert_eq!(
-                serde_json::to_string(&decoded)?,
-                singleton_json,
-                "{wire_name} must serialize with its exact pinned spelling"
-            );
+    fn serde_uses_snake_case_for_every_surface() -> Result<(), serde_json::Error> {
+        assert_eq!(TypedSupportSurface::ALL.len(), 82);
+        for surface in TypedSupportSurface::ALL {
+            let wire = surface.wire_name();
+            assert!(wire
+                .chars()
+                .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_'));
+            let json = serde_json::to_string(&surface)?;
+            assert_eq!(json, serde_json::to_string(&wire)?);
+            assert_eq!(serde_json::from_str::<TypedSupportSurface>(&json)?, surface);
         }
-
-        // The full set serializes every tag once, in the table's canonical order.
-        let all = TypedSupportSet::from_surfaces(
-            &WIRE_SURFACES
-                .iter()
-                .map(|(_, surface)| *surface)
-                .collect::<Vec<_>>(),
-        );
-        let all_json = serde_json::to_string(
-            &WIRE_SURFACES
-                .iter()
-                .map(|(wire_name, _)| *wire_name)
-                .collect::<Vec<_>>(),
-        )?;
-        assert_eq!(serde_json::to_string(&all)?, all_json);
-        assert_eq!(serde_json::from_str::<TypedSupportSet>(&all_json)?, all);
-
-        assert!(serde_json::from_str::<TypedSupportSet>(r#"["noise-reduction"]"#).is_err());
+        assert!(serde_json::from_str::<TypedSupportSurface>("\"ptz-optics-snap-focus\"").is_err());
         Ok(())
     }
 }

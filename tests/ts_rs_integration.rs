@@ -9,10 +9,13 @@
 use ts_rs::{Config, TS};
 
 use grafton_visca::{
-    camera::{profiles::ProfileId, TransportOptions},
-    command::PresetSpeed,
-    types::{SpeedLevel, ZoomPosition},
-    AffectedAxes, FocusSpeed, PanTiltDirection, PresetNumber, SubmissionClass,
+    config::TransportOptions,
+    profiles::ProfileId,
+    request::SubmissionClass,
+    types::{
+        AffectedAxes, FocusSpeed, PanTiltDirection, PresetNumber, PresetSpeed, SpeedLevel,
+        ZoomPosition,
+    },
 };
 
 #[test]
@@ -21,10 +24,10 @@ fn test_request_contract_exports() {
     let axes = AffectedAxes::export_to_string(&cfg).expect("Failed to export AffectedAxes");
     let qos = SubmissionClass::export_to_string(&cfg).expect("Failed to export SubmissionClass");
     assert!(!axes.is_empty());
-    assert!(qos.contains("\"Background\""));
-    assert!(qos.contains("\"Normal\""));
-    assert!(qos.contains("\"User\""));
-    assert!(!qos.contains("\"Urgent\""));
+    assert!(qos.contains("\"background\""));
+    assert!(qos.contains("\"normal\""));
+    assert!(qos.contains("\"user\""));
+    assert!(!qos.contains("\"urgent\""));
 }
 
 #[test]
@@ -116,7 +119,7 @@ fn test_range_macro_types_use_real_newtype_derive_semantics() {
 
 #[test]
 fn test_profile_group_export() {
-    use grafton_visca::camera::profiles::ProfileGroup;
+    use grafton_visca::profiles::ProfileGroup;
     let cfg = Config::default();
     let ts = ProfileGroup::export_to_string(&cfg).expect("Failed to export ProfileGroup");
     assert!(!ts.is_empty());

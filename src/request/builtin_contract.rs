@@ -43,6 +43,8 @@ pub(crate) struct Invalidate<K>(PhantomData<K>);
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) trait StateDescriptor {
     const KEY: Option<StateKey>;
+    /// Exact state keys for an encoding-selected request whose rows differ.
+    const BY_ROW: &'static [(crate::command::semantics::BuiltinCommand, Option<StateKey>)] = &[];
 }
 
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]

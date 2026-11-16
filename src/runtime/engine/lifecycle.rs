@@ -857,18 +857,18 @@ impl Lifecycle {
             ambiguity_deadline,
             observer_open: true,
         };
-        let refused = || CancellationDecision::Refused(crate::Error::NotSupported);
+        let refused = || CancellationDecision::Refused(crate::Error::CancellationNotSupported);
         match self {
             Self::Ready { .. } | Self::Backoff { .. } => CancellationDecision::Local,
             Self::AwaitingCompletion { .. } => refused(),
             Self::AwaitingReply { .. } => {
-                CancellationDecision::Refused(crate::Error::InquiryNotCancelable)
+                CancellationDecision::Refused(crate::Error::InquiryNotCancellable)
             }
             Self::AwaitingCancellationResolution { .. } => CancellationDecision::Duplicate,
             Self::Sending {
                 reply: SendingReply::Inquiry,
                 ..
-            } => CancellationDecision::Refused(crate::Error::InquiryNotCancelable),
+            } => CancellationDecision::Refused(crate::Error::InquiryNotCancellable),
             Self::Sending { .. } => refused(),
             Self::AwaitingAck {
                 cancellation: Some(_),

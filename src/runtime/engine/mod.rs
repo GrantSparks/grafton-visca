@@ -463,9 +463,9 @@ impl ProtocolEngine {
     /// Constructs an empty session engine. Targets are registered separately.
     pub(crate) fn new(policy: ProtocolPolicy, now: Instant) -> Result<Self, Error> {
         if policy.capacity == 0 || policy.inquiry_capacity == 0 {
-            return Err(Error::InvalidRequest(
-                "engine and inquiry capacity must be non-zero".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "engine and inquiry capacity must be non-zero".into(),
+            });
         }
         policy.validate_at(now)?;
         let correlation = CorrelationMode::new(policy.wire.kind(), policy.transport);
@@ -757,15 +757,15 @@ trait EngineMethods: EngineAccess {
     /// Registers one target's socket and cancellation policy.
     fn register_target(&mut self, target: TargetSlot, policy: TargetPolicy) -> Result<(), Error> {
         if !(1..=2).contains(&policy.command_sockets) {
-            return Err(Error::InvalidRequest(
-                "VISCA command socket capacity must be one or two".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "VISCA command socket capacity must be one or two".into(),
+            });
         }
         let slot = &mut self.targets[target].policy;
         match *slot {
-            Some(existing) if existing != policy => Err(Error::InvalidState(
-                "target already has conflicting protocol policy".into(),
-            )),
+            Some(existing) if existing != policy => Err(Error::InvalidState {
+                reason: "target already has conflicting protocol policy".into(),
+            }),
             Some(_) => Ok(()),
             None => {
                 *slot = Some(policy);
@@ -795,9 +795,9 @@ trait EngineMethods: EngineAccess {
         for (target, slot) in self.targets.iter() {
             if let (Some(_), Some(sockets)) = (slot.policy, command_sockets[target]) {
                 if !(1..=2).contains(&sockets) {
-                    return Err(Error::InvalidRequest(
-                        "VISCA command socket capacity must be one or two".into(),
-                    ));
+                    return Err(Error::InvalidRequest {
+                        reason: "VISCA command socket capacity must be one or two".into(),
+                    });
                 }
             }
         }
@@ -1079,9 +1079,9 @@ trait EngineMethods: EngineAccess {
             }
             AdmissionSlot::ControlReserve => {
                 if request.context().control.class != ControlClass::Urgent {
-                    return Err(Error::InvalidState(
-                        "only an urgent request may hold a control-reserve slot".into(),
-                    ));
+                    return Err(Error::InvalidState {
+                        reason: "only an urgent request may hold a control-reserve slot".into(),
+                    });
                 }
                 let reserve = self.targets[target]
                     .policy
@@ -1240,9 +1240,9 @@ trait EngineMethods: EngineAccess {
         }
         self.admission_slot_available(&request, slot)?;
         let Some(target_policy) = self.targets[context.target].policy else {
-            return Err(Error::InvalidState(
-                "target is not registered in this session".into(),
-            ));
+            return Err(Error::InvalidState {
+                reason: "target is not registered in this session".into(),
+            });
         };
         if let Some(shape) = request.payload_shape().filter(|_| self.mode().is_raw()) {
             let available = self
@@ -1262,9 +1262,9 @@ trait EngineMethods: EngineAccess {
             return Err(error);
         }
         if target_policy.cancellation != context.cancellation {
-            return Err(Error::InvalidState(
-                "request cancellation policy conflicts with target registration".into(),
-            ));
+            return Err(Error::InvalidState {
+                reason: "request cancellation policy conflicts with target registration".into(),
+            });
         }
         let Some(id) = self.allocate_request_id() else {
             return Err(Error::RuntimeIdentityExhausted);
@@ -1970,13 +1970,13 @@ trait EngineMethods: EngineAccess {
             Ok(None) => {}
             Err(conflict) => self.finish_after_ack(
                 id,
-                Error::InvalidState(
-                    format!(
+                Error::InvalidState {
+                    reason: format!(
                         "socket {} is already owned by {:?}",
                         conflict.socket, conflict.owner
                     )
                     .into(),
-                ),
+                },
                 false,
                 now,
                 effects,
@@ -2182,9 +2182,9 @@ trait EngineMethods: EngineAccess {
         if !metadata_valid {
             self.finish_observed(
                 owner.request,
-                Error::InvalidState(
-                    "transmission metadata conflicts with requested framing".into(),
-                ),
+                Error::InvalidState {
+                    reason: "transmission metadata conflicts with requested framing".into(),
+                },
                 AttemptEvidence::Written,
                 now,
                 effects,
@@ -3167,7 +3167,9 @@ trait EngineMethods: EngineAccess {
                 // local socket index cannot make that command safe to replay.
                 self.finish_after_ack(
                     id,
-                    Error::InvalidState("accepted command has no uncontested socket".into()),
+                    Error::InvalidState {
+                        reason: "accepted command has no uncontested socket".into(),
+                    },
                     false,
                     now,
                     effects,
@@ -3770,7 +3772,7 @@ trait EngineMethods: EngineAccess {
             .get(&id)
             .is_some_and(|entry| entry.lifecycle().cancellation_ambiguity().is_some());
         if !active {
-            self.finish(id, Error::CommandCanceled, now, effects);
+            self.finish(id, Error::CommandCancelled, now, effects);
             return;
         }
         self.finish_with_cancel_hold(id, CommandOutcome::Cancelled, false, now, effects);
@@ -3786,7 +3788,7 @@ trait EngineMethods: EngineAccess {
         let queued_inquiry =
             entry.reply_family() == SendingReply::Inquiry && entry.lifecycle().is_off_wire();
         let decision = if queued_inquiry {
-            CancellationDecision::Refused(Error::InquiryNotCancelable)
+            CancellationDecision::Refused(Error::InquiryNotCancellable)
         } else {
             entry.lifecycle().cancellation_decision(
                 entry.request.context().cancellation == CancellationPolicy::Supported,
@@ -5090,7 +5092,7 @@ fn record_deadline_expiry(
 /// `busy_timeout` in the profile registry is 240ms, so `maximum_backoff` is
 /// 500ms and already clamps every delay from exponent 4 — one below this cap,
 /// which consequently never changes a shipped delay. The cap becomes reachable
-/// only through an explicit `OperationalTuning::retry_timing` override that
+/// only through an explicit `OperationalTuning::with_retry_budget` override that
 /// widens the ceiling past 32x the initial backoff; it is kept for that case
 /// rather than deleted as unreachable.
 const ACK_BACKOFF_EXPONENT_CAP: u32 = 5;
@@ -5642,7 +5644,7 @@ mod cancellation_regression_tests {
             now,
         );
         assert!(cancel.iter().any(|effect| matches!(effect,
-            Effect::CancellationObservation { id: observed, observation: CancellationObservation::Failed(Error::NotSupported) } if *observed == id)));
+            Effect::CancellationObservation { id: observed, observation: CancellationObservation::Failed(Error::CancellationNotSupported) } if *observed == id)));
         assert!(effects.iter().any(|effect| matches!(effect,
             Effect::RetryScheduled { id: scheduled, .. } if *scheduled == id)));
         assert!(!effects.iter().any(|effect| matches!(effect,

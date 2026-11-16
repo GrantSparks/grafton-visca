@@ -10,19 +10,21 @@ use grafton_visca::wire::WireValue;
 use grafton_visca::{
     capabilities::TypedSupportSurface,
     command::{
-        AutoWhiteBalanceSensitivityInquiry, Brightness, BrightnessInquiry, ColorTemperatureInquiry,
-        FocusZone, FocusZoneCommand, FocusZoneInquiry, GammaInquiry, InquiryKind, NoiseReduction2D,
-        NoiseReduction2DInquiry, NoiseReduction2DMode, NoiseReduction2DModeCommand,
-        NoiseReduction2DModeInquiry, NoiseReduction3D, NoiseReduction3DInquiry,
-        PictureEffectInquiry, PictureEffectMode, Response, ResponseParser, SharpnessModeInquiry,
-        UsbAudioCommand, UsbAudioInquiry, VersionInfo, VersionInquiry,
+        image::{SetNoiseReduction2d, SetNoiseReduction3d},
+        streaming::SetUsbAudio,
     },
     profiles::{
-        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
+        GenericVisca, NearusBrc300, ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3,
+        SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
     },
-    types::{BrightnessLevel, NoiseReduction2DLevel, NoiseReduction3DLevel},
-    CameraId, Error, ProfileSpec, Request,
+    request::{Inquiry, Request},
+    types::{
+        BrightnessLevel, CameraId, FocusZone, NoiseReduction2D, NoiseReduction2DLevel,
+        NoiseReduction2DMode, NoiseReduction3D, NoiseReduction3DLevel, PictureEffectMode,
+        VersionInfo,
+    },
+    wire::Response,
+    Error,
 };
 
 fn wire<R: Request + ?Sized>(request: &R) -> Vec<u8> {
@@ -34,38 +36,50 @@ fn wire<R: Request + ?Sized>(request: &R) -> Vec<u8> {
     buffer
 }
 
-fn inquiry_only_noise_reduction_profile() -> grafton_visca::Result<ProfileSpec> {
+fn noise_reduction_profile_without_grants() -> grafton_visca::Result<ProfileSpec> {
     let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
     let mut capabilities = source.capabilities().clone();
     capabilities.profile_id = None;
-    capabilities.model_name = "NR inquiry without NR control".into();
+    capabilities.model_name = "NR without unified grants".into();
     capabilities.typed_support = capabilities
         .typed_support
-        .without(TypedSupportSurface::NoiseReduction2DControl)
-        .without(TypedSupportSurface::NoiseReduction3DControl);
+        .without(TypedSupportSurface::NoiseReduction2D)
+        .without(TypedSupportSurface::NoiseReduction2DMode)
+        .without(TypedSupportSurface::NoiseReduction3D);
 
-    ProfileSpec::builder(capabilities)
+    let mut builder = ProfileSpec::builder(capabilities)
         .transports(source.transports())
         .envelope(source.envelope())
         .timing(source.timing())
         .maximum_command_sockets(source.maximum_command_sockets())
         .supports_operation_complete(source.supports_operation_complete())
         .supports_command_cancel(source.supports_command_cancel())
-        .position_inquiries(source.position_inquiries())
-        .build()
+        .position_inquiries(source.position_inquiries());
+    for encoding in source.encodings().iter() {
+        builder = builder.encoding(encoding);
+    }
+    builder.build()
 }
 
-fn decode<C: ResponseParser>(kind: InquiryKind, frame: &[u8]) -> C::Response {
-    let response = Response::parse_with_type(frame, &kind).expect("golden response must parse");
-    C::from_response(response).expect("golden response must have the expected type")
+fn decode_result<I: Inquiry>(inquiry: I, frame: &[u8]) -> Result<I::Response, Error> {
+    Response::parse(frame)?;
+    if frame.get(1) != Some(&0x50) {
+        return Err(Error::UnexpectedResponseType);
+    }
+    let payload = frame
+        .get(2..frame.len().saturating_sub(1))
+        .ok_or(Error::InvalidResponseFormat)?;
+    inquiry.decoder().decode(payload)
 }
 
-fn rejects_trailing_payload<C: ResponseParser>(kind: InquiryKind, frame: &[u8]) {
+fn decode<I: Inquiry>(inquiry: I, frame: &[u8]) -> I::Response {
+    decode_result(inquiry, frame).expect("golden response must have the expected type")
+}
+
+fn rejects_trailing_payload<I: Inquiry>(inquiry: I, frame: &[u8]) {
     assert!(
-        Response::parse_with_type(frame, &kind)
-            .and_then(C::from_response)
-            .is_err(),
-        "{kind:?} must reject a reply with trailing payload bytes"
+        decode_result(inquiry, frame).is_err(),
+        "inquiry must reject trailing payload bytes"
     );
 }
 
@@ -77,20 +91,26 @@ enum OneByteInquiryParser {
 }
 
 impl OneByteInquiryParser {
-    fn parse(self, response: Response) -> Result<(), Error> {
+    fn parse(self, frame: &[u8]) -> Result<(), Error> {
         match self {
-            Self::Sharpness => SharpnessModeInquiry::from_response(response).map(|_| ()),
-            Self::AutoWhiteBalanceSensitivity => {
-                AutoWhiteBalanceSensitivityInquiry::from_response(response).map(|_| ())
+            Self::Sharpness => {
+                decode_result(grafton_visca::command::image::SharpnessModeInquiry, frame)
+                    .map(|_| ())
             }
-            Self::Gamma => GammaInquiry::from_response(response).map(|_| ()),
+            Self::AutoWhiteBalanceSensitivity => decode_result(
+                grafton_visca::command::white_balance::SensitivityInquiry,
+                frame,
+            )
+            .map(|_| ()),
+            Self::Gamma => {
+                decode_result(grafton_visca::command::image::GammaInquiry, frame).map(|_| ())
+            }
         }
     }
 }
 
 struct OneByteInquiryCase {
     name: &'static str,
-    kind: InquiryKind,
     parser: OneByteInquiryParser,
     valid: &'static [u8],
     trailing: &'static [u8],
@@ -103,21 +123,18 @@ fn fixed_one_byte_inquiries_accept_one_byte_and_reject_trailing_payload() {
     let cases = [
         OneByteInquiryCase {
             name: "sharpness mode",
-            kind: InquiryKind::SharpnessMode,
             parser: OneByteInquiryParser::Sharpness,
             valid: &[0x90, 0x50, 0x02, 0xFF],
             trailing: &[0x90, 0x50, 0x02, 0x00, 0xFF],
         },
         OneByteInquiryCase {
             name: "AWB sensitivity",
-            kind: InquiryKind::AutoWhiteBalanceSensitivity,
             parser: OneByteInquiryParser::AutoWhiteBalanceSensitivity,
             valid: &[0x90, 0x50, 0x00, 0xFF],
             trailing: &[0x90, 0x50, 0x00, 0x00, 0xFF],
         },
         OneByteInquiryCase {
             name: "gamma",
-            kind: InquiryKind::Gamma,
             parser: OneByteInquiryParser::Gamma,
             valid: &[0x90, 0x50, 0x00, 0xFF],
             trailing: &[0x90, 0x50, 0x00, 0x00, 0xFF],
@@ -125,14 +142,13 @@ fn fixed_one_byte_inquiries_accept_one_byte_and_reject_trailing_payload() {
     ];
 
     for case in cases {
-        let valid_response = Response::parse_with_type(case.valid, &case.kind)
-            .unwrap_or_else(|error| panic!("{} valid reply failed: {error:?}", case.name));
-        case.parser.parse(valid_response).unwrap_or_else(|error| {
+        case.parser.parse(case.valid).unwrap_or_else(|error| {
             panic!("{} valid reply failed typed decoding: {error:?}", case.name)
         });
 
-        let error = Response::parse_with_type(case.trailing, &case.kind)
-            .and_then(|response| case.parser.parse(response))
+        let error = case
+            .parser
+            .parse(case.trailing)
             .expect_err("trailing payload must be rejected");
         assert!(
             matches!(
@@ -154,19 +170,25 @@ fn brightness_set_and_inquiry_match_the_04_4d_family() {
     let level = BrightnessLevel::new(0x11).expect("valid value");
     let direct = [0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF];
 
-    assert_eq!(wire(&Brightness::SetLevel(level)), direct);
-    let mut camera_2_buffer = [0_u8; Brightness::MAX_SIZE];
-    let camera_2_written = Brightness::SetLevel(level)
+    assert_eq!(
+        wire(&grafton_visca::command::exposure::SetBrightness::new(level)),
+        direct
+    );
+    let mut camera_2_buffer = [0_u8; grafton_visca::command::exposure::SetBrightness::MAX_SIZE];
+    let camera_2_written = grafton_visca::command::exposure::SetBrightness::new(level)
         .write_into(CameraId::CAMERA_2, &mut camera_2_buffer)
         .expect("camera 2 brightness set must encode");
     assert_eq!(
         &camera_2_buffer[..camera_2_written],
         &[0x82, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF]
     );
-    assert_eq!(wire(&BrightnessInquiry), [0x81, 0x09, 0x04, 0x4D, 0xFF]);
     assert_eq!(
-        decode::<BrightnessInquiry>(
-            InquiryKind::Brightness,
+        wire(&grafton_visca::command::exposure::BrightnessInquiry),
+        [0x81, 0x09, 0x04, 0x4D, 0xFF]
+    );
+    assert_eq!(
+        decode(
+            grafton_visca::command::exposure::BrightnessInquiry,
             &[0x90, 0x50, 0x00, 0x00, 0x01, 0x01, 0xFF],
         ),
         level,
@@ -175,17 +197,29 @@ fn brightness_set_and_inquiry_match_the_04_4d_family() {
 
 #[test]
 fn focus_zone_inquiry_uses_af_zone_opcode_and_decodes_positions() {
-    assert_eq!(wire(&FocusZoneInquiry), [0x81, 0x09, 0x04, 0xAA, 0xFF]);
     assert_eq!(
-        decode::<FocusZoneInquiry>(InquiryKind::FocusZone, &[0x90, 0x50, 0x00, 0xFF]),
+        wire(&grafton_visca::command::focus::ZoneInquiry),
+        [0x81, 0x09, 0x04, 0xAA, 0xFF]
+    );
+    assert_eq!(
+        decode(
+            grafton_visca::command::focus::ZoneInquiry,
+            &[0x90, 0x50, 0x00, 0xFF]
+        ),
         FocusZone::Top,
     );
     assert_eq!(
-        decode::<FocusZoneInquiry>(InquiryKind::FocusZone, &[0x90, 0x50, 0x01, 0xFF]),
+        decode(
+            grafton_visca::command::focus::ZoneInquiry,
+            &[0x90, 0x50, 0x01, 0xFF]
+        ),
         FocusZone::Center,
     );
     assert_eq!(
-        decode::<FocusZoneInquiry>(InquiryKind::FocusZone, &[0x90, 0x50, 0x02, 0xFF]),
+        decode(
+            grafton_visca::command::focus::ZoneInquiry,
+            &[0x90, 0x50, 0x02, 0xFF]
+        ),
         FocusZone::Bottom,
     );
 }
@@ -197,20 +231,23 @@ fn focus_zone_inquiry_uses_af_zone_opcode_and_decodes_positions() {
 #[test]
 fn focus_zone_inquiry_decodes_hardware_observed_zone_03() {
     assert_eq!(
-        decode::<FocusZoneInquiry>(InquiryKind::FocusZone, &[0x90, 0x50, 0x03, 0xFF]),
+        decode(
+            grafton_visca::command::focus::ZoneInquiry,
+            &[0x90, 0x50, 0x03, 0xFF]
+        ),
         FocusZone::Zone03,
     );
-    rejects_trailing_payload::<FocusZoneInquiry>(
-        InquiryKind::FocusZone,
+    rejects_trailing_payload(
+        grafton_visca::command::focus::ZoneInquiry,
         &[0x90, 0x50, 0x03, 0x00, 0xFF],
     );
     // Values beyond the documented and observed set stay rejected, so a reply
     // the library cannot vouch for never becomes a guessed zone.
-    assert!(
-        Response::parse_with_type(&[0x90, 0x50, 0x04, 0xFF], &InquiryKind::FocusZone)
-            .and_then(FocusZoneInquiry::from_response)
-            .is_err()
-    );
+    assert!(decode_result(
+        grafton_visca::command::focus::ZoneInquiry,
+        &[0x90, 0x50, 0x04, 0xFF]
+    )
+    .is_err());
 }
 
 /// The same bench cameras accept `81 01 04 AA 03 FF` (ACK `90 42`, completion
@@ -218,7 +255,9 @@ fn focus_zone_inquiry_decodes_hardware_observed_zone_03() {
 #[test]
 fn focus_zone_command_encodes_hardware_observed_zone_03() {
     assert_eq!(
-        wire(&FocusZoneCommand::new(FocusZone::Zone03)),
+        wire(&grafton_visca::command::focus::SetZone::new(
+            FocusZone::Zone03
+        )),
         [0x81, 0x01, 0x04, 0xAA, 0x03, 0xFF],
     );
 }
@@ -233,12 +272,15 @@ fn every_focus_zone_round_trips_between_inquiry_and_setter() {
         (0x02, FocusZone::Bottom),
         (0x03, FocusZone::Zone03),
     ] {
-        let read = decode::<FocusZoneInquiry>(InquiryKind::FocusZone, &[0x90, 0x50, byte, 0xFF]);
+        let read = decode(
+            grafton_visca::command::focus::ZoneInquiry,
+            &[0x90, 0x50, byte, 0xFF],
+        );
         assert_eq!(read, zone);
         assert_eq!(read.to_wire(), byte);
         assert_eq!(FocusZone::from_wire(byte).expect("known zone"), zone);
         assert_eq!(
-            wire(&FocusZoneCommand::new(read)),
+            wire(&grafton_visca::command::focus::SetZone::new(read)),
             [0x81, 0x01, 0x04, 0xAA, byte, 0xFF],
             "{zone:?} must be restorable from its own inquiry reply",
         );
@@ -265,8 +307,8 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
             &g2_family[..],
         ),
         (
-            "PtzOptics30X",
-            ProfileSpec::from_compile_time::<PtzOptics30X>(),
+            "PtzOptics30x",
+            ProfileSpec::from_compile_time::<PtzOptics30x>(),
             &g2_family[..],
         ),
         (
@@ -275,8 +317,8 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
             &documented[..],
         ),
         (
-            "SonyFR7",
-            ProfileSpec::from_compile_time::<SonyFR7>(),
+            "SonyFr7",
+            ProfileSpec::from_compile_time::<SonyFr7>(),
             &[][..],
         ),
         (
@@ -297,9 +339,9 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
             "{name}"
         );
         for zone in g2_family {
-            let admitted = FocusZoneCommand::new(zone).validate_for_target(
-                &grafton_visca::TargetRegistration::new(
-                    grafton_visca::CameraId::CAMERA_1,
+            let admitted = grafton_visca::command::focus::SetZone::new(zone).validate_for_target(
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -313,10 +355,13 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
     }
 
     let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
-    let error = FocusZoneCommand::new(FocusZone::Zone03)
+    let error = grafton_visca::command::focus::SetZone::new(FocusZone::Zone03)
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
-                .expect("target registration"),
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g3.clone(),
+            )
+            .expect("target registration"),
         )
         .expect_err("G3 has no evidence for focus-zone value 03");
     assert!(
@@ -327,7 +372,10 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
         "unexpected error: {error:?}"
     );
     assert_eq!(
-        decode::<FocusZoneInquiry>(InquiryKind::FocusZone, &[0x90, 0x50, 0x03, 0xFF]),
+        decode(
+            grafton_visca::command::focus::ZoneInquiry,
+            &[0x90, 0x50, 0x03, 0xFF]
+        ),
         FocusZone::Zone03,
         "decoding a G3 reply of 03 is not gated: it sends nothing",
     );
@@ -337,10 +385,13 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
 /// the only layout `system().version()` decodes.
 #[test]
 fn version_inquiry_decodes_the_sony_reply_layout() {
-    assert_eq!(wire(&VersionInquiry), [0x81, 0x09, 0x00, 0x02, 0xFF]);
     assert_eq!(
-        decode::<VersionInquiry>(
-            InquiryKind::Version,
+        wire(&grafton_visca::command::system::VersionInquiry),
+        [0x81, 0x09, 0x00, 0x02, 0xFF]
+    );
+    assert_eq!(
+        decode(
+            grafton_visca::command::system::VersionInquiry,
             &[0x90, 0x50, 0x00, 0x01, 0x04, 0x0F, 0x01, 0x23, 0x02, 0xFF],
         ),
         VersionInfo {
@@ -365,18 +416,18 @@ fn color_temperature_inquiry_is_gated_to_profiles_with_a_sourced_reply_layout() 
             ProfileSpec::from_compile_time::<PtzOpticsG2>(),
         ),
         (
-            "PtzOptics30X",
-            ProfileSpec::from_compile_time::<PtzOptics30X>(),
+            "PtzOptics30x",
+            ProfileSpec::from_compile_time::<PtzOptics30x>(),
         ),
     ] {
         let profile = profile.expect("built-in profile");
         assert!(profile
             .capabilities()
-            .supports_typed(TypedSupportSurface::ColorTemperatureInquiry));
-        ColorTemperatureInquiry
+            .supports(TypedSupportSurface::ColorTemperatureInquiry));
+        grafton_visca::command::white_balance::ColorTemperatureInquiry
             .validate_for_target(
-                &grafton_visca::TargetRegistration::new(
-                    grafton_visca::CameraId::CAMERA_1,
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -391,18 +442,18 @@ fn color_temperature_inquiry_is_gated_to_profiles_with_a_sourced_reply_layout() 
             true,
         ),
         (
-            "SonyBRCH900",
-            ProfileSpec::from_compile_time::<SonyBRCH900>(),
+            "SonyBrcH900",
+            ProfileSpec::from_compile_time::<SonyBrcH900>(),
             false,
         ),
         (
-            "SonyEVIH100",
-            ProfileSpec::from_compile_time::<SonyEVIH100>(),
+            "SonyEviH100",
+            ProfileSpec::from_compile_time::<SonyEviH100>(),
             false,
         ),
         (
-            "SonyFR7",
-            ProfileSpec::from_compile_time::<SonyFR7>(),
+            "SonyFr7",
+            ProfileSpec::from_compile_time::<SonyFr7>(),
             false,
         ),
         (
@@ -414,19 +465,19 @@ fn color_temperature_inquiry_is_gated_to_profiles_with_a_sourced_reply_layout() 
         let profile = profile.expect("built-in profile");
         let capabilities = profile.capabilities();
         assert_eq!(
-            capabilities.supports_typed(TypedSupportSurface::ColorTemperature),
+            capabilities.supports(TypedSupportSurface::ColorTemperature),
             has_controls,
             "{name} color-temperature controls",
         );
         assert!(
-            !capabilities.supports_typed(TypedSupportSurface::ColorTemperatureInquiry),
+            !capabilities.supports(TypedSupportSurface::ColorTemperatureInquiry),
             "{name} must not advertise an unsourced color-temperature reply",
         );
         assert!(
             matches!(
-                ColorTemperatureInquiry.validate_for_target(
-                    &grafton_visca::TargetRegistration::new(
-                        grafton_visca::CameraId::CAMERA_1,
+                grafton_visca::command::white_balance::ColorTemperatureInquiry.validate_for_target(
+                    &grafton_visca::config::TargetRegistration::new(
+                        grafton_visca::types::CameraId::CAMERA_1,
                         profile.clone()
                     )
                     .expect("target registration")
@@ -455,22 +506,22 @@ fn version_inquiry_is_gated_to_profiles_with_the_sony_reply_layout() {
             ProfileSpec::from_compile_time::<PtzOpticsG3>(),
         ),
         (
-            "PtzOptics30X",
-            ProfileSpec::from_compile_time::<PtzOptics30X>(),
+            "PtzOptics30x",
+            ProfileSpec::from_compile_time::<PtzOptics30x>(),
         ),
     ] {
         let profile = profile.expect("built-in profile");
         assert!(
             !profile
                 .capabilities()
-                .supports_typed(TypedSupportSurface::VersionInquiry),
+                .supports(TypedSupportSurface::VersionInquiry),
             "{name} must not advertise the Sony-format version inquiry",
         );
         assert!(
             matches!(
-                VersionInquiry.validate_for_target(
-                    &grafton_visca::TargetRegistration::new(
-                        grafton_visca::CameraId::CAMERA_1,
+                grafton_visca::command::system::VersionInquiry.validate_for_target(
+                    &grafton_visca::config::TargetRegistration::new(
+                        grafton_visca::types::CameraId::CAMERA_1,
                         profile.clone()
                     )
                     .expect("target registration")
@@ -482,19 +533,19 @@ fn version_inquiry_is_gated_to_profiles_with_the_sony_reply_layout() {
     }
 
     for (name, profile) in [
-        ("SonyFR7", ProfileSpec::from_compile_time::<SonyFR7>()),
+        ("SonyFr7", ProfileSpec::from_compile_time::<SonyFr7>()),
         (
-            "SonyBRCH900",
-            ProfileSpec::from_compile_time::<SonyBRCH900>(),
+            "SonyBrcH900",
+            ProfileSpec::from_compile_time::<SonyBrcH900>(),
         ),
         (
-            "SonyEVIH100",
-            ProfileSpec::from_compile_time::<SonyEVIH100>(),
+            "SonyEviH100",
+            ProfileSpec::from_compile_time::<SonyEviH100>(),
         ),
-        ("SonyBRC300", ProfileSpec::from_compile_time::<SonyBRC300>()),
+        ("SonyBrc300", ProfileSpec::from_compile_time::<SonyBrc300>()),
         (
-            "NearusBRC300",
-            ProfileSpec::from_compile_time::<NearusBRC300>(),
+            "NearusBrc300",
+            ProfileSpec::from_compile_time::<NearusBrc300>(),
         ),
         (
             "GenericVisca",
@@ -505,13 +556,13 @@ fn version_inquiry_is_gated_to_profiles_with_the_sony_reply_layout() {
         assert!(
             profile
                 .capabilities()
-                .supports_typed(TypedSupportSurface::VersionInquiry),
+                .supports(TypedSupportSurface::VersionInquiry),
             "{name} must advertise the Sony-format version inquiry",
         );
-        VersionInquiry
+        grafton_visca::command::system::VersionInquiry
             .validate_for_target(
-                &grafton_visca::TargetRegistration::new(
-                    grafton_visca::CameraId::CAMERA_1,
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -520,9 +571,11 @@ fn version_inquiry_is_gated_to_profiles_with_the_sony_reply_layout() {
     }
 
     // The observed PTZOptics reply is not mistaken for a Sony reply.
-    let error = Response::parse_with_type(&[0x90, 0x50, 0x00, 0x52, 0xFF], &InquiryKind::Version)
-        .and_then(VersionInquiry::from_response)
-        .expect_err("a 2-byte payload is not the 7-byte Sony layout");
+    let error = decode_result(
+        grafton_visca::command::system::VersionInquiry,
+        &[0x90, 0x50, 0x00, 0x52, 0xFF],
+    )
+    .expect_err("a 2-byte payload is not the 7-byte Sony layout");
     assert_eq!(
         error.to_string(),
         "Invalid response length: expected 7 bytes, got 2 (payload: 00 52)"
@@ -531,42 +584,54 @@ fn version_inquiry_is_gated_to_profiles_with_the_sony_reply_layout() {
 
 #[test]
 fn picture_effect_inquiry_uses_the_direct_command_opcode_and_decodes_modes() {
-    assert_eq!(wire(&PictureEffectInquiry), [0x81, 0x09, 0x04, 0x63, 0xFF]);
     assert_eq!(
-        decode::<PictureEffectInquiry>(InquiryKind::PictureEffect, &[0x90, 0x50, 0x02, 0xFF]),
+        wire(&grafton_visca::command::image::PictureEffectInquiry),
+        [0x81, 0x09, 0x04, 0x63, 0xFF]
+    );
+    assert_eq!(
+        decode(
+            grafton_visca::command::image::PictureEffectInquiry,
+            &[0x90, 0x50, 0x02, 0xFF]
+        ),
         PictureEffectMode::Off,
     );
     assert_eq!(
-        decode::<PictureEffectInquiry>(InquiryKind::PictureEffect, &[0x90, 0x50, 0x04, 0xFF]),
+        decode(
+            grafton_visca::command::image::PictureEffectInquiry,
+            &[0x90, 0x50, 0x04, 0xFF]
+        ),
         PictureEffectMode::BlackAndWhite,
     );
-    rejects_trailing_payload::<PictureEffectInquiry>(
-        InquiryKind::PictureEffect,
+    rejects_trailing_payload(
+        grafton_visca::command::image::PictureEffectInquiry,
         &[0x90, 0x50, 0x02, 0x00, 0xFF],
     );
 }
 
 #[test]
 fn usb_audio_inquiry_matches_uac_wire_and_its_02_on_03_off_polarity() {
-    assert_eq!(wire(&UsbAudioInquiry), [0x81, 0x2A, 0x02, 0xA0, 0x04, 0xFF]);
     assert_eq!(
-        wire(&UsbAudioCommand::new(true)),
+        wire(&grafton_visca::command::streaming::UsbAudioInquiry),
+        [0x81, 0x2A, 0x02, 0xA0, 0x04, 0xFF]
+    );
+    assert_eq!(
+        wire(&SetUsbAudio::new(true)),
         [0x81, 0x2A, 0x02, 0xA0, 0x04, 0x02, 0xFF]
     );
     assert_eq!(
-        wire(&UsbAudioCommand::new(false)),
+        wire(&SetUsbAudio::new(false)),
         [0x81, 0x2A, 0x02, 0xA0, 0x04, 0x03, 0xFF]
     );
-    assert!(decode::<UsbAudioInquiry>(
-        InquiryKind::UsbAudio,
+    assert!(decode(
+        grafton_visca::command::streaming::UsbAudioInquiry,
         &[0x90, 0x50, 0x02, 0xFF],
     ));
-    assert!(!decode::<UsbAudioInquiry>(
-        InquiryKind::UsbAudio,
+    assert!(!decode(
+        grafton_visca::command::streaming::UsbAudioInquiry,
         &[0x90, 0x50, 0x03, 0xFF],
     ));
-    rejects_trailing_payload::<UsbAudioInquiry>(
-        InquiryKind::UsbAudio,
+    rejects_trailing_payload(
+        grafton_visca::command::streaming::UsbAudioInquiry,
         &[0x90, 0x50, 0x02, 0x00, 0xFF],
     );
 }
@@ -574,64 +639,69 @@ fn usb_audio_inquiry_matches_uac_wire_and_its_02_on_03_off_polarity() {
 #[test]
 fn noise_reduction_inquiries_match_the_documented_2d_mode_and_level_registers() {
     assert_eq!(
-        wire(&NoiseReduction2DModeInquiry),
+        wire(&grafton_visca::command::image::NoiseReduction2dModeInquiry),
         [0x81, 0x09, 0x04, 0x50, 0xFF]
     );
     assert_eq!(
-        wire(&NoiseReduction2DInquiry),
+        wire(&grafton_visca::command::image::NoiseReduction2dInquiry),
         [0x81, 0x09, 0x04, 0x53, 0xFF]
     );
     assert_eq!(
-        wire(&NoiseReduction3DInquiry),
+        wire(&grafton_visca::command::image::NoiseReduction3dInquiry),
         [0x81, 0x09, 0x04, 0x54, 0xFF]
     );
 
     assert_eq!(
-        decode::<NoiseReduction2DModeInquiry>(
-            InquiryKind::NoiseReduction2DMode,
+        decode(
+            grafton_visca::command::image::NoiseReduction2dModeInquiry,
             &[0x90, 0x50, 0x02, 0xFF],
         ),
         NoiseReduction2DMode::Auto,
     );
     assert_eq!(
-        decode::<NoiseReduction2DModeInquiry>(
-            InquiryKind::NoiseReduction2DMode,
+        decode(
+            grafton_visca::command::image::NoiseReduction2dModeInquiry,
             &[0x90, 0x50, 0x03, 0xFF],
         ),
         NoiseReduction2DMode::Manual,
     );
-    assert!(Response::parse_with_type(
-        &[0x90, 0x50, 0x00, 0xFF],
-        &InquiryKind::NoiseReduction2DMode,
+    assert!(decode_result(
+        grafton_visca::command::image::NoiseReduction2dModeInquiry,
+        &[0x90, 0x50, 0x00, 0xFF]
     )
-    .and_then(NoiseReduction2DModeInquiry::from_response)
     .is_err());
 
     assert_eq!(
-        decode::<NoiseReduction2DInquiry>(InquiryKind::NoiseReduction2D, &[0x90, 0x50, 0x00, 0xFF],),
+        decode(
+            grafton_visca::command::image::NoiseReduction2dInquiry,
+            &[0x90, 0x50, 0x00, 0xFF],
+        ),
         NoiseReduction2D::Off,
     );
     assert_eq!(
-        decode::<NoiseReduction2DInquiry>(InquiryKind::NoiseReduction2D, &[0x90, 0x50, 0x05, 0xFF],),
+        decode(
+            grafton_visca::command::image::NoiseReduction2dInquiry,
+            &[0x90, 0x50, 0x05, 0xFF],
+        ),
         NoiseReduction2D::Level(NoiseReduction2DLevel::MAX),
     );
-    assert!(
-        Response::parse_with_type(&[0x90, 0x50, 0x06, 0xFF], &InquiryKind::NoiseReduction2D,)
-            .and_then(NoiseReduction2DInquiry::from_response)
-            .is_err()
-    );
+    assert!(decode_result(
+        grafton_visca::command::image::NoiseReduction2dInquiry,
+        &[0x90, 0x50, 0x06, 0xFF]
+    )
+    .is_err());
 
     assert_eq!(
-        decode::<NoiseReduction3DInquiry>(
-            InquiryKind::NoiseReduction3D,
+        decode(
+            grafton_visca::command::image::NoiseReduction3dInquiry,
             &[0x90, 0x50, 0x00, 0xFF],
         )
         .to_wire(),
         0,
     );
     assert_eq!(
-        decode::<NoiseReduction3DInquiry>(
-            InquiryKind::NoiseReduction3D,
+        decode(
+            grafton_visca::command::image::NoiseReduction3dInquiry,
             &[0x90, 0x50, 0x05, 0xFF],
         )
         .to_wire(),
@@ -641,70 +711,83 @@ fn noise_reduction_inquiries_match_the_documented_2d_mode_and_level_registers() 
     // type's full syntactic register domain. Session decoding narrows current
     // G2/G3 replies independently.
     assert_eq!(
-        decode::<NoiseReduction3DInquiry>(
-            InquiryKind::NoiseReduction3D,
+        decode(
+            grafton_visca::command::image::NoiseReduction3dInquiry,
             &[0x90, 0x50, 0x08, 0xFF],
         )
         .to_wire(),
         8,
     );
-    let response =
-        Response::parse_with_type(&[0x90, 0x50, 0x09, 0xFF], &InquiryKind::NoiseReduction3D)
-            .expect("well-formed frame must reach the typed inquiry conversion");
-    assert!(NoiseReduction3DInquiry::from_response(response).is_err());
+    Response::parse(&[0x90, 0x50, 0x09, 0xFF])
+        .expect("well-formed frame must reach the typed inquiry conversion");
+    assert!(decode_result(
+        grafton_visca::command::image::NoiseReduction3dInquiry,
+        &[0x90, 0x50, 0x09, 0xFF],
+    )
+    .is_err());
 }
 
 #[test]
 fn noise_reduction_controls_match_the_documented_absolute_visca_frames() {
     assert_eq!(
-        wire(&NoiseReduction2DModeCommand::new(
-            NoiseReduction2DMode::Auto
-        )),
+        wire(
+            &grafton_visca::command::image::SetNoiseReduction2dMode::new(
+                NoiseReduction2DMode::Auto
+            )
+        ),
         [0x81, 0x01, 0x04, 0x50, 0x02, 0xFF]
     );
     assert_eq!(
-        wire(&NoiseReduction2DModeCommand::new(
-            NoiseReduction2DMode::Manual
-        )),
+        wire(
+            &grafton_visca::command::image::SetNoiseReduction2dMode::new(
+                NoiseReduction2DMode::Manual
+            )
+        ),
         [0x81, 0x01, 0x04, 0x50, 0x03, 0xFF]
     );
     assert_eq!(
-        wire(&NoiseReduction2D::with_level(
+        wire(&SetNoiseReduction2d::new(NoiseReduction2D::with_level(
             NoiseReduction2DLevel::new(3).expect("2D level"),
-        )),
+        ))),
         [0x81, 0x01, 0x04, 0x53, 0x03, 0xFF]
     );
     assert_eq!(
-        wire(&NoiseReduction2D::off()),
+        wire(&SetNoiseReduction2d::new(NoiseReduction2D::Off)),
         [0x81, 0x01, 0x04, 0x53, 0x00, 0xFF]
     );
     assert_eq!(
-        wire(&NoiseReduction3D::with_level(
+        wire(&SetNoiseReduction3d::new(NoiseReduction3D::with_level(
             NoiseReduction3DLevel::new(8).expect("3D level 8"),
-        )),
+        ))),
         [0x81, 0x01, 0x04, 0x54, 0x08, 0xFF]
     );
     assert_eq!(
-        wire(&NoiseReduction3D::off()),
+        wire(&SetNoiseReduction3d::new(NoiseReduction3D::Off)),
         [0x81, 0x01, 0x04, 0x54, 0x00, 0xFF]
     );
 }
 
 #[test]
-fn inquiry_only_noise_reduction_profile_admits_reads_and_refuses_writes() {
-    let profile =
-        inquiry_only_noise_reduction_profile().expect("inquiry and control grants are independent");
-    let target = grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
-        .expect("target registration");
-    NoiseReduction2DInquiry
-        .validate_for_target(&target)
-        .expect("2D inquiry remains permitted");
-    NoiseReduction3DInquiry
-        .validate_for_target(&target)
-        .expect("3D inquiry remains permitted");
+fn noise_reduction_grants_admit_or_refuse_both_queries_and_settings() {
+    let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+    let supported = grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, source)
+        .expect("supported target");
     for result in [
-        NoiseReduction2D::off().validate_for_target(&target),
-        NoiseReduction3D::off().validate_for_target(&target),
+        grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(&supported),
+        grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(&supported),
+        SetNoiseReduction2d::new(NoiseReduction2D::Off).validate_for_target(&supported),
+        SetNoiseReduction3d::new(NoiseReduction3D::Off).validate_for_target(&supported),
+    ] {
+        result.expect("a unified grant permits both read and write");
+    }
+    let profile = noise_reduction_profile_without_grants().expect("withheld NR grants");
+    let target = grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile)
+        .expect("withheld target");
+    for result in [
+        grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(&target),
+        grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(&target),
+        SetNoiseReduction2d::new(NoiseReduction2D::Off).validate_for_target(&target),
+        SetNoiseReduction3d::new(NoiseReduction3D::Off).validate_for_target(&target),
     ] {
         assert!(matches!(result, Err(Error::FeatureNotSupported { .. })));
     }
@@ -713,96 +796,126 @@ fn inquiry_only_noise_reduction_profile_admits_reads_and_refuses_writes() {
 #[test]
 fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates() {
     let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
-    FocusZoneInquiry
+    grafton_visca::command::focus::ZoneInquiry
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
-                .expect("target registration"),
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g2.clone(),
+            )
+            .expect("target registration"),
         )
         .expect("G2 documents the focus-zone response");
-    UsbAudioInquiry
+    grafton_visca::command::streaming::UsbAudioInquiry
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
-                .expect("target registration"),
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g2.clone(),
+            )
+            .expect("target registration"),
         )
         .expect("G2 documents USB audio");
 
     let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
     assert!(matches!(
-        FocusZoneInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
-                .expect("target registration")
+        grafton_visca::command::focus::ZoneInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g3.clone()
+            )
+            .expect("target registration")
         ),
         Err(Error::FeatureNotSupported { .. })
     ));
     assert!(matches!(
-        UsbAudioInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
-                .expect("target registration")
+        grafton_visca::command::streaming::UsbAudioInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g3.clone()
+            )
+            .expect("target registration")
         ),
         Err(Error::FeatureNotSupported { .. })
     ));
 
-    let ptzoptics_30x = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile");
-    FocusZoneInquiry
+    let ptzoptics_30x = ProfileSpec::from_compile_time::<PtzOptics30x>().expect("30X profile");
+    grafton_visca::command::focus::ZoneInquiry
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
         )
         .expect("30X documents the focus-zone response");
-    UsbAudioInquiry
+    grafton_visca::command::streaming::UsbAudioInquiry
         .validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
         )
         .expect("30X documents USB audio");
     for inquiry in [
-        NoiseReduction2DModeInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::NoiseReduction2dModeInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g2.clone(),
+            )
+            .expect("target registration"),
         ),
-        NoiseReduction2DInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g2.clone(),
+            )
+            .expect("target registration"),
         ),
-        NoiseReduction3DInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g2.clone(),
+            )
+            .expect("target registration"),
         ),
-        NoiseReduction2DModeInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::NoiseReduction2dModeInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g3.clone(),
+            )
+            .expect("target registration"),
         ),
-        NoiseReduction2DInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g3.clone(),
+            )
+            .expect("target registration"),
         ),
-        NoiseReduction3DInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                g3.clone(),
+            )
+            .expect("target registration"),
         ),
-        NoiseReduction2DModeInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+        grafton_visca::command::image::NoiseReduction2dModeInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
         ),
-        NoiseReduction2DInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+        grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
         ),
-        NoiseReduction3DInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
+        grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
@@ -813,35 +926,31 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
 
     for profile in [&g2, &g3, &ptzoptics_30x] {
         let capabilities = profile.capabilities();
-        assert!(capabilities.has_2d_nr());
-        assert!(capabilities.has_3d_nr());
-        assert!(capabilities.supports_typed(TypedSupportSurface::NoiseReduction2D));
-        assert!(capabilities.supports_typed(TypedSupportSurface::NoiseReduction3D));
-        assert!(capabilities.supports_typed(TypedSupportSurface::NoiseReduction2DControl));
-        assert!(capabilities.supports_typed(TypedSupportSurface::NoiseReduction3DControl));
+        assert!(capabilities.supports(TypedSupportSurface::NoiseReduction2D));
+        assert!(capabilities.supports(TypedSupportSurface::NoiseReduction3D));
 
-        NoiseReduction2DModeCommand::new(NoiseReduction2DMode::Manual)
+        grafton_visca::command::image::SetNoiseReduction2dMode::new(NoiseReduction2DMode::Manual)
             .validate_for_target(
-                &grafton_visca::TargetRegistration::new(
-                    grafton_visca::CameraId::CAMERA_1,
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
             )
             .expect("NR mode control must validate");
-        NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX)
+        SetNoiseReduction2d::new(NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX))
             .validate_for_target(
-                &grafton_visca::TargetRegistration::new(
-                    grafton_visca::CameraId::CAMERA_1,
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
             )
             .expect("2D NR control must validate");
-        NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX)
+        SetNoiseReduction3d::new(NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX))
             .validate_for_target(
-                &grafton_visca::TargetRegistration::new(
-                    grafton_visca::CameraId::CAMERA_1,
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -849,49 +958,79 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
             .expect("3D NR control must validate at level 8");
     }
 
-    let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+    let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
     for result in [
-        FocusZoneInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
-                .expect("target registration"),
+        grafton_visca::command::focus::ZoneInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                fr7.clone(),
+            )
+            .expect("target registration"),
         ),
-        UsbAudioInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
-                .expect("target registration"),
+        grafton_visca::command::streaming::UsbAudioInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                fr7.clone(),
+            )
+            .expect("target registration"),
         ),
-        PictureEffectInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::PictureEffectInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                fr7.clone(),
+            )
+            .expect("target registration"),
         ),
-        NoiseReduction2DModeInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::NoiseReduction2dModeInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                fr7.clone(),
+            )
+            .expect("target registration"),
         ),
-        NoiseReduction2DInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                fr7.clone(),
+            )
+            .expect("target registration"),
         ),
-        NoiseReduction3DInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
-                .expect("target registration"),
+        grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::CameraId::CAMERA_1,
+                fr7.clone(),
+            )
+            .expect("target registration"),
         ),
     ] {
         assert!(matches!(result, Err(Error::FeatureNotSupported { .. })));
     }
 
     for control in [
-        NoiseReduction2DModeCommand::new(NoiseReduction2DMode::Manual).validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+        grafton_visca::command::image::SetNoiseReduction2dMode::new(NoiseReduction2DMode::Manual)
+            .validate_for_target(
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                    fr7.clone(),
+                )
                 .expect("target registration"),
-        ),
-        NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX).validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+            ),
+        SetNoiseReduction2d::new(NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX))
+            .validate_for_target(
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                    fr7.clone(),
+                )
                 .expect("target registration"),
-        ),
-        NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX).validate_for_target(
-            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+            ),
+        SetNoiseReduction3d::new(NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX))
+            .validate_for_target(
+                &grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                    fr7.clone(),
+                )
                 .expect("target registration"),
-        ),
+            ),
     ] {
         assert!(matches!(control, Err(Error::FeatureNotSupported { .. })));
     }
@@ -899,24 +1038,23 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     // R14 directly documents the G3 inquiry rows, so this is a regression
     // guard against accidentally retaining the former inquiry denial.
     let g3_capabilities = g3.capabilities();
-    assert!(g3_capabilities.has_2d_nr());
-    assert!(g3_capabilities.has_3d_nr());
-    assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction2D));
-    assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction3D));
-    assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction2DControl));
-    assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction3DControl));
+    assert!(g3_capabilities.supports(TypedSupportSurface::NoiseReduction2D));
+    assert!(g3_capabilities.supports(TypedSupportSurface::NoiseReduction3D));
 }
 
 /// R7 v4.00 p.14: two zero padding bytes precede the variable-ND density code.
 #[test]
 fn fr7_variable_nd_direct_preserves_both_padding_bytes_and_exact_bound() {
     use grafton_visca::{
-        command::NdFilterDensity, request::builtin::NdFilterDirect, CameraId, Request,
+        request::Request,
+        types::{CameraId, NdFilterDensity},
     };
 
-    assert_eq!(NdFilterDirect::MAX_SIZE, 10);
+    assert_eq!(grafton_visca::command::nd_filter::SetDensity::MAX_SIZE, 10);
     for density in 0..=0x14 {
-        let request = NdFilterDirect::new(NdFilterDensity::new(density).expect("sourced density"));
+        let request = grafton_visca::command::nd_filter::SetDensity::new(
+            NdFilterDensity::new(density).expect("sourced density"),
+        );
         let mut frame = [0; 10];
         assert_eq!(
             request

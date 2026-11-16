@@ -7,25 +7,24 @@ use grafton_visca_test_support::profile_fixtures;
 use grafton_visca::{
     blocking::{Camera, Operation},
     capabilities::{
-        HasAutoFocusSensitivity, HasAutoWhiteBalanceSensitivity, HasBacklightCompensation,
-        HasBrightnessControl, HasColorTemperature, HasColorTemperatureInquiry, HasContrastControl,
-        HasExposure, HasExposureCompensation, HasExposureMode, HasFocus, HasFocusNearLimitInquiry,
-        HasFocusZone, HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip,
-        HasImageProcessing, HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync,
-        HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DMode, HasNoiseReduction3D, HasPanTilt,
-        HasPictureEffect, HasPower, HasPresets, HasPtzOpticsAntiFlicker,
-        HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed,
-        HasPtzOpticsSettingsSave, HasRgbGain, HasRgbTuning, HasSaturationControl,
-        HasSharpnessControl, HasSharpnessMode, HasSonyAutoSlowShutter, HasSonySpotlight, HasTally,
-        HasUsbAudio, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasAntiFlicker, HasAutoFocusSensitivity, HasAutoSlowShutter,
+        HasAutoWhiteBalanceSensitivity, HasBacklightCompensation, HasBrightness,
+        HasColorTemperature, HasColorTemperatureInquiry, HasContrast, HasExposure,
+        HasExposureCompensation, HasExposureMode, HasFocus, HasFocusNearLimit, HasFocusZone,
+        HasFocusZoneInquiry, HasGamma, HasHue, HasImage, HasImageFlip, HasIris, HasLuminance,
+        HasMotionSync, HasMulticastStreaming, HasNdFilter, HasNdiQuality, HasNoiseReduction2D,
+        HasNoiseReduction2DMode, HasNoiseReduction3D, HasPanTilt, HasPictureEffect, HasPower,
+        HasPresetRecallSpeed, HasPresets, HasRgbGain, HasRgbTuning, HasSaturation, HasSettingsSave,
+        HasSharpness, HasSharpnessMode, HasSpotlight, HasTally, HasUsbAudio, HasVersionInquiry,
+        HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
-    command::NdFilterDensity,
-    completion::{AppliedOnly, Targeted},
+    operation::{AppliedOnly, Targeted},
     profiles::{
-        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
+        CompileTimeProfile, GenericVisca, NearusBrc300, PtzOptics30x, PtzOpticsG2, PtzOpticsG3,
+        SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
     },
-    CompileTimeProfile, MotionSyncSpeed, Result,
+    types::{MotionSyncSpeed, NdFilterDensity},
+    Result,
 };
 
 fn plain(_: Result<()>) {}
@@ -33,29 +32,42 @@ fn plain(_: Result<()>) {}
 fn source_refinements<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile
+        + grafton_visca::capabilities::HasPower
+        + grafton_visca::capabilities::HasFocus
+        + grafton_visca::capabilities::HasPresets
+        + grafton_visca::capabilities::HasExposure
+        + grafton_visca::capabilities::HasWhiteBalance
+        + grafton_visca::capabilities::HasMenu
         + grafton_visca::capabilities::HasPowerStandby
         + grafton_visca::capabilities::HasFocusInfinity
         + grafton_visca::capabilities::HasPresetMemory
-        + grafton_visca::capabilities::HasShutterControl
-        + grafton_visca::capabilities::HasShutterDirect
-        + grafton_visca::capabilities::HasGainControl
+        + grafton_visca::capabilities::HasShutter
+        + grafton_visca::capabilities::HasDirectShutter
+        + grafton_visca::capabilities::HasGain
         + grafton_visca::capabilities::HasGainLimit
-        + grafton_visca::capabilities::HasStandardWhiteBalanceModes
         + grafton_visca::capabilities::HasMenuDisplay
         + grafton_visca::capabilities::HasMenuEnterReturn
-        + grafton_visca::capabilities::HasMenuStatusInquiry,
+        + grafton_visca::capabilities::HasMenuDisplayInquiry,
 {
-    plain(camera.power().off());
+    plain(camera.power().standby());
     targeted(camera.focus().infinity());
-    plain(camera.presets().set(grafton_visca::PresetNumber::MIN));
-    plain(camera.presets().reset(grafton_visca::PresetNumber::MIN));
+    plain(
+        camera
+            .presets()
+            .store(grafton_visca::types::PresetNumber::MIN),
+    );
+    plain(
+        camera
+            .presets()
+            .clear(grafton_visca::types::PresetNumber::MIN),
+    );
     plain(camera.exposure().shutter_reset());
     plain(camera.exposure().shutter_up());
     plain(camera.exposure().shutter_down());
     plain(
         camera
             .exposure()
-            .shutter_direct(grafton_visca::types::ShutterSpeed::new(0).expect("valid value")),
+            .set_shutter(grafton_visca::types::ShutterSpeed::new(0).expect("valid value")),
     );
     let _ = camera.exposure().shutter();
     plain(camera.exposure().gain_reset());
@@ -64,7 +76,7 @@ where
     plain(
         camera
             .exposure()
-            .gain_direct(grafton_visca::types::GainLevel::MIN),
+            .set_gain(grafton_visca::types::GainLevel::MIN),
     );
     let _ = camera.exposure().gain();
     plain(
@@ -73,13 +85,25 @@ where
             .set_gain_limit(grafton_visca::types::GainLimit::MIN),
     );
     let _ = camera.exposure().gain_limit();
-    plain(camera.white_balance().auto());
-    plain(camera.white_balance().indoor());
-    plain(camera.white_balance().outdoor());
-    plain(camera.menu().display(true));
-    plain(camera.menu().select());
-    plain(camera.menu().cancel());
-    let _ = camera.menu().status();
+    plain(
+        camera
+            .white_balance()
+            .set_mode(grafton_visca::types::WhiteBalanceMode::Auto),
+    );
+    plain(
+        camera
+            .white_balance()
+            .set_mode(grafton_visca::types::WhiteBalanceMode::Indoor),
+    );
+    plain(
+        camera
+            .white_balance()
+            .set_mode(grafton_visca::types::WhiteBalanceMode::Outdoor),
+    );
+    plain(camera.menu().set_visible(true));
+    plain(camera.menu().enter());
+    plain(camera.menu().back());
+    let _ = camera.menu().visible();
 }
 
 fn applied(_: Result<Operation<AppliedOnly>>) {}
@@ -95,8 +119,7 @@ where
         + HasFocus
         + HasExposure
         + HasWhiteBalance
-        + HasPresets
-        + HasMenuControl,
+        + HasPresets,
 {
     plain(camera.power().on());
 
@@ -109,41 +132,52 @@ where
     let _ = camera.motion();
 }
 
-fn exposure_mode_surface<P: CompileTimeProfile + HasExposureMode>(camera: &Camera<P>) {
+fn exposure_mode_surface<
+    P: CompileTimeProfile + grafton_visca::capabilities::HasExposure + HasExposureMode,
+>(
+    camera: &Camera<P>,
+) {
     plain(
         camera
             .exposure()
-            .set_mode(grafton_visca::ExposureMode::Auto),
+            .set_mode(grafton_visca::types::ExposureMode::Auto),
     );
     let _ = camera.exposure().mode();
 }
 
 /// These rows used to be included in `baseline` because
-/// `HasImageProcessing` was blanket-implemented from image metadata. Generic
+/// `HasImage` was blanket-implemented from image metadata. Generic
 /// VISCA's all-empty metadata deliberately does not imply the typed image
 /// noun, so the explicit base marker now owns this surface.
-fn base_image_surface<P: CompileTimeProfile + HasImageProcessing>(camera: &Camera<P>) {
+fn base_image_surface<P: CompileTimeProfile + HasImage>(camera: &Camera<P>) {
     let _ = camera.image();
 }
 
 fn backlight_surface<P>(camera: &Camera<P>)
 where
-    P: CompileTimeProfile + HasImageProcessing + HasBacklightCompensation,
+    P: CompileTimeProfile + grafton_visca::capabilities::HasExposure + HasBacklightCompensation,
 {
-    let _ = camera.image().backlight();
-    plain(camera.image().set_backlight(true));
+    let _ = camera.exposure().backlight_compensation();
+    plain(camera.exposure().set_backlight_compensation(true));
 }
 
 fn all_base_inquiries<
     P: CompileTimeProfile
-        + grafton_visca::capabilities::HasShutterControl
-        + grafton_visca::capabilities::HasGainControl
+        + grafton_visca::capabilities::HasPower
+        + grafton_visca::capabilities::HasZoom
+        + grafton_visca::capabilities::HasFocus
+        + grafton_visca::capabilities::HasPanTilt
+        + grafton_visca::capabilities::HasExposure
+        + grafton_visca::capabilities::HasWhiteBalance
+        + grafton_visca::capabilities::HasMenu
+        + grafton_visca::capabilities::HasShutter
+        + grafton_visca::capabilities::HasGain
         + grafton_visca::capabilities::HasGainLimit
-        + grafton_visca::capabilities::HasMenuStatusInquiry,
+        + grafton_visca::capabilities::HasMenuDisplayInquiry,
 >(
     camera: &Camera<P>,
 ) {
-    let _ = camera.power().state();
+    let _ = camera.power().status();
     let _ = camera.zoom().position();
     let _ = camera.pan_tilt().position();
     let _ = camera.focus().position();
@@ -152,12 +186,10 @@ fn all_base_inquiries<
     let _ = camera.exposure().gain();
     let _ = camera.exposure().gain_limit();
     let _ = camera.white_balance().mode();
-    let _ = camera.menu().status();
+    let _ = camera.menu().visible();
 }
 
-fn noise_2d_gate<P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction2DMode>(
-    camera: &Camera<P>,
-) {
+fn noise_2d_gate<P: CompileTimeProfile + HasImage + HasNoiseReduction2DMode>(camera: &Camera<P>) {
     let _ = camera.image().noise_reduction_2d_mode();
 }
 
@@ -168,22 +200,25 @@ fn combined_flip_inquiry(camera: &Camera<PtzOpticsG2>) {
 fn all_optional_inquiries<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile
+        + grafton_visca::capabilities::HasFocus
+        + grafton_visca::capabilities::HasExposure
+        + grafton_visca::capabilities::HasWhiteBalance
         + HasAutoFocusSensitivity
         + HasAutoWhiteBalanceSensitivity
         + HasBacklightCompensation
-        + HasBrightnessControl
+        + HasBrightness
         + HasColorTemperature
         + HasColorTemperatureInquiry
-        + HasContrastControl
+        + HasContrast
         + HasExposureCompensation
-        + HasFocusNearLimitInquiry
+        + HasFocusNearLimit
         + HasFocusZoneInquiry
-        + HasGammaControl
-        + HasHueControl
+        + HasGamma
+        + HasHue
         + HasImageFlip
-        + HasImageProcessing
-        + HasIrisControl
-        + HasLuminanceControl
+        + HasImage
+        + HasIris
+        + HasLuminance
         + HasMotionSync
         + HasNdFilter
         + HasNoiseReduction2D
@@ -192,8 +227,8 @@ where
         + HasPictureEffect
         + HasRgbGain
         + HasRgbTuning
-        + HasSaturationControl
-        + HasSharpnessControl
+        + HasSaturation
+        + HasSharpness
         + HasSharpnessMode
         + HasTally
         + HasWideDynamicRange,
@@ -203,7 +238,7 @@ where
     let _ = camera.focus().sensitivity();
     let _ = camera.exposure().compensation();
     let _ = camera.exposure().compensation_enabled();
-    let _ = camera.exposure().compensation_position();
+    let _ = camera.exposure().compensation();
     let _ = camera.exposure().iris();
     let _ = camera.exposure().brightness();
     let _ = camera.image().saturation();
@@ -212,8 +247,8 @@ where
     let _ = camera.image().contrast();
     let _ = camera.image().gamma();
     let _ = camera.image().sharpness_mode();
-    let _ = camera.image().sharpness_level();
-    let _ = camera.image().backlight();
+    let _ = camera.image().sharpness();
+    let _ = camera.exposure().backlight_compensation();
     let _ = camera.image().noise_reduction_2d();
     let _ = camera.image().noise_reduction_2d_mode();
     let _ = camera.image().noise_reduction_3d();
@@ -225,43 +260,57 @@ where
     let _ = camera.white_balance().blue_gain();
     let _ = camera.white_balance().red_tuning();
     let _ = camera.white_balance().blue_tuning();
-    let _ = camera.tally().red_status();
-    let _ = camera.tally().green_status();
-    let _ = camera.nd_filter().position();
+    let _ = camera.tally().red();
+    let _ = camera.tally().green();
+    let _ = camera.nd_filter().density();
     let _ = camera.nd_filter().preset();
-    let _ = camera.motion_sync().mode();
+    let _ = camera.motion_sync().enabled();
 }
 
-fn sony_optional(camera: &Camera<SonyFR7>) {
-    plain(camera.tally().red_on());
-    plain(camera.tally().green_off());
+fn sony_optional(camera: &Camera<SonyFr7>) {
+    plain(camera.tally().set_red(true));
+    plain(camera.tally().set_green(false));
     targeted(
         camera
             .nd_filter()
-            .set_value(NdFilterDensity::new(1).expect("ND value")),
+            .set_density(NdFilterDensity::new(1).expect("ND value")),
     );
-    targeted(camera.nd_filter().step_up());
+    targeted(camera.nd_filter().density_up());
     applied(camera.zoom().tele());
 }
 
-fn awb_gate<P: CompileTimeProfile + HasAutoWhiteBalanceSensitivity>(camera: &Camera<P>) {
+fn awb_gate<
+    P: CompileTimeProfile
+        + grafton_visca::capabilities::HasWhiteBalance
+        + HasAutoWhiteBalanceSensitivity,
+>(
+    camera: &Camera<P>,
+) {
     plain(camera.white_balance().sensitivity().map(|_| ()));
 }
 
 fn motion_gate<P: CompileTimeProfile + HasMotionSync>(camera: &Camera<P>) {
-    plain(camera.motion_sync().set_mode(true));
+    plain(camera.motion_sync().set_enabled(true));
     plain(camera.motion_sync().set_speed(MotionSyncSpeed::SLOW));
 }
 
-fn focus_zone_command_gate<P: CompileTimeProfile + HasFocusZone>(camera: &Camera<P>) {
+fn focus_zone_command_gate<
+    P: CompileTimeProfile + grafton_visca::capabilities::HasFocus + HasFocusZone,
+>(
+    camera: &Camera<P>,
+) {
     plain(
         camera
             .focus()
-            .set_zone(grafton_visca::command::FocusZone::Center),
+            .set_zone(grafton_visca::types::FocusZone::Center),
     );
 }
 
-fn focus_zone_inquiry_gate<P: CompileTimeProfile + HasFocusZoneInquiry>(camera: &Camera<P>) {
+fn focus_zone_inquiry_gate<
+    P: CompileTimeProfile + grafton_visca::capabilities::HasFocus + HasFocusZoneInquiry,
+>(
+    camera: &Camera<P>,
+) {
     let _ = camera.focus().zone();
 }
 
@@ -273,53 +322,57 @@ fn version_inquiry_gate<P: CompileTimeProfile + HasVersionInquiry>(camera: &Came
 }
 
 fn usb_audio_gate<P: CompileTimeProfile + HasUsbAudio>(camera: &Camera<P>) {
-    let _ = camera.advanced().usb_audio_enabled();
-    plain(camera.advanced().usb_audio_on());
-    plain(camera.advanced().usb_audio_off());
+    let _ = camera.streaming().usb_audio();
+    plain(camera.streaming().set_usb_audio(true));
+    plain(camera.streaming().set_usb_audio(false));
 }
 
 fn ptzoptics_vendor_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile
-        + HasPtzOpticsAntiFlicker
-        + HasPtzOpticsSettingsSave
-        + HasPtzOpticsPresetRecallSpeed
-        + HasPtzOpticsMulticastStreaming
-        + HasPtzOpticsNdiQuality,
+        + grafton_visca::capabilities::HasPresets
+        + grafton_visca::capabilities::HasExposure
+        + HasAntiFlicker
+        + HasSettingsSave
+        + HasPresetRecallSpeed
+        + HasMulticastStreaming
+        + HasNdiQuality,
 {
     plain(
         camera
             .exposure()
-            .set_anti_flicker(grafton_visca::command::AntiFlickerMode::Hz50),
+            .set_anti_flicker(grafton_visca::types::AntiFlickerMode::Hz50),
     );
-    let _ = camera.exposure().flicker_mode();
+    let _ = camera.exposure().anti_flicker();
     plain(camera.system().save_settings());
-    plain(camera.presets().set_recall_speed(
-        grafton_visca::command::PresetSpeed::new(12).expect("valid recall speed"),
-    ));
-    plain(camera.advanced().multicast_on());
-    plain(camera.advanced().multicast_off());
+    plain(
+        camera.presets().set_recall_speed(
+            grafton_visca::types::PresetSpeed::new(12).expect("valid recall speed"),
+        ),
+    );
+    plain(camera.streaming().set_multicast(true));
+    plain(camera.streaming().set_multicast(false));
     plain(
         camera
-            .advanced()
+            .streaming()
             .set_ndi_quality(grafton_visca::types::NdiQuality::High),
     );
 }
 
 fn sony_spotlight_command_gates<P>(camera: &Camera<P>)
 where
-    P: CompileTimeProfile + HasSonySpotlight,
+    P: CompileTimeProfile + grafton_visca::capabilities::HasExposure + HasSpotlight,
 {
-    plain(camera.exposure().spotlight_on());
-    plain(camera.exposure().spotlight_off());
+    plain(camera.exposure().set_spotlight(true));
+    plain(camera.exposure().set_spotlight(false));
 }
 
 fn sony_auto_slow_shutter_command_gates<P>(camera: &Camera<P>)
 where
-    P: CompileTimeProfile + HasSonyAutoSlowShutter,
+    P: CompileTimeProfile + grafton_visca::capabilities::HasExposure + HasAutoSlowShutter,
 {
-    plain(camera.exposure().auto_slow_shutter_on());
-    plain(camera.exposure().auto_slow_shutter_off());
+    plain(camera.exposure().set_auto_slow_shutter(true));
+    plain(camera.exposure().set_auto_slow_shutter(false));
 }
 
 fn non_default(camera: &Camera<profile_fixtures::NonDefaultCompileTimeProfile>) {
@@ -340,25 +393,25 @@ fn static_camera_surface_is_profile_typed_and_non_default() {
         motion_gate::<profile_fixtures::MotionSyncTypedSupport>;
     let _: fn(&Camera<PtzOpticsG2>) = exposure_mode_surface::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG2>) = base_image_surface::<PtzOpticsG2>;
-    let _: fn(&Camera<SonyBRC300>) = backlight_surface::<SonyBRC300>;
+    let _: fn(&Camera<SonyBrc300>) = backlight_surface::<SonyBrc300>;
     let _: fn(&Camera<PtzOpticsG2>) = all_base_inquiries::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG2>) = usb_audio_gate::<PtzOpticsG2>;
-    let _: fn(&Camera<PtzOptics30X>) = usb_audio_gate::<PtzOptics30X>;
+    let _: fn(&Camera<PtzOptics30x>) = usb_audio_gate::<PtzOptics30x>;
     let _: fn(&Camera<PtzOpticsG2>) = ptzoptics_vendor_command_gates::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG3>) = ptzoptics_vendor_command_gates::<PtzOpticsG3>;
-    let _: fn(&Camera<PtzOptics30X>) = ptzoptics_vendor_command_gates::<PtzOptics30X>;
-    let _: fn(&Camera<SonyFR7>) = sony_spotlight_command_gates::<SonyFR7>;
-    let _: fn(&Camera<SonyEVIH100>) = sony_auto_slow_shutter_command_gates::<SonyEVIH100>;
-    let _: fn(&Camera<SonyBRC300>) = sony_auto_slow_shutter_command_gates::<SonyBRC300>;
+    let _: fn(&Camera<PtzOptics30x>) = ptzoptics_vendor_command_gates::<PtzOptics30x>;
+    let _: fn(&Camera<SonyFr7>) = sony_spotlight_command_gates::<SonyFr7>;
+    let _: fn(&Camera<SonyEviH100>) = sony_auto_slow_shutter_command_gates::<SonyEviH100>;
+    let _: fn(&Camera<SonyBrc300>) = sony_auto_slow_shutter_command_gates::<SonyBrc300>;
     let _: fn(&Camera<PtzOpticsG2>) = focus_zone_inquiry_gate::<PtzOpticsG2>;
-    let _: fn(&Camera<PtzOptics30X>) = focus_zone_inquiry_gate::<PtzOptics30X>;
+    let _: fn(&Camera<PtzOptics30x>) = focus_zone_inquiry_gate::<PtzOptics30x>;
     let _: fn(&Camera<PtzOpticsG3>) = focus_zone_command_gate::<PtzOpticsG3>;
-    let _: fn(&Camera<SonyFR7>) = version_inquiry_gate::<SonyFR7>;
-    let _: fn(&Camera<SonyBRCH900>) = version_inquiry_gate::<SonyBRCH900>;
-    let _: fn(&Camera<SonyEVIH100>) = version_inquiry_gate::<SonyEVIH100>;
-    let _: fn(&Camera<SonyBRC300>) = version_inquiry_gate::<SonyBRC300>;
-    let _: fn(&Camera<NearusBRC300>) = version_inquiry_gate::<NearusBRC300>;
+    let _: fn(&Camera<SonyFr7>) = version_inquiry_gate::<SonyFr7>;
+    let _: fn(&Camera<SonyBrcH900>) = version_inquiry_gate::<SonyBrcH900>;
+    let _: fn(&Camera<SonyEviH100>) = version_inquiry_gate::<SonyEviH100>;
+    let _: fn(&Camera<SonyBrc300>) = version_inquiry_gate::<SonyBrc300>;
+    let _: fn(&Camera<NearusBrc300>) = version_inquiry_gate::<NearusBrc300>;
     let _: fn(&Camera<GenericVisca>) = version_inquiry_gate::<GenericVisca>;
-    let _: fn(&Camera<SonyFR7>) = sony_optional;
+    let _: fn(&Camera<SonyFr7>) = sony_optional;
     let _: fn(&Camera<profile_fixtures::NonDefaultCompileTimeProfile>) = non_default;
 }

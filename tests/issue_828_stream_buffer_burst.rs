@@ -12,9 +12,9 @@
 use grafton_visca_test_support::fake_camera;
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    profile::ProfileSpec,
-    profiles::PtzOpticsG2,
+    blocking::Session,
+    config::SessionConfig,
+    profiles::{ProfileSpec, PtzOpticsG2},
     transport::{AddressingMode, SendSemantics, TransportConfig},
 };
 
@@ -43,9 +43,9 @@ fn burst_camera(recv_buffer_size: usize) -> FakeCamera {
 #[test]
 fn a_split_reply_followed_by_a_full_read_keeps_the_stream_running() {
     let mut config = TransportConfig::for_tcp();
-    config.buffer_config.recv_buffer_size = 64;
-    config.buffer_config.max_buffer_size = 64;
-    let fake = burst_camera(config.buffer_config.recv_buffer_size);
+    config = config.with_buffer_config(config.buffer_config().with_recv_buffer_size(64));
+    config = config.with_buffer_config(config.buffer_config().with_max_buffer_size(64));
+    let fake = burst_camera(config.buffer_config().recv_buffer_size());
     let wire = fake
         .blocking_wire()
         .with_config(config)
@@ -54,10 +54,12 @@ fn a_split_reply_followed_by_a_full_read_keeps_the_stream_running() {
 
     let session = Session::open(
         wire,
-        SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile")),
+        &SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile")),
     )
     .expect("owner session");
-    let camera = session.camera::<PtzOpticsG2>().expect("camera view");
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("camera view");
 
     camera
         .power()

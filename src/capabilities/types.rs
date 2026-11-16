@@ -2,10 +2,7 @@
 
 use std::{borrow::Cow, ops::RangeInclusive};
 
-use crate::capabilities::ValidationError;
-
-// Re-export types that are used by multiple capability traits
-pub use crate::capabilities::exposure::ShutterSpeedEntry;
+use crate::Error;
 
 /// Inclusive numeric bounds for profile capability metadata.
 ///
@@ -17,6 +14,7 @@ pub use crate::capabilities::exposure::ShutterSpeedEntry;
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct CapabilityRange<T> {
     min: T,
     max: T,
@@ -84,14 +82,15 @@ impl<T: Copy> CapabilityRange<T> {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct CapabilityDomain<T: Clone + 'static> {
     min: T,
     max: T,
     gaps: Cow<'static, [T]>,
 }
 
-/// Why a value inside a [`CapabilityDomain`]'s bounds is refused. Both
-/// validation vocabularies report a gap with this text.
+/// Why a value inside a [`CapabilityDomain`]'s bounds is refused. Request preparation and public validation
+/// report a gap with this text.
 pub(crate) const DOMAIN_GAP: &str = "the profile's source table does not list this position";
 
 /// Where one value falls in a [`CapabilityDomain`]: the single admission rule
@@ -212,22 +211,20 @@ macro_rules! impl_capability_domain {
             /// This is the same admission rule request preparation applies.
             ///
             /// # Errors
-            /// [`ValidationError::OutOfRange`] naming `parameter` when `value`
-            /// is outside the bounds, and [`ValidationError::InvalidValue`]
+            /// [`Error::ParameterOutOfRange`] naming `parameter` when `value`
+            /// is outside the bounds, and [`Error::InvalidParameter`]
             /// when it is a gap.
-            pub fn validate(
-                &self,
-                parameter: &'static str,
-                value: $ty,
-            ) -> Result<$ty, ValidationError> {
+            pub fn validate(&self, parameter: &'static str, value: $ty) -> crate::Result<$ty> {
                 match self.admission(value) {
                     DomainAdmission::Admitted => Ok(value),
                     DomainAdmission::OutOfBounds => {
                         CapabilityRange::<$ty>::new(self.min, self.max).validate(parameter, value)
                     }
-                    DomainAdmission::Gap => {
-                        Err(ValidationError::invalid_value(parameter, DOMAIN_GAP))
-                    }
+                    DomainAdmission::Gap => Err(Error::invalid_parameter(
+                        parameter,
+                        value.to_string(),
+                        DOMAIN_GAP,
+                    )),
                 }
             }
         }
@@ -260,43 +257,52 @@ macro_rules! impl_capability_domain {
                 })
             }
         }
-
-        impl SupportedRange<$ty> for Option<CapabilityDomain<$ty>> {
-            fn validate_supported(
-                self,
-                parameter: &'static str,
-                value: $ty,
-            ) -> Result<$ty, ValidationError> {
-                match self {
-                    Some(domain) => domain.validate(parameter, value),
-                    None => Err(ValidationError::NotSupported(parameter)),
-                }
-            }
-        }
     };
 }
 
 impl_capability_domain!(u8);
 impl_capability_domain!(u16);
 
-/// Crate-private check of a value against a profile fact that may be absent.
-///
-/// Implemented for `Option<CapabilityRange<T>>` and
-/// `Option<CapabilityDomain<T>>`, so every `*Ext` helper over an optional fact
-/// shares one rule: `None` is unsupported, `Some` is checked with
-/// [`CapabilityRange::validate`] or [`CapabilityDomain::validate`].
-pub(crate) trait SupportedRange<T> {
-    /// Returns `value` when the range exists and contains it.
-    ///
-    /// # Errors
-    /// [`ValidationError::NotSupported`] when there is no range, and
-    /// [`ValidationError::OutOfRange`] when `value` lies outside it.
-    fn validate_supported(self, parameter: &'static str, value: T) -> Result<T, ValidationError>;
-}
-
 macro_rules! impl_capability_range {
     ($ty:ty) => {
         impl CapabilityRange<$ty> {
+            /// Normalizes a supported value within this profile's bounds.
+            ///
+            /// A single-value domain normalizes to zero. Values outside the
+            /// declared bounds are rejected before conversion.
+            #[allow(clippy::cast_precision_loss)]
+            pub fn normalize(self, value: $ty) -> crate::Result<crate::types::UnitInterval> {
+                self.validate("capability value", value)?;
+                if value == self.min {
+                    return Ok(crate::types::UnitInterval::MIN);
+                }
+                if value == self.max {
+                    return Ok(crate::types::UnitInterval::MAX);
+                }
+                let offset = i64::from(value) - i64::from(self.min);
+                let span = i64::from(self.max) - i64::from(self.min);
+                crate::types::UnitInterval::new(offset as f32 / span as f32)
+            }
+
+            /// Maps a normalized value into this profile's inclusive domain.
+            /// Rounds to the nearest integer, with halves away from zero.
+            #[must_use]
+            #[allow(
+                clippy::cast_precision_loss,
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss
+            )]
+            pub fn denormalize(self, value: crate::types::UnitInterval) -> $ty {
+                if value == crate::types::UnitInterval::MIN {
+                    return self.min;
+                }
+                if value == crate::types::UnitInterval::MAX {
+                    return self.max;
+                }
+                let span = i64::from(self.max) - i64::from(self.min);
+                (self.min as f32 + value.value() * span as f32).round() as $ty
+            }
+
             /// Creates an inclusive capability range.
             ///
             /// # Panics
@@ -315,39 +321,21 @@ macro_rules! impl_capability_range {
 
             /// Checks `value` against the closed bounds.
             ///
-            /// This is the single range rule behind the `*Ext` validation
-            /// helpers. It rejects out-of-range values and never clamps.
+            /// It rejects out-of-range values and never clamps.
             ///
             /// # Errors
-            /// [`ValidationError::OutOfRange`] naming `parameter` when `value`
+            /// [`Error::ParameterOutOfRange`] naming `parameter` when `value`
             /// is outside the bounds.
-            pub fn validate(
-                self,
-                parameter: &'static str,
-                value: $ty,
-            ) -> Result<$ty, ValidationError> {
+            pub fn validate(self, parameter: &'static str, value: $ty) -> crate::Result<$ty> {
                 if self.contains(value) {
                     Ok(value)
                 } else {
-                    Err(ValidationError::out_of_range(
+                    Err(Error::parameter_out_of_range(
                         parameter,
-                        f64::from(value),
-                        f64::from(self.min),
-                        f64::from(self.max),
+                        i32::from(value),
+                        i32::from(self.min),
+                        i32::from(self.max),
                     ))
-                }
-            }
-        }
-
-        impl SupportedRange<$ty> for Option<CapabilityRange<$ty>> {
-            fn validate_supported(
-                self,
-                parameter: &'static str,
-                value: $ty,
-            ) -> Result<$ty, ValidationError> {
-                match self {
-                    Some(range) => range.validate(parameter, value),
-                    None => Err(ValidationError::NotSupported(parameter)),
                 }
             }
         }
@@ -368,6 +356,8 @@ impl_capability_range!(i32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum CoordinateSystem {
     /// Signed coordinates with (0,0) as the center position.
     /// Used by most modern cameras.
@@ -433,40 +423,28 @@ mod tests {
 
     #[test]
     fn validate_accepts_bounds_and_rejects_outside_without_clamping() {
-        let range = CapabilityRange::<u8>::new(1_u8, 3);
-        assert_eq!(range.validate("speed", 1), Ok(1));
-        assert_eq!(range.validate("speed", 3), Ok(3));
-        assert_eq!(
-            range.validate("speed", 0),
-            Err(ValidationError::out_of_range("speed", 0.0, 1.0, 3.0))
-        );
-        assert_eq!(
-            range.validate("speed", 4),
-            Err(ValidationError::out_of_range("speed", 4.0, 1.0, 3.0))
-        );
-        let signed = CapabilityRange::<i16>::new(-20_i16, 20);
-        assert_eq!(signed.validate("pos", -20), Ok(-20));
-        assert_eq!(
+        let range = CapabilityRange::<u8>::new(1, 3);
+        assert_eq!(range.validate("speed", 1).ok(), Some(1));
+        assert_eq!(range.validate("speed", 3).ok(), Some(3));
+        for value in [0, 4] {
+            assert!(
+                matches!(range.validate("speed", value), Err(Error::ParameterOutOfRange { parameter: "speed", value: actual, min: 1, max: 3, .. }) if actual == i32::from(value))
+            );
+        }
+        let signed = CapabilityRange::<i16>::new(-20, 20);
+        assert_eq!(signed.validate("pos", -20).ok(), Some(-20));
+        assert!(matches!(
             signed.validate("pos", -21),
-            Err(ValidationError::out_of_range("pos", -21.0, -20.0, 20.0))
-        );
-        let wide = CapabilityRange::<i32>::new(-5_i32, i32::MAX);
-        assert_eq!(wide.validate("w", i32::MAX), Ok(i32::MAX));
-    }
-
-    #[test]
-    fn validate_supported_distinguishes_absent_from_out_of_range() {
-        let none: Option<CapabilityRange<u16>> = None;
-        assert_eq!(
-            none.validate_supported("hue", 1),
-            Err(ValidationError::NotSupported("hue"))
-        );
-        let some = Some(CapabilityRange::<u16>::new(0_u16, 14));
-        assert_eq!(some.validate_supported("hue", 14), Ok(14));
-        assert_eq!(
-            some.validate_supported("hue", 15),
-            Err(ValidationError::out_of_range("hue", 15.0, 0.0, 14.0))
-        );
+            Err(Error::ParameterOutOfRange {
+                parameter: "pos",
+                value: -21,
+                min: -20,
+                max: 20,
+                ..
+            })
+        ));
+        let wide = CapabilityRange::<i32>::new(-5, i32::MAX);
+        assert_eq!(wide.validate("w", i32::MAX).ok(), Some(i32::MAX));
     }
 
     #[test]
@@ -476,24 +454,26 @@ mod tests {
         assert_eq!(domain.bounds(), CapabilityRange::<u8>::new(0x00, 0x11));
         for admitted in [0x00, 0x05, 0x11] {
             assert!(domain.contains(admitted));
-            assert_eq!(domain.validate("iris", admitted), Ok(admitted));
+            assert_eq!(domain.validate("iris", admitted).ok(), Some(admitted));
         }
         for gap in 0x01..=0x04 {
             assert_eq!(domain.admission(gap), DomainAdmission::Gap);
             assert!(matches!(
                 domain.validate("iris", gap),
-                Err(ValidationError::InvalidValue { .. })
+                Err(Error::InvalidParameter { .. })
             ));
         }
         assert_eq!(domain.admission(0x12), DomainAdmission::OutOfBounds);
-        assert_eq!(
+        assert!(matches!(
             domain.validate("iris", 0x12),
-            Err(ValidationError::out_of_range("iris", 18.0, 0.0, 17.0))
-        );
-        assert_eq!(
-            None::<CapabilityDomain<u8>>.validate_supported("iris", 0),
-            Err(ValidationError::NotSupported("iris"))
-        );
+            Err(Error::ParameterOutOfRange {
+                parameter: "iris",
+                value: 18,
+                min: 0,
+                max: 17,
+                ..
+            })
+        ));
     }
 
     #[test]

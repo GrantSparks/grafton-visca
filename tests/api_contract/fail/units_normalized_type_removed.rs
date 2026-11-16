@@ -3,4 +3,6 @@ fn main() {
 }
 
 //~ E0433
+//~ E0603
 //~ "cannot find `Normalized` in `units`"
+//~ "module `units` is private"

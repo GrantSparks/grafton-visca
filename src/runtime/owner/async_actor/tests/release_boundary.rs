@@ -725,9 +725,9 @@ async fn raw_stream_prefix_fault_tail_keeps_boundary_input_precedence() {
     }
     runtime.advance(Duration::from_secs(1));
     reads
-        .send_async(ScriptedRawRead::Fault(Error::Io(Arc::new(
-            std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
-        ))))
+        .send_async(ScriptedRawRead::Fault(Error::Io {
+            source: Arc::new(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+        }))
         .await
         .unwrap();
     reads

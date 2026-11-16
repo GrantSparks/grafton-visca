@@ -16,8 +16,8 @@
 #   all-features workspace.
 # - `doc`: `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` on every leg's
 #   documented crate (see `doc_args`) and the all-features workspace.
-# - `rejections`: removed and facade-less feature selections must fail to
-#   compile, for the right reason.
+# - `rejections`: removed feature selections must fail to compile for the
+#   right reason.
 # - `list-json`: the legs as `[{"name", "command", "doc", "doc_command"}]`
 #   (`doc` is false for a leg with no doc build); CI builds
 #   its per-leg test/clippy/doc matrix from it, so CI and local runs share the
@@ -73,7 +73,6 @@ readonly FEATURE_LEGS=(
     "no-default all targets|--no-default-features --all-targets"
     "default blocking|--workspace --all-targets"
     "blocking-only|--no-default-features --features blocking --all-targets"
-    "blocking + dyn-api|--no-default-features --features blocking,dyn-api --all-targets"
     "default + serde|--features serde --all-targets"
     "blocking + test-utils|--features blocking,test-utils --all-targets"
     "runtime-neutral async|--no-default-features --features async --all-targets"
@@ -86,9 +85,7 @@ readonly FEATURE_LEGS=(
     "blocking + Tokio|--no-default-features --features blocking,runtime-tokio --all-targets"
     "blocking + smol|--no-default-features --features blocking,runtime-smol --all-targets"
     "blocking + Tokio + smol runtimes|--no-default-features --features blocking,runtime-tokio,runtime-smol --all-targets"
-    "Tokio + dyn-api|--no-default-features --features runtime-tokio,dyn-api --all-targets"
-    "smol + dyn-api|--no-default-features --features runtime-smol,dyn-api --all-targets"
-    "blocking + async + dyn-api|--no-default-features --features blocking,async,dyn-api --all-targets"
+    "blocking + runtime-neutral async|--no-default-features --features blocking,async --all-targets"
     "blocking serial transport|--no-default-features --features transport-serial --all-targets"
     "Tokio serial transport|--no-default-features --features runtime-tokio,transport-serial-tokio --all-targets"
     "smol + Tokio serial API contract|--no-default-features --features runtime-smol,transport-serial-tokio --test api_stability_test"
@@ -314,39 +311,17 @@ expect_unknown_feature() {
     printf '%b✓ removed feature %s is rejected by Cargo%b\n\n' "$GREEN" "$feature" "$NC"
 }
 
-# `dyn-api` projects the enabled facades' camera views. On its own it must be
-# rejected with its explanation, never compile to an empty feature (#828).
-expect_facade_required() {
-    local feature="$1"
-    local output_file
-    output_file="${TMPDIR:-/tmp}/grafton-facade-required-${feature//[^[:alnum:]]/_}.log"
-
-    printf '%bChecking facade-less feature rejection: %s%b\n' "$YELLOW" "$feature" "$NC"
-    if cargo_stable check --no-default-features --features "$feature" >"$output_file" 2>&1; then
-        cat "$output_file"
-        printf '%b✗ %s without a facade unexpectedly compiled%b\n' "$RED" "$feature" "$NC"
-        return 1
-    fi
-    if ! grep -Fq "feature \`${feature}\` projects a session facade's camera views" "$output_file"; then
-        cat "$output_file"
-        printf '%b✗ %s without a facade failed for the wrong reason%b\n' "$RED" "$feature" "$NC"
-        return 1
-    fi
-    printf '%b✓ %s without a facade is rejected with its explanation%b\n\n' "$GREEN" "$feature" "$NC"
-}
-
 # Removed feature names must remain unknown rather than silently selecting a
-# second implementation, and `dyn-api` alone must be rejected rather than
-# compile to an empty feature. These live-compiler checks run in `rejections`
-# mode (CI runs it as its own step) and in the full `test` run; the manifest
-# side of the removed names is also pinned by
-# `ecosystem_feature_inventory_matches_cargo_manifest` in
+# second implementation. Runtime profiles use each facade's normal concrete
+# camera type and require no extra feature. These live-compiler checks run in
+# `rejections` mode and in the full `test` run; the manifest inventory is also
+# pinned by `ecosystem_feature_inventory_matches_cargo_manifest` in
 # `tests/issue_548_supported_surface_inventory.rs`.
 run_rejections() {
     expect_unknown_feature "mode-async" &&
         expect_unknown_feature "async-core" &&
         expect_unknown_feature "mode-blocking" &&
-        expect_facade_required "dyn-api"
+        expect_unknown_feature "dyn-api"
 }
 
 if [[ "$MODE" == rejections ]]; then
@@ -468,7 +443,7 @@ test)
     echo "=========================================="
     echo "Starting canonical 2.0 feature tests"
     echo "=========================================="
-    add_job "removed and facade-less feature rejections" run_rejections
+    add_job "removed feature rejections" run_rejections
     for leg in "${FEATURE_LEGS[@]}"; do
         add_job "${leg%%|*} (test)" test_leg "${leg%%|*}"
     done

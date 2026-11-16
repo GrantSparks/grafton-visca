@@ -16,7 +16,7 @@ use smallvec::SmallVec;
 
 use crate::{
     camera::TransportKind as CameraTransportKind,
-    profile::{ProfileEnvelope, ProfileSpec},
+    profiles::{ProfileEnvelope, ProfileSpec},
     protocol::{
         framer::{Framer, FramingError, RawFramer, SonyFramer},
         response::{decode_basic_for_source, BasicKind},
@@ -111,16 +111,16 @@ impl TargetRegistry {
         let mut registered = PerTarget::default();
         let mut count = 0_u8;
         if targets.is_empty() {
-            return Err(Error::InvalidRequest(
-                "owner target registry must contain at least one camera".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "owner target registry must contain at least one camera".into(),
+            });
         }
         for target in targets {
             let slot = &mut registered[*target];
             if *slot {
-                return Err(Error::InvalidRequest(
-                    "owner target registry contains a duplicate camera".into(),
-                ));
+                return Err(Error::InvalidRequest {
+                    reason: "owner target registry contains a duplicate camera".into(),
+                });
             }
             *slot = true;
             count = count.saturating_add(1);
@@ -217,14 +217,14 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     strict_unconfirmed_poison: bool,
 ) -> Result<OwnerPolicy, Error> {
     if profiles.is_empty() {
-        return Err(Error::InvalidRequest(
-            "owner target registry must contain at least one camera".into(),
-        ));
+        return Err(Error::InvalidRequest {
+            reason: "owner target registry must contain at least one camera".into(),
+        });
     }
     if profiles.len() > 7 {
-        return Err(Error::InvalidRequest(
-            "owner target registry cannot contain more than seven cameras".into(),
-        ));
+        return Err(Error::InvalidRequest {
+            reason: "owner target registry cannot contain more than seven cameras".into(),
+        });
     }
 
     let validated_tuning = tuning;
@@ -248,34 +248,30 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
 
     for (target, profile) in profiles {
         if seen[*target] {
-            return Err(Error::InvalidRequest(
-                "owner target registry contains a duplicate camera".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "owner target registry contains a duplicate camera".into(),
+            });
         }
         seen[*target] = true;
         if profile.envelope() != first_profile.envelope() {
-            return Err(Error::InvalidRequest(
-                "registered session profiles require one wire envelope".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "registered session profiles require one wire envelope".into(),
+            });
         }
 
         let timing = profile.timing();
-        baseline.command_spacing = baseline
-            .command_spacing
-            .max(timing.minimum_command_spacing());
-        baseline.inquiry_spacing = baseline
-            .inquiry_spacing
-            .max(timing.minimum_inquiry_spacing());
+        baseline.command_spacing = baseline.command_spacing.max(timing.command_spacing());
+        baseline.inquiry_spacing = baseline.inquiry_spacing.max(timing.inquiry_spacing());
         baseline.command_sockets[*target] = Some(profile.maximum_command_sockets());
         command_spacing = command_spacing.max(
             tuning
                 .command_spacing_override()
-                .unwrap_or_else(|| timing.minimum_command_spacing()),
+                .unwrap_or_else(|| timing.command_spacing()),
         );
         inquiry_spacing = inquiry_spacing.max(
             tuning
                 .inquiry_spacing_override()
-                .unwrap_or_else(|| timing.minimum_inquiry_spacing()),
+                .unwrap_or_else(|| timing.inquiry_spacing()),
         );
         inquiry_cooldown = inquiry_cooldown.max(timing.busy_timeout());
         raw_inquiry_release_hold = raw_inquiry_release_hold.max(timing.raw_inquiry_reply_skew());
@@ -1015,9 +1011,9 @@ pub(crate) fn validate_profile_transport(
             transport: kind,
         });
     }
-    Err(Error::InvalidRequest(
-        format!("profile does not support {kind} transport").into(),
-    ))
+    Err(Error::InvalidRequest {
+        reason: format!("profile does not support {kind} transport").into(),
+    })
 }
 
 /// Validate the immutable topology of a profile registry against one
@@ -1037,16 +1033,22 @@ pub(crate) fn validate_profile_registry_topology(
         return Ok(());
     }
     if matches!(identity, TransportIdentity::Tcp | TransportIdentity::Udp) {
-        return Err(Error::NotSupported);
+        return Err(Error::FeatureNotSupported {
+            feature: "multiple VISCA targets over TCP or UDP",
+        });
     }
     if profiles
         .iter()
         .any(|(_, profile)| profile.envelope() != ProfileEnvelope::RawVisca)
     {
-        return Err(Error::NotSupported);
+        return Err(Error::FeatureNotSupported {
+            feature: "multiple VISCA targets with Sony encapsulation",
+        });
     }
     if identity.addressing() != AddressingMode::Serial {
-        return Err(Error::NotSupported);
+        return Err(Error::FeatureNotSupported {
+            feature: "multiple VISCA targets without serial addressing",
+        });
     }
     Ok(())
 }
@@ -1056,12 +1058,55 @@ pub(crate) fn validate_profile_registry_topology(
 mod tests {
     use super::*;
     use crate::{
-        profile::ProfileSpec,
-        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
+        profiles::ProfileSpec,
+        profiles::{GenericVisca, PtzOpticsG2, SonyFr7},
         runtime::engine::DecodedResponse,
         runtime::owner::OwnerLimits,
         transport::envelope::{RawVisca, SonyEncapsulated},
     };
+
+    #[test]
+    fn unsupported_topologies_remain_nonfatal_feature_errors() {
+        let raw = ProfileSpec::from_compile_time::<GenericVisca>().expect("raw profile");
+        let sony = ProfileSpec::from_compile_time::<SonyFr7>().expect("Sony profile");
+        let raw_targets = [(TargetSlot::CAMERA_1, &raw), (TargetSlot::CAMERA_2, &raw)];
+        let sony_targets = [(TargetSlot::CAMERA_1, &sony), (TargetSlot::CAMERA_2, &sony)];
+        for (profiles, identity, reason) in [
+            (
+                &raw_targets[..],
+                TransportIdentity::Tcp,
+                "multiple VISCA targets over TCP or UDP",
+            ),
+            (
+                &raw_targets[..],
+                TransportIdentity::Udp,
+                "multiple VISCA targets over TCP or UDP",
+            ),
+            (
+                &sony_targets[..],
+                TransportIdentity::Serial { bus: None },
+                "multiple VISCA targets with Sony encapsulation",
+            ),
+            (
+                &raw_targets[..],
+                TransportIdentity::Custom {
+                    semantics: SendSemantics::Stream,
+                    addressing: AddressingMode::Ip,
+                },
+                "multiple VISCA targets without serial addressing",
+            ),
+        ] {
+            let error = validate_profile_registry_topology(profiles, identity)
+                .expect_err("unsupported topology");
+            assert!(matches!(&error, Error::FeatureNotSupported { feature } if *feature == reason));
+            assert_eq!(error.kind(), crate::error::ErrorKind::Unsupported);
+            assert_eq!(error.recovery(), crate::error::Recovery::Abandon);
+            assert!(!error.requires_new_session());
+            assert!(error.failure_context().is_none());
+        }
+        validate_profile_registry_topology(&raw_targets, TransportIdentity::Serial { bus: None })
+            .expect("raw serial multi-drop remains supported");
+    }
 
     fn all_targets() -> TargetRegistry {
         TargetRegistry::from_targets(&[
@@ -1597,7 +1642,7 @@ mod tests {
         assert_eq!(policy.protocol.inquiry_capacity, policy.protocol.capacity);
         assert_eq!(
             policy.protocol.command_spacing,
-            profile.timing().minimum_command_spacing()
+            profile.timing().command_spacing()
         );
     }
 
@@ -1607,7 +1652,7 @@ mod tests {
     #[test]
     fn production_policies_use_admission_capacity_with_raw_shape_exclusion() {
         let raw = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
-        let sony = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+        let sony = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
         let raw_profiles = [(TargetSlot::CAMERA_1, &raw)];
         let sony_profiles = [(TargetSlot::CAMERA_1, &sony)];
         let capacity = NonZeroUsize::new(3).unwrap();
@@ -1658,11 +1703,11 @@ mod tests {
         let policy = owner_policy_for_targets(&profiles, &config, SendSemantics::Stream).unwrap();
         assert_eq!(
             policy.protocol.command_spacing,
-            strict.timing().minimum_command_spacing()
+            strict.timing().command_spacing()
         );
         assert_eq!(
             policy.protocol.inquiry_spacing,
-            strict.timing().minimum_inquiry_spacing()
+            strict.timing().inquiry_spacing()
         );
     }
 
@@ -1702,7 +1747,7 @@ mod tests {
                 .expect_err("receive size larger than maximum must be rejected");
             assert!(matches!(
                 error,
-                Error::InvalidRequest(message)
+                Error::InvalidRequest { reason: message }
                     if message.as_ref() == "transport receive buffer cannot exceed maximum buffer"
             ));
         }

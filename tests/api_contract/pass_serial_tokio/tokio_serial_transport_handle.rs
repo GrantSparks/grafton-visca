@@ -6,7 +6,7 @@
 //! part of a public compile contract.
 
 use grafton_visca::{
-    runtime::TokioRuntime, runtime_adapters::tokio::SerialTransport, TransportHandle,
+    runtime::TokioRuntime, runtime::TransportHandle, transport::tokio::SerialTransport,
 };
 
 fn tokio_serial() -> SerialTransport {

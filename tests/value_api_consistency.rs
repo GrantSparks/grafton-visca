@@ -3,10 +3,11 @@
 use std::collections::{BTreeSet, HashSet};
 
 use grafton_visca::{
-    types::{BrightnessLevel, FocusPosition, GainLevel, ShutterSpeed},
-    units::{Degrees, UnitInterval},
+    types::{
+        BrightnessLevel, CameraId, Degrees, FocusPosition, GainLevel, IndividualCameraId,
+        ShutterSpeed, UnitInterval,
+    },
     wire::WireValue,
-    CameraId, IndividualCameraId,
 };
 
 #[test]

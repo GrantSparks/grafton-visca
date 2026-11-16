@@ -323,8 +323,8 @@ impl State {
 /// by its waker, which marks it runnable before the waking call returns.
 ///
 /// ```
-/// use std::time::Duration;
 /// use grafton_visca::testing::testkit::ManualClock;
+/// use std::time::Duration;
 ///
 /// let clock = ManualClock::new();
 /// let _driver = clock.enter();
@@ -619,7 +619,11 @@ impl ManualClock {
     /// Opening without a participant guard is a compile-time error:
     ///
     /// ```compile_fail
-    /// use grafton_visca::{SessionConfig, testing::testkit::{ManualClock, ScriptedBlockingTransport}};
+    /// use grafton_visca::{
+    ///     config::SessionConfig,
+    ///     testing::testkit::ManualClock,
+    ///     testing::testkit::ScriptedBlockingTransport,
+    /// };
     /// let clock = ManualClock::new();
     /// clock.open_blocking_session(ScriptedBlockingTransport::new(vec![]), SessionConfig::default());
     /// ```
@@ -649,25 +653,27 @@ impl ManualClock {
         config: &crate::camera::CameraConfig<P>,
     ) -> crate::Result<crate::blocking::CameraSession<P>>
     where
-        P: crate::CompileTimeProfile,
+        P: crate::profiles::CameraProfile,
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
         self.check_participant(participant)?;
+        let validated = config.validated_session_config()?;
+        let camera_id = validated.sole_target_for("ManualClock::open_blocking_camera_session")?;
         let session = crate::blocking::Session::open_on(
             transport,
-            config.validated_session_config()?,
+            validated,
             crate::runtime::owner::Clock::Manual(self.clone()),
         )?;
-        crate::blocking::CameraSession::from_session(session, config.camera_id)
+        crate::blocking::CameraSession::from_session(session, camera_id)
     }
 
     fn check_participant(&self, participant: &ClockParticipant) -> crate::Result<()> {
         if Arc::ptr_eq(&self.state, &participant.clock.state) {
             Ok(())
         } else {
-            Err(Error::InvalidRequest(
-                "the participant belongs to a different ManualClock".into(),
-            ))
+            Err(Error::InvalidRequest {
+                reason: "the participant belongs to a different ManualClock".into(),
+            })
         }
     }
 }
@@ -938,7 +944,7 @@ impl<F> Drop for Tracked<F> {
 
 /// An owned, resettable deadline measured on a [`ManualClock`].
 ///
-/// Created by [`Executor::timer`] on a [`ManualClockExecutor`]. Resetting
+/// Created by [`crate::runtime::Executor::timer`] on a [`ManualClockExecutor`]. Resetting
 /// updates its owned registration in place and can rearm a timer after
 /// completion. The registration is released when the future is dropped.
 #[cfg(all(feature = "async", feature = "test-utils"))]
@@ -1027,7 +1033,7 @@ impl ResettableTimer for ManualClockTimer {
     }
 }
 
-/// An [`Executor`] that runs on `E` but keeps time on a [`ManualClock`].
+/// An [`crate::runtime::Executor`] that runs on `E` but keeps time on a [`ManualClock`].
 ///
 /// Spawning and `block_on` delegate to `E`, so tasks run on that runtime's
 /// scheduler; `now`, `sleep` and `timeout` are virtual. An async owner reads
@@ -1486,7 +1492,7 @@ mod tests {
         let transport = crate::testing::testkit::ScriptedBlockingTransport::new(vec![]);
         let result =
             other.open_blocking_session(&participant, transport, crate::SessionConfig::default());
-        assert!(matches!(result, Err(Error::InvalidRequest(_))));
+        assert!(matches!(result, Err(Error::InvalidRequest { .. })));
         assert_balanced(&clock);
         assert_balanced(&other);
     }

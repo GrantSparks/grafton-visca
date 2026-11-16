@@ -45,7 +45,7 @@ impl WireEncode for SetMotionSyncMode {
 /// Command to set Motion Sync speed.
 ///
 /// PtzOptics-specific command that sets the maximum speed for synchronized
-/// movements. [`MotionSyncSpeed`] owns the `1..=24` range and the
+/// movements. [`crate::types::MotionSyncSpeed`] owns the `1..=24` range and the
 /// speed constants; the selected profile's maximum is applied
 /// during request preparation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

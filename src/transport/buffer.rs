@@ -13,7 +13,7 @@ const DEFAULT_FRAME_LIMIT: usize = 128;
 const UDP_FRAME_LIMIT: usize = 1024;
 
 /// Frame limit for raw VISCA over a TCP byte stream.
-const RAW_IP_FRAME_LIMIT: usize = 256;
+const TCP_FRAME_LIMIT: usize = 256;
 
 /// Frame limit for VISCA over a serial byte stream.
 const SERIAL_FRAME_LIMIT: usize = 256;
@@ -62,13 +62,20 @@ const SONY_HEADER: usize = 8;
 /// memory bounded even for caller-selected limits; all transport presets are
 /// well below them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub struct BufferConfig {
     /// Largest accepted reply frame or datagram, and the size of one read.
-    pub recv_buffer_size: usize,
+    pub(crate) recv_buffer_size: usize,
 
     /// Stream input that may be carried between reads.
-    pub max_buffer_size: usize,
+    pub(crate) max_buffer_size: usize,
 }
 
 impl Default for BufferConfig {
@@ -79,6 +86,34 @@ impl Default for BufferConfig {
 }
 
 impl BufferConfig {
+    /// Returns the largest accepted reply frame or datagram.
+    #[must_use]
+    pub const fn recv_buffer_size(&self) -> usize {
+        self.recv_buffer_size
+    }
+
+    /// Selects the reply frame limit. Opening validates `24..=65_535` and
+    /// requires it not to exceed the stream retention bound.
+    #[must_use]
+    pub const fn with_recv_buffer_size(mut self, size: usize) -> Self {
+        self.recv_buffer_size = size;
+        self
+    }
+
+    /// Returns the stream input retention bound.
+    #[must_use]
+    pub const fn max_buffer_size(&self) -> usize {
+        self.max_buffer_size
+    }
+
+    /// Selects the stream retention bound. Opening requires it to hold at
+    /// least one reply frame and not to exceed 1,048,576 bytes.
+    #[must_use]
+    pub const fn with_max_buffer_size(mut self, size: usize) -> Self {
+        self.max_buffer_size = size;
+        self
+    }
+
     #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) const MAX_RECV_BUFFER_SIZE: usize = 65_535;
 
@@ -103,8 +138,8 @@ impl BufferConfig {
     }
 
     /// Limits for raw VISCA over TCP: frames of up to 256 bytes.
-    pub fn for_raw_ip() -> Self {
-        Self::with_frame_limit(RAW_IP_FRAME_LIMIT)
+    pub fn for_tcp() -> Self {
+        Self::with_frame_limit(TCP_FRAME_LIMIT)
     }
 
     /// Limits for serial transports: frames of up to 256 bytes.
@@ -129,7 +164,7 @@ mod tests {
         for (config, frame_limit) in [
             (BufferConfig::default(), DEFAULT_FRAME_LIMIT),
             (BufferConfig::for_udp(), UDP_FRAME_LIMIT),
-            (BufferConfig::for_raw_ip(), RAW_IP_FRAME_LIMIT),
+            (BufferConfig::for_tcp(), TCP_FRAME_LIMIT),
             (BufferConfig::for_serial(), SERIAL_FRAME_LIMIT),
         ] {
             assert_eq!(config.recv_buffer_size, frame_limit);

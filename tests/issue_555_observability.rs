@@ -9,7 +9,7 @@
 use grafton_visca_test_support::fake_camera;
 
 use fake_camera::FakeCamera;
-use grafton_visca::{observability::MetricsSnapshot, ProfileSpec, SessionConfig};
+use grafton_visca::{config::SessionConfig, observability::MetricsSnapshot, profiles::ProfileSpec};
 
 #[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
 use grafton_visca::{
@@ -19,8 +19,8 @@ use grafton_visca::{
 
 #[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
 use grafton_visca::{
-    state_cache::{StateCache, StateEntry},
-    CameraId, StateKey,
+    state_cache::{StateCache, StateEntry, StateKey},
+    types::CameraId,
 };
 
 fn profile() -> ProfileSpec {
@@ -86,7 +86,7 @@ fn assert_metrics_shape(snapshot: MetricsSnapshot) {
     assert_eq!(snapshot.ignored_malformed_frames, 0);
     assert!(matches!(
         snapshot.session,
-        grafton_visca::SessionStatus::Running
+        grafton_visca::observability::SessionStatus::Running
     ));
 }
 
@@ -96,7 +96,7 @@ fn assert_unknown(cache: &StateCache, key: StateKey) {
 }
 
 #[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
-fn assert_set(cache: &StateCache, value: grafton_visca::KnownState) {
+fn assert_set(cache: &StateCache, value: grafton_visca::state_cache::KnownState) {
     assert_eq!(cache.value(value.key()), StateEntry::Set(value));
 }
 
@@ -107,9 +107,7 @@ mod blocking_observability {
         time::{Duration, Instant},
     };
 
-    use grafton_visca::{
-        blocking::Session, command::PanTiltLimitCorner, request::builtin::PanTiltLimitClear,
-    };
+    use grafton_visca::{blocking::Session, types::PanTiltLimitCorner};
 
     use super::*;
     use fake_camera::BlockingWire;
@@ -131,27 +129,45 @@ mod blocking_observability {
     #[test]
     fn metrics_diagnostics_bounds_and_cache_apply_only_after_terminal() {
         let session =
-            Session::open(probe_wire(false, false), SessionConfig::new(profile())).unwrap();
+            Session::open(probe_wire(false, false), &SessionConfig::new(profile())).unwrap();
         let camera = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .unwrap();
         let cache = camera.state_cache();
         assert_eq!(cache.target(), CameraId::CAMERA_1);
-        assert_unknown(&cache, StateKey::PanTiltLimits);
+        assert_unknown(&cache, StateKey::PanTiltLimit);
         assert_metrics_shape(session.metrics().unwrap());
 
         let diagnostics = session.subscribe_diagnostics(128).unwrap();
         assert!(diagnostics.try_recv().is_none());
-        camera.advanced().multicast_on().unwrap();
-        assert_set(&cache, grafton_visca::KnownState::MulticastStreaming(true));
+        camera.streaming().set_multicast(true).unwrap();
+        assert_set(
+            &cache,
+            grafton_visca::state_cache::KnownState::StreamingMulticast(true),
+        );
         camera
-            .execute(&PanTiltLimitClear::new(PanTiltLimitCorner::UpRight))
+            .execute(
+                &grafton_visca::command::pan_tilt::ClearLimit::for_target(
+                    &grafton_visca::config::TargetRegistration::new(
+                        grafton_visca::types::CameraId::CAMERA_1,
+                        grafton_visca::profiles::ProfileSpec::from_compile_time::<
+                            grafton_visca::profiles::PtzOpticsG2,
+                        >()
+                        .expect("source profile"),
+                    )
+                    .expect("target registration"),
+                    PanTiltLimitCorner::UpRight,
+                )
+                .expect("profile-safe limit clear"),
+            )
             .unwrap();
         assert_set(
             &cache,
-            grafton_visca::KnownState::PanTiltLimits(grafton_visca::PanTiltLimitUpdate::clear(
-                PanTiltLimitCorner::UpRight,
-            )),
+            grafton_visca::state_cache::KnownState::PanTiltLimit(
+                grafton_visca::state_cache::PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight),
+            ),
         );
         let received = std::iter::from_fn(|| diagnostics.try_recv()).count();
         assert!((1..=128).contains(&received));
@@ -165,40 +181,41 @@ mod blocking_observability {
     #[test]
     fn cache_views_share_same_target_isolate_targets_and_reset() {
         let mut config = SessionConfig::new(profile());
-        config
-            .register_target(CameraId::CAMERA_2, profile())
-            .unwrap();
-        let session = Session::open(probe_wire(true, false), config).unwrap();
+        config = config.with_target(CameraId::CAMERA_2, profile()).unwrap();
+        let session = Session::open(probe_wire(true, false), &config).unwrap();
         let first = session
-            .camera_for::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_1)
             .unwrap();
         let first_view = first.state_cache();
         let first_clone = first_view.clone();
         let second_view = session
-            .camera_for::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_2)
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_2)
             .unwrap()
             .state_cache();
-        assert_unknown(&first_view, StateKey::MulticastStreaming);
-        assert_unknown(&second_view, StateKey::MulticastStreaming);
-        first.advanced().multicast_on().unwrap();
+        assert_unknown(&first_view, StateKey::StreamingMulticast);
+        assert_unknown(&second_view, StateKey::StreamingMulticast);
+        first.streaming().set_multicast(true).unwrap();
         assert_set(
             &first_view,
-            grafton_visca::KnownState::MulticastStreaming(true),
+            grafton_visca::state_cache::KnownState::StreamingMulticast(true),
         );
         assert_set(
             &first_clone,
-            grafton_visca::KnownState::MulticastStreaming(true),
+            grafton_visca::state_cache::KnownState::StreamingMulticast(true),
         );
-        assert_unknown(&second_view, StateKey::MulticastStreaming);
+        assert_unknown(&second_view, StateKey::StreamingMulticast);
         session.shutdown().unwrap();
 
-        let fresh = Session::open(probe_wire(false, false), SessionConfig::new(profile())).unwrap();
+        let fresh =
+            Session::open(probe_wire(false, false), &SessionConfig::new(profile())).unwrap();
         assert_unknown(
             &fresh
-                .camera::<grafton_visca::profiles::PtzOpticsG2>()
+                .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                )
                 .unwrap()
                 .state_cache(),
-            StateKey::MulticastStreaming,
+            StateKey::StreamingMulticast,
         );
         fresh.shutdown().unwrap();
     }
@@ -206,13 +223,15 @@ mod blocking_observability {
     #[test]
     fn write_failure_does_not_update_cache() {
         let session =
-            Session::open(probe_wire(false, true), SessionConfig::new(profile())).unwrap();
+            Session::open(probe_wire(false, true), &SessionConfig::new(profile())).unwrap();
         let camera = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .unwrap();
         let cache = camera.state_cache();
-        assert!(camera.advanced().multicast_on().is_err());
-        assert_unknown(&cache, StateKey::MulticastStreaming);
+        assert!(camera.streaming().set_multicast(true).is_err());
+        assert_unknown(&cache, StateKey::StreamingMulticast);
         session.shutdown().unwrap();
     }
 
@@ -224,15 +243,17 @@ mod blocking_observability {
             FakeCamera::silent()
                 .blocking_wire()
                 .with_semantics(SendSemantics::Stream),
-            SessionConfig::new(profile()),
+            &SessionConfig::new(profile()),
         )
         .expect("open blocking session");
         let camera = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .expect("camera");
 
         thread::scope(|scope| {
-            let request = scope.spawn(|| camera.advanced().multicast_on());
+            let request = scope.spawn(|| camera.streaming().set_multicast(true));
             let deadline = Instant::now() + Duration::from_secs(2);
             let metrics = loop {
                 let started = Instant::now();
@@ -259,7 +280,7 @@ mod blocking_observability {
 mod tokio_observability {
     use std::{sync::Arc, time::Duration};
 
-    use grafton_visca::{runtime::TokioRuntime, Session};
+    use grafton_visca::{r#async::Session, runtime::TokioRuntime};
 
     use super::*;
     use fake_camera::AsyncWire;
@@ -281,7 +302,7 @@ mod tokio_observability {
     async fn session() -> Session {
         Session::open(
             probe_wire(false, false),
-            SessionConfig::new(profile()),
+            &SessionConfig::new(profile()),
             TokioRuntime::from_current().unwrap(),
         )
         .await
@@ -307,16 +328,18 @@ mod tokio_observability {
         let slow = session.subscribe_diagnostics(1).await.unwrap();
         let fast = session.subscribe_diagnostics(16).await.unwrap();
         let camera = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .unwrap();
-        camera.advanced().multicast_on().await.unwrap();
-        camera.advanced().multicast_off().await.unwrap();
+        camera.streaming().set_multicast(true).await.unwrap();
+        camera.streaming().set_multicast(false).await.unwrap();
         let snapshot = session.metrics().await.unwrap();
         assert!(snapshot.dropped_diagnostic_events > 0);
         assert_eq!(snapshot.received_frames, 4);
         assert!(fast.try_recv().is_some());
         assert!(slow.try_recv().is_some());
-        camera.advanced().multicast_on().await.unwrap();
+        camera.streaming().set_multicast(true).await.unwrap();
         session.shutdown().unwrap();
     }
 
@@ -325,26 +348,30 @@ mod tokio_observability {
         let session = session().await;
         let subscription = session.subscribe_diagnostics(8).await.unwrap();
         session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .unwrap()
-            .advanced()
-            .multicast_on()
+            .streaming()
+            .set_multicast(true)
             .await
             .unwrap();
         let event = subscription.try_recv().expect("diagnostic event");
         assert!(matches!(
             event,
-            grafton_visca::DiagnosticEvent::Admitted { .. }
-                | grafton_visca::DiagnosticEvent::FrameReceived { .. }
-                | grafton_visca::DiagnosticEvent::Transition { .. }
-                | grafton_visca::DiagnosticEvent::WriteFinished { .. }
+            grafton_visca::observability::DiagnosticEvent::Admitted { .. }
+                | grafton_visca::observability::DiagnosticEvent::FrameReceived { .. }
+                | grafton_visca::observability::DiagnosticEvent::Transition { .. }
+                | grafton_visca::observability::DiagnosticEvent::WriteFinished { .. }
         ));
         session.shutdown().unwrap();
         assert!(session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1
+            )
             .unwrap()
-            .advanced()
-            .multicast_off()
+            .streaming()
+            .set_multicast(false)
             .await
             .is_err());
     }
@@ -370,60 +397,63 @@ mod tokio_observability {
     #[tokio::test]
     async fn canonical_cache_is_target_local_and_write_failure_stays_unknown() {
         let mut config = SessionConfig::new(profile());
-        config
-            .register_target(CameraId::CAMERA_2, profile())
-            .unwrap();
+        config = config.with_target(CameraId::CAMERA_2, profile()).unwrap();
         let session = Session::open(
             probe_wire(true, false),
-            config,
+            &config,
             TokioRuntime::from_current().unwrap(),
         )
         .await
         .unwrap();
         let first = session
-            .camera_for::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_1)
             .unwrap();
         let view = first.state_cache();
         let second = session
-            .camera_for::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_2)
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_2)
             .unwrap()
             .state_cache();
-        assert_unknown(&view, StateKey::MulticastStreaming);
-        assert_unknown(&second, StateKey::MulticastStreaming);
-        first.advanced().multicast_on().await.unwrap();
-        assert_set(&view, grafton_visca::KnownState::MulticastStreaming(true));
-        assert_unknown(&second, StateKey::MulticastStreaming);
+        assert_unknown(&view, StateKey::StreamingMulticast);
+        assert_unknown(&second, StateKey::StreamingMulticast);
+        first.streaming().set_multicast(true).await.unwrap();
+        assert_set(
+            &view,
+            grafton_visca::state_cache::KnownState::StreamingMulticast(true),
+        );
+        assert_unknown(&second, StateKey::StreamingMulticast);
         session.shutdown().unwrap();
 
         let failed_session = Session::open(
             probe_wire(false, true),
-            SessionConfig::new(profile()),
+            &SessionConfig::new(profile()),
             TokioRuntime::from_current().unwrap(),
         )
         .await
         .unwrap();
         let camera = failed_session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::CameraId::CAMERA_1,
+            )
             .unwrap();
         let cache = camera.state_cache();
-        assert!(camera.advanced().multicast_on().await.is_err());
-        assert_unknown(&cache, StateKey::MulticastStreaming);
+        assert!(camera.streaming().set_multicast(true).await.is_err());
+        assert_unknown(&cache, StateKey::StreamingMulticast);
         failed_session.shutdown().unwrap();
     }
 
     #[test]
     fn api_types_are_mode_native_and_send_safe() {
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<grafton_visca::MetricsSnapshot>();
-        assert_send_sync::<grafton_visca::DiagnosticSubscription>();
-        assert_send_sync::<grafton_visca::StateCache>();
+        assert_send_sync::<grafton_visca::observability::MetricsSnapshot>();
+        assert_send_sync::<grafton_visca::r#async::Diagnostics>();
+        assert_send_sync::<grafton_visca::state_cache::StateCache>();
         let _ = Arc::new(1_u8);
     }
 }
 
 #[cfg(all(feature = "async", feature = "runtime-smol"))]
 mod smol_observability {
-    use grafton_visca::{runtime::SmolRuntime, Session};
+    use grafton_visca::{r#async::Session, runtime::SmolRuntime};
 
     use super::*;
 
@@ -444,7 +474,7 @@ mod smol_observability {
         smol::block_on(async {
             let session = Session::open(
                 probe_camera().async_wire(),
-                SessionConfig::new(profile()),
+                &SessionConfig::new(profile()),
                 SmolRuntime::new(),
             )
             .await
@@ -454,10 +484,12 @@ mod smol_observability {
             assert!(session.subscribe_diagnostics(129).await.is_err());
             let subscription = session.subscribe_diagnostics(1).await.unwrap();
             session
-                .camera::<grafton_visca::profiles::PtzOpticsG2>()
+                .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                    grafton_visca::types::CameraId::CAMERA_1,
+                )
                 .unwrap()
-                .advanced()
-                .multicast_on()
+                .streaming()
+                .set_multicast(true)
                 .await
                 .unwrap();
             assert!(subscription.try_recv().is_some());

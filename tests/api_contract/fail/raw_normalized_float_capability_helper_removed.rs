@@ -1,5 +1,4 @@
-use grafton_visca::{camera::profiles::PtzOpticsG2, capabilities::zoom::ZoomExt};
-
+use grafton_visca::profiles::PtzOpticsG2;
 fn main() {
     let _ = PtzOpticsG2.normalized_to_zoom_units(0.5);
 }

@@ -37,11 +37,12 @@ use std::{
 };
 
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
-    command::FocusMode,
-    profile::{ProfileSpec, ProfileTiming},
+    config::SessionConfig,
+    error::{Certainty, FailureContext, FailureStage},
+    profiles::{ProfileSpec, ProfileTiming, PtzOpticsG2},
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    CameraId, Certainty, Error, FailureContext, FailureStage, SessionConfig,
+    types::{CameraId, FocusMode},
+    Error,
 };
 
 #[cfg(all(
@@ -189,8 +190,8 @@ impl Bench {
         let profile = || ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2");
         let mut config = SessionConfig::new(profile());
         for target in self.targets.iter().skip(1) {
-            config
-                .register_target(*target, profile())
+            config = config
+                .with_target(*target, profile())
                 .expect("second target");
         }
         config
@@ -269,7 +270,7 @@ fn latched_inquiry_failure<T: fmt::Debug>(result: &Result<T, Error>, already_adm
     );
     assert!(!matches!(
         error.recovery(),
-        grafton_visca::Recovery::Resubmit { .. }
+        grafton_visca::error::Recovery::Resubmit { .. }
     ));
     assert!(!error.requires_new_session(), "{error}");
 }
@@ -284,10 +285,10 @@ facade_matrix! {
     fn stale_stream_inquiry_reply_never_binds_a_later_inquiry() {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         bench.start_fault();
-        let power = wait!(camera.power().state());
+        let power = wait!(camera.power().status());
         assert!(conclusive_timeout(&power), "{power:?}");
         after!(RETRANSMIT_AFTER, bench.lift_fault());
 
@@ -297,7 +298,7 @@ facade_matrix! {
             "a stale power reply must never be returned as the focus mode: {mode:?}"
         );
         // The owed reply was absorbed; the session keeps serving correct data.
-        assert!(wait!(camera.power().state()).expect("power after recovery").is_on());
+        assert!(wait!(camera.power().status()).expect("power after recovery").is_on());
         assert!(matches!(wait!(camera.focus().mode()), Ok(FocusMode::Manual)));
         session.shutdown().expect("shutdown");
     }
@@ -308,12 +309,12 @@ facade_matrix! {
     fn stream_inquiry_reply_timeout_is_not_resent() {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
-        assert!(wait!(camera.power().state()).expect("pre-fault inquiry").is_on());
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        assert!(wait!(camera.power().status()).expect("pre-fault inquiry").is_on());
 
         bench.start_fault();
         let started = now!();
-        let power = wait!(camera.power().state());
+        let power = wait!(camera.power().status());
         let elapsed = now!().duration_since(started);
         assert!(conclusive_timeout(&power), "{power:?}");
         assert_eq!(
@@ -325,7 +326,7 @@ facade_matrix! {
         if virtual_clock!() {
             assert_eq!(
                 elapsed,
-                g2_timing().minimum_inquiry_spacing() + g2_timing().inquiry_timeout(),
+                g2_timing().inquiry_spacing() + g2_timing().inquiry_timeout(),
                 "paced behind the pre-fault inquiry, then one write failed at its own \
                  reply deadline"
             );
@@ -348,13 +349,13 @@ facade_matrix! {
         );
         let session = open!(bench, bench.config()).expect("session");
         let first = session
-            .camera_for::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
             .expect("camera 1");
         let second = session
-            .camera_for::<PtzOpticsG2>(CameraId::CAMERA_2)
+            .camera::<PtzOpticsG2>(CameraId::CAMERA_2)
             .expect("camera 2");
 
-        let power = wait!(first.power().state());
+        let power = wait!(first.power().status());
         assert!(conclusive_timeout(&power), "{power:?}");
 
         let started = now!();
@@ -388,7 +389,7 @@ facade_matrix! {
             .expect("STOP admitted")
             .applied())
         .expect("STOP to the latched camera still applies");
-        assert!(wait!(second.power().state()).expect("other camera unaffected").is_on());
+        assert!(wait!(second.power().status()).expect("other camera unaffected").is_on());
         assert!(matches!(wait!(second.focus().mode()), Ok(FocusMode::Manual)));
         session.shutdown().expect("session was never poisoned");
     }
@@ -400,9 +401,9 @@ facade_matrix! {
     fn unanswered_stream_inquiry_latches_a_single_cameras_inquiries() {
         let bench = Bench::with_targets(SendSemantics::Stream, vec![CameraId::CAMERA_1], vec![1]);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
-        let power = wait!(camera.power().state());
+        let power = wait!(camera.power().status());
         assert!(conclusive_timeout(&power), "{power:?}");
 
         let queued = wait!(camera.focus().mode());
@@ -433,10 +434,10 @@ facade_matrix! {
     fn owed_reply_arriving_after_the_window_reopens_the_lane_with_correct_data() {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         bench.start_fault();
-        let power = wait!(camera.power().state());
+        let power = wait!(camera.power().status());
         assert!(conclusive_timeout(&power), "{power:?}");
         let during = wait!(camera.focus().mode());
         latched_inquiry_failure(&during, true);
@@ -455,7 +456,7 @@ facade_matrix! {
             pause!(Duration::from_millis(50));
         };
         assert!(matches!(mode, Ok(FocusMode::Manual)), "{mode:?}");
-        assert!(wait!(camera.power().state()).expect("power after recovery").is_on());
+        assert!(wait!(camera.power().status()).expect("power after recovery").is_on());
         session.shutdown().expect("shutdown");
     }
 
@@ -464,14 +465,14 @@ facade_matrix! {
     fn datagram_inquiry_reply_timeout_still_retries() {
         let bench = Bench::new(SendSemantics::Datagram);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         bench.start_fault();
-        let power = wait!(camera.power().state());
+        let power = wait!(camera.power().status());
         assert!(conclusive_timeout(&power), "{power:?}");
         assert_eq!(bench.count(1, &POWER_INQUIRY), 6);
         after!(RETRANSMIT_AFTER, bench.lift_fault());
-        assert!(wait!(camera.power().state()).expect("datagram recovers").is_on());
+        assert!(wait!(camera.power().status()).expect("datagram recovers").is_on());
         session.shutdown().expect("shutdown");
     }
 
@@ -481,7 +482,7 @@ facade_matrix! {
     fn stalled_stream_command_is_unconfirmed_without_replay() {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
 
         bench.start_fault();
         let result = wait!(wait!(camera.pan_tilt().stop()).expect("admitted").applied());

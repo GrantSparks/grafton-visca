@@ -1,9 +1,9 @@
 #![deny(unused_must_use)]
 
-use grafton_visca::{blocking::Camera, profiles::PtzOpticsG2, request::builtin::PanTiltHome};
+use grafton_visca::{blocking::Camera, command::pan_tilt::Home, profiles::PtzOpticsG2};
 
 fn ignore_operation_handle(camera: &Camera<PtzOpticsG2>) {
-    camera.submit(&PanTiltHome).expect("submission");
+    camera.submit(&Home).expect("submission");
 }
 
 fn main() {
@@ -15,5 +15,5 @@ fn main() {
 // (E0277) and never reached the `#[must_use]` lint it exists to pin. The
 // submission now type-checks, and the dropped handle is the only error.
 
-//~ "unused `grafton_visca::blocking::Operation` that must be used"
+//~ "Operation` that must be used"
 //~ "observe, cancel, or explicitly detach this operation"

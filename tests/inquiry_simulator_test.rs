@@ -2,9 +2,7 @@
 
 #![cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 
-use grafton_visca::{
-    testing::camera_simulator::ViscaCameraSimulator, transport::AsyncTransport, PowerStatus,
-};
+use grafton_visca::{testing::ViscaCameraSimulator, transport::AsyncTransport, types::PowerStatus};
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_power_inquiry_direct() {
@@ -182,40 +180,41 @@ async fn test_simulator_mixed_commands_and_inquiries() {
 #[tokio::test(start_paused = true)]
 async fn session_inquiries_observe_applied_simulator_state() {
     use grafton_visca::{
-        camera::profiles::PtzOpticsG2, types::SpeedLevel, units::Degrees, Session, SessionConfig,
-        TokioRuntime,
+        config::SessionConfig,
+        profiles::PtzOpticsG2,
+        r#async::Session,
+        runtime::TokioRuntime,
+        types::{Degrees, SpeedLevel},
     };
 
     let session = Session::open(
         ViscaCameraSimulator::new(),
-        SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
+        &SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
         TokioRuntime::from_current().unwrap(),
     )
     .await
     .unwrap();
-    let camera = session.camera::<PtzOpticsG2>().unwrap();
+    let camera = session
+        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .unwrap();
     let mut movement = camera
         .pan_tilt()
         .absolute(
-            Degrees::new(-10.0).expect("valid degrees"),
-            Degrees::new(-5.0).expect("valid degrees"),
+            grafton_visca::types::PanTiltPosition {
+                pan: Degrees::new(-10.0).expect("valid degrees"),
+                tilt: Degrees::new(-5.0).expect("valid degrees"),
+            },
             SpeedLevel::Medium,
         )
         .await
         .unwrap();
     movement.applied().await.unwrap();
-    let position = camera.pan_tilt().position().await.unwrap();
-    let degrees = grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>()
-        .expect("profile")
-        .pan_tilt_coordinates()
-        .expect("coordinate conversion")
-        .to_degrees(position)
-        .expect("finite coordinates");
+    let degrees = camera.pan_tilt().position().await.unwrap();
     assert!((degrees.pan.value() + 10.0).abs() < 0.1);
     assert!((degrees.tilt.value() + 5.0).abs() < 0.1);
-    camera.power().off().await.unwrap();
-    assert_eq!(camera.power().state().await.unwrap(), PowerStatus::Standby);
+    camera.power().standby().await.unwrap();
+    assert_eq!(camera.power().status().await.unwrap(), PowerStatus::Standby);
     camera.power().on().await.unwrap();
-    assert_eq!(camera.power().state().await.unwrap(), PowerStatus::On);
+    assert_eq!(camera.power().status().await.unwrap(), PowerStatus::On);
     session.close().await.unwrap();
 }

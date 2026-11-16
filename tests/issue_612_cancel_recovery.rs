@@ -3,7 +3,7 @@
 //! `PtzOpticsG2` declares no VISCA socket-cancel support (the PTZOptics G2
 //! bench answers `81 2y FF` with a syntax error and completes the move), so
 //! cancelling one of its already-written commands is refused with
-//! [`Error::NotSupported`]. The other PTZOptics profiles declare none either;
+//! [`Error::CancellationNotSupported`]. The other PTZOptics profiles declare none either;
 //! `the_profile_used_here_declares_no_socket_cancel` pins the fact these tests
 //! rely on. Dropping a handle is exactly `detach` — no STOP is
 //! emitted — so a refusal that also swallowed the handle would leave a caller
@@ -19,11 +19,9 @@
 //! Every scenario runs on the blocking facade and on the async facade under
 //! each enabled runtime, except one:
 //!
-//! * `dyn_refused_cancel_leaves_the_handle_observing` runs on the async
-//!   runtimes only (and only with `dyn-api`). It pins the erased dynamic
-//!   handle that `camera_dyn().submit_applied` returns; the blocking dynamic
-//!   camera has no erased handle — its `submit` returns the typed blocking
-//!   `Operation` the other scenarios already cover.
+//! * `runtime_profile_refused_cancel_leaves_the_handle_observing` runs on
+//!   the async runtimes and pins the same concrete `Operation` contract
+//!   through a `Camera<AnyProfile>` view.
 
 #![cfg(any(
     feature = "blocking",
@@ -38,7 +36,10 @@ use grafton_visca_test_support::{facade_matrix, fake_camera};
 use std::time::Duration;
 
 use grafton_visca::{
-    profile::ProfileSpec, profiles::PtzOpticsG2, CancellationOutcome, Error, SessionConfig,
+    config::SessionConfig,
+    operation::CancellationOutcome,
+    profiles::{ProfileSpec, PtzOpticsG2},
+    Error,
 };
 
 use fake_camera::{frames, FakeCamera, ZOOM_STOP, ZOOM_TELE};
@@ -54,7 +55,7 @@ facade_matrix! {
     fn refused_cancel_leaves_the_handle_observing() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         // A continuous zoom: the axis keeps moving until something stops it.
         let mut moving = wait!(camera.zoom().tele()).expect("continuous zoom admitted");
@@ -66,12 +67,12 @@ facade_matrix! {
         // the handle, so the refusal leaves it in the caller's hands.
         let refused = wait!(moving.cancel())
             .expect_err("G2 sent cancellation must be rejected by profile policy");
-        assert!(matches!(refused, Error::NotSupported));
+        assert!(matches!(refused, Error::CancellationNotSupported));
 
         // A refusal installs no intent, so a retry is refused the same way.
         let refused = wait!(moving.cancel())
             .expect_err("the retry is refused on the same profile grounds");
-        assert!(matches!(refused, Error::NotSupported));
+        assert!(matches!(refused, Error::CancellationNotSupported));
 
         // No cancellation frame was ever written, and the original is still
         // live.
@@ -112,7 +113,7 @@ facade_matrix! {
     fn refused_cancel_leaves_the_handle_observing_and_stop_available() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         // A continuous zoom: the axis keeps moving until something stops it.
         let mut moving = wait!(camera.zoom().tele()).expect("continuous zoom admitted");
@@ -123,12 +124,12 @@ facade_matrix! {
         // the handle, so the refusal leaves it in the caller's hands.
         let refused = wait!(moving.cancel())
             .expect_err("G2 sent cancellation must be rejected by profile policy");
-        assert!(matches!(refused, Error::NotSupported));
+        assert!(matches!(refused, Error::CancellationNotSupported));
 
         // A refusal installs no intent, so a retry is refused the same way.
         let refused = wait!(moving.cancel())
             .expect_err("the retry is refused on the same profile grounds");
-        assert!(matches!(refused, Error::NotSupported));
+        assert!(matches!(refused, Error::CancellationNotSupported));
 
         // No cancellation frame was ever written.
         assert_eq!(fake.writes(), vec![ZOOM_TELE.to_vec()]);
@@ -164,12 +165,12 @@ facade_matrix! {
     fn handle_can_be_detached_after_a_refused_cancel() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         let mut moving = wait!(camera.zoom().tele()).expect("continuous zoom admitted");
         wait_for_writes!(fake, 1);
 
-        assert!(matches!(wait!(moving.cancel()), Err(Error::NotSupported)));
+        assert!(matches!(wait!(moving.cancel()), Err(Error::CancellationNotSupported)));
         moving.detach();
 
         // Detaching relinquishes observation only, exactly as it does for a
@@ -197,7 +198,7 @@ facade_matrix! {
     fn queued_cancel_concludes_cancelled_on_every_profile() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
 
         // Occupy both G2 command sockets so the third submission is
         // unambiguously still queued when it is cancelled.
@@ -231,27 +232,35 @@ facade_matrix! {
 /// The dynamic projection erases the completion marker but not the contract:
 /// a refused cancellation leaves the dynamic handle observing too.
 #[cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-async fn dyn_refused_cancel_leaves_the_handle_observing<E: grafton_visca::Executor>(executor: E) {
-    use grafton_visca::request::builtin::ZoomDrive;
-
+async fn runtime_profile_refused_cancel_leaves_the_handle_observing<
+    E: grafton_visca::runtime::Executor,
+>(
+    executor: E,
+) {
     let fake = FakeCamera::silent();
-    let session = grafton_visca::Session::open(fake.async_wire(), g2_config(), executor.clone())
-        .await
-        .expect("owner session");
-    let camera = session.camera_dyn().expect("dynamic G2 camera");
+    let session =
+        grafton_visca::r#async::Session::open(fake.async_wire(), &g2_config(), executor.clone())
+            .await
+            .expect("owner session");
+    let camera = session
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("dynamic G2 camera");
 
     let mut moving = camera
-        .submit_applied(&ZoomDrive::Tele)
+        .submit(&grafton_visca::command::zoom::Tele)
         .await
         .expect("continuous zoom admitted");
     fake.wait_for_writes_async(&executor, 1).await;
     fake.push(frames::ack(1));
     fake.wait_for_reads_async(&executor, 1).await;
 
-    assert!(matches!(moving.cancel().await, Err(Error::NotSupported)));
+    assert!(matches!(
+        moving.cancel().await,
+        Err(Error::CancellationNotSupported)
+    ));
 
     fake.push(frames::complete(1));
     executor
@@ -265,10 +274,12 @@ async fn dyn_refused_cancel_leaves_the_handle_observing<E: grafton_visca::Execut
 }
 
 #[cfg(all(
-    feature = "dyn-api",
+    any(feature = "async", feature = "blocking"),
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-grafton_visca_test_support::runtime_matrix!(dyn_refused_cancel_leaves_the_handle_observing);
+grafton_visca_test_support::runtime_matrix!(
+    runtime_profile_refused_cancel_leaves_the_handle_observing
+);
 
 #[test]
 fn the_profile_used_here_declares_no_socket_cancel() {

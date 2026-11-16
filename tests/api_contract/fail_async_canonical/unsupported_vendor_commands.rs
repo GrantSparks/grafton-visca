@@ -1,4 +1,4 @@
-use grafton_visca::{profiles::GenericVisca, Camera};
+use grafton_visca::{profiles::GenericVisca, r#async::Camera};
 
 fn main() {
     let camera: Option<Camera<GenericVisca>> = None;
@@ -6,28 +6,28 @@ fn main() {
 
     let _ = camera
         .exposure()
-        .set_anti_flicker(grafton_visca::command::AntiFlickerMode::Hz50);
-    let _ = camera.exposure().flicker_mode();
+        .set_anti_flicker(grafton_visca::types::AntiFlickerMode::Hz50);
+    let _ = camera.exposure().anti_flicker();
     let _ = camera.system().save_settings();
-    let _ = camera.presets().set_recall_speed(
-        grafton_visca::command::PresetSpeed::new(12).expect("valid recall speed"),
-    );
-    let _ = camera.exposure().spotlight_on();
-    let _ = camera.exposure().spotlight_off();
-    let _ = camera.exposure().auto_slow_shutter_on();
-    let _ = camera.exposure().auto_slow_shutter_off();
-    let _ = camera.advanced().multicast_on();
-    let _ = camera.advanced().multicast_off();
     let _ = camera
-        .advanced()
+        .presets()
+        .set_recall_speed(grafton_visca::types::PresetSpeed::new(12).expect("valid recall speed"));
+    let _ = camera.exposure().set_spotlight(true);
+    let _ = camera.exposure().set_spotlight(false);
+    let _ = camera.exposure().set_auto_slow_shutter(true);
+    let _ = camera.exposure().set_auto_slow_shutter(false);
+    let _ = camera.streaming().set_multicast(true);
+    let _ = camera.streaming().set_multicast(false);
+    let _ = camera
+        .streaming()
         .set_ndi_quality(grafton_visca::types::NdiQuality::High);
 }
 
 //~ E0277
-//~ "does not declare PTZOptics anti-flicker support"
-//~ "does not declare PTZOptics settings-save support"
-//~ "does not declare PTZOptics preset-recall speed support"
-//~ "does not declare Sony spotlight support"
-//~ "does not declare Sony auto slow-shutter support"
-//~ "does not declare PTZOptics multicast-streaming support"
-//~ "does not declare PTZOptics NDI-quality support"
+//~ "camera profile `grafton_visca::profiles::GenericVisca` does not support `grafton_visca::capabilities::gate::AntiFlicker`"
+//~ "camera profile `grafton_visca::profiles::GenericVisca` does not support `grafton_visca::capabilities::gate::SettingsSave`"
+//~ "camera profile `grafton_visca::profiles::GenericVisca` does not support `grafton_visca::capabilities::gate::Spotlight`"
+//~ "camera profile `grafton_visca::profiles::GenericVisca` does not support `grafton_visca::capabilities::gate::AutoSlowShutter`"
+//~ "camera profile `grafton_visca::profiles::GenericVisca` does not support `grafton_visca::capabilities::gate::MulticastStreaming`"
+//~ "camera profile `grafton_visca::profiles::GenericVisca` does not support `grafton_visca::capabilities::gate::NdiQuality`"
+//~ "camera profile `grafton_visca::profiles::GenericVisca` does not support `grafton_visca::capabilities::gate::PresetRecallSpeed`"

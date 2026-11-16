@@ -6,14 +6,14 @@ use std::{
     panic::{RefUnwindSafe, UnwindSafe},
 };
 
-use grafton_visca::Executor;
+use grafton_visca::runtime::Executor;
 
 fn stable_join<J: Send + Sync + Unpin + UnwindSafe + RefUnwindSafe>() {}
 
 fn main() {
     #[cfg(feature = "runtime-smol")]
     {
-        use grafton_visca::{SmolExecutor, SmolRuntime};
+        use grafton_visca::{runtime::SmolExecutor, runtime::SmolRuntime};
 
         stable_join::<<SmolExecutor as Executor>::Join<u8>>();
         stable_join::<<SmolRuntime as Executor>::Join<u8>>();
@@ -25,7 +25,7 @@ fn main() {
 
     #[cfg(feature = "runtime-tokio")]
     {
-        use grafton_visca::{TokioExecutor, TokioRuntime};
+        use grafton_visca::{runtime::TokioExecutor, runtime::TokioRuntime};
 
         stable_join::<<TokioExecutor as Executor>::Join<u8>>();
         stable_join::<<TokioRuntime as Executor>::Join<u8>>();

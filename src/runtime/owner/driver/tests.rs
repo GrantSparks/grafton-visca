@@ -85,9 +85,9 @@ impl State {
     fn prepare_write(&mut self, _staged: &()) -> Result<(), crate::Error> {
         self.trace.borrow_mut().push("prepare_write");
         if self.refuse_write {
-            Err(crate::Error::InvalidRequest(
-                "test admission refusal".into(),
-            ))
+            Err(crate::Error::InvalidRequest {
+                reason: "test admission refusal".into(),
+            })
         } else {
             Ok(())
         }

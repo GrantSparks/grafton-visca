@@ -17,10 +17,7 @@ use crate::{
     command,
     noun_facade::{static_motion_facade, static_noun_facade},
     noun_table::{motion_table, noun_table},
-    request::builtin,
     types,
-    units::{Degrees, UnitInterval},
-    ZoomDomain,
 };
 
 use super::{BlockingCameraCore, Camera, Operation};

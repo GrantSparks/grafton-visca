@@ -18,8 +18,81 @@ use std::{
 
 use grafton_visca::{
     blocking::{Camera, CameraSession},
-    Certainty, CompileTimeProfile, Error, ErrorKind, PresetNumber,
+    capabilities::{gate, Permits},
+    config::{CameraConfig, TransportOptions},
+    error::{Certainty, ErrorKind},
+    profiles::{AnyProfile, CameraProfile, ProfileId},
+    types::PresetNumber,
+    Error,
 };
+
+/// Resolves `VISCA_PROFILE` through the generated built-in identifier parser.
+///
+/// The existing G2 bench remains the default when the variable is absent or
+/// empty. Every explicit value is a canonical `snake_case` identifier; invalid
+/// values fail before a session can open. This helper needs no serde feature.
+pub fn selected_profile() -> ProfileId {
+    let value = match env::var("VISCA_PROFILE") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => panic!("cannot read VISCA_PROFILE: {error}"),
+    };
+    parse_profile(value.as_deref()).unwrap_or_else(|error| panic!("invalid VISCA_PROFILE: {error}"))
+}
+
+fn parse_profile(value: Option<&str>) -> Result<ProfileId, Error> {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value.parse(),
+        None => Ok(ProfileId::PtzOpticsG2),
+    }
+}
+
+/// Builds a runtime-profile camera configuration for an explicit transport.
+///
+/// Motion, fault and wire-regression scenarios keep their selected transport
+/// and port. `CameraSession::connect` validates that choice before network I/O.
+pub fn camera_config(transport: TransportOptions) -> CameraConfig<AnyProfile> {
+    let id = selected_profile();
+    eprintln!("Hardware profile: {}", id.as_str());
+    CameraConfig::new(id, transport)
+}
+
+/// Selects an allowed network transport for general hardware inquiries.
+///
+/// TCP is preferred when available, otherwise UDP is used. The selected
+/// profile supplies its registered port and envelope. Serial-only profiles
+/// require a serial harness instead of the `VISCA_CAMERA_IP` network harness.
+pub fn network_config(address: impl Into<String>) -> CameraConfig<AnyProfile> {
+    let id = selected_profile();
+    let profile = id.spec().expect("built-in profile validation");
+    let transports = profile.transports();
+    let address = address.into();
+    let transport = if transports.tcp_port().is_some() {
+        TransportOptions::tcp(address)
+    } else if transports.udp_port().is_some() {
+        TransportOptions::udp(address)
+    } else {
+        panic!(
+            "VISCA_PROFILE={} has no network transport for VISCA_CAMERA_IP",
+            id.as_str()
+        );
+    };
+    eprintln!("Hardware profile: {}", id.as_str());
+    CameraConfig::new(id, transport)
+}
+
+/// Profile permissions required by the shared hardware restoration helpers.
+///
+/// Typed cameras provide source-backed grants; runtime cameras validate the
+/// registered profile before any STOP or preset recall reaches the wire.
+pub trait HardwareProfile:
+    CameraProfile + Permits<gate::PanTilt> + Permits<gate::Zoom> + Permits<gate::Presets>
+{
+}
+impl<P> HardwareProfile for P where
+    P: CameraProfile + Permits<gate::PanTilt> + Permits<gate::Zoom> + Permits<gate::Presets>
+{
+}
 
 /// Bound for waiting on a guard STOP or another handle observation.
 pub const HANDLE_WAIT: Duration = Duration::from_secs(2);
@@ -128,7 +201,7 @@ impl Checks {
 }
 
 /// Closes a blocking session and prints the result.
-pub fn close_session<P: CompileTimeProfile>(hw: &impl HwLog, session: CameraSession<P>) {
+pub fn close_session<P: CameraProfile>(hw: &impl HwLog, session: CameraSession<P>) {
     let result = session.close();
     observe(hw, "session.close", &result);
 }
@@ -136,13 +209,13 @@ pub fn close_session<P: CompileTimeProfile>(hw: &impl HwLog, session: CameraSess
 /// Sends pan/tilt STOP and zoom STOP, waits for each to be applied, then
 /// recalls preset 1 unless the test already attempted that recall. Every step
 /// is best effort: `Drop` cannot report and may run while unwinding.
-pub struct MotionGuard<'a, P: CompileTimeProfile, L: HwLog> {
+pub struct MotionGuard<'a, P: HardwareProfile, L: HwLog> {
     pub camera: &'a Camera<P>,
     pub hw: L,
     pub recall_attempted: &'a Cell<bool>,
 }
 
-impl<P: CompileTimeProfile, L: HwLog> Drop for MotionGuard<'_, P, L> {
+impl<P: HardwareProfile, L: HwLog> Drop for MotionGuard<'_, P, L> {
     fn drop(&mut self) {
         let hw = &self.hw;
         hw!(hw, "guard.begin");
@@ -167,7 +240,7 @@ impl<P: CompileTimeProfile, L: HwLog> Drop for MotionGuard<'_, P, L> {
 }
 
 /// Recalls preset 1 and waits for its settlement. Never retried.
-fn restore_preset_one<P: CompileTimeProfile>(camera: &Camera<P>, hw: &impl HwLog, label: &str) {
+fn restore_preset_one<P: HardwareProfile>(camera: &Camera<P>, hw: &impl HwLog, label: &str) {
     let result = PresetNumber::new(1)
         .and_then(|preset| camera.presets().recall(preset))
         .and_then(|mut operation| operation.settled());
@@ -175,7 +248,7 @@ fn restore_preset_one<P: CompileTimeProfile>(camera: &Camera<P>, hw: &impl HwLog
 }
 
 /// Reads pan/tilt and zoom positions and prints the `RESTORED` line.
-pub fn report_restored<P: CompileTimeProfile>(camera: &Camera<P>, hw: &impl HwLog) {
+pub fn report_restored<P: HardwareProfile>(camera: &Camera<P>, hw: &impl HwLog) {
     let pan_tilt = camera.pan_tilt().position();
     let zoom = camera.zoom().position();
     observe(hw, "restored.pan_tilt", &pan_tilt);
@@ -193,7 +266,7 @@ pub fn report_restored<P: CompileTimeProfile>(camera: &Camera<P>, hw: &impl HwLo
 
 /// Explicit end-of-test restore: recall preset 1 (marking it attempted so the
 /// guard does not repeat it), then print the restored positions.
-pub fn restore_and_report<P: CompileTimeProfile>(
+pub fn restore_and_report<P: HardwareProfile>(
     camera: &Camera<P>,
     hw: &impl HwLog,
     attempted: &Cell<bool>,
@@ -201,4 +274,34 @@ pub fn restore_and_report<P: CompileTimeProfile>(
     attempted.set(true);
     restore_preset_one(camera, hw, "restore.preset1");
     report_restored(camera, hw);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_profile, HardwareProfile};
+    use grafton_visca::profiles::ProfileId;
+
+    #[test]
+    fn hardware_profile_selection_uses_every_generated_id_without_serde() {
+        for id in ProfileId::all() {
+            assert_eq!(parse_profile(Some(id.as_str())).unwrap(), *id);
+        }
+    }
+
+    #[test]
+    fn hardware_profile_default_and_invalid_inputs_stay_explicit() {
+        for input in [None, Some(""), Some("  ")] {
+            assert_eq!(parse_profile(input).unwrap(), ProfileId::PtzOpticsG2);
+        }
+        for invalid in ["g2", "30x", "not_a_profile", "PtzOpticsG2"] {
+            assert!(parse_profile(Some(invalid)).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn hardware_helpers_accept_typed_and_runtime_profile_permissions() {
+        fn has_restoration_permissions<P: HardwareProfile>() {}
+        has_restoration_permissions::<grafton_visca::profiles::PtzOpticsG2>();
+        has_restoration_permissions::<grafton_visca::profiles::AnyProfile>();
+    }
 }

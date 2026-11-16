@@ -34,7 +34,7 @@ fn fixture_with_retry(
         unreachable!();
     };
     *applied_state = Some(AppliedStateProjection::set(KnownState::TallyBrightness(
-        true,
+        crate::types::TallyBrightness::High,
     )));
     let admitted_effects = engine.handle_turn(
         Input::Admit {
@@ -147,9 +147,9 @@ fn terminal_paths_and_cache_agree_for_every_reachable_prior_history() {
                         Input::TransmissionFinished {
                             request,
                             transmission,
-                            result: WriteOutcome::NotSent(Error::InvalidRequest(
-                                "refused before write".into(),
-                            )),
+                            result: WriteOutcome::NotSent(Error::InvalidRequest {
+                                reason: "refused before write".into(),
+                            }),
                         },
                         now + Duration::from_millis(50),
                     )

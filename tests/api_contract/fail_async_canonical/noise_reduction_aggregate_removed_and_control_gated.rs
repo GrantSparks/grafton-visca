@@ -1,6 +1,6 @@
 #![cfg(feature = "async")]
 
-use grafton_visca::{profiles::PtzOpticsG2, Camera};
+use grafton_visca::{profiles::PtzOpticsG2, r#async::Camera};
 
 fn aggregate_surface_is_still_removed(camera: &Camera<PtzOpticsG2>) {
     let _ = camera.image().noise_reduction_level();

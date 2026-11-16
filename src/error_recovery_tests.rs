@@ -111,9 +111,9 @@ fn cases() -> Vec<Case> {
             capacity
         ),
         case!(
-            CommandCanceled,
+            CommandCancelled,
             "",
-            Error::CommandCanceled,
+            Error::CommandCancelled,
             Cancelled,
             None,
             Abandon
@@ -151,11 +151,20 @@ fn cases() -> Vec<Case> {
             None,
             Abandon
         ),
-        case!(Unknown, "", Error::Unknown(0x7f), Protocol, None, Abandon),
+        case!(
+            Unknown,
+            "",
+            Error::Unknown { code: 0x7f },
+            Protocol,
+            None,
+            Abandon
+        ),
         case!(
             InvalidRequest,
             "",
-            Error::InvalidRequest("request".into()),
+            Error::InvalidRequest {
+                reason: "request".into()
+            },
             InvalidParameter,
             None,
             Abandon
@@ -171,7 +180,9 @@ fn cases() -> Vec<Case> {
         case!(
             ParseError,
             "",
-            Error::ParseError("payload".into()),
+            Error::ParseError {
+                reason: "payload".into()
+            },
             Protocol,
             None,
             Abandon
@@ -188,7 +199,9 @@ fn cases() -> Vec<Case> {
             TransmissionNotSent,
             "first attempt, invalid request",
             Error::TransmissionNotSent {
-                source: Arc::new(Error::InvalidRequest("framing".into())),
+                source: Arc::new(Error::InvalidRequest {
+                    reason: "framing".into()
+                }),
                 context: FailureContext::new(Terminal, NotAccepted)
             },
             InvalidParameter,
@@ -199,7 +212,9 @@ fn cases() -> Vec<Case> {
             TransmissionNotSent,
             "earlier attempt uncertain",
             Error::TransmissionNotSent {
-                source: Arc::new(Error::InvalidRequest("framing".into())),
+                source: Arc::new(Error::InvalidRequest {
+                    reason: "framing".into()
+                }),
                 context: FailureContext::new(Terminal, Unconfirmed)
             },
             InvalidParameter,
@@ -351,9 +366,9 @@ fn cases() -> Vec<Case> {
             Abandon
         ),
         case!(
-            NotSupported,
+            CancellationNotSupported,
             "",
-            Error::NotSupported,
+            Error::CancellationNotSupported,
             Unsupported,
             None,
             Abandon
@@ -361,7 +376,9 @@ fn cases() -> Vec<Case> {
         case!(
             InvalidState,
             "",
-            Error::InvalidState("state".into()),
+            Error::InvalidState {
+                reason: "state".into()
+            },
             NotExecutable,
             None,
             Abandon
@@ -471,9 +488,9 @@ fn cases() -> Vec<Case> {
             Abandon
         ),
         case!(
-            InquiryNotCancelable,
+            InquiryNotCancellable,
             "",
-            Error::InquiryNotCancelable,
+            Error::InquiryNotCancellable,
             InvalidParameter,
             None,
             Abandon
@@ -821,8 +838,8 @@ fn cached_cancellation_keeps_canonical_operation_and_session_outcomes_exact() {
     for source in [
         Error::CancellationUnconfirmed,
         Error::UnsequencedCommandUnconfirmed,
-        Error::NotSupported,
-        Error::InquiryNotCancelable,
+        Error::CancellationNotSupported,
+        Error::InquiryNotCancellable,
         Error::OwnerTerminated,
         Error::RuntimeShutdown,
         Error::timeout(FailureStage::CancellationAttempt, Certainty::StillLive),

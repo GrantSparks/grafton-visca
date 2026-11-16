@@ -11,8 +11,9 @@
 //! 1. `#[ignore]`: the test runs only with `--ignored`.
 //! 2. `VISCA_CAMERA_IPS` must list at least two distinct camera addresses,
 //!    comma-separated, otherwise the test prints a skip line and returns
-//!    (passing). Every camera is driven with the `PtzOpticsG2` profile; raw
-//!    VISCA runs over TCP port 5678 and UDP port 1259.
+//!    (passing). `VISCA_PROFILE` selects the runtime `snake_case` profile id
+//!    for every camera (default `ptzoptics_g2`); sessions use TCP port 5678 and
+//!    UDP port 1259 with the profile's registered envelope.
 //! 3. `hwc04_concurrent_drive_and_stop` additionally requires
 //!    `VISCA_HW_ALLOW_MOTION=1`. `hwc05_one_camera_fault_does_not_stall_others`
 //!    additionally requires `VISCA_HW_FAULT_FLAG` and `VISCA_HW_FAULT_CAMERA`.
@@ -139,14 +140,16 @@ use std::{
 };
 
 use grafton_visca::{
-    blocking::{Camera, CameraSession, Connect, Operation},
-    camera::{profiles::PtzOpticsG2, IdleWait, PanTiltUnits},
-    command::PanTiltDirection,
-    completion,
+    blocking::{Camera, CameraSession, Operation},
+    observability::{MetricsSnapshot, SessionStatus},
+    profiles::AnyProfile,
+    r#async::{Camera as AsyncCamera, CameraSession as AsyncCameraSession},
     runtime::TokioRuntime,
-    types::{FocusPosition, PanSpeed, TiltSpeed, ZoomPosition},
-    AffectedAxes, Camera as AsyncCamera, CameraSession as AsyncCameraSession,
-    Connect as AsyncConnect, Error, FocusMode, MetricsSnapshot, SessionStatus,
+    types::{
+        AffectedAxes, FocusMode, FocusPosition, IdleWait, PanSpeed, PanTiltDirection, PanTiltUnits,
+        TiltSpeed, ZoomPosition,
+    },
+    Error,
 };
 
 use hardware::{
@@ -228,7 +231,11 @@ fn camera_ips(hw: &Hw, test: &str) -> Option<Vec<String>> {
         ips.len(),
         "VISCA_CAMERA_IPS lists an address more than once: {ips:?}"
     );
-    hw!(hw, "cameras={ips:?} profile=PtzOpticsG2");
+    hw!(
+        hw,
+        "cameras={ips:?} profile={}",
+        hardware::selected_profile().as_str()
+    );
     Some(ips)
 }
 
@@ -258,12 +265,16 @@ impl Transport {
     }
 }
 
-fn open_blocking(cam: &CamHw, transport: Transport) -> CameraSession<PtzOpticsG2> {
+fn open_blocking(cam: &CamHw, transport: Transport) -> CameraSession<AnyProfile> {
     let address = transport.address(&cam.ip);
     hw!(cam, "connect.{}={address}", transport.label());
     let session = match transport {
-        Transport::Tcp => Connect::open_tcp::<PtzOpticsG2>(address),
-        Transport::Udp => Connect::open_udp::<PtzOpticsG2>(address),
+        Transport::Tcp => grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+            &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(address)),
+        ),
+        Transport::Udp => grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+            &hardware::camera_config(grafton_visca::config::TransportOptions::udp(address)),
+        ),
     };
     session.unwrap_or_else(|error| panic!("cam={}: open session failed: {error}", cam.ip))
 }
@@ -271,7 +282,7 @@ fn open_blocking(cam: &CamHw, transport: Transport) -> CameraSession<PtzOpticsG2
 /// The inquiry set, read once.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Snapshot {
-    power_status: grafton_visca::PowerStatus,
+    power_status: grafton_visca::types::PowerStatus,
     zoom: ZoomPosition,
     focus: FocusPosition,
     pan_tilt: PanTiltUnits,
@@ -346,15 +357,17 @@ fn timed<T>(
 }
 
 fn read_blocking(
-    camera: &Camera<PtzOpticsG2>,
+    camera: &Camera<AnyProfile>,
     cam: &CamHw,
     latencies: &mut Vec<Duration>,
 ) -> Result<Snapshot, Error> {
     Ok(Snapshot {
-        power_status: timed(cam, "power", latencies, || camera.power().state())?,
+        power_status: timed(cam, "power", latencies, || camera.power().status())?,
         zoom: timed(cam, "zoom", latencies, || camera.zoom().position())?,
         focus: timed(cam, "focus", latencies, || camera.focus().position())?,
-        pan_tilt: timed(cam, "pan_tilt", latencies, || camera.pan_tilt().position())?,
+        pan_tilt: timed(cam, "pan_tilt", latencies, || {
+            camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry)
+        })?,
         focus_mode: timed(cam, "focus_mode", latencies, || camera.focus().mode())?,
     })
 }
@@ -377,15 +390,21 @@ async fn timed_async<T>(
 }
 
 async fn read_async(
-    camera: &AsyncCamera<PtzOpticsG2>,
+    camera: &AsyncCamera<AnyProfile>,
     cam: &CamHw,
     latencies: &mut Vec<Duration>,
 ) -> Result<Snapshot, Error> {
     Ok(Snapshot {
-        power_status: timed_async(cam, "power", latencies, camera.power().state()).await?,
+        power_status: timed_async(cam, "power", latencies, camera.power().status()).await?,
         zoom: timed_async(cam, "zoom", latencies, camera.zoom().position()).await?,
         focus: timed_async(cam, "focus", latencies, camera.focus().position()).await?,
-        pan_tilt: timed_async(cam, "pan_tilt", latencies, camera.pan_tilt().position()).await?,
+        pan_tilt: timed_async(
+            cam,
+            "pan_tilt",
+            latencies,
+            camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry),
+        )
+        .await?,
         focus_mode: timed_async(cam, "focus_mode", latencies, camera.focus().mode()).await?,
     })
 }
@@ -394,7 +413,7 @@ async fn read_async(
 /// before any concurrent work starts.
 struct Member {
     cam: CamHw,
-    session: CameraSession<PtzOpticsG2>,
+    session: CameraSession<AnyProfile>,
     baseline: Snapshot,
     /// Median inquiry latency of the sequential baseline read.
     baseline_p50: Duration,
@@ -411,7 +430,10 @@ impl Member {
             .unwrap_or_else(|error| panic!("cam={ip}: metrics failed: {error}"));
         let camera = session.camera();
         settle_before_baseline(&cam, || {
-            Ok((camera.pan_tilt().position()?, camera.zoom().position()?))
+            Ok((
+                camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry)?,
+                camera.zoom().position()?,
+            ))
         });
         let mut latencies = Vec::new();
         let baseline = read_blocking(camera, &cam, &mut latencies);
@@ -439,7 +461,7 @@ impl Member {
 
 struct AsyncMember {
     cam: CamHw,
-    session: AsyncCameraSession<PtzOpticsG2>,
+    session: AsyncCameraSession<AnyProfile>,
     baseline: Snapshot,
     before: MetricsSnapshot,
 }
@@ -449,9 +471,12 @@ impl AsyncMember {
         let cam = CamHw::new(hw, ip);
         let address = Transport::Tcp.address(ip);
         hw!(cam, "connect.tcp={address}");
-        let session = AsyncConnect::open_tcp::<PtzOpticsG2, _>(address, runtime)
-            .await
-            .unwrap_or_else(|error| panic!("cam={ip}: open async session failed: {error}"));
+        let session = grafton_visca::r#async::CameraSession::<AnyProfile>::connect(
+            &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(address)),
+            runtime,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("cam={ip}: open async session failed: {error}"));
         let before = session
             .session()
             .metrics()
@@ -465,7 +490,9 @@ impl AsyncMember {
             settle_before_baseline(&cam, || {
                 handle.block_on(async {
                     Ok((
-                        camera.pan_tilt().position().await?,
+                        camera
+                            .inquire(&grafton_visca::command::pan_tilt::PositionInquiry)
+                            .await?,
                         camera.zoom().position().await?,
                     ))
                 })
@@ -793,7 +820,7 @@ impl Drive {
 
     fn run(
         self,
-        camera: &Camera<PtzOpticsG2>,
+        camera: &Camera<AnyProfile>,
         cam: &CamHw,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
@@ -806,9 +833,13 @@ impl Drive {
                 label,
                 AffectedAxes::PAN_TILT,
                 || {
-                    camera
-                        .pan_tilt()
-                        .move_direction(PanTiltDirection::Right, pan_speed, tilt_speed)
+                    camera.pan_tilt().drive(
+                        PanTiltDirection::Right,
+                        grafton_visca::types::PanTiltSpeed {
+                            pan: pan_speed,
+                            tilt: tilt_speed,
+                        },
+                    )
                 },
                 || camera.pan_tilt().stop(),
             ),
@@ -836,8 +867,8 @@ impl Drive {
 /// applied, returns the wall time from the drive's submission to the STOP's.
 /// The drive outcome and the protocol idle wait are printed, not asserted;
 /// physical rest is sampled separately.
-fn drive_then_stop<D: completion::Kind, S: completion::Kind>(
-    camera: &Camera<PtzOpticsG2>,
+fn drive_then_stop<D: grafton_visca::operation::Kind, S: grafton_visca::operation::Kind>(
+    camera: &Camera<AnyProfile>,
     cam: &CamHw,
     label: &str,
     axes: AffectedAxes,
@@ -877,13 +908,13 @@ fn drive_then_stop<D: completion::Kind, S: completion::Kind>(
 /// the restore so the test still fails. This keeps the plain `std` barrier;
 /// a timed barrier would need a hand-rolled primitive and a timeout tuned
 /// against drive, STOP and idle-wait durations.
-fn concurrent_motion(camera: &Camera<PtzOpticsG2>, cam: &CamHw, barrier: &Barrier) -> Checks {
+fn concurrent_motion(camera: &Camera<AnyProfile>, cam: &CamHw, barrier: &Barrier) -> Checks {
     let mut checks = Checks::default();
     let recall_attempted = Cell::new(false);
     let mut panicked = None;
 
     let ready = catch_unwind(AssertUnwindSafe(|| {
-        let before = camera.pan_tilt().position();
+        let before = camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry);
         observe(cam, "pan_tilt.before", &before);
         let speeds = PanSpeed::new(1).and_then(|pan| TiltSpeed::new(1).map(|tilt| (pan, tilt)));
         observe(cam, "speeds", &speeds);
@@ -943,7 +974,10 @@ fn concurrent_motion(camera: &Camera<PtzOpticsG2>, cam: &CamHw, barrier: &Barrie
     }
 
     let stable = sample_rest(cam, "pan_tilt+zoom", REST_SAMPLES, REST_INTERVAL, || {
-        Ok((camera.pan_tilt().position()?, camera.zoom().position()?))
+        Ok((
+            camera.inquire(&grafton_visca::command::pan_tilt::PositionInquiry)?,
+            camera.zoom().position()?,
+        ))
     });
     checks.check(cam, "rest_stable", stable);
 
@@ -970,7 +1004,7 @@ fn hwc04_concurrent_drive_and_stop() {
     if !opted_in(&hw, TEST, "VISCA_HW_ALLOW_MOTION") {
         return;
     }
-    let sessions: Vec<(CamHw, CameraSession<PtzOpticsG2>)> = ips
+    let sessions: Vec<(CamHw, CameraSession<AnyProfile>)> = ips
         .iter()
         .map(|ip| {
             let cam = CamHw::new(hw, ip);
@@ -1080,7 +1114,7 @@ fn faulted_camera(
     let mut index = 0usize;
     while flag.exists() && fault_started.elapsed() < FAULT_HOLD_LIMIT {
         if !session_dead {
-            let result = session.camera().power().state();
+            let result = session.camera().power().status();
             observe(&cam, &format!("during_fault[{index}]"), &result);
             if let Err(error) = &result {
                 report.errors += 1;
@@ -1121,7 +1155,7 @@ fn faulted_camera(
     if !session_dead {
         let mut attempt = 0usize;
         while recovery_started.elapsed() < RECOVERY_WINDOW {
-            let result = session.camera().power().state();
+            let result = session.camera().power().status();
             observe(&cam, &format!("recovery.same_session[{attempt}]"), &result);
             attempt += 1;
             match result {
@@ -1141,9 +1175,13 @@ fn faulted_camera(
         let address = Transport::Tcp.address(&cam.ip);
         let mut attempt = 0usize;
         while recovered_via.is_none() && recovery_started.elapsed() < 2 * RECOVERY_WINDOW {
-            match Connect::open_tcp::<PtzOpticsG2>(address.clone()) {
+            match grafton_visca::blocking::CameraSession::<AnyProfile>::connect(
+                &hardware::camera_config(grafton_visca::config::TransportOptions::tcp(
+                    address.clone(),
+                )),
+            ) {
                 Ok(fresh) => {
-                    let result = fresh.camera().power().state();
+                    let result = fresh.camera().power().status();
                     observe(&cam, &format!("recovery.new_session[{attempt}]"), &result);
                     if result.is_ok() {
                         recovered_via = Some(format!("new_session attempts={}", attempt + 1));

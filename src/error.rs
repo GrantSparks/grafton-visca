@@ -2,10 +2,10 @@
 //!
 //! [`Error::recovery`] combines session validity, request certainty and the
 //! temporary condition into one typed verdict. [`Error::kind`] and
-//! [`Error::failure_context`] remain reporting facts. Only [`Recovery::Resubmit`]
+//! [`Error::failure_context`] remain reporting facts. Only [`crate::error::Recovery::Resubmit`]
 //! permits automatically submitting the request again. An unanswered heartbeat
 //! remains an application policy decision: compare
-//! [`MetricsSnapshot::received_frames`](crate::MetricsSnapshot::received_frames)
+//! [`crate::observability::MetricsSnapshot::received_frames`](crate::observability::MetricsSnapshot::received_frames)
 //! around bounded activity and impose a silence threshold.
 //!
 //! ## Checked recovery matrix
@@ -21,7 +21,7 @@
 //! | `Io / other OS error` | `Other` | — | `Abandon` |
 //! | `SyntaxError` | `InvalidParameter` | — | `Abandon` |
 //! | `CommandBufferFull` | `BufferFull` | — | `Resubmit after 200ms` |
-//! | `CommandCanceled` | `Cancelled` | — | `Abandon` |
+//! | `CommandCancelled` | `Cancelled` | — | `Abandon` |
 //! | `NoSocket` | `BufferFull` | — | `Resubmit after 200ms` |
 //! | `CommandNotExecutable` | `NotExecutable` | — | `Abandon` |
 //! | `InvalidResponseFormat` | `Protocol` | — | `Abandon` |
@@ -50,7 +50,7 @@
 //! | `ControlReserveExhausted` | `BufferFull` | — | `Resubmit after 200ms` |
 //! | `InquiryShapeCapacityExhausted` | `BufferFull` | PreAdmission / NotAccepted | `Abandon` |
 //! | `MaxRetriesExceeded` | `Timeout` | — | `Abandon` |
-//! | `NotSupported` | `Unsupported` | — | `Abandon` |
+//! | `CancellationNotSupported` | `Unsupported` | — | `Abandon` |
 //! | `InvalidState` | `NotExecutable` | — | `Abandon` |
 //! | `OwnerTerminated` | `IoClosed` | — | `ReopenSession` |
 //! | `DiagnosticSubscriberLimit` | `Other` | — | `Abandon` |
@@ -65,7 +65,7 @@
 //! | `StreamPoisoned` | `IoClosed` | — | `ReopenSession` |
 //! | `InvalidCameraId` | `InvalidParameter` | — | `Abandon` |
 //! | `ResponseTooLarge` | `Protocol` | — | `Abandon` |
-//! | `InquiryNotCancelable` | `InvalidParameter` | — | `Abandon` |
+//! | `InquiryNotCancellable` | `InvalidParameter` | — | `Abandon` |
 //! | `InvalidAddress` | `InvalidParameter` | — | `Abandon` |
 //! | `UnsupportedTransport` | `Unsupported` | — | `Abandon` |
 //! | `MissingRuntime` | `Unsupported` | — | `Abandon` |
@@ -94,7 +94,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 ///
 /// # Example
 /// ```rust
-/// use grafton_visca::{Error, ErrorKind};
+/// use grafton_visca::{error::ErrorKind, Error};
 ///
 /// fn handle_error(error: Error) {
 ///     match error.kind() {
@@ -106,6 +106,13 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum ErrorKind {
     /// Operation timed out before completion.
@@ -189,7 +196,7 @@ pub enum ErrorKind {
 /// transport death from deliberate shutdown. A per-request correlation failure
 /// for an unsequenced command on a raw-VISCA envelope is different:
 /// [`Error::UnsequencedCommandUnconfirmed`] has
-/// [`ErrorKind::Unconfirmed`] and does not by itself make the session unusable.
+/// [`crate::error::ErrorKind::Unconfirmed`] and does not by itself make the session unusable.
 ///
 /// # VISCA Error Codes
 ///
@@ -197,7 +204,7 @@ pub enum ErrorKind {
 /// - `0x01` → `MessageLengthError` - Message length incorrect
 /// - `0x02` → `SyntaxError` - Command format invalid
 /// - `0x03` → `CommandBufferFull` - Camera busy (always retryable)
-/// - `0x04` → `CommandCanceled` - Command was canceled
+/// - `0x04` → `CommandCancelled` - Command was canceled
 /// - `0x05` → `NoSocket` - No socket available
 /// - `0x41` → `CommandNotExecutable` - Command invalid in current state
 ///
@@ -208,7 +215,7 @@ pub enum ErrorKind {
 /// One recipe applies to every error:
 ///
 /// ```rust
-/// use grafton_visca::{Error, Recovery};
+/// use grafton_visca::{error::Recovery, Error};
 ///
 /// fn next_step(error: &Error) -> &'static str {
 ///     match error.recovery() {
@@ -221,8 +228,14 @@ pub enum ErrorKind {
 ///     }
 /// }
 ///
-/// assert_eq!(next_step(&Error::CommandPending), "observe the existing operation");
-/// assert_eq!(next_step(&Error::io_timeout()), "inspect camera state before deciding");
+/// assert_eq!(
+///     next_step(&Error::CommandPending),
+///     "observe the existing operation"
+/// );
+/// assert_eq!(
+///     next_step(&Error::io_timeout()),
+///     "inspect camera state before deciding"
+/// );
 /// ```
 #[derive(ThisError, Debug, Clone)]
 #[non_exhaustive]
@@ -276,8 +289,12 @@ pub enum Error {
     },
 
     /// Underlying IO error from network operations.
-    #[error("IO error: {0}")]
-    Io(#[source] Arc<io::Error>),
+    #[error("IO error: {source}")]
+    Io {
+        /// The original operating-system error.
+        #[source]
+        source: Arc<io::Error>,
+    },
 
     /// VISCA protocol syntax error (0x02): Command format is incorrect or parameters are illegal.
     #[error("Syntax error in VISCA command")]
@@ -289,7 +306,7 @@ pub enum Error {
 
     /// VISCA protocol command canceled (0x04): Command was canceled in the specified socket.
     #[error("Command was canceled")]
-    CommandCanceled,
+    CommandCancelled,
 
     /// VISCA protocol no socket error (0x05): No command is executing in the specified socket.
     #[error("No socket available")]
@@ -334,24 +351,33 @@ pub enum Error {
     UnexpectedResponseType,
 
     /// Received an unknown error code from the camera.
-    #[error("Unknown error code: {0:#04X}")]
-    Unknown(u8),
+    #[error("Unknown error code: {code:#04X}")]
+    Unknown {
+        /// The camera's unrecognized error code.
+        code: u8,
+    },
 
     /// Invalid request to socket manager.
-    #[error("Invalid request: {0}")]
-    InvalidRequest(Cow<'static, str>),
+    #[error("Invalid request: {reason}")]
+    InvalidRequest {
+        /// Why the request cannot be admitted or encoded.
+        reason: Cow<'static, str>,
+    },
 
     /// Message length error (0x01): Message length is incorrect.
     #[error("Message length error")]
     MessageLengthError,
 
     /// Failed to parse response data.
-    #[error("Parse error: {0}")]
-    ParseError(Cow<'static, str>),
+    #[error("Parse error: {reason}")]
+    ParseError {
+        /// Why the response could not be parsed.
+        reason: Cow<'static, str>,
+    },
 
     /// One transport operation failed while the session remains usable.
     ///
-    /// This is an operation-scoped failure with [`ErrorKind::Transport`].
+    /// This is an operation-scoped failure with [`crate::error::ErrorKind::Transport`].
     /// Recovery also respects any request certainty in its source. The receive side remains authoritative for
     /// session death; use [`Self::requires_new_session()`] rather than treating
     /// this error as a reconnect signal. The original cause is retained through
@@ -432,8 +458,8 @@ pub enum Error {
 
     /// A deadline expired.
     ///
-    /// `context` says which deadline (the [`FailureStage`]) and what is known
-    /// about the request's effect (the [`Certainty`]): an admission deadline
+    /// `context` says which deadline (the [`crate::error::FailureStage`]) and what is known
+    /// about the request's effect (the [`crate::error::Certainty`]): an admission deadline
     /// (`PreAdmission`, `NotAccepted`), the engine's protocol lifecycle
     /// (`Terminal`), a cancellation's resolution (`CancellationAttempt`), or
     /// the session's connection (`Session`). A caller's own wait on a request
@@ -453,7 +479,7 @@ pub enum Error {
     /// The request — an operation, a cancellation, a command, or an
     /// inquiry — keeps running under its own deadlines and may still take
     /// effect. Never resubmit it: wait again on the operation handle, or
-    /// observe the existing operation. [`Self::recovery`] returns [`Recovery::WaitAgain`].
+    /// observe the existing operation. [`Self::recovery`] returns [`crate::error::Recovery::WaitAgain`].
     #[error("Wait for operation {operation} timed out; it is still running")]
     #[non_exhaustive]
     ObservationTimeout {
@@ -464,14 +490,14 @@ pub enum Error {
     /// An owner halt superseded older declared motion before it finished.
     ///
     /// `context` reports what is known about the superseded request. Its
-    /// certainty is [`Certainty::NotAccepted`] when no attempt was ever
+    /// certainty is [`crate::error::Certainty::NotAccepted`] when no attempt was ever
     /// written, or when every written attempt was conclusively rejected by
-    /// the camera. Deliberate supersession still returns [`Recovery::Abandon`],
+    /// the camera. Deliberate supersession still returns [`crate::error::Recovery::Abandon`],
     /// so an automatic loop must not undo the halt by resubmitting. It is
-    /// [`Certainty::Unconfirmed`] when an earlier attempt may have reached
+    /// [`crate::error::Certainty::Unconfirmed`] when an earlier attempt may have reached
     /// the camera; reconcile before resubmitting. The stage is
-    /// [`FailureStage::PreAdmission`] when the fence rejected the submission
-    /// itself and [`FailureStage::Terminal`] when it ended an admitted
+    /// [`crate::error::FailureStage::PreAdmission`] when the fence rejected the submission
+    /// itself and [`crate::error::FailureStage::Terminal`] when it ended an admitted
     /// request. Supersession is never proof of physical rest.
     #[error("Motion on {axes:?} was superseded by an owner halt ({})", context.stage)]
     #[non_exhaustive]
@@ -524,11 +550,14 @@ pub enum Error {
 
     /// Operation is not supported by this implementation.
     #[error("Operation not supported")]
-    NotSupported,
+    CancellationNotSupported,
 
     /// Operation cannot be performed in current state.
-    #[error("Invalid state: {0}")]
-    InvalidState(Cow<'static, str>),
+    #[error("Invalid state: {reason}")]
+    InvalidState {
+        /// Why the operation cannot run in the current state.
+        reason: Cow<'static, str>,
+    },
 
     /// Runtime has been shutdown.
     #[error("Runtime has been shutdown")]
@@ -571,10 +600,10 @@ pub enum Error {
     /// is therefore *not* proof of session death:
     /// [`Self::requires_new_session`] is `false`. Reconcile the affected camera
     /// state before deciding whether to resubmit. The strict
-    /// [`SessionConfig::with_strict_unconfirmed_poison`] opt-in instead poisons
+    /// [`crate::config::SessionConfig::with_strict_unconfirmed_poison`] opt-in instead poisons
     /// the whole session, which is surfaced as [`Self::StreamPoisoned`].
     ///
-    /// [`SessionConfig::with_strict_unconfirmed_poison`]: crate::SessionConfig::with_strict_unconfirmed_poison
+    /// [`crate::config::SessionConfig::with_strict_unconfirmed_poison`]: crate::config::SessionConfig::with_strict_unconfirmed_poison
     #[error("Unsequenced command outcome could not be confirmed")]
     UnsequencedCommandUnconfirmed,
 
@@ -585,7 +614,7 @@ pub enum Error {
     /// was written is still owed its reply: the stream loses nothing, and raw
     /// inquiry replies carry no identity, so that late reply would otherwise be
     /// returned as the next inquiry's data. The session waits the profile's
-    /// [`ambiguity_timeout`](crate::profile::ProfileTiming::ambiguity_timeout)
+    /// [`ambiguity_timeout`](crate::profiles::ProfileTiming::ambiguity_timeout)
     /// for it. If it has not arrived by then — a long stall, a camera that
     /// never answers that inquiry, or an absent address — every inquiry to
     /// that camera (and every user-declared
@@ -595,7 +624,7 @@ pub enum Error {
     /// proves it never will.
     ///
     /// Nothing was sent, so the failure context is `Terminal` /
-    /// [`Certainty::NotAccepted`]. It is not retryable on this session: retrying
+    /// [`crate::error::Certainty::NotAccepted`]. It is not retryable on this session: retrying
     /// fails the same way until the lane reopens. The session itself is live —
     /// other cameras are unaffected, and STOPs and other ACK-bearing commands
     /// to this camera are still sent; settlement polling and motion
@@ -633,7 +662,7 @@ pub enum Error {
     /// so that late answer would otherwise acknowledge and complete the next
     /// command. The session discards it on arrival and holds later ordinary
     /// commands to the camera for the profile's
-    /// [`ambiguity_timeout`](crate::profile::ProfileTiming::ambiguity_timeout).
+    /// [`ambiguity_timeout`](crate::profiles::ProfileTiming::ambiguity_timeout).
     /// If it has not arrived by then, every ordinary ACK-bearing and
     /// `CompletionOnly` command to that camera fails with this error without
     /// being written, until it arrives or a later answer from the camera (the
@@ -642,7 +671,7 @@ pub enum Error {
     /// once it has run, is settled only by itself.
     ///
     /// Nothing was sent, so the failure context is `Terminal` /
-    /// [`Certainty::NotAccepted`]. It is not retryable on this session until
+    /// [`crate::error::Certainty::NotAccepted`]. It is not retryable on this session until
     /// the lane reopens. A `NoReply` command to that camera fails with it
     /// too: its possible rejection could not be told from the owed answer.
     /// Conversely a `NoReply` command's own possible rejection, a socketless
@@ -671,7 +700,7 @@ pub enum Error {
     /// or partly executed before failing: a relative move or preset recall may
     /// already have moved. `source` is the camera's exact error. The engine
     /// never writes the command again, and this error is not retryable and
-    /// reports `Terminal` / [`Certainty::Unconfirmed`] whatever the camera's
+    /// reports `Terminal` / [`crate::error::Certainty::Unconfirmed`] whatever the camera's
     /// code would mean before an ACK. Reconcile the camera state before
     /// resubmitting.
     #[error("Camera reported an error after acknowledging the command: {source}")]
@@ -692,9 +721,9 @@ pub enum Error {
     /// its maximum configured depth and cannot accept new commands. This is a
     /// retryable error - callers should back off and retry after a delay.
     ///
-    /// The admission capacity is configurable via [`SessionConfig::admission_capacity`].
+    /// The admission capacity is configurable via [`crate::config::SessionConfig::admission_capacity`].
     ///
-    /// [`SessionConfig::admission_capacity`]: crate::SessionConfig::admission_capacity
+    /// [`crate::config::SessionConfig::admission_capacity`]: crate::config::SessionConfig::admission_capacity
     #[error("Runtime queue full: at capacity ({capacity} pending commands)")]
     #[non_exhaustive]
     RuntimeQueueFull {
@@ -724,7 +753,7 @@ pub enum Error {
     /// The target's bounded declaration set is already reserved by admitted
     /// work or retained correlation evidence. This request was not accepted
     /// and sent no bytes; the session remains usable. Recovery is
-    /// [`Recovery::Abandon`], rather than an automatic capacity retry.
+    /// [`crate::error::Recovery::Abandon`], rather than an automatic capacity retry.
     #[error("Raw inquiry payload-shape capacity exhausted for camera {camera} (maximum {capacity} tracked declarations)")]
     #[non_exhaustive]
     InquiryShapeCapacityExhausted {
@@ -785,7 +814,7 @@ pub enum Error {
     /// holds no socket and completes when its reply arrives, so canceling its
     /// handle fails with this error; wait for the reply or drop the handle.
     #[error("Inquiries cannot be canceled: an inquiry holds no VISCA socket and completes with its reply")]
-    InquiryNotCancelable,
+    InquiryNotCancellable,
 
     /// Invalid network address format.
     #[error("Invalid address: {reason}")]
@@ -827,11 +856,19 @@ pub enum Error {
 /// distinction between a live operation, an uncertain effect, a dead session,
 /// and a deliberate or permanent failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum Recovery {
     /// The request had no effect and a temporary condition allows another attempt.
     Resubmit {
         /// Wait this long before submitting it again.
+        #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
         after: Duration,
     },
     /// The original request is still live; observe its eventual outcome.
@@ -877,7 +914,7 @@ fn conclusive_recovery(kind: ErrorKind) -> Recovery {
 /// # Example
 ///
 /// ```rust
-/// use grafton_visca::{Error, Recovery};
+/// use grafton_visca::{error::Recovery, Error};
 ///
 /// fn next_step(error: &Error) -> &'static str {
 ///     match error.recovery() {
@@ -890,10 +927,23 @@ fn conclusive_recovery(kind: ErrorKind) -> Recovery {
 ///     }
 /// }
 ///
-/// assert_eq!(next_step(&Error::CommandPending), "observe the existing operation");
-/// assert_eq!(next_step(&Error::io_timeout()), "inspect camera state before deciding");
+/// assert_eq!(
+///     next_step(&Error::CommandPending),
+///     "observe the existing operation"
+/// );
+/// assert_eq!(
+///     next_step(&Error::io_timeout()),
+///     "inspect camera state before deciding"
+/// );
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub struct FailureContext {
     /// Which lifecycle stage the failure belongs to.
@@ -912,6 +962,13 @@ impl FailureContext {
 
 /// The lifecycle stage a failure belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum FailureStage {
     /// Before the owner admitted the request.
@@ -947,6 +1004,13 @@ impl fmt::Display for FailureStage {
 /// Submitting the same request again is safe only after [`Self::NotAccepted`]
 /// or [`Self::FailedConclusively`]: in both, the request had no effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum Certainty {
     /// The request was never accepted and has no effect. Submitting it again
@@ -1180,7 +1244,7 @@ impl Error {
     ///
     /// # Examples
     /// ```rust
-    /// use grafton_visca::{Error, ErrorKind};
+    /// use grafton_visca::{error::ErrorKind, Error};
     ///
     /// let error = Error::CommandBufferFull;
     /// assert_eq!(error.kind(), ErrorKind::BufferFull);
@@ -1194,7 +1258,7 @@ impl Error {
             }
 
             // Cancelled: explicit cancellation
-            Self::CommandCanceled => ErrorKind::Cancelled,
+            Self::CommandCancelled => ErrorKind::Cancelled,
 
             // BufferFull: capacity exhaustion; recovery distinguishes its conditions.
             Self::CommandBufferFull
@@ -1205,7 +1269,7 @@ impl Error {
 
             // NotExecutable: command invalid in current state
             Self::CommandNotExecutable
-            | Self::InvalidState(..)
+            | Self::InvalidState { .. }
             | Self::InquiryCorrelationLost { .. }
             | Self::CommandCorrelationLost { .. } => ErrorKind::NotExecutable,
 
@@ -1236,22 +1300,22 @@ impl Error {
             | Self::ParseError { .. }
             | Self::MessageLengthError
             | Self::InvalidResponse { .. }
-            | Self::Unknown(..)
+            | Self::Unknown { .. }
             | Self::ResponseTooLarge { .. } => ErrorKind::Protocol,
 
             // Unsupported: feature/capability not available
-            Self::FeatureNotSupported { .. } | Self::NotSupported | Self::MissingRuntime => {
-                ErrorKind::Unsupported
-            }
+            Self::FeatureNotSupported { .. }
+            | Self::CancellationNotSupported
+            | Self::MissingRuntime => ErrorKind::Unsupported,
 
             // InvalidParameter: caller-supplied value is invalid
             Self::InvalidParameter { .. }
             | Self::ParameterOutOfRange { .. }
             | Self::SyntaxError
-            | Self::InvalidRequest(..)
+            | Self::InvalidRequest { .. }
             | Self::BufferTooSmall { .. }
             | Self::InvalidCameraId { .. }
-            | Self::InquiryNotCancelable { .. }
+            | Self::InquiryNotCancellable { .. }
             | Self::InvalidAddress { .. } => ErrorKind::InvalidParameter,
             Self::UnsupportedTransport { .. } => ErrorKind::Unsupported,
 
@@ -1272,7 +1336,7 @@ impl Error {
             }
 
             // Io: inspect inner io::ErrorKind
-            Self::Io(arc) => match arc.kind() {
+            Self::Io { source: arc } => match arc.kind() {
                 io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => ErrorKind::Timeout,
                 io::ErrorKind::ConnectionRefused => ErrorKind::IoRefused,
                 io::ErrorKind::ConnectionReset
@@ -1289,7 +1353,7 @@ impl Error {
     /// unusable, so recovery must construct a replacement session.
     ///
     /// Transport close, owner termination, explicit shutdown, and poison have
-    /// distinct terminal errors, but they all share [`ErrorKind::IoClosed`]. Matching on
+    /// distinct terminal errors, but they all share [`crate::error::ErrorKind::IoClosed`]. Matching on
     /// the kind therefore cannot separate "the camera dropped the connection"
     /// from "this application asked the runtime to stop". This predicate draws
     /// exactly that line without exposing implementation details:
@@ -1319,7 +1383,7 @@ impl Error {
     ///
     /// # Recovery
     ///
-    /// Keep the reusable [`SessionConfig`], build a fresh transport, and open a
+    /// Keep the reusable [`crate::config::SessionConfig`], build a fresh transport, and open a
     /// new session; the old session, camera views, operation handles, and
     /// subscriptions cannot be rebound to it. The new session's state cache
     /// starts `Unknown` and nothing is resubmitted automatically, so re-query
@@ -1328,7 +1392,7 @@ impl Error {
     /// camera before the connection failed or unsequenced raw-VISCA
     /// correlation was poisoned.
     ///
-    /// [`SessionConfig`]: crate::SessionConfig
+    /// [`crate::config::SessionConfig`]: crate::config::SessionConfig
     ///
     /// # Example
     ///
@@ -1379,19 +1443,19 @@ impl Error {
             | Self::CommandPending
             | Self::InvalidResponse { .. }
             | Self::FeatureNotSupported { .. }
-            | Self::Io(..)
+            | Self::Io { .. }
             | Self::SyntaxError
             | Self::CommandBufferFull
-            | Self::CommandCanceled
+            | Self::CommandCancelled
             | Self::NoSocket
             | Self::CommandNotExecutable
             | Self::InvalidResponseFormat
             | Self::InvalidResponseLength { .. }
             | Self::UnexpectedResponseType
-            | Self::Unknown(..)
-            | Self::InvalidRequest(..)
+            | Self::Unknown { .. }
+            | Self::InvalidRequest { .. }
             | Self::MessageLengthError
-            | Self::ParseError(..)
+            | Self::ParseError { .. }
             | Self::TransportError { .. }
             | Self::TransmissionNotSent { .. }
             | Self::InvalidParameter { .. }
@@ -1402,8 +1466,8 @@ impl Error {
             | Self::MotionSuperseded { .. }
             | Self::SettlementSuperseded { .. }
             | Self::MaxRetriesExceeded
-            | Self::NotSupported
-            | Self::InvalidState(..)
+            | Self::CancellationNotSupported
+            | Self::InvalidState { .. }
             | Self::CancellationUnconfirmed
             | Self::UnsequencedCommandUnconfirmed
             | Self::InquiryCorrelationLost { .. }
@@ -1416,7 +1480,7 @@ impl Error {
             | Self::InquiryShapeCapacityExhausted { .. }
             | Self::InvalidCameraId { .. }
             | Self::ResponseTooLarge { .. }
-            | Self::InquiryNotCancelable
+            | Self::InquiryNotCancellable
             | Self::InvalidAddress { .. }
             | Self::UnsupportedTransport { .. }
             | Self::MissingRuntime => false,
@@ -1443,17 +1507,17 @@ impl Error {
             0x01 => Self::MessageLengthError,
             0x02 => Self::SyntaxError,
             0x03 => Self::CommandBufferFull, // Always retryable
-            0x04 => Self::CommandCanceled,
+            0x04 => Self::CommandCancelled,
             0x05 => Self::NoSocket,
             0x41 => Self::CommandNotExecutable, // Context-dependent retryability
-            _ => Self::Unknown(code),
+            _ => Self::Unknown { code },
         }
     }
 
     /// Returns the complete recovery verdict for this failure.
     ///
     /// The verdict combines session validity, request certainty and whether the
-    /// condition is temporary. Only [`Recovery::Resubmit`] permits submitting
+    /// condition is temporary. Only [`crate::error::Recovery::Resubmit`] permits submitting
     /// the request again; its delay is part of that verdict. An acknowledged or
     /// unconfirmed command is never automatically replayed.
     #[must_use]
@@ -1526,7 +1590,7 @@ impl Error {
             | Self::NoSocket
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. } => CAPACITY,
-            Self::Io(source) => match source.kind() {
+            Self::Io { source } => match source.kind() {
                 io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => TIMEOUT,
                 _ => Recovery::Abandon,
             },
@@ -1534,22 +1598,22 @@ impl Error {
             | Self::InvalidResponse { .. }
             | Self::FeatureNotSupported { .. }
             | Self::SyntaxError
-            | Self::CommandCanceled
+            | Self::CommandCancelled
             | Self::CommandNotExecutable
             | Self::InvalidResponseFormat
             | Self::InvalidResponseLength { .. }
             | Self::UnexpectedResponseType
-            | Self::Unknown(_)
-            | Self::InvalidRequest(_)
+            | Self::Unknown { .. }
+            | Self::InvalidRequest { .. }
             | Self::MessageLengthError
-            | Self::ParseError(_)
+            | Self::ParseError { .. }
             | Self::InvalidParameter { .. }
             | Self::BufferTooSmall { .. }
             | Self::ParameterOutOfRange { .. }
             | Self::SettlementSuperseded { .. }
             | Self::MaxRetriesExceeded
-            | Self::NotSupported
-            | Self::InvalidState(_)
+            | Self::CancellationNotSupported
+            | Self::InvalidState { .. }
             | Self::RuntimeShutdown
             | Self::DiagnosticSubscriberLimit { .. }
             | Self::InquiryShapeCapacityExhausted { .. }
@@ -1558,7 +1622,7 @@ impl Error {
             | Self::RuntimeIdentityExhausted
             | Self::InvalidCameraId { .. }
             | Self::ResponseTooLarge { .. }
-            | Self::InquiryNotCancelable
+            | Self::InquiryNotCancellable
             | Self::InvalidAddress { .. }
             | Self::UnsupportedTransport { .. }
             | Self::MissingRuntime => Recovery::Abandon,
@@ -1576,11 +1640,15 @@ impl Error {
     ///
     /// # Example
     /// ```rust
-    /// use grafton_visca::{Certainty, Error, FailureStage, Recovery};
+    /// use grafton_visca::{error::Certainty, error::FailureStage, error::Recovery, Error};
     /// let error = Error::io_timeout();
     /// assert_eq!(error.recovery(), Recovery::Reconcile);
-    /// assert_eq!(error.failure_context().map(|facts| (facts.stage, facts.certainty)),
-    ///     Some((FailureStage::Session, Certainty::Unconfirmed)));
+    /// assert_eq!(
+    ///     error
+    ///         .failure_context()
+    ///         .map(|facts| (facts.stage, facts.certainty)),
+    ///     Some((FailureStage::Session, Certainty::Unconfirmed))
+    /// );
     /// ```
     #[must_use]
     pub fn failure_context(&self) -> Option<FailureContext> {
@@ -1629,26 +1697,26 @@ impl Error {
             | Self::CommandPending
             | Self::InvalidResponse { .. }
             | Self::FeatureNotSupported { .. }
-            | Self::Io(_)
+            | Self::Io { .. }
             | Self::SyntaxError
             | Self::CommandBufferFull
-            | Self::CommandCanceled
+            | Self::CommandCancelled
             | Self::NoSocket
             | Self::CommandNotExecutable
             | Self::InvalidResponseFormat
             | Self::InvalidResponseLength { .. }
             | Self::UnexpectedResponseType
-            | Self::Unknown(_)
-            | Self::InvalidRequest(_)
+            | Self::Unknown { .. }
+            | Self::InvalidRequest { .. }
             | Self::MessageLengthError
-            | Self::ParseError(_)
+            | Self::ParseError { .. }
             | Self::InvalidParameter { .. }
             | Self::BufferTooSmall { .. }
             | Self::ParameterOutOfRange { .. }
             | Self::SettlementSuperseded { .. }
             | Self::MaxRetriesExceeded
-            | Self::NotSupported
-            | Self::InvalidState(_)
+            | Self::CancellationNotSupported
+            | Self::InvalidState { .. }
             | Self::RuntimeShutdown
             | Self::OwnerTerminated
             | Self::DiagnosticSubscriberLimit { .. }
@@ -1658,7 +1726,7 @@ impl Error {
             | Self::StreamPoisoned { .. }
             | Self::InvalidCameraId { .. }
             | Self::ResponseTooLarge { .. }
-            | Self::InquiryNotCancelable
+            | Self::InquiryNotCancellable
             | Self::InvalidAddress { .. }
             | Self::UnsupportedTransport { .. }
             | Self::MissingRuntime => None,
@@ -1778,7 +1846,7 @@ impl Error {
     /// This is how a transport reports an expired read or write timeout,
     /// including an idle read that received nothing, which owners treat as
     /// "no data" rather than as a failure. A write that timed out may or may
-    /// not have left, so its certainty is [`Certainty::Unconfirmed`].
+    /// not have left, so its certainty is [`crate::error::Certainty::Unconfirmed`].
     #[must_use]
     pub const fn io_timeout() -> Self {
         Self::timeout(FailureStage::Session, Certainty::Unconfirmed)
@@ -1801,9 +1869,12 @@ impl Error {
     /// let contextual_error = error.with_context("Failed to recall preset 5");
     ///
     /// // Original error properties are preserved
-    /// assert_eq!(contextual_error.recovery(), grafton_visca::Recovery::Resubmit {
-    ///     after: std::time::Duration::from_millis(200),
-    /// });
+    /// assert_eq!(
+    ///     contextual_error.recovery(),
+    ///     grafton_visca::error::Recovery::Resubmit {
+    ///         after: std::time::Duration::from_millis(200),
+    ///     }
+    /// );
     ///
     /// // But the error message now includes context
     /// assert_eq!(
@@ -1817,31 +1888,6 @@ impl Error {
             context: context.into(),
             source: Box::new(self),
         }
-    }
-
-    /// Add operation context to this error using a `Display` type.
-    ///
-    /// Similar to [`Error::with_context`], but accepts any type that implements `Display`.
-    ///
-    /// This is useful for providing formatted context messages.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use grafton_visca::Error;
-    ///
-    /// let preset_id = 5;
-    /// let error = Error::CommandBufferFull;
-    /// let contextual_error = error.context(format!("Failed to recall preset {}", preset_id));
-    ///
-    /// assert_eq!(
-    ///     contextual_error.to_string(),
-    ///     "Failed to recall preset 5: Command buffer is full"
-    /// );
-    /// ```
-    #[must_use]
-    pub fn context<D: fmt::Display>(self, context: D) -> Self {
-        self.with_context(context.to_string())
     }
 
     /// Create an `InvalidResponseLength` error with full diagnostic context.
@@ -1900,13 +1946,17 @@ pub(crate) fn format_payload_hex(payload: &[u8]) -> Box<str> {
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
-        Self::Io(Arc::new(err))
+        Self::Io {
+            source: Arc::new(err),
+        }
     }
 }
 
 impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
     fn from(err: nom::Err<nom::error::Error<&[u8]>>) -> Self {
-        Self::ParseError(Cow::Owned(err.to_string()))
+        Self::ParseError {
+            reason: Cow::Owned(err.to_string()),
+        }
     }
 }
 
@@ -1936,7 +1986,9 @@ mod tests {
             else {
                 panic!("terminal verdict exposes its typed shared Error source");
             };
-            assert!(matches!(cause.as_ref(), Error::Io(io) if io.raw_os_error() == Some(104)));
+            assert!(
+                matches!(cause.as_ref(), Error::Io { source: io } if io.raw_os_error() == Some(104))
+            );
             let clone = terminal.clone();
             let retained = match &clone {
                 Error::ConnectionClosed {
@@ -1990,7 +2042,7 @@ mod tests {
         let Error::TransportError { source, .. } = &error else {
             panic!("transport wrapper")
         };
-        let Error::Io(os) = source.as_ref() else {
+        let Error::Io { source: os } = source.as_ref() else {
             panic!("original OS source")
         };
         assert_eq!(os.raw_os_error(), Some(111));
@@ -2023,13 +2075,16 @@ mod tests {
         assert!(matches!(Error::from_code(0x01), Error::MessageLengthError));
         assert!(matches!(Error::from_code(0x02), Error::SyntaxError));
         assert!(matches!(Error::from_code(0x03), Error::CommandBufferFull));
-        assert!(matches!(Error::from_code(0x04), Error::CommandCanceled));
+        assert!(matches!(Error::from_code(0x04), Error::CommandCancelled));
         assert!(matches!(Error::from_code(0x05), Error::NoSocket));
         assert!(matches!(
             Error::from_code(0x41),
             Error::CommandNotExecutable
         ));
-        assert!(matches!(Error::from_code(0xFF), Error::Unknown(0xFF)));
+        assert!(matches!(
+            Error::from_code(0xFF),
+            Error::Unknown { code: 0xFF }
+        ));
     }
 
     #[test]
@@ -2040,7 +2095,7 @@ mod tests {
             (0x01, "MessageLengthError"),
             (0x02, "SyntaxError"),
             (0x03, "CommandBufferFull"),
-            (0x04, "CommandCanceled"),
+            (0x04, "CommandCancelled"),
             (0x05, "NoSocket"),
             // 0x41 is "Command Not Executable" per VISCA spec - command invalid in current state
             (0x41, "CommandNotExecutable"),
@@ -2052,7 +2107,7 @@ mod tests {
                 Error::MessageLengthError => "MessageLengthError",
                 Error::SyntaxError => "SyntaxError",
                 Error::CommandBufferFull => "CommandBufferFull",
-                Error::CommandCanceled => "CommandCanceled",
+                Error::CommandCancelled => "CommandCancelled",
                 Error::NoSocket => "NoSocket",
                 Error::CommandNotExecutable => "CommandNotExecutable",
                 _ => "Unknown",
@@ -2073,7 +2128,7 @@ mod tests {
         for code in unknown_codes {
             let error = Error::from_code(code);
             assert!(
-                matches!(error, Error::Unknown(c) if c == code),
+                matches!(error, Error::Unknown { code: c } if c == code),
                 "Code {:#04x} should map to Unknown({})",
                 code,
                 code
@@ -2091,13 +2146,16 @@ mod tests {
             Error::CommandBufferFull.to_string(),
             "Command buffer is full"
         );
-        assert_eq!(Error::CommandCanceled.to_string(), "Command was canceled");
+        assert_eq!(Error::CommandCancelled.to_string(), "Command was canceled");
         assert_eq!(Error::NoSocket.to_string(), "No socket available");
         assert_eq!(
             Error::CommandNotExecutable.to_string(),
             "Command is not executable"
         );
-        assert_eq!(Error::Unknown(0x99).to_string(), "Unknown error code: 0x99");
+        assert_eq!(
+            Error::Unknown { code: 0x99 }.to_string(),
+            "Unknown error code: 0x99"
+        );
         assert_eq!(
             Error::InvalidParameter {
                 parameter: "test",
@@ -2117,7 +2175,7 @@ mod tests {
     fn test_visca_error_from_io_error() {
         let io_err = io::Error::other("test error");
         let visca_err = Error::from(io_err);
-        assert!(matches!(visca_err, Error::Io(_)));
+        assert!(matches!(visca_err, Error::Io { .. }));
     }
 
     #[test]
@@ -2126,7 +2184,7 @@ mod tests {
 
         let nom_err = nom::Err::Error(NomError::new(&b"test"[..], ErrorKind::Tag));
         let visca_err = Error::from(nom_err);
-        assert!(matches!(visca_err, Error::ParseError(_)));
+        assert!(matches!(visca_err, Error::ParseError { .. }));
     }
 
     #[test]
@@ -2138,7 +2196,7 @@ mod tests {
         assert_eq!(Error::MaxRetriesExceeded.kind(), ErrorKind::Timeout);
 
         // Cancelled
-        assert_eq!(Error::CommandCanceled.kind(), ErrorKind::Cancelled);
+        assert_eq!(Error::CommandCancelled.kind(), ErrorKind::Cancelled);
 
         // BufferFull
         assert_eq!(Error::CommandBufferFull.kind(), ErrorKind::BufferFull);
@@ -2151,7 +2209,10 @@ mod tests {
         // NotExecutable
         assert_eq!(Error::CommandNotExecutable.kind(), ErrorKind::NotExecutable);
         assert_eq!(
-            Error::InvalidState(Cow::Borrowed("test")).kind(),
+            Error::InvalidState {
+                reason: Cow::Borrowed("test")
+            }
+            .kind(),
             ErrorKind::NotExecutable
         );
 
@@ -2177,14 +2238,17 @@ mod tests {
         );
 
         // Protocol
-        assert_eq!(Error::Unknown(0xFF).kind(), ErrorKind::Protocol);
+        assert_eq!(Error::Unknown { code: 0xFF }.kind(), ErrorKind::Protocol);
 
         // Unsupported
         assert_eq!(Error::MissingRuntime.kind(), ErrorKind::Unsupported);
 
         // InvalidParameter
         assert_eq!(
-            Error::InvalidRequest(Cow::Borrowed("test")).kind(),
+            Error::InvalidRequest {
+                reason: Cow::Borrowed("test")
+            }
+            .kind(),
             ErrorKind::InvalidParameter
         );
         assert_eq!(
@@ -2203,31 +2267,38 @@ mod tests {
 
         // Io: inspect inner io::ErrorKind
         assert_eq!(
-            Error::Io(Arc::new(io::Error::new(io::ErrorKind::TimedOut, "test"))).kind(),
+            Error::Io {
+                source: Arc::new(io::Error::new(io::ErrorKind::TimedOut, "test"))
+            }
+            .kind(),
             ErrorKind::Timeout
         );
         assert_eq!(
-            Error::Io(Arc::new(io::Error::new(
-                io::ErrorKind::ConnectionRefused,
-                "test"
-            )))
+            Error::Io {
+                source: Arc::new(io::Error::new(io::ErrorKind::ConnectionRefused, "test"))
+            }
             .kind(),
             ErrorKind::IoRefused
         );
         assert_eq!(
-            Error::Io(Arc::new(io::Error::new(
-                io::ErrorKind::ConnectionReset,
-                "test"
-            )))
+            Error::Io {
+                source: Arc::new(io::Error::new(io::ErrorKind::ConnectionReset, "test"))
+            }
             .kind(),
             ErrorKind::IoClosed
         );
         assert_eq!(
-            Error::Io(Arc::new(io::Error::new(io::ErrorKind::BrokenPipe, "test"))).kind(),
+            Error::Io {
+                source: Arc::new(io::Error::new(io::ErrorKind::BrokenPipe, "test"))
+            }
+            .kind(),
             ErrorKind::IoClosed
         );
         assert_eq!(
-            Error::Io(Arc::new(io::Error::other("test"))).kind(),
+            Error::Io {
+                source: Arc::new(io::Error::other("test"))
+            }
+            .kind(),
             ErrorKind::Other
         );
     }
@@ -2286,7 +2357,7 @@ mod tests {
             Error::CommandBufferFull,
             Error::CommandPending,
             Error::RuntimeQueueFull { capacity: 8 },
-            Error::CommandCanceled,
+            Error::CommandCancelled,
             Error::CommandNotExecutable,
             Error::SyntaxError,
             Error::NoSocket,
@@ -2300,7 +2371,9 @@ mod tests {
                 addr: Cow::Borrowed("192.168.1.100:5678"),
                 source: Arc::new(io::Error::other("refused")),
             },
-            Error::Io(Arc::new(io::Error::new(io::ErrorKind::BrokenPipe, "pipe"))),
+            Error::Io {
+                source: Arc::new(io::Error::new(io::ErrorKind::BrokenPipe, "pipe")),
+            },
         ] {
             assert!(
                 !error.requires_new_session(),
@@ -2336,9 +2409,11 @@ mod tests {
         let error4 = error3.clone();
         assert!(matches!(error4, Error::ConnectionFailed { .. }));
 
-        let error5 = Error::Io(Arc::new(io::Error::other("test io error")));
+        let error5 = Error::Io {
+            source: Arc::new(io::Error::other("test io error")),
+        };
         let error6 = error5.clone();
-        assert!(matches!(error6, Error::Io(_)));
+        assert!(matches!(error6, Error::Io { .. }));
 
         let error7 = Error::InvalidParameter {
             parameter: "test",
@@ -2366,10 +2441,10 @@ mod tests {
     }
 
     #[test]
-    fn test_context_method() {
+    fn test_formatted_with_context_message_format() {
         let preset_id = 5;
         let error = Error::CommandBufferFull;
-        let contextual = error.context(format!("Failed to recall preset {}", preset_id));
+        let contextual = error.with_context(format!("Failed to recall preset {}", preset_id));
         assert_eq!(
             contextual.to_string(),
             "Failed to recall preset 5: Command buffer is full"
@@ -2468,3 +2543,67 @@ mod tests {
 #[cfg(test)]
 #[path = "error_recovery_tests.rs"]
 mod recovery_tests;
+
+#[cfg(all(test, feature = "serde"))]
+mod portable_metadata_tests {
+    use super::*;
+
+    #[test]
+    fn recovery_metadata_preserves_the_delay_and_certainty() -> Result<(), serde_json::Error> {
+        let recovery = Error::CommandBufferFull.recovery();
+        let json = serde_json::json!({
+            "resubmit": {"after": {"secs": 0, "nanos": 200_000_000}}
+        });
+        assert_eq!(serde_json::to_value(recovery)?, json);
+        assert_eq!(serde_json::from_value::<Recovery>(json)?, recovery);
+
+        let context = FailureContext::new(FailureStage::CancellationAttempt, Certainty::StillLive);
+        let json = serde_json::json!({
+            "stage": "cancellation_attempt", "certainty": "still_live"
+        });
+        assert_eq!(serde_json::to_value(context)?, json);
+        assert_eq!(serde_json::from_value::<FailureContext>(json)?, context);
+        assert_eq!(serde_json::to_value(ErrorKind::IoClosed)?, "io_closed");
+        assert!(serde_json::from_value::<FailureContext>(serde_json::json!({
+            "stage": "terminal", "certainty": "unconfirmed", "retry": true
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<Recovery>(serde_json::json!({
+            "resubmit": {"after": {"secs": 1, "nanos": 0}, "retry": true}
+        }))
+        .is_err());
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    fn recovery_schema_and_typescript_match_the_stored_duration() {
+        let schema = schemars::schema_for!(FailureContext);
+        assert_eq!(schema.as_value()["additionalProperties"], false);
+        assert_eq!(
+            schema.as_value()["properties"]["stage"]["$ref"],
+            "#/$defs/FailureStage"
+        );
+        let config = ts_rs::Config::default();
+        let shape = |declaration: String| {
+            declaration
+                .lines()
+                .filter(|line| {
+                    let line = line.trim_start();
+                    !line.starts_with('*') && !line.starts_with("/**")
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert_eq!(
+            shape(<FailureContext as ts_rs::TS>::decl(&config)),
+            "type FailureContext = { stage: FailureStage, certainty: Certainty, };"
+        );
+        let recovery = shape(<Recovery as ts_rs::TS>::decl(&config));
+        assert!(recovery.contains("\"resubmit\": { after: { secs: number; nanos: number }"));
+        assert!(recovery.contains("\"reopen_session\""));
+    }
+}

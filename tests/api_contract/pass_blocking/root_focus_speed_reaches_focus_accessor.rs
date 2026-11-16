@@ -1,7 +1,7 @@
 #![cfg(feature = "blocking")]
 
 // #806: the root `FocusSpeed` is the type the focus accessor takes.
-use grafton_visca::{blocking::Camera, profiles::PtzOpticsG2, FocusSpeed};
+use grafton_visca::{blocking::Camera, profiles::PtzOpticsG2, types::FocusSpeed};
 
 fn variable_focus(camera: &Camera<PtzOpticsG2>, speed: FocusSpeed) {
     let _ = camera.focus().far_variable(speed);

@@ -1,4 +1,4 @@
-#![cfg(all(feature = "blocking", feature = "dyn-api"))]
+#![cfg(all(feature = "blocking", any(feature = "async", feature = "blocking")))]
 
 use std::time::Duration;
 
@@ -8,12 +8,11 @@ use fake_camera::FakeCamera;
 use grafton_visca::{
     blocking::Session,
     capabilities::Capabilities,
-    command::PowerOn,
-    profile::{
-        PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming, TransportCompatibility,
+    config::SessionConfig,
+    profiles::{
+        CommandTimeouts, ProfileEnvelope, ProfileSpec, ProfileTiming, TransportCompatibility,
     },
     transport::SendSemantics,
-    CommandTimeouts, SessionConfig,
 };
 
 fn runtime_power_profile() -> ProfileSpec {
@@ -35,19 +34,19 @@ fn runtime_power_profile() -> ProfileSpec {
         .ambiguity_timeout(Duration::from_secs(1))
         .busy_timeout(Duration::ZERO)
         .raw_inquiry_reply_skew(Duration::ZERO)
-        .minimum_inquiry_spacing(Duration::ZERO)
-        .minimum_command_spacing(Duration::ZERO)
+        .inquiry_spacing(Duration::ZERO)
+        .command_spacing(Duration::ZERO)
         .build()
         .expect("timing");
 
     ProfileSpec::builder(capabilities)
-        .transports(TransportCompatibility::new(Some(5678), None, false))
+        .transports(TransportCompatibility::new().with_tcp(5678))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(timing)
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .position_inquiries(PositionInquirySupport::new(false, false, false))
+        .position_inquiries(None)
         .build()
         .expect("runtime power profile")
 }
@@ -57,16 +56,20 @@ fn blocking_dynamic_view_drives_a_runtime_only_profile() {
     let fake = FakeCamera::acking(1);
     let session = Session::open(
         fake.blocking_wire().with_semantics(SendSemantics::Stream),
-        SessionConfig::new(runtime_power_profile()),
+        &SessionConfig::new(runtime_power_profile()),
     )
     .expect("runtime-profile session");
 
-    let camera = session.camera_dyn().expect("dynamic blocking camera");
+    let camera = session
+        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .expect("dynamic blocking camera");
     assert_eq!(
         camera.profile().capabilities().model_name,
         "Issue 720 runtime camera"
     );
-    camera.execute(&PowerOn::new()).expect("power command");
+    camera
+        .execute(&grafton_visca::command::power::On)
+        .expect("power command");
 
     assert_eq!(
         fake.writes(),

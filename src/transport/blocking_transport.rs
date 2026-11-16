@@ -10,27 +10,12 @@ use crate::{
     Error,
 };
 
-/// Transport handle for blocking VISCA communication.
-///
-/// This enum provides a typed alternative to `Box<dyn BlockingTransport>` that avoids heap
-/// allocation and dynamic dispatch. It mirrors the design of the async `TransportHandle<R>`
-/// but for blocking transports.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use grafton_visca::transport::BlockingTransportHandle;
-/// use grafton_visca::transport::blocking::{Tcp, Udp};
-///
-/// // Create a handle from either TCP or UDP transport
-/// let handle = BlockingTransportHandle::Tcp(
-///     Tcp::connect_with_config("192.168.0.110:5678", Default::default())?
-/// );
-/// ```
-#[cfg(feature = "blocking")]
+/// Private test handle exercising the concrete blocking transports through
+/// their shared timeout and identity contracts.
+#[cfg(all(test, feature = "blocking"))]
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum BlockingTransportHandle {
+pub(crate) enum BlockingTransportHandle {
     /// TCP transport for blocking mode.
     Tcp(crate::transport::blocking::Tcp),
     /// UDP transport for blocking mode.
@@ -40,7 +25,7 @@ pub enum BlockingTransportHandle {
     Serial(crate::transport::serial_blocking::SerialTransport),
 }
 
-#[cfg(feature = "blocking")]
+#[cfg(all(test, feature = "blocking"))]
 impl BlockingTransport for BlockingTransportHandle {
     fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
         match self {
@@ -73,7 +58,7 @@ impl BlockingTransport for BlockingTransportHandle {
     }
 }
 
-#[cfg(feature = "blocking")]
+#[cfg(all(test, feature = "blocking"))]
 impl HasTransportConfig for BlockingTransportHandle {
     fn identity(&self) -> TransportIdentity<'_> {
         match self {
@@ -105,18 +90,17 @@ impl HasTransportConfig for BlockingTransportHandle {
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use grafton_visca::transport::BlockingTransport;
+/// ```rust
 /// use core::time::Duration;
+/// use grafton_visca::{
+///     transport::{BlockingTransport, ReceiveOutcome},
+///     Error,
+/// };
 ///
-/// struct MyBlockingTransport { /* ... */ }
+/// struct MyBlockingTransport {/* ... */}
 ///
 /// impl BlockingTransport for MyBlockingTransport {
-///     fn send_with_timeout(
-///         &mut self,
-///         bytes: &[u8],
-///         timeout: Duration,
-///     ) -> Result<(), Error> {
+///     fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
 ///         // Send implementation bounded by `timeout`.
 ///         Ok(())
 ///     }
@@ -358,13 +342,15 @@ impl<'a> TransportIdentity<'a> {
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use grafton_visca::transport::{HasTransportConfig, TransportConfig};
+/// ```rust
+/// use grafton_visca::transport::HasTransportConfig;
 ///
 /// // Access configuration from any transport
-/// let config = transport.transport_config();
-/// let read_timeout = config.read_timeout;
-/// let buffer_config = &config.buffer_config;
+/// fn inspect_config(transport: &impl HasTransportConfig) {
+///     let config = transport.transport_config();
+///     let read_timeout = config.read_timeout();
+///     let buffer_config = config.buffer_config();
+/// }
 /// ```
 pub trait HasTransportConfig {
     /// Declare the transport identity. Wrappers must forward the inner identity.

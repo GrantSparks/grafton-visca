@@ -7,7 +7,7 @@ use crate::{completion, request, CameraId, Error, Result};
 /// Crate-only authority passed to the hidden applied-state request hook.
 ///
 /// The containing module is private and the token is not constructible by a
-/// downstream implementation of [`Request`]. This keeps the hook available to
+/// downstream implementation of [`crate::request::Request`]. This keeps the hook available to
 /// typed built-ins while preserving the ordinary custom/raw `Request` default.
 #[cfg(any(feature = "blocking", feature = "async"))]
 #[doc(hidden)]
@@ -25,7 +25,7 @@ pub(crate) struct RequestContractAuthority(private::SealedToken);
 /// Crate-only authority passed to the hidden built-in inquiry provenance hook.
 ///
 /// The containing module is private and this token is not constructible by a
-/// downstream [`Inquiry`] implementation. Generated built-in inquiries use the
+/// downstream [`crate::request::Inquiry`] implementation. Generated built-in inquiries use the
 /// hook to authorize the narrow `0x02` retry; custom inquiries retain its
 /// default `false` result.
 #[doc(hidden)]
@@ -60,6 +60,7 @@ impl BuiltinInquiryAuthority {
 /// Deadline family selected by a request implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
@@ -81,6 +82,7 @@ pub enum TimeoutClass {
 /// Retry family selected by a request implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
@@ -99,11 +101,11 @@ pub enum RetryClass {
 
 /// Intrinsic scheduling class of one request.
 ///
-/// Every request classifies itself through [`Request::control_class`]. The
+/// Every request classifies itself through [`crate::request::Request::control_class`]. The
 /// urgent class is reserved for safety and protocol-control work and cannot be
 /// selected or demoted by a submission override. Request implementations and
 /// raw policies classify their own semantics; caller QoS uses
-/// [`SubmissionClass`].
+/// [`crate::request::SubmissionClass`].
 ///
 /// # Lane semantics
 ///
@@ -127,6 +129,7 @@ pub enum RetryClass {
 /// an eligible queued request, never a deadline, a retry budget, or a socket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
@@ -145,8 +148,8 @@ pub enum ControlClass {
     /// Direct user interaction: drives, absolute moves, preset recalls, and the
     /// other commands a person is waiting on.
     ///
-    /// It is scheduled ahead of [`ControlClass::Normal`] and
-    /// [`ControlClass::Background`] work, so a person's input is not queued
+    /// It is scheduled ahead of [`crate::request::ControlClass::Normal`] and
+    /// [`crate::request::ControlClass::Background`] work, so a person's input is not queued
     /// behind polling.
     User,
     /// Time-sensitive control work that must reach the camera ahead of queued
@@ -161,11 +164,12 @@ pub enum ControlClass {
 ///
 /// This exposes background, normal and interactive scheduling to callers
 /// without exposing the owner's safety lane. When a request's
-/// intrinsic [`ControlClass`] is [`ControlClass::Urgent`], this value is
+/// intrinsic [`crate::request::ControlClass`] is [`crate::request::ControlClass::Urgent`], this value is
 /// ignored and the request remains urgent. For every other request it selects
 /// the ready lane used at admission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
@@ -241,7 +245,7 @@ impl schemars::JsonSchema for AffectedAxes {
     }
 }
 
-/// One physical axis represented by [`AffectedAxes`].
+/// One physical axis represented by [`crate::types::AffectedAxes`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AffectedAxis {
     /// Pan and tilt mechanism (treated as one selectable axis).
@@ -256,7 +260,7 @@ pub enum AffectedAxis {
     NdFilter,
 }
 
-/// Iterator over the individual axes in an [`AffectedAxes`] set.
+/// Iterator over the individual axes in an [`crate::types::AffectedAxes`] set.
 #[derive(Debug, Clone, Copy)]
 pub struct AffectedAxisIter {
     bits: u8,
@@ -337,7 +341,7 @@ impl AffectedAxes {
     /// The three mechanical movement axes: pan/tilt, zoom, and focus.
     ///
     /// This is the "wait for everything that moves" selection used by
-    /// [`crate::camera::IdleWait::default`] and the named wait presets.
+    /// [`crate::types::IdleWait::default`] and the named wait presets.
     pub const MOVEMENT: Self =
         Self::from_nonzero_bits(Self::PAN_TILT_BIT | Self::ZOOM_BIT | Self::FOCUS_BIT);
 
@@ -382,9 +386,9 @@ impl AffectedAxes {
     /// Returns an error for an empty set or for unknown bits.
     pub fn from_bits(bits: u8) -> Result<Self> {
         if bits == 0 || bits & !Self::VALID_BITS != 0 {
-            return Err(Error::InvalidRequest(
-                "affected axes must be non-empty and contain only known axes".into(),
-            ));
+            return Err(Error::InvalidRequest {
+                reason: "affected axes must be non-empty and contain only known axes".into(),
+            });
         }
         Ok(Self::from_nonzero_bits(bits))
     }
@@ -492,9 +496,13 @@ type SharedDecoder<R> = dyn Fn(&[u8]) -> Result<R> + Send + Sync + 'static;
 
 enum DecoderInner<R> {
     Function(fn(&[u8]) -> Result<R>),
+    Inline {
+        context: [u64; 2],
+        decode: fn([u64; 2], &[u8]) -> Result<R>,
+    },
     Builtin {
         kind: crate::command::InquiryKind,
-        framing: Option<crate::command::pan_tilt::PanTiltFraming>,
+        framing: Option<crate::command::pan_tilt_wire::PanTiltFraming>,
         physical_color_temperature: bool,
         color_temperature_steps: Option<Arc<[u16]>>,
         lift: fn(crate::command::Response) -> Result<R>,
@@ -520,6 +528,16 @@ impl<R> ResponseDecoder<R> {
         }
     }
 
+    /// Stores small immutable decoding facts without a shared allocation.
+    pub(crate) const fn with_inline_context(
+        context: [u64; 2],
+        decode: fn([u64; 2], &[u8]) -> Result<R>,
+    ) -> Self {
+        Self {
+            inner: DecoderInner::Inline { context, decode },
+        }
+    }
+
     /// Stores the canonical raw response decoder and its profile framing inline.
     pub(crate) fn for_builtin_profile(
         kind: crate::command::InquiryKind,
@@ -531,7 +549,7 @@ impl<R> ResponseDecoder<R> {
                 kind,
                 framing: profile
                     .pan_tilt_coordinates()
-                    .map(crate::command::pan_tilt::PanTiltFraming::for_conversion),
+                    .map(crate::command::pan_tilt_wire::PanTiltFraming::for_conversion),
                 physical_color_temperature: false,
                 color_temperature_steps: None,
                 lift,
@@ -576,6 +594,7 @@ impl<R> ResponseDecoder<R> {
     pub fn decode(&self, payload: &[u8]) -> Result<R> {
         match &self.inner {
             DecoderInner::Function(decode) => decode(payload),
+            DecoderInner::Inline { context, decode } => decode(*context, payload),
             DecoderInner::Builtin {
                 kind,
                 framing,
@@ -584,8 +603,8 @@ impl<R> ResponseDecoder<R> {
                 lift,
             } => {
                 use crate::command::{
-                    inquiry_structs, pan_tilt::PanTiltFraming, InquiryData, InquiryKind, Payload,
-                    Response,
+                    inquiry_structs, pan_tilt_wire::PanTiltFraming, InquiryData, InquiryKind,
+                    Payload, Response,
                 };
                 let framing = match (kind, framing) {
                     (InquiryKind::PanTiltPosition, None) => {
@@ -635,6 +654,10 @@ impl<R> Clone for ResponseDecoder<R> {
     fn clone(&self) -> Self {
         let inner = match &self.inner {
             DecoderInner::Function(decode) => DecoderInner::Function(*decode),
+            DecoderInner::Inline { context, decode } => DecoderInner::Inline {
+                context: *context,
+                decode: *decode,
+            },
             DecoderInner::Builtin {
                 kind,
                 framing,
@@ -658,6 +681,7 @@ impl<R> fmt::Debug for ResponseDecoder<R> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let storage = match self.inner {
             DecoderInner::Function(_) => "function",
+            DecoderInner::Inline { .. } => "inline-context",
             DecoderInner::Builtin { .. } => "inline-builtin",
             DecoderInner::Shared(_) => "shared-context",
         };
@@ -697,15 +721,18 @@ mod bound_temperature_decoder_tests {
                 })?;
         white_balance.color_temp_range = Some(CapabilityRange::<u16>::new(3100, 6300));
         white_balance.color_temperature_steps = steps;
-        ProfileSpec::builder(capabilities)
+        let mut builder = ProfileSpec::builder(capabilities)
             .transports(baseline.transports())
             .envelope(baseline.envelope())
             .timing(baseline.timing())
             .maximum_command_sockets(baseline.maximum_command_sockets())
             .position_inquiries(baseline.position_inquiries())
             .supports_operation_complete(baseline.supports_operation_complete())
-            .supports_command_cancel(baseline.supports_command_cancel())
-            .build()
+            .supports_command_cancel(baseline.supports_command_cancel());
+        for selection in baseline.encodings().iter() {
+            builder = builder.encoding(selection);
+        }
+        builder.build()
     }
 
     fn shares_steps(decoder: &ResponseDecoder<Kelvin>, steps: &Arc<[u16]>) -> bool {
@@ -800,7 +827,7 @@ pub trait Request: Send + Sync {
     const RETRY_CLASS: RetryClass;
     /// Scheduling class for this request.
     ///
-    /// [`ControlClass::Urgent`] is reserved for crate-owned typed stops and
+    /// [`crate::request::ControlClass::Urgent`] is reserved for crate-owned typed stops and
     /// owner-issued protocol cancellation. A downstream request may continue
     /// to use any ordinary class, but an attempt to submit `Urgent` is rejected
     /// at owner admission.
@@ -830,7 +857,7 @@ pub trait Request: Send + Sync {
     /// Returns this value's control class.
     ///
     /// This is the request's own classification. A caller may select ordinary
-    /// submission QoS through [`SubmissionClass`], but an urgent intrinsic
+    /// submission QoS through [`crate::request::SubmissionClass`], but an urgent intrinsic
     /// class is immutable. The owner lowers the resolved class to private ready
     /// queues; callers never select the safety lane or a queue position.
     #[must_use]
@@ -841,7 +868,7 @@ pub trait Request: Send + Sync {
     /// Declares axes moved by a plain custom command for owner halt fencing.
     ///
     /// Undeclared plain/raw commands are never suppressed by a halt. Operation
-    /// commands instead use their mandatory [`OperationCommand::affected_axes`].
+    /// commands instead use their mandatory [`crate::request::OperationCommand::affected_axes`].
     /// This grants no reserved STOP or cancellation authority.
     fn motion_axes(&self) -> Option<AffectedAxes> {
         None
@@ -860,10 +887,8 @@ pub trait Request: Send + Sync {
         _authority: RequestContractAuthority,
     ) -> Result<ControlClass> {
         match self.control_class() {
-            ControlClass::Urgent => Err(Error::InvalidRequest(
-                "ControlClass::Urgent is reserved for crate-owned stops and protocol cancellation"
-                    .into(),
-            )),
+            ControlClass::Urgent => Err(Error::InvalidRequest { reason: "ControlClass::Urgent is reserved for crate-owned stops and protocol cancellation"
+                    .into() }),
             class => Ok(class),
         }
     }
@@ -903,7 +928,7 @@ pub trait Request: Send + Sync {
     /// the number of bytes written, at most [`Self::MAX_SIZE`].
     ///
     /// This is only the profile-free encoding hook: it receives the explicit
-    /// target address, but not a [`crate::ProfileSpec`]. Do not use it for
+    /// target address, but not a [`crate::profiles::ProfileSpec`]. Do not use it for
     /// capability or profile-range validation. Shared preparation calls
     /// [`Self::validate_for_target`] first and encodes only after that check
     /// succeeds.
@@ -1000,9 +1025,9 @@ pub(crate) fn pan_tilt_max_speed<R: Request + ?Sized>(request: &R) -> Option<u8>
 }
 
 /// A command with no physical-operation handle semantics.
-pub trait PlainCommand: Request<Class = request::Plain> {}
+pub trait PlainCommand: Request<Class = request::PlainClass> {}
 
-impl<T> PlainCommand for T where T: Request<Class = request::Plain> + ?Sized {}
+impl<T> PlainCommand for T where T: Request<Class = request::PlainClass> + ?Sized {}
 
 /// Structural evidence describing an inquiry's decoded data payload.
 ///
@@ -1051,7 +1076,7 @@ impl PayloadShape {
 }
 
 /// A typed inquiry request.
-pub trait Inquiry: Request<Class = request::Inquiry> {
+pub trait Inquiry: Request<Class = request::InquiryClass> {
     /// Successfully decoded response value.
     type Response: Send + 'static;
 
@@ -1111,7 +1136,7 @@ where
 }
 
 /// A command with explicit physical-operation semantics.
-pub trait OperationCommand<K>: Request<Class = request::Operation<K>>
+pub trait OperationCommand<K>: Request<Class = request::OperationClass<K>>
 where
     K: completion::Kind,
 {
@@ -1274,7 +1299,7 @@ mod payload_shape_tests {
     struct UndeclaredInquiry;
 
     impl Request for UndeclaredInquiry {
-        type Class = crate::request::Inquiry;
+        type Class = crate::request::InquiryClass;
         const MAX_SIZE: usize = 4;
         const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
         const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Never;
