@@ -7,6 +7,20 @@ use std::time::Instant;
 use crate::TimeoutClass;
 use crate::{Error, Result};
 
+/// Bounds an operation with a timer on any executor. A completed operation
+/// always wins a tie: the operation is polled before the timer on every poll.
+#[cfg(feature = "async")]
+pub(crate) async fn within<T>(
+    operation: impl std::future::Future<Output = T>,
+    timer: impl std::future::Future<Output = ()>,
+) -> Option<T> {
+    futures_lite::future::or(async { Some(operation.await) }, async {
+        timer.await;
+        None
+    })
+    .await
+}
+
 /// Validates an interval against an already sampled owner clock. Zero remains
 /// valid for pacing and immediate retry delays; positive timeouts use the
 /// engine's separate nonzero proof.
@@ -366,6 +380,29 @@ mod tests {
         assert_eq!(saturating_deadline(latest, Duration::from_secs(1)), latest);
         assert!(validate_duration_at(at, Duration::MAX).is_err());
         assert!(validate_duration_at(at, Duration::ZERO).is_ok());
+    }
+
+    #[cfg(feature = "async")]
+    #[test]
+    fn operation_wins_an_already_elapsed_timer() {
+        use std::{future::ready, task::Poll};
+
+        let timer_polls = std::cell::Cell::new(0);
+        pollster::block_on(async {
+            for _ in 0..10_000 {
+                let timer = std::future::poll_fn(|_| {
+                    timer_polls.set(timer_polls.get() + 1);
+                    Poll::Ready(())
+                });
+                assert_eq!(within(ready(42), timer).await, Some(42));
+            }
+            assert_eq!(within(std::future::pending::<()>(), ready(())).await, None);
+        });
+        assert_eq!(
+            timer_polls.get(),
+            0,
+            "a ready operation needs no timer poll"
+        );
     }
 
     #[test]

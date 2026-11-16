@@ -203,6 +203,48 @@ mod tests {
         );
     }
 
+    /// The actual Tokio serial connector preserves the Address Set topology
+    /// verdict when a configured camera is beyond the reported chain.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn registered_cameras_must_have_been_addressed() {
+        use serialport::SerialPort as _;
+        use std::io::{Read as _, Write as _};
+
+        use crate::{
+            camera::CameraConfig, profiles::PtzOpticsG2, transport::serial::Startup,
+            types::IndividualCameraId, wire::VISCA_TERMINATOR,
+        };
+
+        let (mut master, slave) = serialport::TTYPort::pair().expect("pseudo-terminal pair");
+        let path = slave.name().expect("pseudo-terminal path");
+        master
+            .set_timeout(Duration::from_secs(5))
+            .expect("master timeout");
+        let bus = std::thread::spawn(move || {
+            let mut frame = [0; 4];
+            master.read_exact(&mut frame).expect("Address Set frame");
+            assert_eq!(frame, [0x88, 0x30, 0x01, VISCA_TERMINATOR]);
+            master
+                .write_all(&[0x88, 0x30, 0x02, VISCA_TERMINATOR])
+                .expect("Address Set reply");
+            master
+        });
+
+        let config = CameraConfig::<PtzOpticsG2>::serial(path.clone(), 9_600)
+            .with_camera_id(IndividualCameraId::CAMERA_2)
+            .with_serial_startup(Startup::default().with_address_set(true));
+        let runtime = crate::runtime::TokioRuntime::from_current().expect("Tokio runtime");
+        let result = crate::r#async::CameraSession::connect(&config, runtime).await;
+        let _master = bus.join().expect("bus thread");
+        drop(slave);
+        assert!(matches!(
+            result,
+            Err(Error::CameraNotAddressed { port, camera, addressed: 1 })
+                if port == path && camera == IndividualCameraId::CAMERA_2
+        ));
+    }
+
     /// Scripted serial I/O: queued read results and a write log.
     #[derive(Default)]
     struct TranscriptIo {
@@ -343,8 +385,9 @@ mod tests {
             .expect_err("an absent port cannot open");
         assert!(matches!(
             error,
-            Error::ConnectionFailed { ref addr, .. }
+            Error::ConnectionFailed { ref addr, ref source }
                 if addr == "/dev/grafton-visca-absent-serial-device"
+                    && source.kind() == std::io::ErrorKind::NotFound
         ));
     }
 

@@ -320,10 +320,24 @@ full public impact is visible in the documentation diff.
 <!-- BEGIN GENERATED TYPED SUPPORT VOCABULARY -->
 | Area | Marker | Typed surface |
 | ---- | ------ | ------------- |
-| Zoom | `HasDirectZoom` | `zoom().set_position`, `zoom().set_normalized`, `zoom().normalized` |
-| Zoom | `HasDigitalZoomToggle` | `zoom().set_digital_zoom` |
-| Zoom | `HasDigitalZoomRange` | Runtime-only gate for `zoom().set_normalized(..., ZoomDomain::OpticalPlusDigital)`; also requires a documented digital maximum |
 | Exposure | `HasIris` | `exposure().iris`, `exposure().iris_reset`, `exposure().iris_up`, `exposure().iris_down`, `exposure().set_iris` |
+| Exposure | `HasBacklightCompensation` | `exposure().backlight_compensation`, `exposure().set_backlight_compensation` |
+| Exposure | `HasWideDynamicRange` | `exposure().set_wide_dynamic_range` |
+| Exposure | `HasExposureCompensation` | `exposure().compensation`, `exposure().compensation_enabled`, `exposure().set_compensation_enabled`, `exposure().compensation_reset`, `exposure().compensation_up`, `exposure().compensation_down`, `exposure().set_compensation` |
+| Exposure | `HasBrightness` | `exposure().brightness`, `exposure().brightness_reset`, `exposure().brightness_up`, `exposure().brightness_down`, `exposure().set_brightness` |
+| Exposure | `HasAntiFlicker` | `exposure().set_anti_flicker`, `exposure().anti_flicker` |
+| Exposure | `HasSpotlight` | `exposure().set_spotlight` |
+| Exposure | `HasAutoSlowShutter` | `exposure().set_auto_slow_shutter` |
+| Exposure | `HasExposureMode` | `exposure().mode`, `exposure().set_mode` |
+| Exposure | `HasAeLevel` | `exposure().ae_level_up`, `exposure().ae_level_down`, `exposure().ae_level` |
+| Exposure | `HasAutoGain` | `exposure().set_auto_gain`, `exposure().auto_gain` |
+| Exposure | `HasAutoShutter` | `exposure().set_auto_shutter`, `exposure().auto_shutter` |
+| Exposure | `HasIrisSteps` | `exposure().iris_up_by`, `exposure().iris_down_by` |
+| Exposure | `HasAutoIris` | `exposure().set_auto_iris`, `exposure().auto_iris` |
+| Exposure | `HasShutter` | `exposure().shutter`, `exposure().shutter_reset`, `exposure().shutter_up`, `exposure().shutter_down` |
+| Exposure | `HasGain` | `exposure().gain`, `exposure().gain_reset`, `exposure().gain_up`, `exposure().gain_down`, `exposure().set_gain` |
+| Exposure | `HasGainLimit` | `exposure().gain_limit`, `exposure().set_gain_limit` |
+| Exposure | `HasDirectShutter` | `exposure().set_shutter` |
 | Focus | `HasOnePushFocus` | `focus().one_push` |
 | Focus | `HasSnapFocus` | `focus().snap` |
 | Focus | `HasFocusLock` | `focus().set_lock` |
@@ -331,15 +345,8 @@ full public impact is visible in the documentation diff.
 | Focus | `HasFocusZone` | `focus().set_zone` |
 | Focus | `HasAutoFocusSensitivity` | `focus().set_sensitivity`, `focus().sensitivity` |
 | Focus | `HasFocusNearLimit` | `focus().set_near_limit`, `focus().near_limit` |
-| Exposure | `HasBacklightCompensation` | `exposure().backlight_compensation`, `exposure().set_backlight_compensation` |
-| Exposure | `HasWideDynamicRange` | `exposure().set_wide_dynamic_range` |
-| Exposure | `HasExposureCompensation` | `exposure().compensation`, `exposure().compensation_enabled`, `exposure().set_compensation_enabled`, `exposure().compensation_reset`, `exposure().compensation_up`, `exposure().compensation_down`, `exposure().set_compensation` |
-| Exposure | `HasBrightness` | `exposure().brightness`, `exposure().brightness_reset`, `exposure().brightness_up`, `exposure().brightness_down`, `exposure().set_brightness` |
-| White balance | `HasOnePushWhiteBalance` | `white_balance().one_push` |
-| White balance | `HasAutoWhiteBalanceSensitivity` | `white_balance().set_sensitivity`, `white_balance().sensitivity` |
-| Color | `HasColorTemperature` | `white_balance().color_temperature_reset`, `white_balance().color_temperature_up`, `white_balance().color_temperature_down`, `white_balance().set_color_temperature` |
-| Color | `HasRgbGain` | `white_balance().red_gain`, `white_balance().red_gain_reset`, `white_balance().red_gain_up`, `white_balance().red_gain_down`, `white_balance().set_red_gain`, `white_balance().blue_gain`, `white_balance().blue_gain_reset`, `white_balance().blue_gain_up`, `white_balance().blue_gain_down`, `white_balance().set_blue_gain` |
-| Color | `HasRgbTuning` | `white_balance().set_red_tuning`, `white_balance().set_blue_tuning`, `white_balance().red_tuning`, `white_balance().blue_tuning` |
+| Focus | `HasFocusZoneInquiry` | `focus().zone` |
+| Focus | `HasFocusInfinity` | `focus().infinity` |
 | Image | `HasImageFlip` | `image().set_flip`, `image().flip` |
 | Image | `HasImageMirror` | `image().set_mirror` |
 | Image | `HasCombinedImageFlip` | `image().set_flip_mode`, `image().flip_mode` |
@@ -352,56 +359,49 @@ full public impact is visible in the documentation diff.
 | Image | `HasNoiseReduction2D` | `image().noise_reduction_2d`, `image().set_noise_reduction_2d` |
 | Image | `HasNoiseReduction3D` | `image().noise_reduction_3d`, `image().set_noise_reduction_3d` |
 | Image | `HasPictureEffect` | `image().picture_effect`, `image().set_picture_effect` |
-| Tally | `HasTally` | `tally().set_red`, `tally().set_brightness`, `tally().set_green`, `tally().set_mode`, `tally().red`, `tally().green` |
-| Menu | `HasDirectMenu` | `menu().direct`, `menu().toggle_visible` |
-| ND filter | `HasNdFilter` | `nd_filter().density`, `nd_filter().preset`, `nd_filter().set_mode`, `nd_filter().set_density`, `nd_filter().density_up`, `nd_filter().density_down`, `nd_filter().set_auto` |
-| Variable speed | `HasPanTiltSpeedMode` | `pan_tilt().set_speed_mode` |
-| Motion Sync | `HasMotionSync` | `motion_sync().set_enabled`, `motion_sync().set_speed` |
-| Focus | `HasFocusZoneInquiry` | `focus().zone` |
-| Streaming | `HasUsbAudio` | `streaming().usb_audio`, `streaming().set_usb_audio` |
-| Exposure | `HasAntiFlicker` | `exposure().set_anti_flicker`, `exposure().anti_flicker` |
-| System | `HasSettingsSave` | `system().save_settings` |
-| Presets | `HasPresetRecallSpeed` | `presets().set_recall_speed` |
-| Presets | `HasPresetRecallSpeedInquiry` | `presets().recall_speed` |
-| Exposure | `HasSpotlight` | `exposure().set_spotlight` |
-| Exposure | `HasAutoSlowShutter` | `exposure().set_auto_slow_shutter` |
-| Streaming | `HasMulticastStreaming` | `streaming().set_multicast` |
-| Streaming | `HasNdiQuality` | `streaming().set_ndi_quality` |
-| Exposure | `HasExposureMode` | `exposure().mode`, `exposure().set_mode` |
 | Image | `HasImageFreeze` | `image().set_freeze` |
-| Tally | `HasTallyBrightness` | `tally().set_brightness` |
-| Tally | `HasTallyMode` | `tally().set_mode` |
-| System | `HasVersionInquiry` | `system().version` |
-| Color | `HasColorTemperatureInquiry` | `white_balance().color_temperature` |
 | Image | `HasNoiseReduction2DMode` | `image().noise_reduction_2d_mode`, `image().set_noise_reduction_2d_mode` |
-| Exposure | `HasAeLevel` | `exposure().ae_level_up`, `exposure().ae_level_down`, `exposure().ae_level` |
-| Exposure | `HasAutoGain` | `exposure().set_auto_gain`, `exposure().auto_gain` |
-| Exposure | `HasAutoShutter` | `exposure().set_auto_shutter`, `exposure().auto_shutter` |
-| Exposure | `HasIrisSteps` | `exposure().iris_up_by`, `exposure().iris_down_by` |
-| Exposure | `HasAutoIris` | `exposure().set_auto_iris`, `exposure().auto_iris` |
-| WhiteBalance | `HasPresetWhite` | `white_balance().preset_white_up_by`, `white_balance().preset_white_down_by`, `white_balance().set_preset_white`, `white_balance().preset_white` |
-| WhiteBalance | `HasMemoryColorTemperature` | `white_balance().memory_color_temperature_up_by`, `white_balance().memory_color_temperature_down_by`, `white_balance().set_memory_color_temperature`, `white_balance().memory_color_temperature` |
-| WhiteBalance | `HasMemoryGain` | `white_balance().memory_red_gain_up_by`, `white_balance().memory_red_gain_down_by`, `white_balance().set_memory_red_gain`, `white_balance().memory_red_gain`, `white_balance().memory_blue_gain_up_by`, `white_balance().memory_blue_gain_down_by`, `white_balance().set_memory_blue_gain`, `white_balance().memory_blue_gain` |
-| WhiteBalance | `HasMemoryTint` | `white_balance().memory_tint_up_by`, `white_balance().memory_tint_down_by`, `white_balance().set_memory_tint`, `white_balance().memory_tint` |
-| WhiteBalance | `HasAtwOffsets` | `white_balance().atw_color_temperature_offset_up_by`, `white_balance().atw_color_temperature_offset_down_by`, `white_balance().set_atw_color_temperature_offset`, `white_balance().atw_color_temperature_offset`, `white_balance().atw_tint_offset_up_by`, `white_balance().atw_tint_offset_down_by`, `white_balance().set_atw_tint_offset`, `white_balance().atw_tint_offset` |
 | Image | `HasBlackLevels` | `image().master_black_up_by`, `image().master_black_down_by`, `image().set_master_black`, `image().master_black`, `image().red_black_up_by`, `image().red_black_down_by`, `image().set_red_black`, `image().red_black`, `image().blue_black_up_by`, `image().blue_black_down_by`, `image().set_blue_black`, `image().blue_black` |
 | Image | `HasDetail` | `image().set_detail`, `image().detail` |
 | Image | `HasKnee` | `image().set_knee`, `image().knee`, `image().set_knee_mode`, `image().knee_mode`, `image().set_knee_slope`, `image().knee_slope`, `image().set_knee_point`, `image().knee_point`, `image().knee_permission` |
-| Zoom | `HasHighResolutionZoom` | `zoom().tele_high_resolution`, `zoom().wide_high_resolution`, `zoom().stop_high_resolution` |
-| Zoom | `HasClearImageZoom` | `zoom().clear_image_position` |
-| Presets | `HasSeparatePresetSpeed` | `presets().set_speed_selection`, `presets().speed_selection`, `presets().set_separate_mode`, `presets().separate_mode`, `presets().set_separate_speed`, `presets().separate_speed` |
-| Presets | `HasSeparatePresetDuration` | `presets().set_separate_duration`, `presets().separate_duration` |
 | Image | `HasSharpnessMode` | `image().sharpness_mode`, `image().set_sharpness_mode` |
-| Focus | `HasFocusInfinity` | `focus().infinity` |
-| Presets | `HasPresetMemory` | `presets().store`, `presets().clear` |
-| Exposure | `HasShutter` | `exposure().shutter`, `exposure().shutter_reset`, `exposure().shutter_up`, `exposure().shutter_down` |
-| Exposure | `HasGain` | `exposure().gain`, `exposure().gain_reset`, `exposure().gain_up`, `exposure().gain_down`, `exposure().set_gain` |
-| Exposure | `HasGainLimit` | `exposure().gain_limit`, `exposure().set_gain_limit` |
+| Menu | `HasDirectMenu` | `menu().direct`, `menu().toggle_visible` |
 | Menu | `HasMenuDisplay` | `menu().set_visible` |
 | Menu | `HasMenuEnterReturn` | `menu().enter`, `menu().back` |
 | Menu | `HasMenuDisplayInquiry` | `menu().visible` |
-| Exposure | `HasDirectShutter` | `exposure().set_shutter` |
+| Motion sync | `HasMotionSync` | `motion_sync().set_enabled`, `motion_sync().set_speed` |
+| ND filter | `HasNdFilter` | `nd_filter().density`, `nd_filter().preset`, `nd_filter().set_mode`, `nd_filter().set_density`, `nd_filter().density_up`, `nd_filter().density_down`, `nd_filter().set_auto` |
+| Pan/tilt | `HasPanTiltSpeedMode` | `pan_tilt().set_speed_mode` |
 | Power | `HasPowerStandby` | `power().standby` |
+| Presets | `HasPresetRecallSpeed` | `presets().set_recall_speed` |
+| Presets | `HasPresetRecallSpeedInquiry` | `presets().recall_speed` |
+| Presets | `HasSeparatePresetSpeed` | `presets().set_speed_selection`, `presets().speed_selection`, `presets().set_separate_mode`, `presets().separate_mode`, `presets().set_separate_speed`, `presets().separate_speed` |
+| Presets | `HasSeparatePresetDuration` | `presets().set_separate_duration`, `presets().separate_duration` |
+| Presets | `HasPresetMemory` | `presets().store`, `presets().clear` |
+| Streaming | `HasUsbAudio` | `streaming().usb_audio`, `streaming().set_usb_audio` |
+| Streaming | `HasMulticastStreaming` | `streaming().set_multicast` |
+| Streaming | `HasNdiQuality` | `streaming().set_ndi_quality` |
+| System | `HasSettingsSave` | `system().save_settings` |
+| System | `HasVersionInquiry` | `system().version` |
+| Tally | `HasTally` | `tally().set_red`, `tally().set_brightness`, `tally().set_green`, `tally().set_mode`, `tally().red`, `tally().green` |
+| Tally | `HasTallyBrightness` | `tally().set_brightness` |
+| Tally | `HasTallyMode` | `tally().set_mode` |
+| White balance | `HasOnePushWhiteBalance` | `white_balance().one_push` |
+| White balance | `HasAutoWhiteBalanceSensitivity` | `white_balance().set_sensitivity`, `white_balance().sensitivity` |
+| White balance | `HasColorTemperature` | `white_balance().color_temperature_reset`, `white_balance().color_temperature_up`, `white_balance().color_temperature_down`, `white_balance().set_color_temperature` |
+| White balance | `HasRgbGain` | `white_balance().red_gain`, `white_balance().red_gain_reset`, `white_balance().red_gain_up`, `white_balance().red_gain_down`, `white_balance().set_red_gain`, `white_balance().blue_gain`, `white_balance().blue_gain_reset`, `white_balance().blue_gain_up`, `white_balance().blue_gain_down`, `white_balance().set_blue_gain` |
+| White balance | `HasRgbTuning` | `white_balance().set_red_tuning`, `white_balance().set_blue_tuning`, `white_balance().red_tuning`, `white_balance().blue_tuning` |
+| White balance | `HasColorTemperatureInquiry` | `white_balance().color_temperature` |
+| White balance | `HasPresetWhite` | `white_balance().preset_white_up_by`, `white_balance().preset_white_down_by`, `white_balance().set_preset_white`, `white_balance().preset_white` |
+| White balance | `HasMemoryColorTemperature` | `white_balance().memory_color_temperature_up_by`, `white_balance().memory_color_temperature_down_by`, `white_balance().set_memory_color_temperature`, `white_balance().memory_color_temperature` |
+| White balance | `HasMemoryGain` | `white_balance().memory_red_gain_up_by`, `white_balance().memory_red_gain_down_by`, `white_balance().set_memory_red_gain`, `white_balance().memory_red_gain`, `white_balance().memory_blue_gain_up_by`, `white_balance().memory_blue_gain_down_by`, `white_balance().set_memory_blue_gain`, `white_balance().memory_blue_gain` |
+| White balance | `HasMemoryTint` | `white_balance().memory_tint_up_by`, `white_balance().memory_tint_down_by`, `white_balance().set_memory_tint`, `white_balance().memory_tint` |
+| White balance | `HasAtwOffsets` | `white_balance().atw_color_temperature_offset_up_by`, `white_balance().atw_color_temperature_offset_down_by`, `white_balance().set_atw_color_temperature_offset`, `white_balance().atw_color_temperature_offset`, `white_balance().atw_tint_offset_up_by`, `white_balance().atw_tint_offset_down_by`, `white_balance().set_atw_tint_offset`, `white_balance().atw_tint_offset` |
+| Zoom | `HasDirectZoom` | `zoom().set_position`, `zoom().set_normalized`, `zoom().normalized` |
+| Zoom | `HasDigitalZoomToggle` | `zoom().set_digital_zoom` |
+| Zoom | `HasDigitalZoomRange` | Runtime-only gate for `zoom().set_normalized(..., ZoomDomain::OpticalPlusDigital)`; also requires a documented digital maximum |
+| Zoom | `HasHighResolutionZoom` | `zoom().tele_high_resolution`, `zoom().wide_high_resolution`, `zoom().stop_high_resolution` |
+| Zoom | `HasClearImageZoom` | `zoom().clear_image_position` |
 <!-- END GENERATED TYPED SUPPORT VOCABULARY -->
 
 <!-- BEGIN GENERATED TYPED METHODS -->

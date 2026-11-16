@@ -62,8 +62,7 @@ fn fast_drive() -> grafton_visca::command::pan_tilt::Drive {
                 grafton_visca::profiles::SonyFr7,
             >()
             .expect("source profile"),
-        )
-        .expect("target registration"),
+        ),
         PanTiltDirection::Right,
         grafton_visca::types::PanTiltSpeed {
             pan: PanSpeed::new(50).unwrap(),

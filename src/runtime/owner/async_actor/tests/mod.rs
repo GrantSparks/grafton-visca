@@ -811,8 +811,7 @@ fn prepared_focus(profile: &crate::ProfileSpec) -> crate::prepared::PreparedComm
         &crate::TargetRegistration::new(
             (TargetSlot::CAMERA_1).individual_camera(),
             profile.clone(),
-        )
-        .expect("valid target registration"),
+        ),
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
     )
@@ -827,8 +826,7 @@ fn prepared_zoom(
         &crate::TargetRegistration::new(
             (TargetSlot::CAMERA_1).individual_camera(),
             profile.clone(),
-        )
-        .expect("valid target registration"),
+        ),
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
     )

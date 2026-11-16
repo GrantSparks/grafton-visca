@@ -600,8 +600,9 @@ mod tests {
         let error = SerialTransport::new(config).expect_err("an absent port cannot open");
         assert!(matches!(
             error,
-            Error::ConnectionFailed { ref addr, .. }
+            Error::ConnectionFailed { ref addr, ref source }
                 if addr == "/dev/grafton-visca-absent-serial-device"
+                    && source.kind() == ErrorKind::NotFound
         ));
     }
 
@@ -936,11 +937,8 @@ mod tests {
                     assert!(!expect_open, "camera {camera:?} should open: {error:?}");
                     assert!(matches!(
                         error,
-                        Error::ConnectionFailed { ref addr, ref source }
-                            if *addr == path
-                                && source.kind() == ErrorKind::NotFound
-                                && source.to_string()
-                                    == "camera 2 was not addressed by Address Set (chain reported 1)"
+                        Error::CameraNotAddressed { ref port, camera, addressed: 1 }
+                            if *port == path && camera == crate::types::IndividualCameraId::CAMERA_2
                     ));
                 }
             }

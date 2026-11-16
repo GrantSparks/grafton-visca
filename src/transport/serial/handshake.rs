@@ -169,6 +169,7 @@ impl Frame {
 /// The serial startup protocol as a state machine.
 #[derive(Debug)]
 pub(crate) struct SerialStartup {
+    port: String,
     operations: std::vec::IntoIter<Operation>,
     timing: StartupTiming,
     read_timeout: Duration,
@@ -196,6 +197,7 @@ impl SerialStartup {
         .flatten()
         .collect::<Vec<_>>();
         Ok(Self {
+            port: config.port.clone(),
             operations: operations.into_iter(),
             timing,
             read_timeout: config.read_timeout,
@@ -423,7 +425,10 @@ impl SerialStartup {
             match frame {
                 Ok(Some(camera_count)) => {
                     if usize::from(camera_count) > crate::target::TargetSlot::COUNT {
-                        return Err(Error::InvalidRequest { reason: format!("serial chain reports {camera_count} devices; VISCA addresses at most 7").into() });
+                        return Err(Error::SerialChainTooLong {
+                            port: self.port.clone().into(),
+                            reported: camera_count,
+                        });
                     }
                     return Ok(Some(camera_count));
                 }
@@ -555,8 +560,8 @@ mod tests {
             assert!(matches!(startup.next(now), Action::Read { .. }));
             startup.read(Ok(&[0x88, 0x30, next_address, VISCA_TERMINATOR]));
             assert!(
-                matches!(startup.next(now), Action::Done(Err(Error::InvalidRequest { reason: message }))
-                if message.contains(&format!("reports {} devices", next_address - 1)))
+                matches!(startup.next(now), Action::Done(Err(Error::SerialChainTooLong { port, reported }))
+                if port == "/dev/test" && reported == next_address - 1)
             );
         }
     }
@@ -773,9 +778,8 @@ pub(crate) mod scenarios {
                         && source.to_string() == crate::transport::serial::SERIAL_PORT_CLOSED)
             }
             (Outcome::MaxRetries, Err(Error::MaxRetriesExceeded)) => true,
-            (Outcome::InvalidChain(count), Err(Error::InvalidRequest { reason: message })) => {
-                message.as_ref()
-                    == format!("serial chain reports {count} devices; VISCA addresses at most 7")
+            (Outcome::InvalidChain(count), Err(Error::SerialChainTooLong { port, reported })) => {
+                port.as_ref() == scenario.config.port && *reported == count
             }
             _ => false,
         };

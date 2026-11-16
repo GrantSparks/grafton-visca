@@ -194,7 +194,7 @@ fn synthetic_spec(
                 .command_spacing(Duration::ZERO)
                 .build()?,
         )
-        .maximum_command_sockets(2)
+        .maximum_command_sockets(grafton_visca::types::CommandSocketCount::TWO)
         .supports_operation_complete(false)
         .supports_command_cancel(true)
         .position_inquiries(position_inquiries);
@@ -491,7 +491,10 @@ mod tests {
             ProfileSpec::from_compile_time::<OptionalSurfacesTypedSupport>()?,
         ] {
             assert_eq!(profile.capabilities().profile_id, None);
-            assert_eq!(profile.maximum_command_sockets(), 2);
+            assert_eq!(
+                profile.maximum_command_sockets(),
+                grafton_visca::types::CommandSocketCount::TWO
+            );
             assert!(!profile.supports_operation_complete());
             assert!(profile.supports_command_cancel());
         }

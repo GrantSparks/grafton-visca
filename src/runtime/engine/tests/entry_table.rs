@@ -86,21 +86,12 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
 }
 
 #[test]
-fn evicting_a_full_sequence_keeps_the_other_historys_lower16_owner() {
+#[should_panic(expected = "one Sony sequence per correlation kind")]
+fn a_second_sequence_of_the_same_kind_is_an_invariant_violation() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let (_, id) = admit(&mut engine, 1, inquiry(1), now);
-    for sequence in [
-        0x0001_beef,
-        0x0002_beef,
-        0x1003,
-        0x1004,
-        0x1005,
-        0x1006,
-        0x1007,
-        0x1008,
-        0x1009,
-    ] {
+    for sequence in [0x0001_beef, 0x0002_beef] {
         engine
             .entries
             .transition(
@@ -112,25 +103,6 @@ fn evicting_a_full_sequence_keeps_the_other_historys_lower16_owner() {
             )
             .unwrap();
     }
-    assert_eq!(
-        engine.entry(id).unwrap().sequence_history.len(),
-        MAX_SEQUENCE_HISTORY
-    );
-    assert!(engine.entries.exact_owners(0x0001_beef).is_empty());
-    assert_eq!(engine.entries.exact_owners(0x0002_beef).len(), 1);
-    assert_eq!(engine.entries.lower_owners(0xbeef).len(), 1);
-    assert_eq!(
-        engine.resolve_sequence(
-            camera(1),
-            EnvelopeSequence {
-                value: 0xbeef,
-                width: SequenceWidth::Lower16
-            }
-        ),
-        Ok((id, CorrelationKind::Request))
-    );
-    engine.entries.remove(&id).unwrap();
-    assert!(engine.entries.lower_owners(0xbeef).is_empty());
 }
 
 #[test]

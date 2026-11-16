@@ -7,7 +7,7 @@ enum Scenario {
     Completion,
     Inquiry,
     CancellationResolution,
-    CancellationAmbiguity,
+    CancelledAck,
     CancellationObservation,
     Budget,
     RetryReady,
@@ -39,7 +39,7 @@ fn fixture(scenario: Scenario) -> (ProtocolEngine, RequestId, Instant) {
             let timeout = engine.advance(start + Duration::from_millis(20));
             retry_scheduled(&timeout).unwrap().2
         }
-        Scenario::CancellationAmbiguity => {
+        Scenario::CancelledAck => {
             engine.handle(Input::Cancel { id }, start);
             engine.advance(start + Duration::from_millis(20));
             start + Duration::from_millis(50)
@@ -125,9 +125,15 @@ fn cancellation_resolution_action_progresses() {
 }
 
 #[test]
-fn cancellation_ambiguity_action_progresses() {
-    assert_progress(Scenario::CancellationAmbiguity, |action| {
-        matches!(action, DueAction::CancellationAmbiguity)
+fn cancelled_ack_action_progresses() {
+    assert_progress(Scenario::CancelledAck, |action| {
+        matches!(
+            action,
+            DueAction::Ack {
+                cancellation: Some(_),
+                ..
+            }
+        )
     });
 }
 
@@ -289,7 +295,7 @@ fn preexisting_requests_make_progress_when_the_clock_reaches_its_last_instant() 
         Scenario::Completion,
         Scenario::Inquiry,
         Scenario::CancellationResolution,
-        Scenario::CancellationAmbiguity,
+        Scenario::CancelledAck,
         Scenario::CancellationObservation,
         Scenario::Budget,
         Scenario::RetryReady,

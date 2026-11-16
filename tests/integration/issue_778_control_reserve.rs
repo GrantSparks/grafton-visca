@@ -100,6 +100,41 @@ facade_matrix! {
     }
 }
 
+// Virtual time keeps the ten-thousand-request regression independent of the
+// worker's bounded receive probes and the host scheduler's timer granularity.
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
+mod paused {
+    use super::*;
+
+    facade_matrix! {
+        paused:
+        fn completed_requests_free_capacity_before_immediate_resubmission() {
+            let fake = FakeCamera::acking(1);
+            let session = open!(fake, saturated_config()).expect("capacity-one session");
+            let camera = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
+            for _ in 0..10_000 {
+                let mut ordinary = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele))
+                    .expect("ordinary resubmission");
+                wait!(ordinary.applied()).expect("ordinary completion");
+                let mut urgent = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
+                    .expect("urgent resubmission");
+                wait!(urgent.applied()).expect("urgent completion");
+            }
+            assert_eq!(fake.write_count(), 20_000);
+            let metrics = wait!(session.metrics()).expect("metrics");
+            assert_eq!(metrics.admission_rejected, 0);
+            assert_eq!(metrics.control_reserve_rejected, 0);
+            wait!(session.close()).expect("close");
+        }
+    }
+}
+
 /// The dynamic projection reaches the same reserve. The blocking dynamic
 /// camera has no `submit_applied`, so this scenario is async-only.
 #[cfg(all(

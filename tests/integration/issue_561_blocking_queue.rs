@@ -55,8 +55,7 @@ fn pan_tilt_stop() -> grafton_visca::command::pan_tilt::Stop {
                 grafton_visca::profiles::PtzOpticsG2,
             >()
             .expect("source profile"),
-        )
-        .expect("target registration"),
+        ),
     )
     .expect("profile-safe stop")
 }
@@ -168,8 +167,10 @@ fn a_third_operation_queues_until_a_socket_frees() {
 /// one completes.
 #[test]
 fn a_one_socket_target_queues_the_second_operation() {
-    let config =
-        session_config().with_tuning(OperationalTuning::new().with_maximum_command_sockets(1));
+    let config = session_config().with_tuning(
+        OperationalTuning::new()
+            .with_maximum_command_sockets(grafton_visca::types::CommandSocketCount::ONE),
+    );
     let fake = two_socket_camera();
     let session = Session::open(fake.blocking_wire(), &config).expect("owner session");
     let camera = session

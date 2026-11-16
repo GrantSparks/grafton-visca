@@ -152,7 +152,7 @@ fn unsupported_focus_profile() -> ProfileSpec {
                 .build()
                 .expect("valid timing"),
         )
-        .maximum_command_sockets(1)
+        .maximum_command_sockets(grafton_visca::types::CommandSocketCount::ONE)
         .supports_operation_complete(false)
         .supports_command_cancel(false)
         .position_inquiries(None)

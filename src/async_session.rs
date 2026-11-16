@@ -375,7 +375,7 @@ mod tests {
                     .build()
                     .expect("valid timing"),
             )
-            .maximum_command_sockets(1)
+            .maximum_command_sockets(crate::types::CommandSocketCount::ONE)
             .supports_operation_complete(true)
             .supports_command_cancel(false)
             .position_inquiries(None)
@@ -433,7 +433,7 @@ mod tests {
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()
             .with_sony_sequence_reset_on_connect(true)
-            .with_tuning(OperationalTuning::new().with_maximum_command_sockets(u8::MAX));
+            .with_tuning(OperationalTuning::new().with_ack_timeout(Duration::ZERO));
         assert!(matches!(
             runtime.run_until(Session::open(transport, &config, runtime.clone(),)),
             Err(Error::InvalidRequest { .. } | Error::InvalidParameter { .. })

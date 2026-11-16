@@ -35,7 +35,6 @@ struct Profile {
 #[derive(Clone)]
 struct Surface {
     surface: TypedSupportSurface,
-    area: &'static str,
     marker: &'static str,
     methods: String,
 }
@@ -70,7 +69,6 @@ impl Documentation {
             .into_iter()
             .map(|surface| Surface {
                 surface,
-                area: surface.documentation_area(),
                 marker: surface.marker_trait_name(),
                 methods: surface.documentation_api(),
             })
@@ -165,11 +163,15 @@ impl Documentation {
     fn vocabulary(&self) -> String {
         let mut output =
             String::from("| Area | Marker | Typed surface |\n| ---- | ------ | ------------- |\n");
-        for surface in &self.surfaces {
+        let mut surfaces: Vec<_> = self.surfaces.iter().collect();
+        surfaces.sort_by_key(|surface| surface.surface.documentation_noun().accessor());
+        for surface in surfaces {
             let _ = writeln!(
                 output,
                 "| {} | `{}` | {} |",
-                surface.area, surface.marker, surface.methods,
+                surface.surface.documentation_noun().title(),
+                surface.marker,
+                surface.methods,
             );
         }
         output

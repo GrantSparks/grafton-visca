@@ -36,13 +36,10 @@ fn no_default_pure_request_profile_smoke_and_facade_inventory() {
     let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
     let request = grafton_visca::command::power::On;
     request
-        .validate_for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                profile.clone(),
-            )
-            .expect("target registration"),
-        )
+        .validate_for_target(&grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            profile.clone(),
+        ))
         .expect("power request is valid for GenericVisca");
 
     let mut bytes = [0_u8; 16];

@@ -156,8 +156,7 @@ mod blocking_observability {
                             grafton_visca::profiles::PtzOpticsG2,
                         >()
                         .expect("source profile"),
-                    )
-                    .expect("target registration"),
+                    ),
                     PanTiltLimitCorner::UpRight,
                 )
                 .expect("profile-safe limit clear"),

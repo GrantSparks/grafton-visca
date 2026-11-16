@@ -564,8 +564,7 @@ mod blocking_standard {
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
                 .expect("profile"),
-        )
-        .expect("target config");
+        );
         let session = Session::open(transport, &config).expect("custom blocking owner session");
         session.shutdown().expect("shutdown");
     }
@@ -597,8 +596,7 @@ mod blocking_standard {
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
                     .expect("profile"),
-            )
-            .expect("target config");
+            );
             let error = Session::open(transport, &config)
                 .expect_err("invalid custom transport config must fail at construction");
             assert!(matches!(

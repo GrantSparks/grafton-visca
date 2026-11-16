@@ -30,7 +30,6 @@ macro_rules! define_typed_support_surfaces {
                     surface: $surface:ident,
                     marker: $marker:ident,
                     $(encodings: [$($encoding_variant:ident => $encoding_tag:literal),+ $(,)?],)?
-                    area: $area:literal,
                     surface_doc: $surface_doc:literal,
                     marker_doc: $marker_doc:literal,
                     diagnostic: $diagnostic:literal,
@@ -71,14 +70,6 @@ macro_rules! define_typed_support_surfaces {
             pub(crate) const fn marker_trait_name(self) -> &'static str {
                 match self {
                     $(Self::$surface => stringify!($marker),)*
-                }
-            }
-
-            /// Returns the contributor-guide area for this surface.
-            #[cfg(test)]
-            pub(crate) const fn documentation_area(self) -> &'static str {
-                match self {
-                    $(Self::$surface => $area,)*
                 }
             }
 
@@ -139,15 +130,16 @@ super::typed_support_registry::typed_support_registry!(define_typed_surface_look
 /// fact in the typed-support registry.
 #[cfg(test)]
 macro_rules! typed_method_vocabulary {
-    (@header $entries:ident, [typed $marker:ident], $method:expr) => {
-        $entries.push((typed_surface!($marker), $method));
+    (@header $entries:ident, [typed $marker:ident], $noun:ident, $method:expr) => {
+        $entries.push((typed_surface!($marker), crate::command::surface::StaticNoun::$noun, $method));
     };
-    (@header $entries:ident, $base:tt, $method:expr) => {};
+    (@header $entries:ident, $base:tt, $noun:ident, $method:expr) => {};
     (
         $(
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
+                title: $title:literal,
                 gate: $base:tt,
                 doc: $noun_doc:literal,
             };
@@ -161,13 +153,13 @@ macro_rules! typed_method_vocabulary {
         $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
         #[allow(clippy::vec_init_then_push)] // Header gates expand to optional statements.
-        fn noun_typed_methods() -> Vec<(TypedSupportSurface, &'static str)> {
+        fn noun_typed_methods() -> Vec<(TypedSupportSurface, crate::command::surface::StaticNoun, &'static str)> {
             let mut entries = Vec::new();
             $( $(
-                typed_method_vocabulary!(@header entries, $base, concat!(stringify!($getter), "().", stringify!($method)));
+                typed_method_vocabulary!(@header entries, $base, $noun, concat!(stringify!($getter), "().", stringify!($method)));
                 $(
-                    entries.push((typed_surface!($gate), concat!(stringify!($getter), "().", stringify!($method))));
-                    $(entries.push((typed_surface!($extra), concat!(stringify!($getter), "().", stringify!($method))));)*
+                    entries.push((typed_surface!($gate), crate::command::surface::StaticNoun::$noun, concat!(stringify!($getter), "().", stringify!($method))));
+                    $(entries.push((typed_surface!($extra), crate::command::surface::StaticNoun::$noun, concat!(stringify!($getter), "().", stringify!($method))));)*
                 )?
             )* )*
             entries
@@ -180,14 +172,41 @@ crate::noun_table::noun_table!(typed_method_vocabulary);
 
 #[cfg(test)]
 impl TypedSupportSurface {
+    /// Derives the unique owning noun from the same gates as the API list.
+    pub(crate) fn documentation_noun(self) -> crate::command::surface::StaticNoun {
+        if self == Self::DigitalZoomRange {
+            return crate::command::surface::StaticNoun::Zoom;
+        }
+        self.documentation_noun_from(&noun_typed_methods())
+    }
+
+    #[allow(clippy::panic)] // Invalid documentation metadata must fail the generation test.
+    fn documentation_noun_from(
+        self,
+        methods: &[(Self, crate::command::surface::StaticNoun, &'static str)],
+    ) -> crate::command::surface::StaticNoun {
+        let mut nouns = methods
+            .iter()
+            .filter_map(|(surface, noun, _)| (*surface == self).then_some(*noun));
+        let noun = nouns
+            .next()
+            .unwrap_or_else(|| panic!("{} has no owning noun", self.marker_trait_name()));
+        assert!(
+            nouns.all(|other| other == noun),
+            "{} spans more than one noun",
+            self.marker_trait_name()
+        );
+        noun
+    }
+
     pub(crate) fn documentation_api(self) -> String {
         if self == Self::DigitalZoomRange {
             return "Runtime-only gate for `zoom().set_normalized(..., ZoomDomain::OpticalPlusDigital)`; also requires a documented digital maximum".to_owned();
         }
         let mut methods = Vec::new();
-        for (_, method) in noun_typed_methods()
+        for (_, _, method) in noun_typed_methods()
             .into_iter()
-            .filter(|(surface, _)| *surface == self)
+            .filter(|(surface, _, _)| *surface == self)
         {
             if !methods.contains(&method) {
                 methods.push(method);
@@ -358,14 +377,43 @@ mod tests {
     fn every_typed_surface_has_noun_methods_or_the_runtime_only_note() {
         let methods = noun_typed_methods();
         for surface in TypedSupportSurface::ALL {
-            let has_methods = methods.iter().any(|(marker, _)| *marker == surface);
+            let has_methods = methods.iter().any(|(marker, _, _)| *marker == surface);
             assert_eq!(
                 has_methods,
                 surface != TypedSupportSurface::DigitalZoomRange,
                 "{surface:?}"
             );
             assert!(!surface.documentation_api().is_empty());
+            let noun = surface.documentation_noun();
+            for (_, method_noun, method) in
+                methods.iter().filter(|(marker, _, _)| *marker == surface)
+            {
+                assert_eq!(*method_noun, noun, "{surface:?}");
+                assert_eq!(
+                    method.split_once("().").map(|(accessor, _)| accessor),
+                    Some(noun.accessor()),
+                    "{surface:?}"
+                );
+            }
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "HasDirectZoom spans more than one noun")]
+    fn documentation_refuses_a_marker_spanning_two_nouns() {
+        use crate::command::surface::StaticNoun;
+        TypedSupportSurface::DirectZoom.documentation_noun_from(&[
+            (
+                TypedSupportSurface::DirectZoom,
+                StaticNoun::Zoom,
+                "zoom().set_position",
+            ),
+            (
+                TypedSupportSurface::DirectZoom,
+                StaticNoun::Focus,
+                "focus().set_position",
+            ),
+        ]);
     }
 
     #[test]

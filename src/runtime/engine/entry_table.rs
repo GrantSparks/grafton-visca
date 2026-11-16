@@ -14,7 +14,6 @@ use smallvec::SmallVec;
 use super::{
     AdmissionSlot, CorrelationKind, CorrelationOwner, Entry, Lane, Lifecycle, RequestId,
     RuntimeRequest, SequenceRecord, TargetSlot, TransmissionMeta, ViscaSocket,
-    MAX_SEQUENCE_HISTORY,
 };
 use crate::target::PerTarget;
 
@@ -38,6 +37,56 @@ impl<T> IndexMut<ViscaSocket> for SocketSlots<T> {
         match socket {
             ViscaSocket::S1 => &mut self.s1,
             ViscaSocket::S2 => &mut self.s2,
+        }
+    }
+}
+
+/// Each Sony request replays one sequence; cancellation has its own sequence.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct SequenceSlots {
+    request: Option<u32>,
+    cancellation: Option<u32>,
+}
+
+impl Index<CorrelationKind> for SequenceSlots {
+    type Output = Option<u32>;
+
+    fn index(&self, kind: CorrelationKind) -> &Self::Output {
+        match kind {
+            CorrelationKind::Request => &self.request,
+            CorrelationKind::Cancellation => &self.cancellation,
+        }
+    }
+}
+
+impl IndexMut<CorrelationKind> for SequenceSlots {
+    fn index_mut(&mut self, kind: CorrelationKind) -> &mut Self::Output {
+        match kind {
+            CorrelationKind::Request => &mut self.request,
+            CorrelationKind::Cancellation => &mut self.cancellation,
+        }
+    }
+}
+
+impl SequenceSlots {
+    pub(super) fn records(self) -> impl DoubleEndedIterator<Item = SequenceRecord> {
+        [CorrelationKind::Request, CorrelationKind::Cancellation]
+            .into_iter()
+            .filter_map(move |kind| self[kind].map(|sequence| SequenceRecord { sequence, kind }))
+    }
+
+    fn record(&mut self, kind: CorrelationKind, sequence: u32) {
+        let slot = &mut self[kind];
+        if let Some(previous) = slot {
+            // The framing check rejects an inconsistent retry before this
+            // mutation. Do not silently replace its authoritative sequence if
+            // an internal caller ever violates that protocol.
+            assert_eq!(
+                *previous, sequence,
+                "one Sony sequence per correlation kind"
+            );
+        } else {
+            *slot = Some(sequence);
         }
     }
 }
@@ -122,14 +171,22 @@ pub(super) struct SocketConflict {
     pub(super) owner: RequestId,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct IndexFacts {
     ready: Option<(Lane, usize)>,
     socket: Option<(TargetSlot, ViscaSocket)>,
-    history: SmallVec<[SequenceRecord; MAX_SEQUENCE_HISTORY]>,
+    sequences: SequenceSlots,
 }
 impl IndexFacts {
     fn of(entry: &Entry) -> Self {
+        let mut sequences = entry.sequences;
+        for kind in [CorrelationKind::Request, CorrelationKind::Cancellation] {
+            if entry.lifecycle.active().is_none()
+                || !super::correlation_phase_compatible(entry, kind)
+            {
+                sequences[kind] = None;
+            }
+        }
         Self {
             ready: entry.lifecycle().is_ready().then(|| {
                 (
@@ -141,15 +198,7 @@ impl IndexFacts {
                 .lifecycle
                 .active_socket()
                 .map(|socket| (entry.request.context().target, socket)),
-            history: entry
-                .sequence_history
-                .iter()
-                .copied()
-                .filter(|record| {
-                    entry.lifecycle.active().is_some()
-                        && super::correlation_phase_compatible(entry, record.kind)
-                })
-                .collect(),
+            sequences,
         }
     }
 }
@@ -242,7 +291,7 @@ impl EntryTable {
             }),
             submitted_at: facts.submitted_at,
             prior: None,
-            sequence_history: SmallVec::new(),
+            sequences: SequenceSlots::default(),
             slot: facts.slot,
         };
         let indexed = IndexFacts::of(&entry);
@@ -291,13 +340,7 @@ impl EntryTable {
             }
             EntryChange::Written { receipt, kind } => {
                 if let TransmissionMeta::Sony { sequence } = receipt {
-                    let record = SequenceRecord { sequence, kind };
-                    if !entry.sequence_history.contains(&record) {
-                        if entry.sequence_history.len() == MAX_SEQUENCE_HISTORY {
-                            entry.sequence_history.remove(0);
-                        }
-                        entry.sequence_history.push(record);
-                    }
+                    entry.sequences.record(kind, sequence);
                 }
             }
             EntryChange::CloseObserver => {
@@ -340,8 +383,8 @@ impl EntryTable {
         if let Some((target, socket)) = facts.socket {
             self.sockets[target][socket] = Some(id);
         }
-        for record in &facts.history {
-            self.add_sequence(id, *record);
+        for record in facts.sequences.records() {
+            self.add_sequence(id, record);
         }
     }
     fn remove_indexes(&mut self, id: RequestId, facts: &IndexFacts) {
@@ -354,8 +397,8 @@ impl EntryTable {
         if let Some((target, socket)) = facts.socket {
             self.sockets[target][socket] = None;
         }
-        for record in &facts.history {
-            self.remove_sequence(id, *record, &[]);
+        for record in facts.sequences.records() {
+            self.remove_sequence(id, record);
         }
     }
     fn update_indexes(&mut self, id: RequestId, before: &IndexFacts, after: &IndexFacts) {
@@ -378,14 +421,14 @@ impl EntryTable {
                 self.sockets[target][socket] = Some(id);
             }
         }
-        for record in &before.history {
-            if !after.history.contains(record) {
-                self.remove_sequence(id, *record, &after.history);
+        for record in before.sequences.records() {
+            if after.sequences[record.kind] != Some(record.sequence) {
+                self.remove_sequence(id, record);
             }
         }
-        for record in &after.history {
-            if !before.history.contains(record) {
-                self.add_sequence(id, *record);
+        for record in after.sequences.records() {
+            if before.sequences[record.kind] != Some(record.sequence) {
+                self.add_sequence(id, record);
             }
         }
     }
@@ -402,12 +445,7 @@ impl EntryTable {
             owner,
         );
     }
-    fn remove_sequence(
-        &mut self,
-        id: RequestId,
-        record: SequenceRecord,
-        retained: &[SequenceRecord],
-    ) {
+    fn remove_sequence(&mut self, id: RequestId, record: SequenceRecord) {
         let matches =
             |owner: &CorrelationOwner| !(owner.request == id && owner.kind == record.kind);
         if let Some(owners) = self.sequences.get_mut(&record.sequence) {
@@ -417,12 +455,6 @@ impl EntryTable {
             }
         }
         let lower = record.sequence as u16;
-        if retained
-            .iter()
-            .any(|other| other.kind == record.kind && other.sequence as u16 == lower)
-        {
-            return;
-        }
         if let Some(owners) = self.lower_sequences.get_mut(&lower) {
             owners.retain(|owner| matches(owner));
             if owners.is_empty() {

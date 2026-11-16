@@ -31,7 +31,9 @@ use grafton_visca::{
 
 use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP};
 
-fn g2_config(maximum_command_sockets: Option<u8>) -> SessionConfig {
+fn g2_config(
+    maximum_command_sockets: Option<grafton_visca::types::CommandSocketCount>,
+) -> SessionConfig {
     let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in G2 profile");
     let config = SessionConfig::new(profile);
     match maximum_command_sockets {
@@ -63,7 +65,11 @@ macro_rules! sent_cancel_is_not_supported {
     ($ack_before_cancel:expr) => {{
         let ack_before_cancel: bool = $ack_before_cancel;
         let fake = completing_after_first();
-        let session = open!(fake, g2_config(Some(1))).expect("owner session");
+        let session = open!(
+            fake,
+            g2_config(Some(grafton_visca::types::CommandSocketCount::ONE))
+        )
+        .expect("owner session");
         let camera = session
             .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("G2 camera view");
@@ -156,7 +162,7 @@ facade_matrix! {
     /// A completion the owner drained before the cancellation boundary wins.
     fn terminal_race_reports_completed() {
         let fake = FakeCamera::silent();
-        let session = open!(fake, g2_config(Some(1))).expect("owner session");
+        let session = open!(fake, g2_config(Some(grafton_visca::types::CommandSocketCount::ONE))).expect("owner session");
         let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         let mut original = wait!(camera.zoom().stop()).expect("transmitted operation");
@@ -177,5 +183,47 @@ facade_matrix! {
         ));
         assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec()]);
         session.shutdown().expect("owner shutdown");
+    }
+}
+
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
+mod paused {
+    use super::*;
+
+    facade_matrix! {
+        paused:
+
+        /// A slow ACK still assigns a socket after cancellation's ambiguity bound;
+        /// the session must retain the longer configured ACK window (#978).
+        fn pre_ack_cancel_keeps_the_configured_ack_window() {
+            use grafton_visca_test_support::profile_fixtures::NonDefaultCompileTimeProfile as Raw;
+
+            let fake = FakeCamera::silent();
+            let profile = ProfileSpec::from_compile_time::<Raw>().expect("cancellable fixture");
+            let config = SessionConfig::new(profile)
+                .with_tuning(OperationalTuning::new().with_ack_timeout(Duration::from_secs(2)));
+            let session = open!(fake, config).expect("owner session");
+            let camera = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                .expect("camera view");
+            let mut original = wait!(camera.zoom().stop()).expect("command admission");
+            wait_for_writes!(fake, 1);
+            assert!(matches!(
+                wait!(original.cancel_with_timeout(Duration::from_millis(1))),
+                Err(Error::ObservationTimeout { .. })
+            ));
+            pause!(Duration::from_millis(1_499));
+            fake.push(frames::ack(1));
+            wait_for_writes!(fake, 2);
+            assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec(), vec![0x81, 0x21, 0xff]]);
+            fake.push(frames::canceled(1));
+            assert_eq!(wait!(original.cancel()).expect("socket cancellation"), CancellationOutcome::Cancelled);
+            session.shutdown().expect("owner shutdown");
+        }
     }
 }

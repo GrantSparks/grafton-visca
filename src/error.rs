@@ -14,6 +14,8 @@
 //! | Error / condition | Kind | Stage / certainty | Recovery |
 //! | --- | --- | --- | --- |
 //! | `ConnectionFailed` | `IoRefused` | — | `Abandon` |
+//! | `CameraNotAddressed` | `InvalidParameter` | — | `Abandon` |
+//! | `SerialChainTooLong` | `InvalidParameter` | — | `Abandon` |
 //! | `ConnectionClosed` | `IoClosed` | — | `ReopenSession` |
 //! | `CommandPending / ACK received` | `Busy` | — | `WaitAgain` |
 //! | `InvalidResponse` | `Protocol` | — | `Abandon` |
@@ -249,6 +251,30 @@ pub enum Error {
         addr: Cow<'static, str>,
         /// The underlying IO error.
         source: Arc<io::Error>,
+    },
+
+    /// Address Set succeeded, but did not assign an address to a registered camera.
+    #[error(
+        "Camera {camera} was not addressed by Address Set on {port} (chain reported {addressed})"
+    )]
+    #[non_exhaustive]
+    CameraNotAddressed {
+        /// Serial device whose chain answered Address Set.
+        port: Cow<'static, str>,
+        /// Registered camera missing from the addressed chain.
+        camera: crate::types::IndividualCameraId,
+        /// Number of cameras the chain reported.
+        addressed: u8,
+    },
+
+    /// Address Set reported more cameras than the seven individual VISCA addresses.
+    #[error("Serial chain on {port} reports {reported} devices; VISCA addresses at most 7")]
+    #[non_exhaustive]
+    SerialChainTooLong {
+        /// Serial device whose chain answered Address Set.
+        port: Cow<'static, str>,
+        /// Number of cameras the chain reported.
+        reported: u8,
     },
 
     /// Connection to the camera was closed.
@@ -1339,7 +1365,9 @@ impl Error {
             | Self::BufferTooSmall { .. }
             | Self::InvalidCameraId { .. }
             | Self::InquiryNotCancellable { .. }
-            | Self::InvalidAddress { .. } => ErrorKind::InvalidParameter,
+            | Self::InvalidAddress { .. }
+            | Self::CameraNotAddressed { .. }
+            | Self::SerialChainTooLong { .. } => ErrorKind::InvalidParameter,
             Self::UnsupportedTransport { .. } => ErrorKind::Unsupported,
 
             // Busy: transient contention
@@ -1463,6 +1491,8 @@ impl Error {
             // session death separately as `StreamPoisoned`. A live session must
             // never hand out a replacement-session verdict.
             Self::ConnectionFailed { .. }
+            | Self::CameraNotAddressed { .. }
+            | Self::SerialChainTooLong { .. }
             | Self::CommandPending
             | Self::InvalidResponse { .. }
             | Self::FeatureNotSupported { .. }
@@ -1620,6 +1650,8 @@ impl Error {
                 _ => Recovery::Abandon,
             },
             Self::ConnectionFailed { .. }
+            | Self::CameraNotAddressed { .. }
+            | Self::SerialChainTooLong { .. }
             | Self::InvalidResponse { .. }
             | Self::FeatureNotSupported { .. }
             | Self::SyntaxError
@@ -1717,6 +1749,8 @@ impl Error {
             Self::WithContext { source, .. } => source.failure_context(),
             Self::TransportError { source, .. } => source.failure_context(),
             Self::ConnectionFailed { .. }
+            | Self::CameraNotAddressed { .. }
+            | Self::SerialChainTooLong { .. }
             | Self::ConnectionClosed { .. }
             | Self::CommandPending
             | Self::InvalidResponse { .. }

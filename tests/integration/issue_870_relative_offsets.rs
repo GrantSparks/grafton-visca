@@ -38,7 +38,6 @@ fn targets() -> Vec<TargetRegistration> {
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.expect("profile"),
             )
-            .expect("target")
         })
         .collect::<Vec<_>>();
     targets.push(
@@ -46,7 +45,6 @@ fn targets() -> Vec<TargetRegistration> {
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         )
-        .expect("FR7 target")
         .with_mount(MountPosition::Ceiling)
         .expect("ceiling"),
     );

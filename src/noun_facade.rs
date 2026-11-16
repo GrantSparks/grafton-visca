@@ -264,6 +264,7 @@ macro_rules! static_noun_facade {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
+                title: $title:literal,
                 gate: $gate:tt,
                 doc: $doc:literal $(,)?
             };

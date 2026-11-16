@@ -220,7 +220,7 @@ fn a_one_socket_union_recovers_without_waiting_for_a_phantom_second_socket() {
     let mut engine = engine_with_target(
         EnvelopeKind::Raw,
         TransportKind::Stream,
-        1,
+        CommandSocketCount::ONE,
         CancellationPolicy::Supported,
     );
     extend_fixture_hold(
@@ -293,7 +293,7 @@ fn lowering_capacity_cannot_forget_a_second_socket_from_an_ended_attempt() {
         .retune(
             Duration::ZERO,
             Duration::ZERO,
-            PerTarget::from_fn(|target| (target == camera(1)).then_some(1)),
+            PerTarget::from_fn(|target| (target == camera(1)).then_some(CommandSocketCount::ONE)),
             later,
         )
         .unwrap();
@@ -316,7 +316,7 @@ fn a_camera_proven_second_socket_survives_a_one_socket_dispatch_limit() {
     let mut engine = engine_with_target(
         EnvelopeKind::Raw,
         TransportKind::Stream,
-        1,
+        CommandSocketCount::ONE,
         CancellationPolicy::Supported,
     );
     let (write, old) = admit(

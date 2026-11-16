@@ -22,8 +22,8 @@ fn ended_session_cannot_retain_work() {
 
 #[test]
 fn representation_size_baseline() {
-    // The table removes duplicate storage while retaining all phase-local facts.
-    assert!(size_of::<Entry>() <= 536, "Entry={}", size_of::<Entry>());
+    // Fixed sequence slots reduce the prior 536-byte entry without losing facts.
+    assert!(size_of::<Entry>() <= 456, "Entry={}", size_of::<Entry>());
     assert!(
         size_of::<ProtocolEngine>() <= 2968,
         "ProtocolEngine={}",
@@ -35,6 +35,26 @@ fn representation_size_baseline() {
         size_of::<ProtocolEngine>(),
         size_of::<TargetState>()
     );
+}
+
+#[test]
+fn request_pacing_follows_the_latest_lane_write() {
+    let start = Instant::now();
+    let mut pacing = Pacing::default();
+    assert_eq!(pacing.last_request(), None);
+    pacing.record(Lane::Command, start);
+    pacing.record(Lane::Inquiry, start + Duration::from_millis(1));
+    assert_eq!(
+        pacing.last_request(),
+        Some(start + Duration::from_millis(1))
+    );
+    assert_eq!(pacing.last_command, Some(start));
+    pacing.record(Lane::Command, start + Duration::from_millis(2));
+    assert_eq!(
+        pacing.last_request(),
+        Some(start + Duration::from_millis(2))
+    );
+    assert_eq!(pacing.last_inquiry, Some(start + Duration::from_millis(1)));
 }
 
 #[cfg(debug_assertions)]

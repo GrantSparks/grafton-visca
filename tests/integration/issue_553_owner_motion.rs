@@ -218,6 +218,36 @@ mod paused {
             session.shutdown().expect("shutdown");
         }
 
+        /// A multi-axis operation samples each position sequentially after its
+        /// application, while the session has exactly one ordinary permit.
+        fn multi_axis_settlement_sampling_reuses_capacity_one() {
+            let fake = FakeCamera::visca(|request, answer| {
+                if request == [0x81, 0x09, 0x06, 0x12, 0xff] {
+                    answer.reply(frames::inquiry_reply(&[0; 8]));
+                } else if request == ZOOM_POSITION_INQUIRY
+                    || request == [0x81, 0x09, 0x04, 0x48, 0xff] {
+                    answer.reply(nibble_position(0));
+                } else {
+                    answer.reply(frames::ack(1)).reply(frames::complete(1));
+                }
+            });
+            let config = SessionConfig::from_compile_time::<grafton_visca::profiles::GenericVisca>()
+                .expect("polling profile")
+                .with_admission_capacity(std::num::NonZeroUsize::MIN);
+            let session = open!(fake, config).expect("capacity-one session");
+            let camera = session.camera::<grafton_visca::profiles::GenericVisca>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
+            let mut operation = wait!(camera.presets().recall(
+                grafton_visca::types::PresetNumber::new(1).expect("preset")))
+                .expect("recall admitted");
+            let settled = wait!(operation.settled())
+                .expect("pan/tilt, zoom and focus samples share one permit sequentially");
+            assert!(matches!(settled, grafton_visca::operation::Settlement::ObservedStable { axes, .. }
+                if axes == AffectedAxes::PAN_TILT | AffectedAxes::ZOOM | AffectedAxes::FOCUS));
+            assert_eq!(fake.write_count(), 7, "recall followed by two samples per position inquiry");
+            wait!(session.close()).expect("close");
+        }
+
         /// An axis the profile cannot observe is refused before any wire I/O.
         fn owner_motion_unsupported_axis_is_refused_before_the_wire() {
             let fake = motion_camera(PositionScript::default(), false);

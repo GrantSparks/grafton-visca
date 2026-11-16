@@ -513,7 +513,7 @@ mod tests {
             .with_inquiry_spacing(
                 profile.timing().inquiry_spacing() + std::time::Duration::from_millis(1),
             )
-            .with_maximum_command_sockets(1);
+            .with_maximum_command_sockets(crate::types::CommandSocketCount::ONE);
         let transport = ScriptedTransport {
             config: TransportConfig::default(),
             sent: Vec::new(),
@@ -529,17 +529,17 @@ mod tests {
         .unwrap();
         assert_eq!(
             adapter_policy.protocol.command_spacing,
-            tuning.command_spacing_override().unwrap()
+            tuning.command_spacing().unwrap()
         );
         assert_eq!(
             adapter_policy.protocol.inquiry_spacing,
-            tuning.inquiry_spacing_override().unwrap()
+            tuning.inquiry_spacing().unwrap()
         );
         assert_eq!(
             adapter_policy.targets[crate::target::TargetSlot::CAMERA_1]
                 .unwrap()
                 .command_sockets,
-            1
+            crate::CommandSocketCount::ONE
         );
     }
 }

@@ -409,8 +409,7 @@ mod async_runtime_profiles {
             let recall_target = grafton_visca::config::TargetRegistration::new(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.clone(),
-            )
-            .expect("recall target");
+            );
             let supports_recall_speed = profile
                 .capabilities()
                 .supports(grafton_visca::capabilities::TypedSupportSurface::PresetRecallSpeed);

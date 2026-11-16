@@ -648,6 +648,31 @@ impl super::Capabilities {
                 [pan_tilt.tilt_speed.min(), pan_tilt.tilt_speed.max()],
                 |value| value != 0 && crate::types::TiltSpeed::new(value).is_ok(),
             )?;
+            for (field, maximum) in [
+                ("capabilities.pan_tilt.pan_speed", pan_tilt.pan_speed.max()),
+                (
+                    "capabilities.pan_tilt.tilt_speed",
+                    pan_tilt.tilt_speed.max(),
+                ),
+            ] {
+                if maximum > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM {
+                    if !pan_tilt.variable_speed {
+                        return Err(invalid(
+                            &[field, "capabilities.pan_tilt.variable_speed"],
+                            "speeds above the standard maximum require variable speed modes",
+                        ));
+                    }
+                    if !self
+                        .typed_support
+                        .contains(super::TypedSupportSurface::PanTiltSpeedMode)
+                    {
+                        return Err(invalid(
+                            &[field, "capabilities.typed_support"],
+                            "speeds above the standard maximum require the pan/tilt speed-mode permission",
+                        ));
+                    }
+                }
+            }
             optional!(
                 "capabilities.pan_tilt.motion_sync_speed_range",
                 pan_tilt.motion_sync_speed_range,

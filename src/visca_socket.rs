@@ -1,5 +1,47 @@
 //! Checked identifiers for the two numbered VISCA command sockets.
 
+/// Number of physical command sockets available on a VISCA target.
+///
+/// Construction and deserialization accept only `1` or `2`. Profile tuning may
+/// lower this capacity but cannot exceed the selected profile's limit.
+///
+/// ```
+/// use grafton_visca::types::CommandSocketCount;
+///
+/// assert_eq!(CommandSocketCount::ONE.value(), 1);
+/// assert_eq!(CommandSocketCount::new(2)?, CommandSocketCount::TWO);
+/// assert!(CommandSocketCount::new(0).is_err());
+/// # Ok::<(), grafton_visca::Error>(())
+/// ```
+#[crate::value(min = 1, max = 2)]
+pub struct CommandSocketCount(
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(range(min = CommandSocketCount::MIN.value(), max = CommandSocketCount::MAX.value()))
+    )]
+    u8,
+);
+
+impl CommandSocketCount {
+    /// One physical command socket.
+    pub const ONE: Self = Self(1);
+
+    /// Two physical command sockets.
+    pub const TWO: Self = Self(2);
+
+    #[cfg(any(feature = "blocking", feature = "async", test))]
+    pub(crate) fn sockets(self) -> impl Iterator<Item = ViscaSocket> {
+        [ViscaSocket::S1, ViscaSocket::S2]
+            .into_iter()
+            .take(self.get())
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async", test))]
+    pub(crate) fn get(self) -> usize {
+        usize::from(self.value())
+    }
+}
+
 /// One numbered VISCA command-execution slot.
 ///
 /// The canonical wire values are `1` and `2`. A protocol response with socket
@@ -34,6 +76,61 @@ impl ViscaSocket {
 mod tests {
     use super::*;
     use crate::wire::WireValue;
+
+    #[test]
+    fn command_socket_counts_preserve_the_checked_physical_domain() {
+        assert_eq!(CommandSocketCount::MIN, CommandSocketCount::ONE);
+        assert_eq!(CommandSocketCount::MAX, CommandSocketCount::TWO);
+        for value in 0..=u8::MAX {
+            assert_eq!(
+                CommandSocketCount::new(value).is_ok(),
+                (1..=2).contains(&value)
+            );
+            if let Ok(count) = CommandSocketCount::try_from(value) {
+                assert_eq!(u8::from(count), value);
+                assert_eq!(count.get(), usize::from(value));
+                assert_eq!(count.sockets().count(), usize::from(value));
+            }
+        }
+        assert_eq!(
+            CommandSocketCount::ONE.sockets().collect::<Vec<_>>(),
+            [ViscaSocket::S1]
+        );
+        assert_eq!(
+            CommandSocketCount::TWO.sockets().collect::<Vec<_>>(),
+            [ViscaSocket::S1, ViscaSocket::S2]
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn command_socket_count_persistence_is_numeric_and_checked(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for count in [CommandSocketCount::ONE, CommandSocketCount::TWO] {
+            let value = serde_json::to_value(count)?;
+            assert_eq!(value, serde_json::json!(count.value()));
+            assert_eq!(serde_json::from_value::<CommandSocketCount>(value)?, count);
+        }
+        for value in [0, 3, 255] {
+            assert!(
+                serde_json::from_value::<CommandSocketCount>(serde_json::json!(value)).is_err()
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    #[test]
+    fn command_socket_count_schema_and_typescript_use_the_numeric_domain() {
+        let schema = schemars::schema_for!(CommandSocketCount);
+        assert_eq!(schema.get("type").unwrap(), "integer");
+        assert_eq!(schema.get("minimum").unwrap(), 1);
+        assert_eq!(schema.get("maximum").unwrap(), 2);
+        assert_eq!(
+            <CommandSocketCount as ts_rs::TS>::decl(&ts_rs::Config::default()),
+            "type CommandSocketCount = number;"
+        );
+    }
 
     #[test]
     fn canonical_wire_domain_excludes_socketless_and_cancel_bytes() {

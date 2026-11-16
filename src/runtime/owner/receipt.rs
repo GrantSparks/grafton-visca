@@ -86,7 +86,7 @@ pub(super) enum ObservationWake {
     /// The terminal slot delivered (`None`: the owner dropped it unresolved).
     Terminal(Option<Observed<CommandOutcome>>),
     /// The cancellation slot delivered (`None`: the owner dropped it, which it
-    /// does only when the operation's terminal outcome is already delivered).
+    /// does when retiring the operation before delivering its terminal outcome).
     Cancellation(Option<Observed<Error>>),
     /// The owner is gone.
     OwnerGone,

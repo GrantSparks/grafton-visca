@@ -24,7 +24,7 @@ pub(super) struct DiagnosticRecorder {
 impl DiagnosticRecorder {
     pub(super) fn new(state: &mut OwnerState) -> Self {
         let (_, ends) = boundary::OwnerHandleCore::new(state);
-        let capacity = state.policy().limits.diagnostic_events_per_subscription;
+        let capacity = state.facts().limits.diagnostic_events_per_subscription;
         Self {
             subscription: state
                 .subscribe_diagnostics(capacity, ends.lifecycle)
@@ -145,10 +145,9 @@ fn reconfigurable_owner_state_at(now: Instant) -> OwnerState {
     OwnerState::new(policy, now).expect("owner state")
 }
 
-fn command_sockets(state: &OwnerState) -> u8 {
-    state.policy().targets[TargetSlot::CAMERA_1]
+fn command_sockets(state: &OwnerState) -> crate::CommandSocketCount {
+    state.engine.operational_limits_for_test().2[TargetSlot::CAMERA_1]
         .expect("camera one is registered")
-        .command_sockets
 }
 
 /// Retuning preserves the immutable construction baseline while replacing
@@ -160,7 +159,7 @@ fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
     let tuning = crate::OperationalTuning::new()
         .with_command_spacing(Duration::from_millis(200))
         .with_inquiry_spacing(Duration::from_millis(300))
-        .with_maximum_command_sockets(1);
+        .with_maximum_command_sockets(crate::types::CommandSocketCount::ONE);
     state
         .retune(
             crate::session_config::ValidatedTuning::for_test(tuning).expect("validated tuning"),
@@ -168,18 +167,21 @@ fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
         )
         .expect("accepted retune");
     assert_eq!(live.get().get(), tuning);
+    let (command_spacing, inquiry_spacing, _) = state.engine.operational_limits_for_test();
+    assert_eq!(command_spacing, Duration::from_millis(200));
+    assert_eq!(inquiry_spacing, Duration::from_millis(300));
     assert_eq!(
-        state.policy().baseline.command_spacing,
+        state.facts().baseline.command_spacing,
         Duration::from_millis(10)
     );
     assert_eq!(
-        state.policy().baseline.inquiry_spacing,
+        state.facts().baseline.inquiry_spacing,
         Duration::from_millis(20)
     );
     assert_eq!(
         command_sockets(&state),
-        2,
-        "construction facts do not mirror live engine changes"
+        crate::CommandSocketCount::ONE,
+        "socket capacity is read from the live engine"
     );
     state
         .retune(
@@ -190,11 +192,11 @@ fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
         .expect("clear overrides");
     assert_eq!(live.get().get(), crate::OperationalTuning::new());
     assert_eq!(
-        state.policy().baseline.command_spacing,
+        state.facts().baseline.command_spacing,
         Duration::from_millis(10)
     );
     assert_eq!(
-        state.policy().baseline.inquiry_spacing,
+        state.facts().baseline.inquiry_spacing,
         Duration::from_millis(20)
     );
 }
@@ -226,16 +228,16 @@ fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
         )
         .expect("accepted");
     let error = crate::session_config::ValidatedTuning::for_test(
-        crate::OperationalTuning::new().with_maximum_command_sockets(3),
+        crate::OperationalTuning::new().with_ack_timeout(Duration::ZERO),
     )
     .expect_err("invalid tuning cannot cross the owner boundary");
     assert!(matches!(error, Error::InvalidRequest { .. }));
     assert_eq!(live.get().get(), accepted);
     assert_eq!(
-        state.policy().baseline.command_spacing,
+        state.facts().baseline.command_spacing,
         Duration::from_millis(10)
     );
-    assert_eq!(command_sockets(&state), 2);
+    assert_eq!(command_sockets(&state), crate::CommandSocketCount::TWO);
 }
 
 /// Construction and retuning lower the same validated overrides from profile
@@ -253,11 +255,12 @@ fn construction_and_retuning_have_identical_limits_for_every_profile_and_serial_
         let baseline = TuningBaseline::from_registry(&profiles);
         for tuning in [
             crate::OperationalTuning::new(),
-            crate::OperationalTuning::new().with_maximum_command_sockets(1),
+            crate::OperationalTuning::new()
+                .with_maximum_command_sockets(crate::types::CommandSocketCount::ONE),
             crate::OperationalTuning::new()
                 .with_command_spacing(baseline.command_spacing + Duration::from_millis(17))
                 .with_inquiry_spacing(baseline.inquiry_spacing + Duration::from_millis(23))
-                .with_maximum_command_sockets(1),
+                .with_maximum_command_sockets(crate::types::CommandSocketCount::ONE),
         ] {
             let validated =
                 crate::session_config::ValidatedTuning::validate(tuning, registered()).unwrap();
@@ -403,6 +406,104 @@ mod control_reserve {
         reserves[TargetSlot::CAMERA_1] = 2;
         reserves[TargetSlot::CAMERA_2] = 1;
         AdmissionPermitPool::new(1, reserves)
+    }
+
+    /// A waiter may resubmit inside its wake callback, before the owner returns
+    /// from terminal delivery. Both admission budgets must already be free.
+    #[test]
+    fn terminal_wakeup_can_immediately_reacquire_ordinary_and_reserved_capacity() {
+        use std::{
+            future::Future,
+            task::{Context, Poll, Wake, Waker},
+        };
+
+        struct Resubmit {
+            pool: AdmissionPermitPool,
+            context: RequestContext,
+            expected: AdmissionSlot,
+            woke: AtomicBool,
+        }
+        impl Wake for Resubmit {
+            fn wake(self: Arc<Self>) {
+                self.wake_by_ref();
+            }
+            fn wake_by_ref(self: &Arc<Self>) {
+                let permit = self
+                    .pool
+                    .try_acquire(&self.context)
+                    .expect("terminal capacity is free inside the waiter's wake-up");
+                assert_eq!(permit.slot(), self.expected);
+                self.woke.store(true, Ordering::Release);
+            }
+        }
+
+        for class in [ControlClass::Normal, ControlClass::Urgent] {
+            for outcome in [
+                CommandOutcome::Applied,
+                CommandOutcome::Cancelled,
+                CommandOutcome::Failed(Error::RuntimeShutdown),
+            ] {
+                let now = Instant::now();
+                let policy = OwnerPolicy::single_target(
+                    policy_for_target_validation(),
+                    TargetSlot::CAMERA_1,
+                    TargetPolicy {
+                        control_reserve: 1,
+                        ..TargetPolicy::test_default()
+                    },
+                )
+                .unwrap();
+                let mut state = OwnerState::new(policy, now).unwrap();
+                let mut reserves = PerTarget::default();
+                reserves[TargetSlot::CAMERA_1] = 1;
+                let pool = AdmissionPermitPool::new(1, reserves);
+                // Exhaust ordinary admission too, so an urgent resubmission
+                // cannot hide an unreleased reserve by borrowing that budget.
+                let _ordinary =
+                    (class == ControlClass::Urgent).then(|| pool.try_acquire_ordinary().unwrap());
+                let context = context(1, class);
+                let permit = pool.try_acquire(&context).unwrap();
+                let expected = permit.slot();
+                let request = RuntimeRequest::Command {
+                    reply_shape: crate::runtime::engine::ReplyShape::AckThenCompletion,
+                    wire: Arc::new(
+                        crate::runtime::engine::EncodedMessage::new(&[
+                            0x81, 0x01, 0x04, 0x00, 0xff,
+                        ])
+                        .unwrap(),
+                    ),
+                    context,
+                    applied_state: None,
+                };
+                let (observer, cell) = TerminalObserver::<CommandOutcome>::pair();
+                let turn = state.begin_input_turn(now);
+                let admitted = state.admit_in_turn(&turn, request, permit, cell).unwrap();
+                let wake = Arc::new(Resubmit {
+                    pool,
+                    context,
+                    expected,
+                    woke: AtomicBool::new(false),
+                });
+                let waker = Waker::from(Arc::clone(&wake));
+                let mut waiting = std::pin::pin!(observer.receiver.recv_async());
+                assert!(waiting
+                    .as_mut()
+                    .poll(&mut Context::from_waker(&waker))
+                    .is_pending());
+                let _applied = state.apply_effect(
+                    Effect::Terminal {
+                        id: admitted.id,
+                        outcome: RuntimeOutcome::Command(outcome),
+                    },
+                    now,
+                );
+                assert!(wake.woke.load(Ordering::Acquire));
+                assert!(matches!(
+                    waiting.as_mut().poll(&mut Context::from_waker(&waker)),
+                    Poll::Ready(Ok(_))
+                ));
+            }
+        }
     }
 
     #[test]
@@ -803,7 +904,7 @@ mod metrics {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let prepared = prepare_command(
             &FocusModeCommand::Manual,
-            &TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile).unwrap(),
+            &TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1186,6 +1287,48 @@ mod metrics {
         ));
     }
 
+    /// #986: the owner's intent exists only after the engine accepts it,
+    /// before the returned diagnostic and lifecycle effects are driven.
+    #[test]
+    fn cancellation_intent_is_installed_only_on_synchronous_acceptance() {
+        for cancellation in [
+            CancellationPolicy::Supported,
+            CancellationPolicy::Unsupported,
+        ] {
+            let now = Instant::now();
+            let mut policy = owner_policy(EnvelopeKind::Raw);
+            policy.targets[TargetSlot::CAMERA_1]
+                .as_mut()
+                .unwrap()
+                .cancellation = cancellation;
+            let mut state = OwnerState::new(policy, now).unwrap();
+            let mut request = command(RetryPolicy::NEVER);
+            request.context_mut().cancellation = cancellation;
+            let _terminal = sent(&mut state, request, None, now);
+            let id = *state.active.keys().next().unwrap();
+            let (_observation, observer) = CancellationObserver::pair();
+            let retained = Arc::clone(&observer);
+            let (effects, answer) = state.begin_cancellation(
+                CancellationRequest { id, observer },
+                now + Duration::from_millis(1),
+            );
+            match cancellation {
+                CancellationPolicy::Supported => {
+                    answer.unwrap();
+                    assert!(Arc::ptr_eq(
+                        state.active[&id].cancellation.as_ref().unwrap(),
+                        &retained,
+                    ));
+                    assert!(effects.iter().any(|effect| matches!(effect, Effect::CancellationRecorded { id: recorded } if *recorded == id)));
+                }
+                CancellationPolicy::Unsupported => {
+                    assert!(matches!(answer, Err(Error::CancellationNotSupported)));
+                    assert!(state.active[&id].cancellation.is_none());
+                }
+            }
+        }
+    }
+
     #[test]
     fn cancellation_failure_uses_the_explicit_delivery_instant() {
         let earlier = Instant::now();
@@ -1198,7 +1341,7 @@ mod metrics {
             .active
             .get_mut(&observation.id())
             .unwrap()
-            .cancellation = Some(CancellationIntent::Recorded(cancellation.observer));
+            .cancellation = Some(cancellation.observer);
         let _applied = state.apply_effect(
             Effect::CancellationObservation {
                 id: observation.id(),
@@ -2260,15 +2403,13 @@ mod lifecycle_trace {
             )
             .unwrap();
             self.diagnostics = Some(super::DiagnosticRecorder::new(&mut state));
-            let registered =
-                state.policy().targets[TargetSlot::CAMERA_1].expect("camera one is registered");
             out.push(format!(
                 "{} effect session state={} transport={} capacity={} cancel={}",
                 self.at,
                 session_name(state.state()),
-                transport_name(state.policy().protocol.transport),
+                transport_name(state.facts().transport),
                 state.permits().capacity(),
-                cancellation_name(registered.cancellation),
+                cancellation_name(cancellation),
             ));
             self.state = Some(state);
         }

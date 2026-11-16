@@ -44,7 +44,7 @@ fn runtime_power_profile() -> ProfileSpec {
         .transports(TransportCompatibility::new().with_tcp(5678))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(timing)
-        .maximum_command_sockets(1)
+        .maximum_command_sockets(grafton_visca::types::CommandSocketCount::ONE)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
         .position_inquiries(None)

@@ -231,8 +231,9 @@ impl SessionConfig {
     }
 
     /// Creates a single-target configuration for an explicit camera.
-    pub fn for_target(target: IndividualCameraId, profile: ProfileSpec) -> Result<Self> {
-        Ok(Self::with_profile(TargetSlot::from(target), profile))
+    #[must_use]
+    pub fn for_target(target: IndividualCameraId, profile: ProfileSpec) -> Self {
+        Self::with_profile(TargetSlot::from(target), profile)
     }
 
     /// Creates a configuration using the compile-time profile's default target.
@@ -684,9 +685,9 @@ impl ValidatedSessionConfig {
     /// serial bus startup ran Address Set, the cameras it addressed.
     ///
     /// Address Set assigns `1..=n`; a registered target above `n` is not on
-    /// the bus, so the open fails with [`Error::ConnectionFailed`] naming the
-    /// port, whose `NotFound` source names the camera. Cameras beyond the
-    /// registered ones are allowed.
+    /// the bus, so the open fails with [`Error::CameraNotAddressed`] naming the
+    /// port, missing camera and reported count. Cameras beyond the registered
+    /// ones are allowed.
     pub(crate) fn validate_opened_transport<T>(&self, transport: &T) -> Result<()>
     where
         T: crate::transport::HasTransportConfig + ?Sized,
@@ -699,16 +700,11 @@ impl ValidatedSessionConfig {
         let addressed = bus.cameras;
         match self.0.targets().find(|target| target.value() > addressed) {
             None => Ok(()),
-            Some(missing) => Err(Error::connection_failed(
-                bus.port.clone(),
-                Arc::new(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!(
-                        "camera {} was not addressed by Address Set (chain reported {addressed})",
-                        missing.value()
-                    ),
-                )),
-            )),
+            Some(missing) => Err(Error::CameraNotAddressed {
+                port: bus.port.clone().into(),
+                camera: missing,
+                addressed,
+            }),
         }
     }
 

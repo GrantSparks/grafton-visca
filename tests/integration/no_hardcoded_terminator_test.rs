@@ -114,8 +114,7 @@ fn built_in_commands_end_with_the_exported_terminator() {
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
                 .expect("source profile")
-            )
-            .expect("target registration"),
+            ),
             ZoomSpeed::new(5).expect("zoom speed")
         )
         .expect("profile-aware request"),
@@ -126,8 +125,7 @@ fn built_in_commands_end_with_the_exported_terminator() {
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
                 .expect("source profile")
-            )
-            .expect("target registration"),
+            ),
             ZoomSpeed::ZERO
         )
         .expect("profile-aware request"),

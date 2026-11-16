@@ -617,7 +617,6 @@ mod tests {
             crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
                 .expect("generic profile"),
         )
-        .expect("target registration")
     }
 
     #[test]

@@ -149,8 +149,7 @@ fn positive_degrees_are_right_and_up_for_every_built_in_profile() {
             &grafton_visca::config::TargetRegistration::new(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
                 row.spec.clone(),
-            )
-            .expect("target registration"),
+            ),
             grafton_visca::types::PanTiltPosition {
                 pan: Degrees::new(45.0).expect("valid degrees"),
                 tilt: Degrees::new(45.0).expect("valid degrees"),

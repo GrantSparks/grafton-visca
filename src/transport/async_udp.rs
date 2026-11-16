@@ -228,6 +228,26 @@ mod tests {
         assert_eq!(&dst[..5], b"valid");
     }
 
+    #[cfg(feature = "runtime-tokio")]
+    #[test]
+    fn rejected_numeric_hosts_never_enter_async_connector_setup() {
+        use std::sync::atomic::Ordering;
+
+        let setups = AtomicUsize::new(0);
+        for address in ["192.168.1.010:1259", "127.1:1259", "0x7f000001:1259"] {
+            let result = block_on(Udp::<tokio::net::UdpSocket>::preflight_udp_setup(
+                address,
+                TransportConfig::for_udp(),
+                |_, _| async {
+                    setups.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                },
+            ));
+            assert!(matches!(result, Err(Error::InvalidAddress { .. })));
+        }
+        assert_eq!(setups.load(Ordering::Relaxed), 0);
+    }
+
     #[test]
     fn recv_yields_before_polling_after_empty_datagram() {
         let socket = ScriptedDatagram::new([Ok(Vec::new()), Ok(b"valid".to_vec())]);

@@ -963,7 +963,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let mut engine = engine_with_target(
         EnvelopeKind::Sony,
         TransportKind::Datagram,
-        1,
+        CommandSocketCount::ONE,
         CancellationPolicy::Supported,
     );
     let first = engine.handle(
@@ -1192,7 +1192,7 @@ fn an_inquiry_is_not_dispatched_before_the_inquiry_cooldown_ends() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let cooldown_end = start + Duration::from_millis(25);
-    engine.inquiry_cooldown_until = Some(cooldown_end);
+    engine.pacing.inquiry_cooldown_until = Some(cooldown_end);
     let (queued, id) = admit(&mut engine, 1, inquiry(1), start);
     assert!(request_transmit_optional(&queued).is_none());
     assert_eq!(engine.next_wake(start), Some(cooldown_end));
@@ -2467,7 +2467,7 @@ fn engine_turn_options_share_one_input_tail_without_implicit_dispatch() {
 fn engine_with_target(
     envelope: EnvelopeKind,
     transport: TransportKind,
-    sockets: u8,
+    sockets: CommandSocketCount,
     cancellation: CancellationPolicy,
 ) -> ProtocolEngine {
     let mut engine = ProtocolEngine::new(policy(envelope, transport), Instant::now()).unwrap();
@@ -2490,7 +2490,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
     let mut engine = engine_with_target(
         EnvelopeKind::Raw,
         TransportKind::Datagram,
-        1,
+        CommandSocketCount::ONE,
         CancellationPolicy::Unsupported,
     );
     let active = engine.handle(
@@ -2785,7 +2785,7 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
     let cancellation = engine.advance(first_eligible);
     assert_eq!(cancel_transmit(&cancellation).1, first_id);
     assert!(request_transmit_optional(&cancellation).is_none());
-    assert_eq!(engine.last_request_sent, Some(first_eligible));
+    assert_eq!(engine.pacing.last_request(), Some(first_eligible));
     assert!(matches!(
         engine.entry(queued_id).map(Entry::phase),
         Some(Phase::Ready)
@@ -3121,7 +3121,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
     let mut engine = engine_with_target(
         EnvelopeKind::Sony,
         TransportKind::Datagram,
-        1,
+        CommandSocketCount::ONE,
         CancellationPolicy::Supported,
     );
     let first = engine.handle(
@@ -3143,14 +3143,14 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
     );
     engine.handle(Input::Cancel { id }, start);
     let ack_timeout = engine.advance(start + Duration::from_millis(20));
-    assert!(ack_timeout.iter().any(|effect| matches!(
-        effect,
-        Effect::Transition {
-            id: seen,
-            to: Lifecycle::AwaitingAck { deadline, .. },
-            ..
-        } if *seen == id && *deadline == start + Duration::from_millis(50)
-    )));
+    assert!(terminal_outcome(&ack_timeout, id).is_none());
+    assert!(deadline_expiries(&ack_timeout, id).is_empty());
+    // The original ACK deadline stays in its one lifecycle field. The
+    // effective cancellation window requires no intermediate re-arm.
+    assert_eq!(
+        engine.next_wake(start),
+        Some(start + Duration::from_millis(50))
+    );
     let queued = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
@@ -3189,7 +3189,7 @@ fn ambiguity_expiry_is_unconfirmed_and_releases_only_after_deadline() {
     let mut engine = engine_with_target(
         EnvelopeKind::Sony,
         TransportKind::Datagram,
-        1,
+        CommandSocketCount::ONE,
         CancellationPolicy::Supported,
     );
     let effects = engine.handle(
@@ -3689,7 +3689,7 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
     let mut fifo = engine_with_target(
         EnvelopeKind::Raw,
         TransportKind::Datagram,
-        1,
+        CommandSocketCount::ONE,
         CancellationPolicy::Supported,
     );
     let occupying = fifo.handle(
@@ -3809,7 +3809,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
     let mut engine = engine_with_target(
         EnvelopeKind::Raw,
         TransportKind::Datagram,
-        2,
+        CommandSocketCount::TWO,
         CancellationPolicy::Supported,
     );
     let first = engine.handle(
@@ -3850,11 +3850,11 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
             .entry(second_id)
             .unwrap()
             .dispatched_socket_capacity(),
-        Some(2)
+        Some(CommandSocketCount::TWO)
     );
 
     let mut retuned_sockets = PerTarget::default();
-    retuned_sockets[camera(1)] = Some(1);
+    retuned_sockets[camera(1)] = Some(CommandSocketCount::ONE);
     engine
         .retune(
             Duration::ZERO,
@@ -3863,7 +3863,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
             Instant::now(),
         )
         .unwrap();
-    assert_eq!(engine.command_sockets(camera(1)), 1);
+    assert_eq!(engine.command_sockets(camera(1)), CommandSocketCount::ONE);
 
     // New work observes the reduced concurrency limit immediately.
     let third = engine.handle(
@@ -3941,7 +3941,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
     );
     assert_eq!(
         engine.entry(third_id).unwrap().dispatched_socket_capacity(),
-        Some(1)
+        Some(CommandSocketCount::ONE)
     );
     engine.assert_invariants().unwrap();
 }
@@ -4587,7 +4587,7 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
         .find(|entry| {
             !matches!(entry.phase(), Phase::Ready | Phase::Backoff { .. })
                 && (engine.policy.wire.kind() == EnvelopeKind::Raw
-                    || !entry.sequence_history.is_empty())
+                    || entry.current_sequence().is_some())
         })?;
     let other = if action & 0x8000 == 0 {
         ViscaSocket::S1
@@ -4623,8 +4623,9 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
         // Sony correlation is by envelope sequence, so a directed frame quotes
         // the sequence the request actually registered — at either width.
         sequence: entry
-            .sequence_history
-            .last()
+            .sequences
+            .records()
+            .next_back()
             .map(|record| EnvelopeSequence {
                 value: record.sequence,
                 width: if action & 0x400 == 0 {
@@ -4652,6 +4653,7 @@ fn fuzz_step(
     ticket: &mut u64,
     now: &mut Instant,
 ) -> Vec<Effect> {
+    let previous_write = engine.pacing.last_request();
     let target = ((action >> 8) & 1) as u8 + 1;
     let socket = if action & 0x100 == 0 {
         ViscaSocket::S1
@@ -4843,6 +4845,15 @@ fn fuzz_step(
         }
         recorded.push(effect);
     }
+    let latest_write = if recorded
+        .iter()
+        .any(|effect| matches!(effect, Effect::Transmit { .. }))
+    {
+        Some(*now)
+    } else {
+        previous_write
+    };
+    assert_eq!(engine.pacing.last_request(), latest_write);
     recorded
 }
 
@@ -5669,7 +5680,7 @@ fn raw_late_ack_at_ambiguity_boundary_is_routed_and_cancel_remains_active() {
     let mut engine = engine_with_target(
         EnvelopeKind::Raw,
         TransportKind::Datagram,
-        1,
+        CommandSocketCount::ONE,
         CancellationPolicy::Supported,
     );
     let admitted_effects = engine.handle(
@@ -6063,7 +6074,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
             .register_target(
                 target,
                 TargetPolicy {
-                    command_sockets: 1,
+                    command_sockets: CommandSocketCount::ONE,
                     ..TargetPolicy::test_default()
                 },
             )
@@ -6594,7 +6605,7 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     let mut single = engine_with_target(
         EnvelopeKind::Raw,
         TransportKind::Datagram,
-        1,
+        CommandSocketCount::ONE,
         CancellationPolicy::Supported,
     );
     let only = single.handle(
@@ -6674,7 +6685,7 @@ fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_
                 sent_at: start,
                 deadline: start + Duration::from_millis(20),
                 attempt: AttemptFacts {
-                    socket_capacity: Some(2),
+                    socket_capacity: Some(CommandSocketCount::TWO),
                     stream_order: None,
                 },
                 cancellation: None,
@@ -12038,9 +12049,9 @@ fn completion_only_named_unowned_error_does_not_fallback() {
     engine.assert_invariants().unwrap();
 }
 
-/// A cancellation requested before ACK replaces the ordinary ACK deadline
-/// immediately. Input is processed before due work, so an ACK arriving after
-/// the old deadline but inside the ambiguity window must still correlate and
+/// A cancellation requested before ACK uses the later of the original ACK
+/// deadline and the cancellation ambiguity deadline. Input is processed before
+/// due work, so an ACK inside that effective window must still correlate and
 /// start the socket-addressed cancellation.
 #[test]
 fn pre_ack_cancellation_extends_correlation_before_due_work() {

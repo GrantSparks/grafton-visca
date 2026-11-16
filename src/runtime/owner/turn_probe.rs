@@ -192,7 +192,7 @@ impl TurnProbe {
             .shell
             .io
             .now
-            .checked_add(self.shell.core.state.policy().protocol.command_spacing)
+            .checked_add(self.shell.core.state.engine.command_spacing())
             .ok_or_else(|| Error::InvalidState {
                 reason: "probe pacing instant overflowed".into(),
             })?;
@@ -280,9 +280,8 @@ impl TurnProbe {
             .shell
             .core
             .state
-            .policy()
-            .protocol
-            .command_spacing
+            .engine
+            .command_spacing()
             .max(Duration::from_millis(10));
         self.write_command()?;
         let buffer = &self.shell.core.state.buffers.transmit;
@@ -346,7 +345,7 @@ impl TurnProbe {
             });
         }
         let sequence = matches!(
-            self.shell.core.state.policy().protocol.wire.kind(),
+            self.shell.core.state.engine.envelope_kind(),
             EnvelopeKind::Sony
         )
         .then_some(EnvelopeSequence {
@@ -396,5 +395,30 @@ impl TurnProbe {
             self.shell.io.now,
             false,
         );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_pacing_reads_the_retuned_engine() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
+        let mut probe = TurnProbe::new(
+            &profile,
+            TransportConfig::default(),
+            SendSemantics::Datagram,
+        )
+        .unwrap();
+        let spacing = profile.timing().command_spacing() + Duration::from_millis(23);
+        let tuning = OperationalTuning::new().with_command_spacing(spacing);
+        let tuning = crate::session_config::ValidatedTuning::validate(tuning, [&profile]).unwrap();
+        let before = probe.shell.io.now;
+        probe.shell.core.state.retune(tuning, before).unwrap();
+        probe.stage_command().unwrap();
+        assert_eq!(probe.shell.io.now - before, spacing);
+        probe.command_turn().unwrap();
     }
 }

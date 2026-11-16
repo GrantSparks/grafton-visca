@@ -187,7 +187,7 @@ pub(super) struct OwnerShellCore {
 
 impl OwnerShellCore {
     pub(super) fn new(state: OwnerState, ends: OwnerEnds) -> Self {
-        let rejection_capacity = state.policy().limits.staged_diagnostics;
+        let rejection_capacity = state.facts().limits.staged_diagnostics;
         let mut coordinator = OwnerCoordinator::default();
         // #542's deterministic source order keeps valid protocol input first:
         // an already-buffered ACK/completion settles state before concurrent
@@ -207,7 +207,7 @@ impl OwnerShellCore {
         // receive batch limit because a burst that large is adversarial rather
         // than a real camera's reply stream, so the settle-first ordering
         // above still holds for real traffic.
-        coordinator.set_fairness_ceiling(state.policy().limits.frames_per_receive);
+        coordinator.set_fairness_ceiling(state.facts().limits.frames_per_receive);
         Self {
             state,
             receivers: ends.receivers,
@@ -869,7 +869,7 @@ impl OwnerShellCore {
 
     /// Invalid internal batches obey the same consumed-input verdict as the adapter.
     fn discard_undecodable_receive(&mut self, error: &Error, received_at: Instant) -> TurnStep {
-        match self.state.policy().protocol.transport {
+        match self.state.facts().transport {
             crate::runtime::engine::TransportKind::Stream => self.receive_fatal(
                 super::ReceiveFatal::FramingFailure {
                     cause: error.clone(),
@@ -1238,7 +1238,7 @@ mod tests {
             },
             TargetSlot::CAMERA_1,
             TargetPolicy {
-                command_sockets: 2,
+                command_sockets: crate::types::CommandSocketCount::TWO,
                 cancellation: CancellationPolicy::Supported,
                 control_reserve: 0,
             },

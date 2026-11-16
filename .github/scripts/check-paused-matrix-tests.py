@@ -15,12 +15,14 @@ import re
 import shlex
 
 SUITES = {
+    "issue_554_owner_cancellation": "paused",
     "fr7_pan_tilt": "",
     "issue_553_owner_motion": "paused",
     "issue_565_transport_faults": "",
     "issue_566_retry_recovery": "",
     "issue_631_runtime_tuning": "paused",
     "issue_777_operation_observation": "",
+    "issue_778_control_reserve": "paused",
     "issue_795_raw_correlation_evidence": "",
     "issue_795_stream_stall_inquiry": "",
     "issue_839_menu_navigation": "",
@@ -32,6 +34,7 @@ SUITES = {
     "issue_894_fr7_families": "paused",
     "issue_892_payload_shape": "",
     "issue_975_lazy_settlement": "",
+    "issue_979_owner_read_timeout": "",
 }
 
 

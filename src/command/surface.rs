@@ -444,6 +444,7 @@ macro_rules! surface_registry {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
+                title: $title:literal,
                 gate: $base:tt,
                 doc: $doc:literal $(,)?
             };
@@ -459,6 +460,17 @@ macro_rules! surface_registry {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub(crate) enum StaticNoun {
             $( #[doc = $doc] $noun, )*
+        }
+
+        #[cfg(test)]
+        impl StaticNoun {
+            pub(crate) const fn title(self) -> &'static str {
+                match self { $(Self::$noun => $title,)* }
+            }
+
+            pub(crate) const fn accessor(self) -> &'static str {
+                match self { $(Self::$noun => stringify!($getter),)* }
+            }
         }
 
         const COMMAND_SURFACES: &[Option<CommandSurface>] = {

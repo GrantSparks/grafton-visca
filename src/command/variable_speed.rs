@@ -22,6 +22,11 @@ pub enum PanTiltSpeedMode {
     Fine50 = 24,
 }
 
+impl PanTiltSpeedMode {
+    /// Highest pan/tilt speed available in the standard speed mode.
+    pub const STANDARD_MAXIMUM: u8 = 24;
+}
+
 /// Command to set the pan/tilt speed-step range on Sony FR7.
 ///
 /// # Sony FR7 Specific

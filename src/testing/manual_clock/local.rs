@@ -230,10 +230,12 @@ impl Executor for LocalExecutor {
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
     {
-        futures_lite::future::or(async move { Ok(future.await) }, async move {
-            self.clock.sleep_async(duration).await;
-            Err(Error::io_timeout())
-        })
+        let expiry = self.clock.sleep_async(duration);
+        async move {
+            crate::timeout::within(future, expiry)
+                .await
+                .ok_or_else(Error::io_timeout)
+        }
     }
 
     fn now(&self) -> Instant {

@@ -11,7 +11,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: DirectZoom,
                     marker: HasDirectZoom,
-                    area: "Zoom",
                     surface_doc: "Direct absolute zoom positioning.",
                     marker_doc: "Marker trait indicating support for direct absolute zoom positioning.",
                     diagnostic: "profile `{Self}` does not declare direct absolute zoom support",
@@ -19,7 +18,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: DigitalZoomToggle,
                     marker: HasDigitalZoomToggle,
-                    area: "Zoom",
                     surface_doc: "VISCA digital zoom enable/disable command.",
                     marker_doc: "Marker trait indicating support for the VISCA digital zoom on/off command.",
                     diagnostic: "profile `{Self}` does not declare VISCA digital zoom toggle support",
@@ -27,7 +25,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: DigitalZoomRange,
                     marker: HasDigitalZoomRange,
-                    area: "Zoom",
                     surface_doc: "Absolute zoom positions in the optical-plus-digital range.",
                     marker_doc: "Marker trait indicating support for absolute zoom positions beyond the optical range.",
                     diagnostic: "profile `{Self}` does not declare optical-plus-digital zoom range support",
@@ -35,7 +32,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Iris,
                     marker: HasIris,
-                    area: "Exposure",
                     surface_doc: "Standard iris controls and the `09 04 4B` iris-position inquiry.",
                     marker_doc: "Marker trait indicating support for standard iris control and position inquiry.",
                     diagnostic: "profile `{Self}` does not declare iris control support",
@@ -43,7 +39,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: OnePushFocus,
                     marker: HasOnePushFocus,
-                    area: "Focus",
                     surface_doc: "Standard one-push auto focus trigger.",
                     marker_doc: "Marker trait indicating support for standard one-push auto focus.",
                     diagnostic: "profile `{Self}` does not declare one-push focus support",
@@ -51,7 +46,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: SnapFocus,
                     marker: HasSnapFocus,
-                    area: "Focus",
                     surface_doc: "PTZOptics snap focus command.",
                     marker_doc: "Marker trait indicating support for PTZOptics snap focus.",
                     diagnostic: "profile `{Self}` does not declare PTZOptics snap-focus support",
@@ -59,7 +53,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: FocusLock,
                     marker: HasFocusLock,
-                    area: "Focus",
                     surface_doc: "Focus lock command.",
                     marker_doc: "Marker trait indicating support for focus lock.",
                     diagnostic: "profile `{Self}` does not declare focus-lock support",
@@ -67,7 +60,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: PushAutoFocus,
                     marker: HasPushAutoFocus,
-                    area: "Focus",
                     surface_doc: "Sony push auto focus command.",
                     marker_doc: "Marker trait indicating support for Sony Push AF.",
                     diagnostic: "profile `{Self}` does not declare Push AF support",
@@ -75,7 +67,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: FocusZone,
                     marker: HasFocusZone,
-                    area: "Focus",
                     surface_doc: "Focus-zone selection command.",
                     marker_doc: "Marker trait indicating support for focus-zone selection.",
                     diagnostic: "profile `{Self}` does not declare focus-zone support",
@@ -83,7 +74,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: AutoFocusSensitivity,
                     marker: HasAutoFocusSensitivity,
-                    area: "Focus",
                     surface_doc: "Auto-focus sensitivity control and inquiry.",
                     marker_doc: "Marker trait indicating support for auto-focus sensitivity adjustment.",
                     diagnostic: "profile `{Self}` does not declare auto-focus sensitivity support",
@@ -91,7 +81,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: FocusNearLimit,
                     marker: HasFocusNearLimit,
-                    area: "Focus",
                     surface_doc: "Focus near-limit control and inquiry.",
                     marker_doc: "Marker trait indicating support for focus near-limit control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare focus near-limit inquiry support",
@@ -99,7 +88,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: BacklightCompensation,
                     marker: HasBacklightCompensation,
-                    area: "Exposure",
                     surface_doc: "Backlight compensation control and inquiry.",
                     marker_doc: "Marker trait indicating support for backlight compensation control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare backlight compensation support",
@@ -107,7 +95,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: WideDynamicRange,
                     marker: HasWideDynamicRange,
-                    area: "Exposure",
                     surface_doc: "Wide dynamic range control.",
                     marker_doc: "Marker trait indicating support for wide dynamic range control.",
                     diagnostic: "profile `{Self}` does not declare wide dynamic range support",
@@ -115,7 +102,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: ExposureCompensation,
                     marker: HasExposureCompensation,
-                    area: "Exposure",
                     surface_doc: "Exposure compensation controls and inquiries.",
                     marker_doc: "Marker trait indicating support for exposure compensation.",
                     diagnostic: "profile `{Self}` does not declare exposure-compensation support",
@@ -123,7 +109,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Brightness,
                     marker: HasBrightness,
-                    area: "Exposure",
                     surface_doc: "Exposure brightness controls and inquiry.",
                     marker_doc: "Marker trait indicating support for VISCA exposure brightness control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare exposure brightness support",
@@ -132,7 +117,6 @@ macro_rules! typed_support_registry {
                     surface: OnePushWhiteBalance,
                     marker: HasOnePushWhiteBalance,
                     encodings: [Standard => "standard", SonyFr7 => "sony_fr7"],
-                    area: "White balance",
                     surface_doc: "One-shot white capture using the selected profile encoding.",
                     marker_doc: "Evidence-backed support for one-shot white capture in a supported active mode.",
                     diagnostic: "profile `{Self}` does not declare one-push white-balance support",
@@ -140,7 +124,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: AutoWhiteBalanceSensitivity,
                     marker: HasAutoWhiteBalanceSensitivity,
-                    area: "White balance",
                     surface_doc: "Auto white-balance sensitivity control.",
                     marker_doc: "Marker trait indicating support for auto white-balance sensitivity control.",
                     diagnostic: "profile `{Self}` does not declare auto white-balance sensitivity support",
@@ -148,7 +131,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: ColorTemperature,
                     marker: HasColorTemperature,
-                    area: "Color",
                     surface_doc: "Color temperature controls.",
                     marker_doc: "Marker trait indicating support for color-temperature white balance control.",
                     diagnostic: "profile `{Self}` does not declare color-temperature support",
@@ -156,7 +138,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: RgbGain,
                     marker: HasRgbGain,
-                    area: "Color",
                     surface_doc: "Red/blue gain controls and inquiries.",
                     marker_doc: "Marker trait indicating support for manual red/blue gain control.",
                     diagnostic: "profile `{Self}` does not declare RGB gain support",
@@ -164,7 +145,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: RgbTuning,
                     marker: HasRgbTuning,
-                    area: "Color",
                     surface_doc: "Red/blue tuning controls and inquiries.",
                     marker_doc: "Marker trait indicating support for red/blue tuning control.",
                     diagnostic: "profile `{Self}` does not declare RGB tuning support",
@@ -172,7 +152,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: ImageFlip,
                     marker: HasImageFlip,
-                    area: "Image",
                     surface_doc: "Vertical image flip control and inquiry.",
                     marker_doc: "Marker trait indicating support for vertical image flip control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare image flip support",
@@ -180,7 +159,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: ImageMirror,
                     marker: HasImageMirror,
-                    area: "Image",
                     surface_doc: "Horizontal image mirror control.",
                     marker_doc: "Marker trait indicating support for horizontal image mirror control.",
                     diagnostic: "profile `{Self}` does not declare image mirror support",
@@ -188,7 +166,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: CombinedImageFlip,
                     marker: HasCombinedImageFlip,
-                    area: "Image",
                     surface_doc: "Combined image flip mode command and inquiry.",
                     marker_doc: "Marker trait indicating support for the combined image flip mode command and inquiry.",
                     diagnostic: "profile `{Self}` does not declare combined image flip mode support",
@@ -196,7 +173,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Contrast,
                     marker: HasContrast,
-                    area: "Image",
                     surface_doc: "Contrast control and inquiry.",
                     marker_doc: "Marker trait indicating support for contrast control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare contrast control support",
@@ -204,7 +180,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Sharpness,
                     marker: HasSharpness,
-                    area: "Image",
                     surface_doc: "Sharpness control and inquiry.",
                     marker_doc: "Marker trait indicating support for sharpness control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare sharpness control support",
@@ -212,7 +187,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Saturation,
                     marker: HasSaturation,
-                    area: "Image",
                     surface_doc: "Saturation control and inquiry.",
                     marker_doc: "Marker trait indicating support for saturation control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare saturation control support",
@@ -220,7 +194,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Hue,
                     marker: HasHue,
-                    area: "Image",
                     surface_doc: "Hue control and inquiry.",
                     marker_doc: "Marker trait indicating support for hue control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare hue control support",
@@ -228,7 +201,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Luminance,
                     marker: HasLuminance,
-                    area: "Image",
                     surface_doc: "Luminance control and inquiry.",
                     marker_doc: "Marker trait indicating support for luminance control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare luminance control support",
@@ -236,7 +208,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Gamma,
                     marker: HasGamma,
-                    area: "Image",
                     surface_doc: "Gamma control and inquiry.",
                     marker_doc: "Marker trait indicating support for gamma control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare gamma control support",
@@ -244,7 +215,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: NoiseReduction2D,
                     marker: HasNoiseReduction2D,
-                    area: "Image",
                     surface_doc: "2D noise-reduction control and readback.",
                     marker_doc: "Evidence-backed support for 2D noise-reduction control and readback.",
                     diagnostic: "profile `{Self}` does not declare 2D noise reduction support",
@@ -252,7 +222,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: NoiseReduction3D,
                     marker: HasNoiseReduction3D,
-                    area: "Image",
                     surface_doc: "3D noise-reduction control and readback.",
                     marker_doc: "Evidence-backed support for 3D noise-reduction control and readback.",
                     diagnostic: "profile `{Self}` does not declare 3D noise reduction support",
@@ -260,7 +229,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: PictureEffect,
                     marker: HasPictureEffect,
-                    area: "Image",
                     surface_doc: "Picture-effect control and inquiry.",
                     marker_doc: "Marker trait indicating support for picture-effect control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare picture-effect support",
@@ -268,7 +236,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Tally,
                     marker: HasTally,
-                    area: "Tally",
                     surface_doc: "Tally light controls and inquiries.",
                     marker_doc: "Marker trait indicating typed tally light API support.",
                     diagnostic: "profile `{Self}` does not declare typed tally-light support",
@@ -276,7 +243,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: DirectMenu,
                     marker: HasDirectMenu,
-                    area: "Menu",
                     surface_doc: "Direct menu controls.",
                     marker_doc: "Marker trait indicating support for direct menu controls.",
                     diagnostic: "profile `{Self}` does not declare direct menu-control support",
@@ -284,7 +250,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: NdFilter,
                     marker: HasNdFilter,
-                    area: "ND filter",
                     surface_doc: "ND filter controls and inquiries.",
                     marker_doc: "Marker trait indicating typed ND filter API support.",
                     diagnostic: "profile `{Self}` does not declare typed ND filter support",
@@ -292,7 +257,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: PanTiltSpeedMode,
                     marker: HasPanTiltSpeedMode,
-                    area: "Variable speed",
                     surface_doc: "Variable speed mode controls.",
                     marker_doc: "Marker trait indicating typed variable speed API support.",
                     diagnostic: "profile `{Self}` does not declare typed variable-speed support",
@@ -300,7 +264,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: MotionSync,
                     marker: HasMotionSync,
-                    area: "Motion Sync",
                     surface_doc: "Motion Sync controls and inquiries.",
                     marker_doc: "Marker trait indicating typed Motion Sync API support.",
                     diagnostic: "profile `{Self}` does not declare typed Motion Sync support",
@@ -308,7 +271,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: FocusZoneInquiry,
                     marker: HasFocusZoneInquiry,
-                    area: "Focus",
                     surface_doc: "Focus-zone inquiry, independently gated from selection control.",
                     marker_doc: "Marker trait indicating support for the focus-zone inquiry, independently of selection control.",
                     diagnostic: "profile `{Self}` does not declare focus-zone inquiry support",
@@ -316,7 +278,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: UsbAudio,
                     marker: HasUsbAudio,
-                    area: "Streaming",
                     surface_doc: "USB audio control and inquiry.",
                     marker_doc: "Marker trait indicating support for USB audio control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare USB audio support",
@@ -324,7 +285,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: AntiFlicker,
                     marker: HasAntiFlicker,
-                    area: "Exposure",
                     surface_doc: "PTZOptics anti-flicker control and inquiry.",
                     marker_doc: "Marker trait indicating support for PTZOptics anti-flicker control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare PTZOptics anti-flicker support",
@@ -332,7 +292,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: SettingsSave,
                     marker: HasSettingsSave,
-                    area: "System",
                     surface_doc: "PTZOptics persistent-settings save command.",
                     marker_doc: "Marker trait indicating support for the PTZOptics settings-save command.",
                     diagnostic: "profile `{Self}` does not declare PTZOptics settings-save support",
@@ -341,7 +300,6 @@ macro_rules! typed_support_registry {
                     surface: PresetRecallSpeed,
                     marker: HasPresetRecallSpeed,
                     encodings: [PtzOptics => "ptzoptics", SonyFr7 => "sony_fr7"],
-                    area: "Presets",
                     surface_doc: "Preset recall speed using the selected profile encoding.",
                     marker_doc: "Marker trait indicating support for PTZOptics preset-recall speed control.",
                     diagnostic: "profile `{Self}` does not declare PTZOptics preset-recall speed support",
@@ -349,7 +307,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: PresetRecallSpeedInquiry,
                     marker: HasPresetRecallSpeedInquiry,
-                    area: "Presets",
                     surface_doc: "Preset recall-speed readback.",
                     marker_doc: "Evidence-backed support for preset recall-speed readback.",
                     diagnostic: "profile `{Self}` does not declare PresetRecallSpeedInquiry support",
@@ -357,7 +314,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Spotlight,
                     marker: HasSpotlight,
-                    area: "Exposure",
                     surface_doc: "Sony VISCA spotlight controls.",
                     marker_doc: "Marker trait indicating support for Sony VISCA spotlight controls.",
                     diagnostic: "profile `{Self}` does not declare Sony spotlight support",
@@ -365,7 +321,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: AutoSlowShutter,
                     marker: HasAutoSlowShutter,
-                    area: "Exposure",
                     surface_doc: "Sony VISCA automatic slow-shutter controls.",
                     marker_doc: "Marker trait indicating support for Sony VISCA automatic slow-shutter controls.",
                     diagnostic: "profile `{Self}` does not declare Sony auto slow-shutter support",
@@ -373,7 +328,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: MulticastStreaming,
                     marker: HasMulticastStreaming,
-                    area: "Streaming",
                     surface_doc: "PTZOptics multicast-streaming controls.",
                     marker_doc: "Marker trait indicating support for PTZOptics multicast-streaming controls.",
                     diagnostic: "profile `{Self}` does not declare PTZOptics multicast-streaming support",
@@ -381,7 +335,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: NdiQuality,
                     marker: HasNdiQuality,
-                    area: "Streaming",
                     surface_doc: "PTZOptics NDI-quality control.",
                     marker_doc: "Marker trait indicating support for PTZOptics NDI-quality control.",
                     diagnostic: "profile `{Self}` does not declare PTZOptics NDI-quality support",
@@ -389,7 +342,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: ExposureMode,
                     marker: HasExposureMode,
-                    area: "Exposure",
                     surface_doc: "Shared VISCA exposure-mode control and inquiry.",
                     marker_doc: "Marker trait indicating support for the shared VISCA exposure-mode command and inquiry family.",
                     diagnostic: "profile `{Self}` does not declare shared exposure-mode support",
@@ -397,7 +349,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: ImageFreeze,
                     marker: HasImageFreeze,
-                    area: "Image",
                     surface_doc: "Image-freeze control, available only to explicitly validated profiles.",
                     marker_doc: "Marker trait indicating explicitly validated image-freeze support.",
                     diagnostic: "profile `{Self}` does not declare validated image-freeze support",
@@ -405,7 +356,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: TallyBrightness,
                     marker: HasTallyBrightness,
-                    area: "Tally",
                     surface_doc: "Extended tally-brightness commands, independently gated from Sony red/green tally.",
                     marker_doc: "Marker trait indicating explicitly validated tally-brightness support.",
                     diagnostic: "profile `{Self}` does not declare validated tally-brightness support",
@@ -413,7 +363,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: TallyMode,
                     marker: HasTallyMode,
-                    area: "Tally",
                     surface_doc: "PTZOptics tally extensions, independently gated from Sony red/green tally.",
                     marker_doc: "Marker trait indicating hardware-validated PTZOptics tally-extension support.",
                     diagnostic: "profile `{Self}` does not declare validated PTZOptics tally-extension support",
@@ -421,7 +370,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: VersionInquiry,
                     marker: HasVersionInquiry,
-                    area: "System",
                     surface_doc: "Sony-format `09 00 02` version inquiry, decoded as vendor, model, ROM revision and maximum socket.",
                     marker_doc: "Marker trait indicating that the profile's `09 00 02` version reply has the source-backed Sony layout decoded by `camera.system().version()`.",
                     diagnostic: "profile `{Self}` does not declare a Sony-format version-inquiry reply",
@@ -429,7 +377,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: ColorTemperatureInquiry,
                     marker: HasColorTemperatureInquiry,
-                    area: "Color",
                     surface_doc: "Color-temperature inquiry, decoded from the sourced one-byte `pq` reply.",
                     marker_doc: "Marker trait indicating that the profile's color-temperature reply has a sourced layout decoded by `camera.white_balance().color_temperature()`.",
                     diagnostic: "profile `{Self}` does not declare a sourced color-temperature reply",
@@ -437,7 +384,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: NoiseReduction2DMode,
                     marker: HasNoiseReduction2DMode,
-                    area: "Image",
                     surface_doc: "2D noise-reduction auto/manual mode control (`04 50`) and inquiry (`09 04 50`).",
                     marker_doc: "Marker trait indicating support for the 2D noise-reduction auto/manual mode control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare 2D noise-reduction mode support",
@@ -445,7 +391,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: AeLevel,
                     marker: HasAeLevel,
-                    area: "Exposure",
                     surface_doc: "Sony FR7 ae level controls and readback.",
                     marker_doc: "Source-backed Sony FR7 ae level controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 AeLevel support",
@@ -453,7 +398,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: AutoGain,
                     marker: HasAutoGain,
-                    area: "Exposure",
                     surface_doc: "Sony FR7 auto gain controls and readback.",
                     marker_doc: "Source-backed Sony FR7 auto gain controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 AutoGain support",
@@ -461,7 +405,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: AutoShutter,
                     marker: HasAutoShutter,
-                    area: "Exposure",
                     surface_doc: "Sony FR7 auto shutter controls and readback.",
                     marker_doc: "Source-backed Sony FR7 auto shutter controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 AutoShutter support",
@@ -469,7 +412,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: IrisSteps,
                     marker: HasIrisSteps,
-                    area: "Exposure",
                     surface_doc: "Counted relative iris adjustments.",
                     marker_doc: "Evidence-backed support for counted relative iris adjustments.",
                     diagnostic: "profile `{Self}` does not declare FR7 Iris support",
@@ -477,7 +419,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: AutoIris,
                     marker: HasAutoIris,
-                    area: "Exposure",
                     surface_doc: "Automatic iris control and readback.",
                     marker_doc: "Evidence-backed support for automatic iris control and readback.",
                     diagnostic: "profile `{Self}` does not declare AutoIris support",
@@ -485,7 +426,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: PresetWhite,
                     marker: HasPresetWhite,
-                    area: "WhiteBalance",
                     surface_doc: "Sony FR7 preset white controls and readback.",
                     marker_doc: "Source-backed Sony FR7 preset white controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 PresetWhite support",
@@ -493,7 +433,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: MemoryColorTemperature,
                     marker: HasMemoryColorTemperature,
-                    area: "WhiteBalance",
                     surface_doc: "Sony FR7 memory color temperature controls and readback.",
                     marker_doc: "Source-backed Sony FR7 memory color temperature controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 MemoryColorTemperature support",
@@ -501,7 +440,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: MemoryGain,
                     marker: HasMemoryGain,
-                    area: "WhiteBalance",
                     surface_doc: "Sony FR7 memory gain controls and readback.",
                     marker_doc: "Source-backed Sony FR7 memory gain controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 MemoryGain support",
@@ -509,7 +447,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: MemoryTint,
                     marker: HasMemoryTint,
-                    area: "WhiteBalance",
                     surface_doc: "Sony FR7 memory tint controls and readback.",
                     marker_doc: "Source-backed Sony FR7 memory tint controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 MemoryTint support",
@@ -517,7 +454,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: AtwOffsets,
                     marker: HasAtwOffsets,
-                    area: "WhiteBalance",
                     surface_doc: "Sony FR7 atw offsets controls and readback.",
                     marker_doc: "Source-backed Sony FR7 atw offsets controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 AtwOffsets support",
@@ -525,7 +461,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: BlackLevels,
                     marker: HasBlackLevels,
-                    area: "Image",
                     surface_doc: "Sony FR7 black controls and readback.",
                     marker_doc: "Source-backed Sony FR7 black controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 Black support",
@@ -533,7 +468,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Detail,
                     marker: HasDetail,
-                    area: "Image",
                     surface_doc: "Sony FR7 detail controls and readback.",
                     marker_doc: "Source-backed Sony FR7 detail controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 Detail support",
@@ -541,7 +475,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Knee,
                     marker: HasKnee,
-                    area: "Image",
                     surface_doc: "Sony FR7 knee controls and readback.",
                     marker_doc: "Source-backed Sony FR7 knee controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 Knee support",
@@ -549,7 +482,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: HighResolutionZoom,
                     marker: HasHighResolutionZoom,
-                    area: "Zoom",
                     surface_doc: "Sony FR7 high-resolution zoom drive and stop.",
                     marker_doc: "Source-backed Sony FR7 high-resolution zoom drive and stop.",
                     diagnostic: "profile `{Self}` does not declare FR7 HighResolutionZoom support",
@@ -557,7 +489,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: ClearImageZoom,
                     marker: HasClearImageZoom,
-                    area: "Zoom",
                     surface_doc: "Sony FR7 read-only Clear Image Zoom position.",
                     marker_doc: "Source-backed Sony FR7 read-only Clear Image Zoom position.",
                     diagnostic: "profile `{Self}` does not declare FR7 ClearImageZoom support",
@@ -565,7 +496,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: SeparatePresetSpeed,
                     marker: HasSeparatePresetSpeed,
-                    area: "Presets",
                     surface_doc: "Sony FR7 preset speed controls and readback.",
                     marker_doc: "Source-backed Sony FR7 preset speed controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 PresetSpeed support",
@@ -573,7 +503,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: SeparatePresetDuration,
                     marker: HasSeparatePresetDuration,
-                    area: "Presets",
                     surface_doc: "Sony FR7 preset duration controls and readback.",
                     marker_doc: "Source-backed Sony FR7 preset duration controls and readback.",
                     diagnostic: "profile `{Self}` does not declare FR7 PresetDuration support",
@@ -581,7 +510,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: SharpnessMode,
                     marker: HasSharpnessMode,
-                    area: "Image",
                     surface_doc: "Sharpness auto/manual mode control (`04 05`) and inquiry.",
                     marker_doc: "Marker for sourced sharpness auto/manual mode control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare sharpness mode support",
@@ -589,7 +517,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: FocusInfinity,
                     marker: HasFocusInfinity,
-                    area: "Focus",
                     surface_doc: "Focus-to-infinity control.",
                     marker_doc: "Marker trait indicating source-backed support for focus-to-infinity control.",
                     diagnostic: "profile `{Self}` does not declare focus-to-infinity control support",
@@ -597,7 +524,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: PresetMemory,
                     marker: HasPresetMemory,
-                    area: "Presets",
                     surface_doc: "Preset store and reset.",
                     marker_doc: "Marker trait indicating source-backed support for preset store and reset.",
                     diagnostic: "profile `{Self}` does not declare preset store and reset support",
@@ -605,7 +531,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Shutter,
                     marker: HasShutter,
-                    area: "Exposure",
                     surface_doc: "Shared shutter reset/step controls and inquiry.",
                     marker_doc: "Marker trait indicating source-backed support for shared shutter reset/step controls and inquiry.",
                     diagnostic: "profile `{Self}` does not declare shared shutter control and inquiry support",
@@ -613,7 +538,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: Gain,
                     marker: HasGain,
-                    area: "Exposure",
                     surface_doc: "Shared gain control and inquiry.",
                     marker_doc: "Marker trait indicating source-backed support for shared gain control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare shared gain control and inquiry support",
@@ -621,7 +545,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: GainLimit,
                     marker: HasGainLimit,
-                    area: "Exposure",
                     surface_doc: "Gain-limit control and inquiry.",
                     marker_doc: "Marker trait indicating source-backed support for gain-limit control and inquiry.",
                     diagnostic: "profile `{Self}` does not declare gain-limit control and inquiry support",
@@ -629,7 +552,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: MenuDisplay,
                     marker: HasMenuDisplay,
-                    area: "Menu",
                     surface_doc: "Menu display on/off control.",
                     marker_doc: "Marker trait indicating source-backed support for menu display on/off control.",
                     diagnostic: "profile `{Self}` does not declare menu display on/off control support",
@@ -637,7 +559,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: MenuEnterReturn,
                     marker: HasMenuEnterReturn,
-                    area: "Menu",
                     surface_doc: "Menu enter and return control.",
                     marker_doc: "Marker trait indicating source-backed support for menu enter and return control.",
                     diagnostic: "profile `{Self}` does not declare menu enter and return control support",
@@ -645,7 +566,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: MenuDisplayInquiry,
                     marker: HasMenuDisplayInquiry,
-                    area: "Menu",
                     surface_doc: "Menu-status inquiry.",
                     marker_doc: "Marker trait indicating source-backed support for menu-status inquiry.",
                     diagnostic: "profile `{Self}` does not declare menu-status inquiry support",
@@ -653,7 +573,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: DirectShutter,
                     marker: HasDirectShutter,
-                    area: "Exposure",
                     surface_doc: "Direct shutter positioning with a documented numeric code inventory.",
                     marker_doc: "Marker trait indicating source-backed support for direct shutter positioning and its numeric codes.",
                     diagnostic: "profile `{Self}` does not declare direct shutter positioning support",
@@ -661,7 +580,6 @@ macro_rules! typed_support_registry {
                 {
                     surface: PowerStandby,
                     marker: HasPowerStandby,
-                    area: "Power",
                     surface_doc: "Power standby on profiles with documented standby support.",
                     marker_doc: "Marker trait indicating source-backed support for power standby.",
                     diagnostic: "profile `{Self}` does not declare power standby support",

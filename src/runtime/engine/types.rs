@@ -13,9 +13,6 @@ use crate::{
     protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES, raw::MAX_BYTES, Error, ViscaSocket,
 };
 
-/// Maximum number of Sony sequences retained for one request across retries.
-pub(crate) const MAX_SEQUENCE_HISTORY: usize = 8;
-
 /// Scheduler work permitted when an external-input turn is completed.
 ///
 /// Both owner shells use these two boundaries. A complete turn runs deadlines,
@@ -500,7 +497,7 @@ pub(crate) enum TransportKind {
 /// Immutable policy registered for one camera target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TargetPolicy {
-    pub(crate) command_sockets: u8,
+    pub(crate) command_sockets: crate::CommandSocketCount,
     pub(crate) cancellation: CancellationPolicy,
     /// Admission slots reserved for this target's urgent typed STOPs, one
     /// per STOP path its profile supports (D26, #778).
@@ -513,7 +510,7 @@ impl TargetPolicy {
     /// no control reserve. Tests override fields with `..TargetPolicy::test_default()`.
     pub(crate) const fn test_default() -> Self {
         Self {
-            command_sockets: 2,
+            command_sockets: crate::types::CommandSocketCount::TWO,
             cancellation: CancellationPolicy::Supported,
             control_reserve: 0,
         }

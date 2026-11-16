@@ -4,7 +4,9 @@
 //! bounded resources around it (admission, observers, caches, diagnostics and
 //! reusable I/O storage) and exposes small mode-native driver seams.
 
+mod active_request;
 mod adapter;
+use active_request::{ActiveRequest, RetiredRequest};
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod halt;
 mod lane;
@@ -229,7 +231,7 @@ impl Default for OwnerLimits {
 pub(crate) struct TuningBaseline {
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
-    pub(crate) command_sockets: PerTarget<Option<u8>>,
+    pub(crate) command_sockets: PerTarget<Option<crate::CommandSocketCount>>,
 }
 
 impl TuningBaseline {
@@ -258,18 +260,18 @@ impl TuningBaseline {
     fn apply(
         self,
         tuning: crate::session_config::ValidatedTuning,
-    ) -> (Duration, Duration, PerTarget<Option<u8>>) {
+    ) -> (
+        Duration,
+        Duration,
+        PerTarget<Option<crate::CommandSocketCount>>,
+    ) {
         let tuning = tuning.get();
         (
-            tuning
-                .command_spacing_override()
-                .unwrap_or(self.command_spacing),
-            tuning
-                .inquiry_spacing_override()
-                .unwrap_or(self.inquiry_spacing),
+            tuning.command_spacing().unwrap_or(self.command_spacing),
+            tuning.inquiry_spacing().unwrap_or(self.inquiry_spacing),
             PerTarget::from_fn(|target| {
                 self.command_sockets[target]
-                    .map(|sockets| tuning.maximum_command_sockets_override().unwrap_or(sockets))
+                    .map(|sockets| tuning.maximum_command_sockets().unwrap_or(sockets))
             }),
         )
     }
@@ -307,12 +309,23 @@ pub(crate) struct OwnerPolicy {
     /// by the production policy builder; [`Self::with_targets`] starts it at
     /// the `TransportConfig` default.
     pub(crate) read_timeout: Duration,
-    /// Maximum time one async transport write may take before the owner
+    /// Maximum time one transport write may take before the owner
     /// abandons it as a stalled write (#675). A byte-stream write that cannot
     /// be confirmed poisons the session; a datagram write fails only its own
     /// request. Without this bound a stalled peer parks the actor and
     /// `close()` never returns.
     pub(crate) write_timeout: Duration,
+}
+
+/// Immutable owner facts retained after construction policy is distributed.
+/// Tunable values belong to the engine and `LiveTuning` alone.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OwnerFacts {
+    pub(crate) limits: OwnerLimits,
+    pub(crate) read_timeout: Duration,
+    pub(crate) write_timeout: Duration,
+    pub(crate) baseline: TuningBaseline,
+    pub(crate) transport: TransportKind,
 }
 
 impl OwnerPolicy {
@@ -1067,22 +1080,6 @@ fn normalize_inquiry_outcome<R>(
     }
 }
 
-#[derive(Debug)]
-struct ActiveRequest {
-    _permit: AdmissionPermit,
-    observer: TerminalSlot,
-    summary: RequestSummary,
-    /// The one cancellation intent a handle installed (#777). It lives exactly
-    /// as long as the request, so it adds no unbounded state.
-    cancellation: Option<CancellationIntent>,
-}
-
-#[derive(Debug)]
-enum CancellationIntent {
-    Requested(Arc<ObserverCell<Error>>),
-    Recorded(Arc<ObserverCell<Error>>),
-}
-
 /// What a cancellation tells its caller once the operation's terminal outcome
 /// is known: `Completed` after a successful application, `Cancelled` after a
 /// cancellation, and the failure itself after a failed operation.
@@ -1603,7 +1600,7 @@ pub(crate) enum RawReleaseResolution {
 #[derive(Debug)]
 pub(crate) struct OwnerState {
     engine: ProtocolEngine,
-    policy: OwnerPolicy,
+    facts: OwnerFacts,
     tuning: LiveTuning,
     permits: AdmissionPermitPool,
     active: BTreeMap<RequestId, ActiveRequest>,
@@ -1630,23 +1627,37 @@ impl OwnerState {
                 reason: "owner collection bounds must be non-zero".into(),
             });
         }
-        let mut engine = ProtocolEngine::new(policy.protocol.clone(), now)?;
-        for (target, target_policy) in policy.targets.iter() {
+        let OwnerPolicy {
+            protocol,
+            targets,
+            limits,
+            tuning,
+            baseline,
+            read_timeout,
+            write_timeout,
+        } = policy;
+        let facts = OwnerFacts {
+            limits,
+            read_timeout,
+            write_timeout,
+            baseline,
+            transport: protocol.transport,
+        };
+        let permits = AdmissionPermitPool::new(
+            protocol.capacity,
+            PerTarget::from_fn(|target| targets[target].map_or(0, |policy| policy.control_reserve)),
+        );
+        let mut engine = ProtocolEngine::new(protocol, now)?;
+        for (target, target_policy) in targets.iter() {
             if let Some(target_policy) = target_policy {
                 engine.register_target(target, *target_policy)?;
             }
         }
-        let permits = AdmissionPermitPool::new(
-            policy.protocol.capacity,
-            PerTarget::from_fn(|target| {
-                policy.targets[target].map_or(0, |policy| policy.control_reserve)
-            }),
-        );
-        let buffers = OwnerBuffers::new(policy.limits)?;
-        let tuning = LiveTuning::new(policy.tuning);
+        let buffers = OwnerBuffers::new(limits)?;
+        let tuning = LiveTuning::new(tuning);
         Ok(Self {
             engine,
-            policy,
+            facts,
             tuning,
             permits,
             active: BTreeMap::new(),
@@ -1666,8 +1677,8 @@ impl OwnerState {
         self.permits.clone()
     }
 
-    pub(crate) const fn policy(&self) -> &OwnerPolicy {
-        &self.policy
+    pub(crate) const fn facts(&self) -> &OwnerFacts {
+        &self.facts
     }
 
     /// Shares the live tuning cell with a handle that prepares requests.
@@ -1702,7 +1713,7 @@ impl OwnerState {
         now: Instant,
     ) -> Result<(), Error> {
         let (command_spacing, inquiry_spacing, command_sockets) =
-            self.policy.baseline.apply(validated);
+            self.facts.baseline.apply(validated);
         self.engine
             .retune(command_spacing, inquiry_spacing, command_sockets, now)?;
         self.tuning.set(validated);
@@ -2070,15 +2081,8 @@ impl OwnerState {
         let (id, motion) = verdict.inspect_err(|error| {
             self.record_admission_rejection(summary.target, summary.lane, error);
         })?;
-        self.active.insert(
-            id,
-            ActiveRequest {
-                _permit: permit,
-                observer: observer.into(),
-                summary,
-                cancellation: None,
-            },
-        );
+        self.active
+            .insert(id, ActiveRequest::new(permit, observer.into(), summary));
         self.metrics.admitted = self.metrics.admitted.saturating_add(1);
         if slot == AdmissionSlot::ControlReserve {
             self.metrics.control_reserve_admitted =
@@ -2092,41 +2096,22 @@ impl OwnerState {
         Ok(Admitted { id, motion })
     }
 
-    fn mark_cancellation_recorded(&mut self, id: RequestId) {
-        if let Some(intent) = self
-            .active
-            .get_mut(&id)
-            .and_then(|active| active.cancellation.as_mut())
-        {
-            if let CancellationIntent::Requested(observer) = intent {
-                *intent = CancellationIntent::Recorded(Arc::clone(observer));
-            }
-        }
-    }
-
-    /// A failed cancellation observation. Before the intent was recorded it is
-    /// the engine refusing the request, which leaves the operation running and
-    /// is answered to the cancelling caller; afterwards it is a cancellation
-    /// that failed without ending the operation, which reaches the handle's
-    /// cancellation observer. The operation's terminal slot is untouched
-    /// either way (#777).
+    /// Deliver a cancellation failure to the observer installed after the
+    /// engine accepted its intent. The operation's terminal slot is untouched.
     fn cancellation_failed(&mut self, id: RequestId, error: Error, delivered_at: Instant) {
-        let Some(active) = self.active.get_mut(&id) else {
+        let Some(observer) = self
+            .active
+            .get(&id)
+            .and_then(|active| active.cancellation.as_ref())
+        else {
             return;
         };
-        match &active.cancellation {
-            Some(CancellationIntent::Recorded(observer)) => {
-                if matches!(
-                    observer
-                        .resolve_at(Error::cancellation_observation_failed(error), delivered_at),
-                    ObserverResolution::ReceiverLost
-                ) {
-                    self.metrics.dropped_observer_events =
-                        self.metrics.dropped_observer_events.saturating_add(1);
-                }
-            }
-            Some(CancellationIntent::Requested(_)) => active.cancellation = None,
-            None => {}
+        if matches!(
+            observer.resolve_at(Error::cancellation_observation_failed(error), delivered_at),
+            ObserverResolution::ReceiverLost
+        ) {
+            self.metrics.dropped_observer_events =
+                self.metrics.dropped_observer_events.saturating_add(1);
         }
     }
 
@@ -2144,16 +2129,14 @@ impl OwnerState {
         if active.cancellation.is_some() {
             return (self.buffers.take_effects(), Ok(()));
         }
-        active.cancellation = Some(CancellationIntent::Requested(request.observer));
         let turn = self.engine.begin_input_turn(now);
         let answer =
             self.engine
                 .cancel_in_turn_into(&turn, request.id, &mut self.buffers.effect_scratch);
-        if answer.is_err() {
-            // A refusal records no intent; the original operation stays live.
-            if let Some(active) = self.active.get_mut(&request.id) {
-                active.cancellation = None;
-            }
+        if answer.is_ok() {
+            // The synchronous verdict is authoritative before any effects run.
+            // A refused cancellation leaves no provisional owner state.
+            active.cancellation = Some(request.observer);
         }
         self.engine.finish_input_turn_into(
             turn,
@@ -2170,7 +2153,7 @@ impl OwnerState {
         lifecycle: Arc<boundary::OwnerLifecycle>,
     ) -> Result<DiagnosticSubscription, Error> {
         if event_capacity == 0
-            || event_capacity > self.policy.limits.diagnostic_events_per_subscription
+            || event_capacity > self.facts.limits.diagnostic_events_per_subscription
         {
             return Err(Error::InvalidRequest {
                 reason: "diagnostic subscription capacity is outside owner bounds".into(),
@@ -2178,9 +2161,9 @@ impl OwnerState {
         }
         self.diagnostic_subscribers
             .retain(|_, value| !value.sender.is_disconnected());
-        if self.diagnostic_subscribers.len() >= self.policy.limits.diagnostic_subscribers {
+        if self.diagnostic_subscribers.len() >= self.facts.limits.diagnostic_subscribers {
             return Err(Error::DiagnosticSubscriberLimit {
-                capacity: self.policy.limits.diagnostic_subscribers,
+                capacity: self.facts.limits.diagnostic_subscribers,
             });
         }
         let id = allocate_subscription_id(
@@ -2201,7 +2184,7 @@ impl OwnerState {
     }
 
     pub(crate) fn validate_frame_batch(&self, frames: &FrameBatch) -> Result<(), Error> {
-        if frames.len() > self.policy.limits.frames_per_receive {
+        if frames.len() > self.facts.limits.frames_per_receive {
             // A frame-count limit, not a byte-size limit: name frames rather than
             // reusing the "N bytes" `ResponseTooLarge` message. Since the shared
             // decode now stops draining at this same limit (#674), this is a
@@ -2209,7 +2192,7 @@ impl OwnerState {
             return Err(Error::InvalidResponse {
                 expected: format!(
                     "a receive within the per-receive limit of {} frames",
-                    self.policy.limits.frames_per_receive
+                    self.facts.limits.frames_per_receive
                 )
                 .into(),
                 actual: Vec::new(),
@@ -2219,11 +2202,11 @@ impl OwnerState {
             matches!(
                 &frame.response,
                 DecodedResponse::InquiryReply { payload, .. }
-                    if payload.len() > self.policy.limits.receive_bytes
+                    if payload.len() > self.facts.limits.receive_bytes
             )
         }) {
             return Err(Error::ResponseTooLarge {
-                max_size: self.policy.limits.receive_bytes,
+                max_size: self.facts.limits.receive_bytes,
             });
         }
         Ok(())
@@ -2261,7 +2244,8 @@ impl OwnerState {
             );
             if cache.pan_tilt().speed_mode() != Some(crate::command::PanTiltSpeedMode::Fine50) {
                 return Err(Error::InvalidRequest { reason: format!(
-                    "Sony FR7 speeds above 24 require an applied Fine50 variable-speed mode for camera {}",
+                    "pan/tilt speeds above {} require the fine speed mode to be applied on camera {}",
+                    crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM,
                     staged.target().camera()).into() });
             }
         }
@@ -2304,7 +2288,7 @@ impl OwnerState {
             #[cfg(test)]
             Effect::AdmissionRejected { error, .. } => AppliedEffect::AdmissionRejected(error),
             Effect::Transition { id, from, to } => {
-                if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
+                if let Some(target) = self.active.get(&id).map(|active| active.summary().target) {
                     self.record(DiagnosticEvent::Transition {
                         id: diagnostics::id(id),
                         target: target.camera(),
@@ -2330,7 +2314,7 @@ impl OwnerState {
                 // this one effect, so the counter stays correct as retry policy
                 // evolves.
                 self.metrics.retries_scheduled = self.metrics.retries_scheduled.saturating_add(1);
-                if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
+                if let Some(target) = self.active.get(&id).map(|active| active.summary().target) {
                     self.record(DiagnosticEvent::RetryScheduled {
                         id: diagnostics::id(id),
                         target: target.camera(),
@@ -2350,7 +2334,7 @@ impl OwnerState {
                     DeadlineKind::InquiryReply => &mut self.metrics.inquiry_timeouts,
                 };
                 *counter = counter.saturating_add(1);
-                if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
+                if let Some(target) = self.active.get(&id).map(|active| active.summary().target) {
                     self.record(DiagnosticEvent::DeadlineExpired {
                         id: diagnostics::id(id),
                         target: target.camera(),
@@ -2362,8 +2346,7 @@ impl OwnerState {
             }
             Effect::CancellationRecorded { id } => {
                 self.metrics.cancellations = self.metrics.cancellations.saturating_add(1);
-                self.mark_cancellation_recorded(id);
-                if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
+                if let Some(target) = self.active.get(&id).map(|active| active.summary().target) {
                     self.record(DiagnosticEvent::CancellationRecorded {
                         id: diagnostics::id(id),
                         target: target.camera(),
@@ -2372,15 +2355,10 @@ impl OwnerState {
                 AppliedEffect::None
             }
             Effect::CancellationObservation { id, observation } => {
-                let target = self.active.get(&id).map(|active| active.summary.target);
+                let target = self.active.get(&id).map(|active| active.summary().target);
                 let diagnostic = diagnostics::cancellation(&observation);
-                match observation {
-                    CancellationObservation::Recorded
-                    | CancellationObservation::Cancelled
-                    | CancellationObservation::Completed => self.mark_cancellation_recorded(id),
-                    CancellationObservation::Failed(error) => {
-                        self.cancellation_failed(id, error, delivered_at);
-                    }
+                if let CancellationObservation::Failed(error) = observation {
+                    self.cancellation_failed(id, error, delivered_at);
                 }
                 if let Some(target) = target {
                     self.record(DiagnosticEvent::CancellationObserved {
@@ -2408,15 +2386,15 @@ impl OwnerState {
             Effect::Terminal { id, outcome } => {
                 let diagnostic = diagnostics::outcome(&outcome);
                 if let Some(active) = self.active.remove(&id) {
-                    let target = active.summary.target;
+                    let RetiredRequest { observer, summary } = active.retire();
+                    let target = summary.target;
                     if matches!(
-                        active.observer.resolve_at(outcome, delivered_at),
+                        observer.resolve_at(outcome, delivered_at),
                         ObserverResolution::ReceiverLost
                     ) {
                         self.metrics.dropped_observer_events =
                             self.metrics.dropped_observer_events.saturating_add(1);
                     }
-                    // Dropping active releases admission capacity only here.
                     self.record(DiagnosticEvent::Terminal {
                         id: diagnostics::id(id),
                         target: target.camera(),

@@ -6,7 +6,7 @@
 //!
 //! `checked` handles a fallible value constructor; `with_target` performs
 //! profile-dependent lowering before admission. Unit requests are unit values.
-//! Each noun header declares its accessor, getter, gate and documentation.
+//! Each noun header declares its accessor, getter, display title, gate and documentation.
 //! Mark a parameter `#[into] name: Type` to accept `impl Into<Type>` in both
 //! facades; its request expression receives the converted `Type`. Other table
 //! projections continue to use the declared value type.
@@ -30,6 +30,7 @@ macro_rules! noun_table {
             @noun Power {
                 accessor: PowerAccessor,
                 getter: power,
+                title: "Power",
                 gate: [domain HasPower],
                 doc: "Power commands and the power-state inquiry.",
             };
@@ -50,6 +51,7 @@ macro_rules! noun_table {
             @noun Zoom {
                 accessor: ZoomAccessor,
                 getter: zoom,
+                title: "Zoom",
                 gate: [domain HasZoom],
                 doc: "Optical and digital zoom commands and the zoom-position inquiry.",
             };
@@ -143,6 +145,7 @@ macro_rules! noun_table {
             @noun System {
                 accessor: SystemAccessor,
                 getter: system,
+                title: "System",
                 gate: [always],
                 doc: "Settings persistence and the version inquiry.",
             };
@@ -163,6 +166,7 @@ macro_rules! noun_table {
             @noun PanTilt {
                 accessor: PanTiltAccessor,
                 getter: pan_tilt,
+                title: "Pan/tilt",
                 gate: [domain HasPanTilt],
                 doc: "Pan/tilt movement, limits, and the position inquiry.",
             };
@@ -252,6 +256,7 @@ macro_rules! noun_table {
             @noun Focus {
                 accessor: FocusAccessor,
                 getter: focus,
+                title: "Focus",
                 gate: [domain HasFocus],
                 doc: "Focus movement, modes, and focus inquiries.",
             };
@@ -385,6 +390,7 @@ macro_rules! noun_table {
             @noun Presets {
                 accessor: PresetsAccessor,
                 getter: presets,
+                title: "Presets",
                 gate: [domain HasPresets],
                 doc: "Preset recall, store, clear, and recall-speed commands.",
             };
@@ -463,6 +469,7 @@ macro_rules! noun_table {
             @noun Exposure {
                 accessor: ExposureAccessor,
                 getter: exposure,
+                title: "Exposure",
                 gate: [domain HasExposure],
                 doc: "Exposure, iris, shutter, brightness, and gain commands and inquiries.",
             };
@@ -799,6 +806,7 @@ macro_rules! noun_table {
             @noun WhiteBalance {
                 accessor: WhiteBalanceAccessor,
                 getter: white_balance,
+                title: "White balance",
                 gate: [domain HasWhiteBalance],
                 doc: "White-balance, color-temperature, and color-channel commands and inquiries.",
             };
@@ -1113,6 +1121,7 @@ macro_rules! noun_table {
             @noun Image {
                 accessor: ImageAccessor,
                 getter: image,
+                title: "Image",
                 gate: [domain HasImage],
                 doc: "Image-processing, noise-reduction, flip, and freeze commands and inquiries.",
             };
@@ -1429,6 +1438,7 @@ macro_rules! noun_table {
             @noun Tally {
                 accessor: TallyAccessor,
                 getter: tally,
+                title: "Tally",
                 gate: [typed HasTally],
                 doc: "Tally-light commands and inquiries.",
             };
@@ -1479,6 +1489,7 @@ macro_rules! noun_table {
             @noun NdFilter {
                 accessor: NdFilterAccessor,
                 getter: nd_filter,
+                title: "ND filter",
                 gate: [typed HasNdFilter],
                 doc: "Neutral-density filter commands and inquiries.",
             };
@@ -1537,6 +1548,7 @@ macro_rules! noun_table {
             @noun MotionSync {
                 accessor: MotionSyncAccessor,
                 getter: motion_sync,
+                title: "Motion sync",
                 gate: [typed HasMotionSync],
                 doc: "Motion-sync settings; readback requires a custom inquiry.",
             };
@@ -1559,6 +1571,7 @@ macro_rules! noun_table {
             @noun Menu {
                 accessor: MenuAccessor,
                 getter: menu,
+                title: "Menu",
                 gate: [domain HasMenu],
                 doc: "On-screen menu display and navigation commands and the menu-status inquiry.",
             };
@@ -1612,6 +1625,7 @@ macro_rules! noun_table {
             @noun Streaming {
                 accessor: StreamingAccessor,
                 getter: streaming,
+                title: "Streaming",
                 gate: [always],
                 doc: "Streaming quality, multicast output, and USB-audio controls and inquiries.",
             };
@@ -1751,6 +1765,7 @@ macro_rules! reexport_nouns {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
+                title: $title:literal,
                 gate: $gate:tt,
                 doc: $doc:literal $(,)?
             };

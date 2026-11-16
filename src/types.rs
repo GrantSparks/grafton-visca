@@ -146,7 +146,7 @@ impl SpeedLevel {
             Self::Slow => (6, 5, 2, 2),
             Self::Medium => (12, 10, 4, 4),
             Self::Fast => (18, 15, 6, 6),
-            Self::Fastest => (24, 20, 7, 7),
+            Self::Fastest => (PanTiltSpeedMode::STANDARD_MAXIMUM, 20, 7, 7),
         }
     }
 }
@@ -321,6 +321,11 @@ impl RgbTuning {
 }
 
 /// Horizontal movement speed code in the union of supported profile domains.
+///
+/// Preparation checks the selected profile's speed range. For profiles with
+/// variable speed modes, speeds above [`PanTiltSpeedMode::STANDARD_MAXIMUM`]
+/// require the fine mode. The owner checks the confirmed target state at write
+/// time because a queued mode change can apply after preparation.
 #[crate::value(min = 0x00, max = 0x32, display = "Pan Speed {}")]
 pub struct PanSpeed(u8);
 
@@ -331,8 +336,10 @@ impl PanSpeed {
 
 /// Vertical movement speed code in the union of supported profile domains.
 ///
-/// Values above 24 require the FR7's session-confirmed Extended mode;
-/// preparation validates the selected profile and speed mode.
+/// Preparation checks the selected profile's speed range. For profiles with
+/// variable speed modes, speeds above [`PanTiltSpeedMode::STANDARD_MAXIMUM`]
+/// require the fine mode. The owner checks the confirmed target state at write
+/// time because a queued mode change can apply after preparation.
 #[crate::value(min = 0x00, max = 0x32, display = "Tilt Speed {}")]
 pub struct TiltSpeed(u8);
 
@@ -402,4 +409,4 @@ mod value_tests;
 
 pub use crate::camera_id::{CameraId, IndividualCameraId};
 pub use crate::requests::{AffectedAxes, AffectedAxis, AffectedAxisIter};
-pub use crate::visca_socket::ViscaSocket;
+pub use crate::visca_socket::{CommandSocketCount, ViscaSocket};

@@ -52,6 +52,29 @@ fn cases() -> Vec<Case> {
             Abandon
         ),
         case!(
+            CameraNotAddressed,
+            "",
+            Error::CameraNotAddressed {
+                port: "/dev/ttyVISCA0".into(),
+                camera: crate::types::IndividualCameraId::CAMERA_2,
+                addressed: 1,
+            },
+            InvalidParameter,
+            None,
+            Abandon
+        ),
+        case!(
+            SerialChainTooLong,
+            "",
+            Error::SerialChainTooLong {
+                port: "/dev/ttyVISCA0".into(),
+                reported: 8,
+            },
+            InvalidParameter,
+            None,
+            Abandon
+        ),
+        case!(
             ConnectionClosed,
             "",
             Error::ConnectionClosed { source: None },
