@@ -8,7 +8,7 @@ use std::{
     net::{SocketAddr, UdpSocket},
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::testing::frames;
@@ -53,6 +53,10 @@ impl CompileTimeProfile for NonDefaultCompileTimeProfile {
     }
 }
 
+// ICMP arrives asynchronously. Keep the priming probe well inside the
+// fixture's five-second command/observer budget, including under CI load.
+const ICMP_PROBE_BUDGET: Duration = Duration::from_secs(1);
+
 fn session_config() -> SessionConfig {
     SessionConfig::new(NonDefaultCompileTimeProfile::spec().expect("two-socket raw profile"))
 }
@@ -79,9 +83,10 @@ impl RestartingCamera {
     }
 }
 
-/// Keep the owner out of receive while Linux queues the error: the first
-/// native send targets the closed port, and the second native send observes
-/// its ICMP port-unreachable. No synthetic transport error enters the test.
+/// Keep the owner out of receive while Linux queues the error. Native sends
+/// target the closed port until one observes its real ICMP port-unreachable;
+/// delivery need not be synchronous with the first datagram. No synthetic
+/// transport error enters the test.
 struct PrimeSend {
     inner: crate::transport::blocking::Udp,
     first: bool,
@@ -103,11 +108,27 @@ impl BlockingTransport for PrimeSend {
         if !std::mem::take(&mut self.first) {
             return self.inner.send_with_timeout(bytes, timeout);
         }
-        self.inner.send_with_timeout(bytes, timeout)?;
-        let cause = self
-            .inner
-            .send_with_timeout(bytes, timeout)
-            .expect_err("the second send observes loopback ICMP port-unreachable");
+        let budget = timeout.min(ICMP_PROBE_BUDGET);
+        let deadline = Instant::now() + budget;
+        self.inner.send_with_timeout(bytes, budget)?;
+        let mut successful_probes = 1;
+        let cause = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "Linux did not report loopback ICMP port-unreachable within {budget:?} \
+                 after {successful_probes} successful native sends"
+            );
+            match self.inner.send_with_timeout(bytes, remaining) {
+                Err(cause) => break cause,
+                Ok(()) => {
+                    successful_probes += 1;
+                    // Let the kernel deliver ICMP before probing again. This
+                    // wait does not consume the socket's pending error.
+                    thread::sleep(Duration::from_millis(1).min(remaining));
+                }
+            }
+        };
         assert!(
             matches!(&cause, Error::Io { source: error } if error.kind() == io::ErrorKind::ConnectionRefused)
         );
@@ -125,10 +146,12 @@ impl BlockingTransport for PrimeSend {
 }
 
 #[test]
-fn a_real_second_udp_send_preserves_econnrefused_and_later_work_applies() {
-    let reservation = UdpSocket::bind("127.0.0.1:0").unwrap();
+fn a_real_udp_send_preserves_econnrefused_and_later_work_applies() {
+    // Use a separate loopback address from the other tests' camera endpoints,
+    // and hold its port until the client has picked a distinct local socket.
+    let reservation = UdpSocket::bind("127.0.0.2:0").unwrap();
     let endpoint = reservation.local_addr().unwrap();
-    drop(reservation);
+    assert!(ICMP_PROBE_BUDGET < CommandTimeouts::DEFAULT.quick_timeout());
     let camera = Arc::new(RestartingCamera {
         endpoint,
         worker: Mutex::new(None),
@@ -138,6 +161,7 @@ fn a_real_second_udp_send_preserves_econnrefused_and_later_work_applies() {
         TransportConfig::for_udp(),
     )
     .expect("native connected UDP transport");
+    drop(reservation);
     let session = crate::blocking::Session::open(
         PrimeSend {
             inner,
