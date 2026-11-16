@@ -3,11 +3,11 @@ use std::marker::PhantomData;
 use grafton_visca::{
     blocking::Camera, blocking::Operation, blocking::Session, operation::AppliedOnly,
     profiles::GenericVisca, profiles::ProfileSpec, request::SubmissionClass,
-    state_cache::StateCache, types::CameraId, Error,
+    state_cache::StateCache, types::IndividualCameraId, Error,
 };
 
 fn surface(session: &Session, camera: &mut grafton_visca::blocking::Camera) -> Result<(), Error> {
-    let _: CameraId = camera.target();
+    let _: IndividualCameraId = camera.target();
     let _: &ProfileSpec = camera.profile();
     let _: StateCache = camera.state_cache();
     let _: Option<SubmissionClass> = camera.submission_class();
@@ -17,12 +17,10 @@ fn surface(session: &Session, camera: &mut grafton_visca::blocking::Camera) -> R
     let _: Result<Operation<AppliedOnly>, Error> =
         camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop);
 
-    let _: Result<grafton_visca::blocking::Camera, Error> = session
-        .camera::<grafton_visca::profiles::AnyProfile>(
-        grafton_visca::types::IndividualCameraId::CAMERA_1,
-    );
     let _: Result<grafton_visca::blocking::Camera, Error> =
-        session.camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1);
+        session.camera::<grafton_visca::profiles::AnyProfile>(IndividualCameraId::CAMERA_1);
+    let _: Result<grafton_visca::blocking::Camera, Error> =
+        session.camera::<grafton_visca::profiles::AnyProfile>(IndividualCameraId::CAMERA_1);
     Ok(())
 }
 
