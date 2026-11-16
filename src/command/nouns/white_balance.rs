@@ -678,7 +678,7 @@ impl OnePush {
 }
 
 forward_request!(OnePush, color::OnePushTriggerCommand, Plain;
-    select |request, target| (Self::encoding_for_target(target)?)
+    select target |request, target| (Self::encoding_for_target(target)?)
         default (crate::capabilities::OnePushWhiteBalanceEncoding::Standard) {
         crate::capabilities::OnePushWhiteBalanceEncoding::Standard => (
             color::OnePushTriggerCommand, OnePushWhiteBalanceTrigger,

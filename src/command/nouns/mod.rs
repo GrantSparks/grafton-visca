@@ -425,6 +425,27 @@ macro_rules! forward_request {
             assert!($crate::command::semantics::BuiltinCommand::$row as usize == <$inner as $crate::command::semantics::BuiltinRequestContract>::LEDGER_ROW as usize, "selector row differs from inner request");
         };)+
     };
+    // A selector that reads profile context has a target-free fallback for
+    // hooks such as declared_max_size and applied_state_projection. Unlike a
+    // stored-value selector, every arm must agree with that fallback.
+    ($type:ty, $primary:ty, $class:ident;
+        select target |$request:ident, $registration:ident| ($selector:expr) default ($fallback:expr)
+        { $($pattern:pat => ($inner:ty, $row:ident, $value:expr)),+ $(,)? }
+        $(validate = |$validated:ident, $target:ident| $validate:expr)?
+    ) => {
+        $crate::command::nouns::forward_request!($type, $primary, $class;
+            select |$request, $registration| ($selector) default ($fallback)
+            {$($pattern => ($inner, $row, $value)),+}
+            $(validate = |$validated, $target| $validate)?
+        );
+        $(const _: () = {
+            assert!(<$inner as $crate::Request>::MAX_SIZE == <$primary as $crate::Request>::MAX_SIZE,
+                "a profile-selected request changes its target-free size bound");
+            assert!($crate::command::semantics::BuiltinCommand::$row.classification().same_contract(
+                <$primary as $crate::command::semantics::BuiltinRequestContract>::LEDGER_ROW.classification()),
+                "a profile-selected request changes its target-free state contract");
+        };)+
+    };
     ($type:ty, $primary:ty, $class:ident;
         select |$request:ident, $registration:ident| ($selector:expr) default ($fallback:expr)
         { $($pattern:pat => ($inner:ty, $row:ident, $value:expr)),+ $(,)? }

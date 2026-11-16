@@ -479,7 +479,10 @@ mod tests {
 
     #[test]
     fn selected_noun_calls_validate_their_value_once() {
-        use crate::request::builtin::{request_validation_count, reset_request_validation_count};
+        use crate::request::builtin::{
+            request_validation_count, request_value_validation_count,
+            reset_request_validation_count,
+        };
         for (profile, step) in [
             (
                 ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap(),
@@ -499,6 +502,11 @@ mod tests {
                 .set_recall_speed(crate::types::PresetSpeed::new(12).unwrap())
                 .unwrap();
             assert_eq!(request_validation_count(), 1, "set_recall_speed");
+            assert_eq!(
+                request_value_validation_count(),
+                1,
+                "one profile range check, including the wrapper and inner request"
+            );
             reset_request_validation_count();
             camera.white_balance().one_push().unwrap();
             assert_eq!(request_validation_count(), 1, "one_push");

@@ -25,6 +25,7 @@ use std::borrow::Cow;
 std::thread_local! {
     static REQUEST_WRITE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static REQUEST_VALIDATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static REQUEST_VALUE_VALIDATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
@@ -39,11 +40,22 @@ pub(crate) fn request_write_count() -> usize {
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) fn reset_request_validation_count() {
     REQUEST_VALIDATION_COUNT.with(|count| count.set(0));
+    REQUEST_VALUE_VALIDATION_COUNT.with(|count| count.set(0));
 }
 
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) fn request_validation_count() -> usize {
     REQUEST_VALIDATION_COUNT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn record_request_value_validation() {
+    REQUEST_VALUE_VALIDATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+}
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+pub(crate) fn request_value_validation_count() -> usize {
+    REQUEST_VALUE_VALIDATION_COUNT.with(std::cell::Cell::get)
 }
 
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
@@ -299,6 +311,8 @@ fn require_in_range<T>(
 where
     T: Copy + PartialOrd + Into<i32>,
 {
+    #[cfg(test)]
+    record_request_value_validation();
     if value >= range.min() && value <= range.max() {
         Ok(())
     } else {

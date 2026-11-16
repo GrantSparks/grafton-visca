@@ -348,6 +348,14 @@ impl SetRecallSpeed {
                 24,
             ));
         }
+        // The standard inner request validates its profile range. FR7's
+        // protocol request carries only the checked union value, so this
+        // target-selected wrapper validates that arm's narrower profile range.
+        if self.encoding == crate::capabilities::PresetRecallSpeedEncoding::PtzOptics {
+            return Ok(());
+        }
+        #[cfg(test)]
+        builtin::record_request_value_validation();
         let range = target
             .profile()
             .capabilities()

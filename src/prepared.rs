@@ -3753,7 +3753,10 @@ mod tests {
 
     #[test]
     fn selected_noun_commands_validate_once_per_prepared_call() {
-        use crate::request::builtin::{request_validation_count, reset_request_validation_count};
+        use crate::request::builtin::{
+            request_validation_count, request_value_validation_count,
+            reset_request_validation_count,
+        };
         for profile in [
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2"),
             ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7"),
@@ -3772,6 +3775,11 @@ mod tests {
                 request_validation_count(),
                 1,
                 "preset selector validates its selected request once"
+            );
+            assert_eq!(
+                request_value_validation_count(),
+                1,
+                "one profile range check across wrapper and selected request"
             );
             reset_request_validation_count();
             prepare_builtin_command(
