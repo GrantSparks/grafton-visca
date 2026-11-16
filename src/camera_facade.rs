@@ -153,7 +153,7 @@ macro_rules! camera_facade {
             /// This is an idempotent shutdown request. It returns once the request is
             /// accepted by the owner's bounded shutdown boundary; it does not wait for
             /// transport teardown. After this call,
-            /// new request admission is rejected with [`Error::RuntimeShutdown`]. All
+            /// new request admission is rejected with [`crate::Error::RuntimeShutdown`]. All
             /// [`Session`] clones share this one shutdown boundary.
             pub fn shutdown(&self) -> Result<() $($error)*> {
                 self.owner.shutdown()
