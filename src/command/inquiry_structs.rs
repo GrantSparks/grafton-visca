@@ -2781,7 +2781,7 @@ mod generated_invariant_tests {
         for camera_num in 1..=8 {
             let camera_id = CameraId::new(camera_num).expect("valid camera id");
             let frames = encode_each_generated_inquiry(camera_id);
-            assert_eq!(frames.len(), 72);
+            assert_eq!(frames.len(), 71);
             for (name, body, frame) in frames {
                 let frame = frame.unwrap_or_else(|error| panic!("{name} must encode: {error:?}"));
                 let mut expected = vec![camera_id.to_address_byte()];
@@ -2803,8 +2803,8 @@ mod generated_invariant_tests {
             .map(core::mem::discriminant)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(distinct.len(), FUZZ_INQUIRY_KINDS.len());
-        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 72);
-        assert_eq!(BUILTIN_INQUIRIES.len(), 72);
+        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 71);
+        assert_eq!(BUILTIN_INQUIRIES.len(), 71);
         for meta in BUILTIN_INQUIRIES {
             assert!(
                 FUZZ_INQUIRY_KINDS.contains(&meta.kind),
