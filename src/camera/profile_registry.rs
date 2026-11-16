@@ -627,6 +627,13 @@ macro_rules! __define_builtin_profiles {
                 }
             }
 
+            /// Projects transport facts without constructing or validating a full profile.
+            pub(crate) const fn transport_compatibility(self) -> $crate::profiles::TransportCompatibility {
+                match self {$(Self::$profile => profile_registry::transport_compatibility(
+                    $tcp $(($tcp_port))?, $udp $(($udp_port))?, $serial,
+                ),)*}
+            }
+
             /// Returns the default TCP port for this profile when TCP is supported.
             pub const fn default_tcp_port(&self) -> Option<u16> {
                 match self {
@@ -768,9 +775,9 @@ macro_rules! __define_builtin_profiles {
                         profile_registry::MemberFact::SonyEncapsulation => {
                             member.uses_sony_encapsulation()
                         }
-                        profile_registry::MemberFact::Tcp => member.raw_facts().transports.tcp_port().is_some(),
-                        profile_registry::MemberFact::Udp => member.raw_facts().transports.udp_port().is_some(),
-                        profile_registry::MemberFact::Serial => member.raw_facts().transports.supports_serial(),
+                        profile_registry::MemberFact::Tcp => member.transport_compatibility().supports($crate::transport::StandardTransport::Tcp),
+                        profile_registry::MemberFact::Udp => member.transport_compatibility().supports($crate::transport::StandardTransport::Udp),
+                        profile_registry::MemberFact::Serial => member.transport_compatibility().supports($crate::transport::StandardTransport::Serial),
                     };
                     if !holds {
                         return false;
@@ -826,6 +833,40 @@ macro_rules! __define_builtin_profiles {
         #[cfg(test)]
         #[allow(clippy::expect_used)]
         mod registry_tests {
+            #[test]
+            fn transport_predicate_and_ports_match_the_documented_matrix() {
+                use $crate::transport::{NetworkTransport, StandardTransport};
+                let rows = [
+                    (ProfileId::PtzOpticsG2, Some(5678), Some(1259), true),
+                    (ProfileId::PtzOpticsG3, Some(5678), Some(1259), true),
+                    (ProfileId::PtzOptics30x, Some(5678), Some(1259), true),
+                    (ProfileId::SonyFr7, None, Some(52381), false),
+                    (ProfileId::SonyBrcH900, None, Some(52381), false),
+                    (ProfileId::SonyEviH100, None, None, true),
+                    (ProfileId::SonyBrc300, None, None, true),
+                    (ProfileId::NearusBrc300, None, None, true),
+                    (ProfileId::GenericVisca, Some(5678), Some(1259), true),
+                ];
+                assert_eq!(rows.len(), ProfileId::all().len());
+                let docs = include_str!("../../docs/architecture_inventory.md");
+                for (profile, tcp, udp, serial) in rows {
+                    let facts = profile.transport_compatibility();
+                    assert_eq!(facts, profile.spec().expect("built-in profile").transports());
+                    for (kind, expected) in [
+                        (StandardTransport::Tcp, tcp.is_some()),
+                        (StandardTransport::Udp, udp.is_some()),
+                        (StandardTransport::Serial, serial),
+                    ] {
+                        assert_eq!(facts.supports(kind), expected, "{profile:?} {kind:?}");
+                    }
+                    assert_eq!(facts.default_port(NetworkTransport::Tcp), tcp);
+                    assert_eq!(facts.default_port(NetworkTransport::Udp), udp);
+                    let port = |port: Option<u16>| port.map_or_else(|| "n/a".to_owned(), |value| value.to_string());
+                    let row = format!("| `{profile:?}` | {} | {} | {} |", port(tcp), port(udp), if serial { "yes" } else { "no" });
+                    assert!(docs.contains(&row), "missing documented transport row: {row}");
+                }
+            }
+
             use super::*;
 
             fn assert_profile_registry<P>(

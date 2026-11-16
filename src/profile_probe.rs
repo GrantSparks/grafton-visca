@@ -185,8 +185,18 @@ impl ProbeSettings {
                     "invalid VISCA_TRANSPORT `{other}`; use tcp, udp or serial"
                 ))
             }
-            None if profile.transports().tcp_port().is_some() => "tcp",
-            None if profile.transports().udp_port().is_some() => "udp",
+            None if profile
+                .transports()
+                .supports(crate::transport::StandardTransport::Tcp) =>
+            {
+                "tcp"
+            }
+            None if profile
+                .transports()
+                .supports(crate::transport::StandardTransport::Udp) =>
+            {
+                "udp"
+            }
             None => {
                 return Err(
                     "the selected profile has no network transport; use VISCA_SERIAL_PORT".into(),
@@ -869,8 +879,12 @@ mod tests {
             let selected = profile_selection(value.as_str(), None, no_file).expect("runtime id");
             let spec = id.spec().expect("same spec");
             assert_eq!(selected.spec().expect("spec"), spec);
-            let settings = if spec.transports().tcp_port().is_some()
-                || spec.transports().udp_port().is_some()
+            let settings = if spec
+                .transports()
+                .supports(crate::transport::StandardTransport::Tcp)
+                || spec
+                    .transports()
+                    .supports(crate::transport::StandardTransport::Udp)
             {
                 ProbeSettings::new("127.0.0.1", selected, None, None, None)
             } else {

@@ -306,10 +306,17 @@ impl<'a> TransportIdentity<'a> {
     /// The standard profile-matrix kind, or the explicit custom escape hatch.
     #[must_use]
     pub const fn standard_transport_kind(self) -> Option<crate::camera::TransportKind> {
+        match self.standard_kind() {
+            Some(kind) => Some(kind.configuration_kind()),
+            None => None,
+        }
+    }
+    /// Closed support-matrix kind; custom transports deliberately have none.
+    pub(crate) const fn standard_kind(self) -> Option<super::StandardTransport> {
         match self {
-            Self::Tcp => Some(crate::camera::TransportKind::Tcp),
-            Self::Udp => Some(crate::camera::TransportKind::Udp),
-            Self::Serial { .. } => Some(crate::camera::TransportKind::Serial),
+            Self::Tcp => Some(super::NetworkTransport::Tcp.standard()),
+            Self::Udp => Some(super::NetworkTransport::Udp.standard()),
+            Self::Serial { .. } => Some(super::StandardTransport::Serial),
             Self::Custom { .. } => None,
         }
     }
@@ -319,17 +326,6 @@ impl<'a> TransportIdentity<'a> {
         match self {
             Self::Serial { bus } => bus,
             _ => None,
-        }
-    }
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    pub(crate) const fn engine_kind(self) -> crate::runtime::engine::TransportKind {
-        match self {
-            Self::Udp
-            | Self::Custom {
-                semantics: SendSemantics::Datagram,
-                ..
-            } => crate::runtime::engine::TransportKind::Datagram,
-            _ => crate::runtime::engine::TransportKind::Stream,
         }
     }
 }
@@ -376,6 +372,40 @@ impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
 mod identity_tests {
     use super::*;
     use crate::camera::TransportKind;
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn engine_kind_is_the_exhaustive_send_semantics_projection() {
+        use crate::runtime::engine::TransportKind;
+        let bus = AddressedBus::new("/dev/visca", 3);
+        for (identity, expected) in [
+            (TransportIdentity::Tcp, TransportKind::Stream),
+            (TransportIdentity::Udp, TransportKind::Datagram),
+            (
+                TransportIdentity::Serial { bus: None },
+                TransportKind::Stream,
+            ),
+            (
+                TransportIdentity::Serial { bus: Some(&bus) },
+                TransportKind::Stream,
+            ),
+        ] {
+            assert_eq!(TransportKind::from(identity.send_semantics()), expected);
+        }
+        for (semantics, expected) in [
+            (SendSemantics::Datagram, TransportKind::Datagram),
+            (SendSemantics::Stream, TransportKind::Stream),
+        ] {
+            for addressing in [AddressingMode::Ip, AddressingMode::Serial] {
+                let identity = TransportIdentity::Custom {
+                    semantics,
+                    addressing,
+                };
+                assert_eq!(TransportKind::from(identity.send_semantics()), expected);
+                assert_eq!(identity.standard_kind(), None);
+            }
+        }
+    }
 
     #[test]
     fn identity_projects_one_consistent_standard_transport_contract() {

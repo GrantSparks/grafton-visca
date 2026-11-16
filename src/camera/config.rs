@@ -34,7 +34,7 @@ pub enum TransportKind {
     Udp,
     /// Serial transport.
     Serial,
-    /// Custom transport with no standard transport kind.
+    /// Configuration selects a caller-owned transport, outside the standard support matrix.
     Custom,
 }
 
@@ -119,18 +119,28 @@ impl TransportOptions {
         &self,
         profile: crate::camera::profiles::ProfileId,
     ) -> Result<(), Error> {
-        let transport = self.kind();
-        let facts = profile.spec()?;
-        let supported = match transport {
-            TransportKind::Tcp => facts.transports().tcp_port().is_some(),
-            TransportKind::Udp => facts.transports().udp_port().is_some(),
-            TransportKind::Serial => facts.transports().supports_serial(),
-            TransportKind::Custom => true,
-        };
+        let supported = self.identity().is_none_or(|identity| {
+            identity
+                .standard_kind()
+                .is_none_or(|kind| profile.transport_compatibility().supports(kind))
+        });
         if supported {
             Ok(())
         } else {
-            Err(Error::UnsupportedTransport { profile, transport })
+            Err(Error::UnsupportedTransport {
+                profile,
+                transport: self.kind(),
+            })
+        }
+    }
+
+    /// The selected standard descriptor, or a caller-owned transport selection.
+    pub(crate) const fn identity(&self) -> Option<crate::transport::TransportIdentity<'static>> {
+        match self {
+            Self::Tcp { .. } => Some(crate::transport::TransportIdentity::Tcp),
+            Self::Udp { .. } => Some(crate::transport::TransportIdentity::Udp),
+            Self::Serial { .. } => Some(crate::transport::TransportIdentity::Serial { bus: None }),
+            Self::Custom => None,
         }
     }
 
@@ -431,15 +441,10 @@ pub(crate) fn validate_selected_transport(
     config: &crate::session_config::ValidatedSessionConfig,
     selected: &TransportOptions,
 ) -> crate::Result<()> {
-    let identity = match selected {
-        TransportOptions::Tcp { .. } => crate::transport::TransportIdentity::Tcp,
-        TransportOptions::Udp { .. } => crate::transport::TransportIdentity::Udp,
-        TransportOptions::Serial { .. } => {
-            crate::transport::TransportIdentity::Serial { bus: None }
-        }
-        TransportOptions::Custom => return Ok(()),
-    };
-    config.validate_for_transport(identity)
+    match selected.identity() {
+        Some(identity) => config.validate_for_transport(identity),
+        None => Ok(()),
+    }
 }
 
 /// Pure network construction state shared by both execution facades.

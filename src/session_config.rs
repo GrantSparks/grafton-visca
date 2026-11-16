@@ -498,18 +498,19 @@ impl SessionConfig {
     pub(crate) fn standard_connection_plan(
         &self,
     ) -> Result<crate::camera::config::SessionConnectionPlan> {
-        use crate::camera::config::{SessionConnectionPlan, TransportKind, TransportOptions};
+        use crate::camera::config::{SessionConnectionPlan, TransportOptions};
+        use crate::transport::NetworkTransport;
         use crate::transport::TransportConfig;
         let session_config = self.clone().validated()?;
         crate::camera::config::validate_selected_transport(&session_config, &self.transport)?;
         let (kind, address, configured_default) = match &self.transport {
             TransportOptions::Tcp { address } => (
-                TransportKind::Tcp,
+                NetworkTransport::Tcp,
                 address.as_str(),
                 TransportConfig::for_tcp(),
             ),
             TransportOptions::Udp { address } => (
-                TransportKind::Udp,
+                NetworkTransport::Udp,
                 address.as_str(),
                 TransportConfig::for_udp(),
             ),
@@ -524,11 +525,7 @@ impl SessionConfig {
                 })
             }
         };
-        let port = |profile: &ProfileSpec| match kind {
-            TransportKind::Tcp => profile.transports().tcp_port(),
-            TransportKind::Udp => profile.transports().udp_port(),
-            _ => None,
-        };
+        let port = |profile: &ProfileSpec| profile.transports().default_port(kind);
         let mut ports = self.targets.iter().filter_map(|(_, registration)| {
             registration.as_deref().map(|target| port(target.profile()))
         });
@@ -544,7 +541,7 @@ impl SessionConfig {
         transport_config.validate()?;
         let endpoint = crate::transport::address::canonicalize_endpoint(address, default_port)?;
         Ok(SessionConnectionPlan {
-            kind,
+            kind: kind.standard().configuration_kind(),
             endpoint,
             transport_config,
             session_config,

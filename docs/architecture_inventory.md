@@ -11,6 +11,8 @@ Caller-visible differences from 1.x are recorded in
 
 ## Profiles, envelopes, and transports
 
+Standard transport support is checked by `TransportCompatibility::supports`, shared by configurations, profile groups and owner preflight.
+
 The built-in profiles are `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`,
 `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, and
 `GenericVisca`. The three PTZOptics profiles and `GenericVisca` support raw VISCA over TCP,

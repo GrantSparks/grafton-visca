@@ -15,7 +15,6 @@ use bytes::Bytes;
 use smallvec::SmallVec;
 
 use crate::{
-    camera::TransportKind as CameraTransportKind,
     profiles::{ProfileEnvelope, ProfileSpec},
     protocol::{
         framer::{Framer, FramingError, RawFramer, SonyFramer},
@@ -290,7 +289,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
 
     config.validate()?;
 
-    let transport = identity.engine_kind();
+    let transport = identity.send_semantics().into();
 
     // Raw targets exclude only overlapping inquiry declarations. Admission
     // capacity still bounds total concurrent inquiries, as for Sony sequences.
@@ -971,24 +970,6 @@ fn classify_response_source(routing: RoutingState, source: u8) -> ResponseSource
     }
 }
 
-/// Convert profile envelope facts to the camera-level transport kind for
-/// callers that need to validate a standard transport before opening it.
-pub(crate) fn profile_supports_transport(
-    profile: &ProfileSpec,
-    identity: TransportIdentity<'_>,
-) -> bool {
-    let Some(kind) = identity.standard_transport_kind() else {
-        // Custom transports intentionally remain an explicit escape hatch.
-        return true;
-    };
-    match kind {
-        CameraTransportKind::Tcp => profile.transports().tcp_port().is_some(),
-        CameraTransportKind::Udp => profile.transports().udp_port().is_some(),
-        CameraTransportKind::Serial => profile.transports().supports_serial(),
-        CameraTransportKind::Custom => true,
-    }
-}
-
 /// Validate a standard transport kind against a runtime profile before any
 /// owner or transport startup work occurs.  A transport that does not expose
 /// a standard kind is an explicit custom escape hatch and remains allowed.
@@ -996,15 +977,13 @@ pub(crate) fn validate_profile_transport(
     profile: &ProfileSpec,
     identity: TransportIdentity<'_>,
 ) -> Result<(), Error> {
-    if profile_supports_transport(profile, identity) {
-        return Ok(());
-    }
-
-    let Some(kind) = identity.standard_transport_kind() else {
-        // `profile_supports_transport` currently returns true for this case;
-        // keep the branch defensive if that policy ever changes.
+    let Some(standard) = identity.standard_kind() else {
         return Ok(());
     };
+    if profile.transports().supports(standard) {
+        return Ok(());
+    }
+    let kind = standard.configuration_kind();
     if let Some(profile_id) = profile.capabilities().profile_id {
         return Err(Error::UnsupportedTransport {
             profile: profile_id,

@@ -135,16 +135,36 @@ impl TransportCompatibility {
         self
     }
 
+    /// Answers the standard profile support matrix in one place.
+    pub(crate) const fn supports(self, transport: crate::transport::StandardTransport) -> bool {
+        match transport {
+            crate::transport::StandardTransport::Tcp => self.tcp_port().is_some(),
+            crate::transport::StandardTransport::Udp => self.udp_port().is_some(),
+            crate::transport::StandardTransport::Serial => self.serial,
+        }
+    }
+
+    /// Returns the profile-selected port of a network transport.
+    pub(crate) const fn default_port(
+        self,
+        transport: crate::transport::NetworkTransport,
+    ) -> Option<u16> {
+        match transport {
+            crate::transport::NetworkTransport::Tcp => self.tcp_port,
+            crate::transport::NetworkTransport::Udp => self.udp_port,
+        }
+    }
+
     /// Returns the default TCP port when TCP is supported.
     #[must_use]
     pub const fn tcp_port(self) -> Option<u16> {
-        self.tcp_port
+        self.default_port(crate::transport::NetworkTransport::Tcp)
     }
 
     /// Returns the default UDP port when UDP is supported.
     #[must_use]
     pub const fn udp_port(self) -> Option<u16> {
-        self.udp_port
+        self.default_port(crate::transport::NetworkTransport::Udp)
     }
 
     /// Returns whether serial transport is supported.
