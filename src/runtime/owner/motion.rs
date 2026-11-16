@@ -20,6 +20,29 @@ pub(crate) struct MotionStamp {
     generations: [u64; 5],
 }
 
+fn stamp(
+    bank: &mut PerTarget<[u64; 5]>,
+    target: TargetSlot,
+    axes: AffectedAxes,
+    token: u64,
+) -> [u64; 5] {
+    let current = &mut bank[target];
+    for (index, value) in current.iter_mut().enumerate() {
+        if axes.bits() & (1 << index) != 0 {
+            *value = token;
+        }
+    }
+    *current
+}
+
+fn superseded(bank: &PerTarget<[u64; 5]>, stamp: &MotionStamp) -> bool {
+    bank[stamp.target]
+        .iter()
+        .zip(stamp.generations)
+        .enumerate()
+        .any(|(index, (now, then))| stamp.axes.bits() & (1 << index) != 0 && *now != then)
+}
+
 impl MotionRegistry {
     /// Hold only the admission/generation boundary against settlement commits.
     pub(super) fn begin_admission(
@@ -50,17 +73,12 @@ impl MotionRegistry {
             .generations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let current = &mut bank[target];
-        for (index, value) in current.iter_mut().enumerate() {
-            if axes.bits() & (1 << index) != 0 {
-                *value = token;
-            }
-        }
+        let generations = stamp(&mut bank, target, axes, token);
         MotionStamp {
             registry: Arc::clone(self),
             target,
             axes,
-            generations: *current,
+            generations,
         }
     }
 }
@@ -82,17 +100,12 @@ impl MotionAdmission<'_> {
         verdict: Result<crate::runtime::engine::RequestId, Error>,
     ) -> Result<(crate::runtime::engine::RequestId, MotionStamp), Error> {
         let id = verdict?;
-        let current = &mut self.bank[self.target];
-        for (index, value) in current.iter_mut().enumerate() {
-            if self.axes.bits() & (1 << index) != 0 {
-                *value = self.token;
-            }
-        }
+        let generations = stamp(&mut self.bank, self.target, self.axes, self.token);
         let stamp = MotionStamp {
             registry: Arc::clone(self.registry),
             target: self.target,
             axes: self.axes,
-            generations: *current,
+            generations,
         };
         Ok((id, stamp))
     }
@@ -112,13 +125,7 @@ impl MotionStamp {
             .generations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let current = bank[self.target];
-        let superseded = current
-            .iter()
-            .zip(self.generations)
-            .enumerate()
-            .any(|(index, (now, then))| self.axes.bits() & (1 << index) != 0 && *now != then);
-        if superseded {
+        if superseded(&bank, self) {
             let error = Error::SettlementSuperseded {
                 operation: id,
                 axes: self.axes,
@@ -138,13 +145,7 @@ impl MotionStamp {
             .generations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let current = bank[self.target];
-        if current
-            .iter()
-            .zip(self.generations)
-            .enumerate()
-            .any(|(index, (now, then))| self.axes.bits() & (1 << index) != 0 && *now != then)
-        {
+        if superseded(&bank, self) {
             Err(Error::SettlementSuperseded {
                 operation: id,
                 axes: self.axes,
@@ -170,6 +171,49 @@ impl Admitted {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn commit_and_check_agree_for_every_axis_subset_target_and_generation() -> crate::Result<()> {
+        let id = OperationId::from_raw(1);
+        for original_bits in 1..=31 {
+            let original_axes = AffectedAxes::from_bits(original_bits)?;
+            for changed_bits in 1..=31 {
+                let changed_axes = AffectedAxes::from_bits(changed_bits)?;
+                for changed_target in [TargetSlot::CAMERA_1, TargetSlot::CAMERA_2] {
+                    // Tokens are identities: a numerically smaller replacement
+                    // supersedes just as a larger token does.
+                    for token in [7, 3, 11] {
+                        let registry = Arc::new(MotionRegistry::default());
+                        let original = registry.establish(TargetSlot::CAMERA_1, original_axes, 7);
+                        registry.establish(changed_target, changed_axes, token);
+                        let expected = changed_target == TargetSlot::CAMERA_1
+                            && original_bits & changed_bits != 0
+                            && token != 7;
+                        assert_eq!(original.check(id).is_err(), expected);
+                        let evidence = Settlement::profile_completion(original_axes);
+                        let mut cached = None;
+                        let result = original.commit(id, Ok(evidence), &mut cached);
+                        assert_eq!(result.is_err(), expected);
+                        if expected {
+                            assert!(matches!(
+                                result,
+                                Err(Error::SettlementSuperseded { operation, axes })
+                                    if operation == id && axes == original_axes
+                            ));
+                            assert!(matches!(
+                                cached,
+                                Some(Err(Error::SettlementSuperseded { .. }))
+                            ));
+                        } else {
+                            assert_eq!(result?, evidence);
+                            assert!(matches!(cached, Some(Ok(value)) if value == evidence));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn engine_refusal_releases_the_motion_lock_without_advancing_generations() {
