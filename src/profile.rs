@@ -2983,7 +2983,7 @@ mod tests {
             crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile).expect("target");
         let request = crate::command::zoom::SetNormalized::for_target(
             &target,
-            crate::UnitInterval::MAX,
+            crate::units::UnitInterval::MAX,
             crate::ZoomDomain::OpticalPlusDigital,
         )
         .expect("combined normalized control does not require inquiries");
