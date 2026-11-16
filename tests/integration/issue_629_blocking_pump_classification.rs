@@ -145,11 +145,95 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
     );
 }
 
-/// A targeted operation can have already applied when another target retries.
-/// Its retry write is still a stream boundary: the public settlement wait must
-/// surface `StreamPoisoned`, not consume the remainder of its own timeout.
+/// Whether polling had an admitted engine inquiry when the stream failed.
+#[derive(Clone, Copy)]
+enum PollAdmission {
+    Rejected,
+    Admitted,
+}
+
+/// Both admission boundaries preserve the exact poison and OS cause. Only an
+/// admitted inquiry has the additional conclusively-failed inquiry context.
+fn assert_settlement_stream_failure(
+    error: &Error,
+    admission: PollAdmission,
+    expected_io: &Arc<std::io::Error>,
+) {
+    let Error::SettlementObservationFailed { source, .. } = error else {
+        panic!("settlement must preserve its polling failure, got {error:?}");
+    };
+    let mut public_cause =
+        std::error::Error::source(error).expect("settlement exposes its exact polling failure");
+    assert_eq!(public_cause.to_string(), source.to_string());
+    let poison = match admission {
+        PollAdmission::Rejected => source.as_ref(),
+        PollAdmission::Admitted => {
+            let inquiry = source.as_ref();
+            let Error::InquiryFailed { source, .. } = inquiry else {
+                panic!(
+                    "an admitted polling inquiry must retain its terminal context, got {error:?}"
+                );
+            };
+            let context = inquiry.failure_context().expect("terminal inquiry context");
+            assert_eq!(context.stage, FailureStage::Terminal);
+            assert_eq!(context.certainty, Certainty::FailedConclusively);
+            assert!(inquiry.requires_new_session());
+            public_cause = public_cause
+                .source()
+                .expect("the inquiry exposes its terminal stream cause");
+            source.as_ref()
+        }
+    };
+    let Error::StreamPoisoned { source, .. } = poison else {
+        panic!("settlement must report stream poison, got {error:?}");
+    };
+    assert_eq!(public_cause.to_string(), poison.to_string());
+    let Error::TransportError {
+        source: io_error, ..
+    } = source.as_ref()
+    else {
+        panic!("poison must preserve its typed transport cause, got {error:?}");
+    };
+    let Error::Io { source: actual_io } = io_error.as_ref() else {
+        panic!("transport failure must preserve its OS cause, got {error:?}");
+    };
+    assert!(Arc::ptr_eq(actual_io, expected_io));
+    assert_eq!(actual_io.kind(), std::io::ErrorKind::Other);
+    assert_eq!(actual_io.to_string(), "public settlement write failed");
+
+    let public_transport = public_cause
+        .source()
+        .expect("poison exposes its typed write cause");
+    assert!(public_transport.downcast_ref::<Arc<Error>>().is_some());
+    let public_io = public_transport
+        .source()
+        .expect("transport exposes I/O cause")
+        .source()
+        .expect("I/O wrapper exposes the original OS error")
+        .downcast_ref::<Arc<std::io::Error>>()
+        .expect("the source chain retains the concrete OS cause");
+    assert!(Arc::ptr_eq(public_io, expected_io));
+    assert!(error.requires_new_session());
+    assert_eq!(
+        error.recovery(),
+        grafton_visca::error::Recovery::ReopenSession
+    );
+    let context = error
+        .failure_context()
+        .expect("applied move observation context");
+    assert_eq!(context.stage, FailureStage::Observation);
+    assert_eq!(context.certainty, Certainty::Unconfirmed);
+}
+
+const ZOOM_TARGET: &[u8] = &[0x81, 0x01, 0x04, 0x47, 0x00, 0x01, 0x00, 0x00, 0xff];
+const PEER_STOP: &[u8] = &[0x82, 0x01, 0x04, 0x07, 0x00, 0xff];
+const ZOOM_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xff];
+
+/// A targeted operation can already have applied when another target retries.
+/// Wait for that retry's actual write failure and teardown before polling, so
+/// the next inquiry is certainly rejected before admission, on every OS.
 #[test]
-fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
+fn stream_retry_write_failure_before_settlement_inquiry_is_session_death() {
     let profile = ProfileSpec::from_compile_time::<DirectZoomOnlyTypedSupport>()
         .expect("settlement-polling runtime profile");
     let config = SessionConfig::new(profile.clone())
@@ -161,19 +245,29 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
                 .with_maximum_retry_backoff(Duration::from_millis(500))
                 .with_retry_budget(Duration::from_secs(10)),
         );
-    let fake = probe(
-        vec![
-            vec![Ok(frames::ack(1)), Ok(frames::complete(1))],
-            vec![Ok(vec![0xa0, 0x60, 0x03, 0xff])],
-            vec![Ok(ZOOM_POSITION_REPLY.to_vec())],
-        ],
-        Some((
-            4,
-            Error::transport_error(std::io::Error::other(
-                "public settlement retry write failed",
-            )),
-        )),
-    );
+    let io = Arc::new(std::io::Error::other("public settlement write failed"));
+    let failure = Error::transport_error(Error::Io {
+        source: Arc::clone(&io),
+    });
+    let mut peer_writes = 0;
+    let fake = FakeCamera::new(move |frame, answer| match frame {
+        ZOOM_TARGET => {
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
+        }
+        PEER_STOP => {
+            peer_writes += 1;
+            match peer_writes {
+                1 => {
+                    answer.reply([0xa0, 0x60, 0x03, 0xff]);
+                }
+                2 => {
+                    answer.fail_send(failure.clone());
+                }
+                _ => panic!("the failed peer retry must never be replayed"),
+            }
+        }
+        _ => panic!("unexpected write before settlement: {frame:02x?}"),
+    });
     let session = Session::open(serial_stream_wire(&fake), &config).expect("owner session");
     let first_camera = session
         .camera::<DirectZoomOnlyTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_1)
@@ -181,73 +275,71 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     let second_camera = session
         .camera::<DirectZoomOnlyTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_2)
         .expect("camera two view");
-
     let mut current = first_camera
         .submit::<Targeted, _>(&grafton_visca::command::zoom::SetPosition::new(
             ZoomPosition::new(0x0100).expect("zoom position"),
         ))
-        .expect("targeted operation write");
+        .expect("targeted operation admission");
+    current
+        .applied()
+        .expect("cache application before the peer retry");
     let mut peer = second_camera
         .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
-        .expect("peer operation write");
+        .expect("peer operation admission");
+    assert!(matches!(peer.applied(), Err(Error::StreamPoisoned { .. })));
+    assert!(matches!(
+        session.clone().close(),
+        Err(Error::StreamPoisoned { .. })
+    ));
 
     let error = current
         .settled()
-        .expect_err("a stream retry write must end the settlement");
-    let Error::SettlementObservationFailed { source, .. } = &error else {
-        panic!("settlement must preserve its inquiry cause, got {error:?}");
-    };
-    let inquiry = source.as_ref();
-    let Error::InquiryFailed { source, .. } = inquiry else {
-        panic!("settlement must retain the failed polling inquiry, got {error:?}");
-    };
-    let Error::StreamPoisoned {
-        source: write_cause,
-        ..
-    } = source.as_ref()
-    else {
-        panic!("settlement must report stream poison, got {error:?}");
-    };
-    let context = inquiry.failure_context().expect("terminal inquiry context");
-    assert_eq!(context.stage, FailureStage::Terminal);
-    assert_eq!(context.certainty, Certainty::FailedConclusively);
-    assert!(inquiry.requires_new_session());
-    let inquiry_cause = std::error::Error::source(&error)
-        .expect("the settlement exposes its polling inquiry in the source chain");
-    assert_eq!(inquiry_cause.to_string(), inquiry.to_string());
-    assert_eq!(
-        inquiry_cause
-            .source()
-            .expect("the inquiry exposes its terminal stream cause")
-            .to_string(),
-        source.to_string(),
-    );
-    let write_source = inquiry_cause
-        .source()
-        .unwrap()
-        .source()
-        .expect("poison exposes its typed write cause");
-    assert!(write_source.downcast_ref::<Arc<Error>>().is_some());
-    assert!(
-        matches!(write_cause.as_ref(), Error::TransportError { source, .. }
-        if matches!(source.as_ref(), Error::Io { source: io } if io.kind() == std::io::ErrorKind::Other))
-    );
-    assert!(write_source
-        .source()
-        .expect("transport exposes I/O cause")
-        .source()
-        .unwrap()
-        .downcast_ref::<Arc<std::io::Error>>()
-        .is_some());
-    assert!(error.requires_new_session());
-    assert_eq!(
-        error.recovery(),
-        grafton_visca::error::Recovery::ReopenSession
-    );
-    let context = error
-        .failure_context()
-        .expect("applied move observation context");
-    assert_eq!(context.stage, FailureStage::Observation);
-    assert_eq!(context.certainty, Certainty::Unconfirmed);
-    assert!(matches!(peer.applied(), Err(Error::StreamPoisoned { .. })));
+        .expect_err("a poisoned session cannot admit settlement queries");
+    assert_settlement_stream_failure(&error, PollAdmission::Rejected, &io);
+    current
+        .applied()
+        .expect("settlement failure cannot retract application");
+    assert_eq!(fake.writes(), [ZOOM_TARGET, PEER_STOP, PEER_STOP]);
+}
+
+/// Failing the position inquiry's own write proves it was already admitted.
+/// Its terminal must retain InquiryFailed as well as the session poison;
+/// teardown racing the caller's wake cannot erase that delivered receipt.
+#[test]
+fn stream_inquiry_write_failure_during_settlement_retains_its_terminal_context() {
+    let profile = ProfileSpec::from_compile_time::<DirectZoomOnlyTypedSupport>()
+        .expect("settlement-polling runtime profile");
+    let io = Arc::new(std::io::Error::other("public settlement write failed"));
+    let failure = Error::transport_error(Error::Io {
+        source: Arc::clone(&io),
+    });
+    let fake = FakeCamera::new(move |frame, answer| match frame {
+        ZOOM_TARGET => {
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
+        }
+        ZOOM_INQUIRY => {
+            answer.fail_send(failure.clone());
+        }
+        _ => panic!("unexpected settlement write: {frame:02x?}"),
+    });
+    let session =
+        Session::open(stream_wire(&fake), &SessionConfig::new(profile)).expect("owner session");
+    let camera = session
+        .camera::<DirectZoomOnlyTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+        .expect("camera view");
+    let mut current = camera
+        .submit::<Targeted, _>(&grafton_visca::command::zoom::SetPosition::new(
+            ZoomPosition::new(0x0100).expect("zoom position"),
+        ))
+        .expect("targeted operation admission");
+
+    let error = current
+        .settled()
+        .expect_err("the admitted settlement inquiry write fails");
+    assert_settlement_stream_failure(&error, PollAdmission::Admitted, &io);
+    current
+        .applied()
+        .expect("settlement failure cannot retract application");
+    assert!(matches!(session.close(), Err(Error::StreamPoisoned { .. })));
+    assert_eq!(fake.writes(), [ZOOM_TARGET, ZOOM_INQUIRY]);
 }
