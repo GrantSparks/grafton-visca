@@ -63,6 +63,45 @@ impl Error {
 RS
 expect_failure 'Error::WithContext production constructor occurs 2 times' run_fixture
 
+# The strict-aware raw terminator keeps the cancellation hold chosen by its
+# closed scope. Removing or duplicating that per-request producer must fail;
+# the separate StreamPoisoned cause is intentionally left untouched.
+reset_fixture
+python3 - "${fixture}" <<'PY_MUTATE'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]) / 'src/runtime/engine/mod.rs'
+s = p.read_text()
+constructor = """self.finish_with_cancel_hold(
+            id,
+            Error::UnsequencedCommandUnconfirmed,
+            keep_cancel_hold,
+            now,
+            effects,
+        )"""
+assert s.count(constructor) == 1, 'raw unconfirmed constructor fixture drifted'
+s = s.replace(constructor, constructor.replace('Error::UnsequencedCommandUnconfirmed', 'Error::RuntimeShutdown'))
+p.write_text(s)
+PY_MUTATE
+expect_failure 'Error::UnsequencedCommandUnconfirmed production constructor occurs 0 times' run_fixture
+
+reset_fixture
+cat >> "${fixture}/src/runtime/engine/mod.rs" <<'RS'
+// self.finish_with_cancel_hold(id, Error::UnsequencedCommandUnconfirmed, keep_cancel_hold, now, effects,)
+const RAW_UNCONFIRMED_DECOY: &str = r#"self.finish_with_cancel_hold(id, Error::UnsequencedCommandUnconfirmed, keep_cancel_hold, now, effects,)"#;
+#[cfg(test)]
+fn raw_unconfirmed_test_only_decoy() {
+    self.finish_with_cancel_hold(id, Error::UnsequencedCommandUnconfirmed, keep_cancel_hold, now, effects,)
+}
+RS
+run_fixture
+cat >> "${fixture}/src/runtime/engine/mod.rs" <<'RS'
+fn duplicated_raw_unconfirmed_constructor() {
+    self.finish_with_cancel_hold(id, Error::UnsequencedCommandUnconfirmed, keep_cancel_hold, now, effects,)
+}
+RS
+expect_failure 'Error::UnsequencedCommandUnconfirmed production constructor occurs 2 times' run_fixture
+
 # Exercise the shared scanner's literal and compound-cfg regression directly.
 rustc +1.98.0 --edition=2021 --deny warnings --test \
     "${repository_root}/test-support/src/source_scan.rs" -o "${fixture}/scanner-tests"
