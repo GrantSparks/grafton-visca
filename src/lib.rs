@@ -1097,6 +1097,14 @@ pub(crate) mod noun_table;
 #[cfg(any(feature = "blocking", feature = "async"))]
 mod camera_core;
 
+/// Shared public camera/session declarations and forwarders.
+#[cfg(any(feature = "blocking", feature = "async"))]
+mod camera_facade;
+
+/// Shared native operation handle and lifecycle documentation.
+#[cfg(any(feature = "blocking", feature = "async"))]
+mod operation_handle;
+
 /// Shared expansion helpers for the noun facades.
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) mod noun_facade;
@@ -1151,6 +1159,7 @@ pub mod request;
 /// targets or completion behavior at runtime.
 pub mod raw;
 
+mod position_inquiries;
 mod requests;
 pub(crate) use requests::{
     AffectedAxes, ControlClass, Inquiry, OperationCommand, PayloadShape, Request, ResponseDecoder,

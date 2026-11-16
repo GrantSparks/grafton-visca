@@ -72,13 +72,18 @@ pub enum ExposureCompensation {
     SetLevel(ExposureCompensationLevel),
 }
 
+impl ExposureCompensation {
+    /// The sourced switch convention shared with its inquiry.
+    pub(crate) const CONVENTION: crate::wire::BoolConvention = crate::wire::BoolConvention::OnIs02;
+}
+
 step_command_encoder! {
     ExposureCompensation {
         control: exposure::COMPENSATION_STEP,
         direct: exposure::COMPENSATION_DIRECT,
         SetLevel(level) => nibbles::<2>(level.to_wire()),
-        Self::On => |frame| frame.bytes(&exposure::COMPENSATION_SWITCH).byte(0x02),
-        Self::Off => |frame| frame.bytes(&exposure::COMPENSATION_SWITCH).byte(0x03),
+        Self::On => |frame| frame.bytes(&exposure::COMPENSATION_SWITCH).byte(Self::CONVENTION.to_wire(true)),
+        Self::Off => |frame| frame.bytes(&exposure::COMPENSATION_SWITCH).byte(Self::CONVENTION.to_wire(false)),
     }
 }
 

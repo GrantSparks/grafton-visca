@@ -1496,7 +1496,7 @@ macro_rules! typed_request_inventory {
             @noun $noun:ident { $($header:tt)* };
             $(
                 $(#[$doc:meta])*
-                $kind:ident [$key:ident] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$key:ident] $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
@@ -3588,7 +3588,7 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("state command must prepare")
-        .admit_with(|request, _timeout| match request {
+        .admit_with(|request, _timeout| match request.into_inner() {
             crate::runtime::engine::RuntimeRequest::Command {
                 applied_state: Some(state),
                 ..
@@ -4414,7 +4414,7 @@ mod tests {
                 OperationalTuning::new(),
             )
             .expect("focus mode preparation")
-            .admit_with(|request, _timeout| request);
+            .admit_with(|request, _timeout| request.into_inner());
             assert!(matches!(
                 request,
                 crate::runtime::engine::RuntimeRequest::Command {
@@ -4642,6 +4642,7 @@ mod tests {
         capabilities.typed_support =
             crate::capabilities::TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
         let profile = runtime_profile_builder(&source, capabilities)
+            .position_inquiries(AffectedAxes::MOVEMENT)
             .build()
             .expect("runtime partial profile");
 

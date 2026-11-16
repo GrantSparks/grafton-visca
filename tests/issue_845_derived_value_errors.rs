@@ -2,32 +2,25 @@
 #![allow(clippy::expect_used)]
 
 use grafton_visca::{
-    __macro_support::InquiryData,
-    error::ErrorKind,
-    request::Inquiry,
-    types::GainLevel,
-    wire::{Response, ResponseParser},
-    Error, ViscaInquiry,
+    __macro_support::InquiryData, error::ErrorKind, request::Inquiry, types::GainLevel,
+    wire::ResponseParser, Error, ViscaInquiry,
 };
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
 #[visca(opcode = 0x4C, response = Gain, typed_response = GainLevel,
-    typed_field = gain, typed_constructor = new)]
+    typed_field = gain)]
 struct CanonicalGain;
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
-#[visca(opcode = 0x4C, response = Gain, typed_response = GainLevel,
-    typed_field = gain, typed_constructor = new_u8)]
-struct CanonicalGainViaU8;
+#[visca(opcode = 0x4C, response = Gain)]
+struct CanonicalGainRaw;
 
 fn custom_gain_parser(payload: &[u8]) -> Result<InquiryData, Error> {
     let &[raw] = payload else {
         return Err(Error::invalid_response_length(1, payload));
     };
     let level = GainLevel::new(raw)?;
-    Ok(InquiryData::Gain {
-        gain: level.value(),
-    })
+    Ok(InquiryData::Gain { gain: level })
 }
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
@@ -35,7 +28,7 @@ fn custom_gain_parser(payload: &[u8]) -> Result<InquiryData, Error> {
 struct GeneratedCustomGain;
 
 #[test]
-fn generated_typed_constructor_errors_are_protocol_faults() {
+fn canonical_checked_fields_report_camera_range_errors() {
     // Valid nibble framing; 26 exceeds the shared gain maximum of 25.
     let payload = [0, 0, 1, 0x0A];
     for error in [
@@ -43,14 +36,10 @@ fn generated_typed_constructor_errors_are_protocol_faults() {
             .decoder()
             .decode(&payload)
             .expect_err("invalid camera gain"),
-        CanonicalGainViaU8
+        CanonicalGainRaw
             .decoder()
             .decode(&payload)
             .expect_err("invalid camera gain"),
-        CanonicalGain::from_response(Response::Inquiry(InquiryData::Gain { gain: 26 }))
-            .expect_err("invalid typed response value"),
-        CanonicalGainViaU8::from_response(Response::Inquiry(InquiryData::Gain { gain: 26 }))
-            .expect_err("invalid typed response value"),
     ] {
         assert_eq!(error.kind(), ErrorKind::Protocol, "{error:?}");
         assert!(matches!(error, Error::InvalidResponse { .. }), "{error:?}");
@@ -110,4 +99,46 @@ fn enum_wire_validation_becomes_a_camera_fault_only_at_the_reply_boundary() {
         .expect_err("unknown enum code in a camera reply");
     assert_eq!(reply_error.kind(), ErrorKind::Protocol);
     assert!(matches!(reply_error, Error::InvalidResponse { actual, .. } if actual == [0xff]));
+}
+
+#[test]
+fn an_already_checked_response_projects_without_another_constructor() {
+    let gain = GainLevel::new(25).unwrap();
+    let response = grafton_visca::wire::Response::Inquiry(InquiryData::Gain { gain });
+    assert_eq!(CanonicalGain::from_response(response).unwrap(), gain);
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct LocalByte(u8);
+
+impl LocalByte {
+    fn new(value: u8) -> Result<Self, Error> {
+        Ok(Self(value))
+    }
+}
+
+fn custom_wide_value(payload: &[u8]) -> Result<InquiryData, Error> {
+    let &[high, low] = payload else {
+        return Err(Error::invalid_response_length(2, payload));
+    };
+    Ok(InquiryData::ColorTemperature {
+        temperature: u16::from_be_bytes([high, low]),
+    })
+}
+
+#[derive(Debug, Clone, Copy, ViscaInquiry)]
+#[visca(opcode = 0, response = ColorTemperature, parser = Custom,
+    parse_with = custom_wide_value, typed_response = LocalByte,
+    typed_field = temperature, typed_constructor = new_u8)]
+struct CustomNarrowedValue;
+
+#[test]
+fn custom_parser_projections_retain_checked_narrowing() {
+    assert_eq!(
+        CustomNarrowedValue.decoder().decode(&[0, 5]).unwrap(),
+        LocalByte(5)
+    );
+    let error = CustomNarrowedValue.decoder().decode(&[1, 5]).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+    assert!(matches!(error, Error::InvalidResponse { .. }));
 }

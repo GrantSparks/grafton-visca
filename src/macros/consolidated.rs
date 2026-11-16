@@ -72,6 +72,72 @@ macro_rules! visca_command {
 
 pub(crate) use visca_command;
 
+/// Generates a boolean register's encoder and its shared reply convention.
+/// Existing constructors and getters may be declared beside the invocation.
+macro_rules! on_off_command {
+    (
+        $(#[$meta:meta])*
+        pub struct $name:ident {
+            $(#[$field_meta:meta])*
+            $field_visibility:vis $field:ident: bool $(,)?
+        };
+        prefix = $prefix:expr;
+        convention = $convention:expr;
+    ) => {
+        $(#[$meta])*
+        pub struct $name {
+            $(#[$field_meta])*
+            $field_visibility $field: bool,
+        }
+
+        impl $name {
+            /// The sourced convention used by commands and inquiry replies.
+            pub(crate) const CONVENTION: $crate::wire::BoolConvention = $convention;
+        }
+
+        impl $crate::command::encode::WireEncode for $name {
+            fn write_into(
+                &self,
+                camera_id: $crate::CameraId,
+                buffer: &mut [u8],
+            ) -> $crate::Result<usize> {
+                $crate::command::bytes::FrameWriter::new(camera_id, buffer)
+                    .bytes(&$prefix)
+                    .byte(Self::CONVENTION.to_wire(self.$field))
+                    .finish()
+            }
+        }
+    };
+    ($(#[$doc:meta])* $name:ident, $prefix:expr) => {
+        $crate::macros::consolidated::on_off_command! {
+            $(#[$doc])*
+            #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+            #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize), serde(deny_unknown_fields))]
+            #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+            pub struct $name { enabled: bool };
+            prefix = $prefix;
+            convention = $crate::wire::BoolConvention::OnIs02;
+        }
+
+        impl $name {
+            /// Creates an enable or disable command.
+            #[must_use]
+            pub const fn new(enabled: bool) -> Self {
+                Self { enabled }
+            }
+
+            /// Returns the requested enablement state.
+            #[must_use]
+            #[cfg(test)]
+            pub const fn enabled(self) -> bool {
+                self.enabled
+            }
+        }
+    };
+}
+
+pub(crate) use on_off_command;
+
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {

@@ -481,7 +481,7 @@ macro_rules! family_coverage {
 
 macro_rules! gate_tests {
     ($(@noun $noun:ident { $($header:tt)* };
-       $($(#[$row_doc:meta])* $kind:ident [$key:ident] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];)*)*
+       $($(#[$row_doc:meta])* $kind:ident [$key:ident] $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];)*)*
        @exceptions; $($exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty;)*) => {
         #[test]
         fn every_preflight_admitted_builtin_value_has_exact_positive_source_and_literal_family_coverage() {

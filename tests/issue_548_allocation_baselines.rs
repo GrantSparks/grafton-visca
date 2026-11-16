@@ -445,6 +445,26 @@ fn representative_typed_requests_encode_without_heap_allocation() {
     assert_request_encoding_does_not_allocate("preset set", &preset);
     assert_request_encoding_does_not_allocate("preset reset", &reset);
     assert_request_encoding_does_not_allocate(
+        "shared on/off encoder",
+        &grafton_visca::command::image::SetFlip::new(true),
+    );
+    assert_request_encoding_does_not_allocate(
+        "FR7 shared on/off encoder",
+        &grafton_visca::command::exposure::SetAutoGain::new(false),
+    );
+    assert_request_encoding_does_not_allocate(
+        "value-enum operand",
+        &grafton_visca::command::streaming::SetNdiQuality::new(
+            grafton_visca::types::NdiQuality::High,
+        ),
+    );
+    let duration = grafton_visca::command::presets::SetSeparateDuration::new(
+        PresetNumber::MIN,
+        std::time::Duration::from_millis(1200),
+    )
+    .expect("checked preset duration");
+    assert_request_encoding_does_not_allocate("checked preset duration", &duration);
+    assert_request_encoding_does_not_allocate(
         "power inquiry",
         &grafton_visca::command::power::StatusInquiry,
     );
@@ -799,5 +819,50 @@ fn warmed_malformed_receive_decoding_does_not_allocate() {
         });
         assert_eq!(observed, 128 * expected);
         assert_eq!(allocations, 0, "malformed input allocated: {semantics:?}");
+    }
+}
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn warmed_owner_command_and_frame_turns_do_not_allocate() {
+    use grafton_visca::{
+        profiles::{GenericVisca, ProfileSpec, SonyFr7},
+        testing::turns::TurnProbe,
+        transport::{SendSemantics, TransportConfig},
+    };
+
+    for (label, profile) in [
+        (
+            "raw",
+            ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+        ),
+        ("Sony", ProfileSpec::from_compile_time::<SonyFr7>().unwrap()),
+    ] {
+        for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
+            let mut probe =
+                TurnProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+            probe.stage_command().unwrap();
+            probe.command_turn().unwrap();
+            probe.frame_turn().unwrap();
+            let mut command_allocations = 0;
+            for _ in 0..8 {
+                probe.stage_command().unwrap();
+                command_allocations += allocations_during(|| probe.command_turn().unwrap());
+            }
+            let frame_allocations = allocations_during(|| {
+                for _ in 0..128 {
+                    probe.frame_turn().unwrap();
+                }
+            });
+            eprintln!("{label} {semantics:?}: command allocations={command_allocations}/8; inert frame allocations={frame_allocations}/128");
+            assert_eq!(
+                command_allocations, 0,
+                "{label} {semantics:?} warmed command turns allocated"
+            );
+            assert_eq!(
+                frame_allocations, 0,
+                "{label} {semantics:?} warmed inert frame turns allocated"
+            );
+        }
     }
 }

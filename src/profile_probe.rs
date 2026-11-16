@@ -185,8 +185,18 @@ impl ProbeSettings {
                     "invalid VISCA_TRANSPORT `{other}`; use tcp, udp or serial"
                 ))
             }
-            None if profile.transports().tcp_port().is_some() => "tcp",
-            None if profile.transports().udp_port().is_some() => "udp",
+            None if profile
+                .transports()
+                .supports(crate::transport::StandardTransport::Tcp) =>
+            {
+                "tcp"
+            }
+            None if profile
+                .transports()
+                .supports(crate::transport::StandardTransport::Udp) =>
+            {
+                "udp"
+            }
             None => {
                 return Err(
                     "the selected profile has no network transport; use VISCA_SERIAL_PORT".into(),
@@ -207,20 +217,20 @@ impl ProbeSettings {
         let config = CameraConfig::new(selection.clone(), options);
         // Ordinary pure configuration checks own profile, endpoint and transport
         // validation. SerialStartup::default performs no address setup or clear.
-        let endpoint = if let Some(baud_rate) = baud_rate {
-            config
-                .validate()
-                .map_err(|error| format!("invalid probe connection: {error}"))?;
-            let serial = config
-                .serial_config(address, baud_rate)
-                .map_err(|error| format!("invalid probe serial configuration: {error}"))?;
-            serial.port().to_owned()
-        } else {
-            config
-                .standard_connection_plan()
-                .map_err(|error| format!("invalid probe connection: {error}"))?
-                .endpoint
-        };
+        let endpoint = config
+            .connection_plan()
+            .map_err(|error| {
+                let context = if baud_rate.is_some() {
+                    "invalid probe serial configuration"
+                } else {
+                    "invalid probe connection"
+                };
+                format!("{context}: {error}")
+            })?
+            .connection
+            .transport
+            .endpoint()
+            .to_owned();
         let default_label = match &selection {
             ProfileSelection::Builtin(id) => serde_json::to_value(id)
                 .map_err(|error| error.to_string())?
@@ -317,7 +327,7 @@ where
 
 macro_rules! probe_surface {
     (inquiry, $target:ident, $metadata:ident, $getter:ident, $method:ident,
-        [$($argument:ident: $ty:ty),*], [$($request:tt)*]) => {{
+        [$($(#[$coercion:ident])? $argument:ident: $ty:ty),*], [$($request:tt)*]) => {{
         let (kind, source) = inquiry_contract(|($($argument,)*): ($($ty,)*)| {
             crate::noun_facade::noun_inquiry_request!(
                 $target.profile(), $target; $($request)*
@@ -335,13 +345,12 @@ macro_rules! probe_surfaces {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
-                dyn_trait: $dyn_trait:ident,
                 gate: $base:tt,
                 doc: $doc:literal $(,)?
             };
             $(
                 $(#[doc = $row_doc:literal])*
-                $kind:ident [$($command:ident)?] $method:ident($($argument:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$($command:ident)?] $method:ident($($(#[$coercion:ident])? $argument:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
@@ -869,8 +878,12 @@ mod tests {
             let selected = profile_selection(value.as_str(), None, no_file).expect("runtime id");
             let spec = id.spec().expect("same spec");
             assert_eq!(selected.spec().expect("spec"), spec);
-            let settings = if spec.transports().tcp_port().is_some()
-                || spec.transports().udp_port().is_some()
+            let settings = if spec
+                .transports()
+                .supports(crate::transport::StandardTransport::Tcp)
+                || spec
+                    .transports()
+                    .supports(crate::transport::StandardTransport::Udp)
             {
                 ProbeSettings::new("127.0.0.1", selected, None, None, None)
             } else {
@@ -942,7 +955,8 @@ mod tests {
             assert_eq!(settings.transport.baud_rate, Some(expected_baud));
             let serial = settings
                 .config
-                .serial_config(&input.address, expected_baud)
+                .connection_plan()
+                .map(|plan| plan.connection.transport.into_serial())
                 .expect("validated serial config");
             assert!(!serial.startup().address_set());
             assert!(!serial.startup().interface_clear());

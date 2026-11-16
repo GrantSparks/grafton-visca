@@ -398,21 +398,21 @@ mod tests {
             let members = group.profiles();
             assert_eq!(
                 group.supports_tcp(),
-                members
-                    .iter()
-                    .all(|id| id.raw_facts().transports.tcp_port().is_some())
+                members.iter().all(|id| id
+                    .transport_compatibility()
+                    .supports(crate::transport::StandardTransport::Tcp))
             );
             assert_eq!(
                 group.supports_udp(),
-                members
-                    .iter()
-                    .all(|id| id.raw_facts().transports.udp_port().is_some())
+                members.iter().all(|id| id
+                    .transport_compatibility()
+                    .supports(crate::transport::StandardTransport::Udp))
             );
             assert_eq!(
                 group.supports_serial(),
                 members
                     .iter()
-                    .all(|id| id.raw_facts().transports.supports_serial())
+                    .all(|id| id.transport_compatibility().supports_serial())
             );
             assert_eq!(
                 group.uses_sony_encapsulation(),
@@ -443,8 +443,8 @@ mod tests {
             let spec = profile.spec().expect("built-in profile");
             let transports = spec.transports();
             assert!(
-                transports.tcp_port().is_some()
-                    || transports.udp_port().is_some()
+                transports.supports(crate::transport::StandardTransport::Tcp)
+                    || transports.supports(crate::transport::StandardTransport::Udp)
                     || transports.supports_serial(),
                 "{profile:?} has no transport"
             );

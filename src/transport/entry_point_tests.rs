@@ -130,13 +130,15 @@ fn camera_config_agrees_with_the_transport_defaults() {
     assert_eq!(tcp.transport_config(), None);
     assert_eq!(udp.transport_config(), None);
     assert_eq!(
-        tcp.standard_connection_plan()
+        tcp.connection_plan()
+            .map(|plan| plan.connection.transport.into_network())
             .expect("TCP plan")
             .transport_config,
         TransportConfig::for_tcp()
     );
     assert_eq!(
-        udp.standard_connection_plan()
+        udp.connection_plan()
+            .map(|plan| plan.connection.transport.into_network())
             .expect("UDP plan")
             .transport_config,
         TransportConfig::for_udp()
@@ -152,7 +154,8 @@ fn camera_config_honours_an_explicit_generic_buffer_choice() {
     let explicit = TransportConfig::for_tcp().with_buffer_config(BufferConfig::default());
     let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local")
         .with_transport_config(explicit)
-        .standard_connection_plan()
+        .connection_plan()
+        .map(|plan| plan.connection.transport.into_network())
         .expect("explicit TCP plan");
     assert_eq!(
         tcp.transport_config.buffer_config(),
@@ -162,9 +165,10 @@ fn camera_config_honours_an_explicit_generic_buffer_choice() {
     // A caller-selected preset does not change the connector's transport kind.
     let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
         .with_transport_config(TransportConfig::for_serial())
-        .standard_connection_plan()
+        .connection_plan()
+        .map(|plan| plan.connection.transport.into_network())
         .expect("explicit UDP plan");
-    assert_eq!(udp.kind, crate::config::TransportKind::Udp);
+    assert_eq!(udp.kind, crate::transport::NetworkTransport::Udp);
 }
 
 /// Live loopback checks of the blocking connectors.

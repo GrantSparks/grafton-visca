@@ -76,6 +76,11 @@ delivery.
   sending `close`'s shutdown signal is preserved. Neither API is a second
   protocol authority or an implicit command resubmission mechanism.
 
+The engine retains each terminal status together with its cause, and the
+terminal effect carries that cause directly to the owner. An owner that ends
+without an engine verdict preserves its known stop reason or reports
+`OwnerTerminated` when no reason is available.
+
 There are no public callbacks, user-supplied lifecycle IDs, or unbounded
 queues. The only background thread is a blocking session's owner worker: one
 per session, not per camera (D24, #780, revising the earlier "no per-camera
@@ -192,6 +197,9 @@ completion and cancellation support, preset axes and position inquiries.
 A custom profile cannot claim a built-in identity after changing any of those
 facts. `camera::<AnyProfile>(target)` retains runtime validation instead of
 making compile-time capability claims.
+Profile validation and settlement preparation share one axis-to-inquiry
+declaration and its canonical noun gates; a declared IRIS position inquiry or
+preset recall axis requires the `Iris` grant (#937).
 
 Multi-target registration is rejected before socket creation on any
 IP-addressed transport, which is every standard TCP and UDP configuration and
@@ -1486,6 +1494,7 @@ terminal outcome is known at or before the observer deadline it decides (`Applie
 failure is that error), whichever order the owner emitted the two slots in;
 only without an on-time terminal does an on-time cancellation-slot error answer.
 Delivery timestamps use the injected owner clock, not inferred wire arrival.
+The owner passes each delivery instant explicitly; owner state holds no current instant.
 Late outcomes remain cached for a subsequent borrowing wait. A `cancel` after the
 owner stopped still answers from an outcome delivered before it stopped.
 

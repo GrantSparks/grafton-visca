@@ -32,14 +32,14 @@ use super::WriteOutcome;
 use crate::Error;
 
 use super::boundary::{
-    missing_terminal_error, AdmissionBoundary, AdmissionBoundaryClaim, AdmissionClaim,
-    AdmissionRejectionIngress, BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds,
-    OwnerLifecycle, OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
+    AdmissionBoundary, AdmissionBoundaryClaim, AdmissionClaim, AdmissionRejectionIngress,
+    BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle,
+    OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
 };
 use super::turn::{Disposition, OwnerCoordinator, ReceiveClass, Selected, TurnOutcome, TurnPlan};
 use super::{
-    clamp_receive_pause, prepend_effects, transient_receive_pause, AppliedEffect, IdleReceiveRun,
-    Input, OwnerInputTurn, OwnerReceive, OwnerState, RawReleaseResolution, RetainedStreamInput,
+    clamp_receive_pause, transient_receive_pause, AppliedEffect, IdleReceiveRun, Input,
+    OwnerInputTurn, OwnerReceive, OwnerState, RawReleaseResolution, RetainedStreamInput,
     SessionState, ShutdownReason, StagedWrite, TransientFaultRun,
 };
 use crate::runtime::engine::{Effect, EngineTurn, IgnoreReason};
@@ -359,7 +359,7 @@ impl OwnerShellCore {
             }
             OwnerEvent::Cancellation(CancellationBoundary::Halt(halt)) => {
                 match halt.validity.claim_for_admission(selected_at) {
-                    AdmissionClaim::Claimed => {
+                    AdmissionClaim::Claimed { remaining } => {
                         match self.lifecycle.fence_order(
                             &self.state.motion,
                             halt.prepared.target,
@@ -370,6 +370,7 @@ impl OwnerShellCore {
                                     halt.prepared,
                                     halt.validity.deadline(),
                                     cutoff,
+                                    remaining,
                                     selected_at,
                                 );
                                 let _ = halt.reply.try_send(Ok(receipt));
@@ -488,33 +489,28 @@ impl OwnerShellCore {
         effects: &mut VecDeque<Effect>,
         observed_at: Instant,
     ) -> Option<StagedWrite> {
-        self.state.observed_at = observed_at;
         while let Some(effect) = effects.pop_front() {
-            let terminal_transition = matches!(
-                &effect,
-                Effect::SessionChanged { to, .. } if *to != SessionState::Running
-            );
-            let applied = self.state.apply_effect(effect);
-            if terminal_transition {
-                let error = self
-                    .state
-                    .boundary_error()
-                    .unwrap_or_else(missing_terminal_error);
-                self.lifecycle.publish_terminal(error);
+            let applied = self.state.apply_effect(effect, observed_at);
+            if let AppliedEffect::SessionEnded(cause) = applied {
+                self.lifecycle.publish_terminal(cause);
+                continue;
             }
             if let AppliedEffect::Transmit(staged) = applied {
-                if let Some(expired) = self.state.engine.expire_unwritten_halt(
-                    staged.request,
-                    staged.transmission,
-                    observed_at,
-                ) {
-                    prepend_effects(effects, expired.into());
+                if self
+                    .state
+                    .expire_unwritten_halt_into(&staged, observed_at, effects)
+                {
                     continue;
                 }
                 return Some(staged);
             }
         }
         None
+    }
+
+    /// Return drive storage before a continuation starts another decision.
+    pub(super) fn recycle_effects(&mut self, effects: VecDeque<Effect>) {
+        self.state.buffers().recycle_effects(effects);
     }
 
     /// Report a transmit the shell just wrote. Inside an input `turn` it
@@ -536,8 +532,8 @@ impl OwnerShellCore {
         let Some(turn) = turn else {
             return self.finish_transmit_outside_turn(staged, result, finished_at, effects);
         };
-        let produced = self.state.finish_write_in_turn(turn, staged, result);
-        prepend_effects(effects, produced);
+        self.state
+            .finish_write_in_turn_into(turn, staged, result, effects);
     }
 
     fn finish_transmit_outside_turn(
@@ -554,17 +550,17 @@ impl OwnerShellCore {
         // A transmit inside an input turn already has this property by using
         // the active input turn; this is the equivalent seam for a standalone
         // effect chain.
-        let produced = if self
+        let turn = if self
             .state
             .raw_correlation_releases_due(finished_at)
             .is_empty()
         {
-            self.state.finish_write(staged, result, finished_at)
+            EngineTurn::Complete
         } else {
-            self.state
-                .finish_write_turn(staged, result, finished_at, EngineTurn::InputOnly)
+            EngineTurn::InputOnly
         };
-        prepend_effects(effects, produced);
+        self.state
+            .finish_write_turn_into(staged, result, finished_at, turn, effects);
     }
 
     /// End the session: publish its terminal result, answer every boundary
@@ -572,10 +568,13 @@ impl OwnerShellCore {
     /// drops its driver before this core, so the liveness lane disconnects
     /// only after transport teardown.
     pub(super) fn conclude(&mut self) -> OwnerSnapshot {
-        let boundary_error = self
-            .state
-            .boundary_error()
-            .unwrap_or(Error::RuntimeShutdown);
+        // Normal loop exits have an engine verdict. If an owner is stopped
+        // before the engine ends, preserve its own published/signalling error;
+        // an unexplained stop must fail closed rather than imply shutdown.
+        let boundary_error = match self.state.boundary_error() {
+            Some(cause) => cause,
+            None => self.lifecycle.conclusion_error(),
+        };
         self.lifecycle.publish_terminal(boundary_error.clone());
         self.flush_pre_admission_rejections(true);
         if let Some(retained) = self.coordinator.take_retained() {
@@ -681,10 +680,8 @@ impl OwnerShellCore {
         // continues. Record one Ignored per
         // discarded frame so the discard stays observable; the session is
         // never poisoned for it.
-        for _ in 0..self.state.buffers().take_discarded_malformed() {
-            let _ = self
-                .state
-                .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+        for _ in 0..frames.discarded {
+            self.state.record_ignored(IgnoreReason::MalformedFrame);
         }
         if let Err(error) = self.state.validate_frame_batch(&frames) {
             self.state.buffers().recycle_frames(frames);
@@ -781,7 +778,8 @@ impl OwnerShellCore {
             let mut effects = self
                 .state
                 .input_in_turn(&turn, Input::ReceiveFault { error });
-            effects.extend(self.state.finish_input_turn(turn, EngineTurn::InputOnly));
+            self.state
+                .finish_input_turn_into(turn, EngineTurn::InputOnly, &mut effects);
             effects
         } else {
             self.state.input(Input::ReceiveFault { error }, received_at)
@@ -810,9 +808,14 @@ impl OwnerShellCore {
             super::ReceiveFatal::TransportClosed { cause } => ShutdownReason::TransportClosed {
                 cause: cause.map(Arc::new),
             },
-            super::ReceiveFatal::FramingFailure { cause } => ShutdownReason::FramingFailure {
-                cause: Arc::new(cause),
-            },
+            super::ReceiveFatal::FramingFailure { cause, discarded } => {
+                for _ in 0..discarded {
+                    self.state.record_ignored(IgnoreReason::MalformedFrame);
+                }
+                ShutdownReason::FramingFailure {
+                    cause: Arc::new(cause),
+                }
+            }
         };
         self.terminate(reason, received_at)
     }
@@ -820,9 +823,7 @@ impl OwnerShellCore {
     fn malformed_datagram(&mut self) -> TurnStep {
         self.faults.reset();
         self.idle_receives.reset();
-        let _ = self
-            .state
-            .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+        self.state.record_ignored(IgnoreReason::MalformedFrame);
         TurnStep::Done(TurnOutcome::YieldBoundaries)
     }
 
@@ -832,6 +833,7 @@ impl OwnerShellCore {
             crate::runtime::engine::TransportKind::Stream => self.receive_fatal(
                 super::ReceiveFatal::FramingFailure {
                     cause: error.clone(),
+                    discarded: 0,
                 },
                 received_at,
             ),
@@ -895,7 +897,7 @@ impl OwnerShellCore {
         let target = admission.request.context().target;
         let lane = admission.request.lane();
         match validity.claim_for_admission(now) {
-            AdmissionClaim::Claimed => {
+            AdmissionClaim::Claimed { .. } => {
                 admission.claim = AdmissionBoundaryClaim::Claimed;
                 true
             }
@@ -1147,7 +1149,7 @@ mod tests {
     #![allow(clippy::panic, clippy::unwrap_used)]
 
     use super::super::boundary::OwnerHandleCore;
-    use super::super::OwnerPolicy;
+    use super::super::{DiagnosticEvent, OwnerPolicy};
     use super::*;
     use crate::runtime::engine::{CancellationPolicy, EnvelopeKind, ProtocolPolicy, TargetPolicy};
     use crate::target::TargetSlot;
@@ -1206,6 +1208,72 @@ mod tests {
             step = core.resume(then, &mut Datagrams);
         }
         step
+    }
+
+    #[test]
+    fn terminal_effect_publishes_its_cause_without_reading_back_the_engine() {
+        use crate::runtime::engine::{EndStatus, SessionEnd};
+        for (status, cause) in [
+            (EndStatus::Shutdown, Error::RuntimeShutdown),
+            (EndStatus::Closed, Error::connection_closed(None)),
+            (
+                EndStatus::Poisoned,
+                Error::stream_poisoned(Arc::new(Error::OwnerTerminated)),
+            ),
+        ] {
+            let (handle, mut core) = owner();
+            let diagnostics = core
+                .state
+                .subscribe_diagnostics(4, Arc::clone(&core.lifecycle))
+                .unwrap();
+            // A deliberately undriven engine proves publication is derived
+            // from the effect itself, with no retained-cause read-back.
+            let mut effects = VecDeque::from([Effect::SessionEnded(SessionEnd {
+                status,
+                cause: cause.clone(),
+            })]);
+            assert!(core.next_transmit(&mut effects, Instant::now()).is_none());
+            assert_eq!(core.state.state(), SessionState::Running);
+            assert_eq!(
+                format!("{:?}", handle.disconnected_error()),
+                format!("{cause:?}")
+            );
+            assert!(matches!(
+                diagnostics.try_recv(),
+                Some(DiagnosticEvent::SessionChanged { from, to, reason })
+                    if from == crate::SessionStatus::Running
+                        && to == crate::SessionStatus::from_engine(status.state())
+                        && reason == cause.kind()
+            ));
+            assert!(diagnostics.try_recv().is_none());
+        }
+    }
+
+    #[test]
+    fn conclude_on_a_running_engine_preserves_the_owner_reason_or_fails_closed() {
+        for accepted_shutdown in [false, true] {
+            let (handle, mut core) = owner();
+            if accepted_shutdown {
+                handle.shutdown().unwrap();
+            }
+            core.conclude();
+            assert_eq!(core.state.state(), SessionState::Running);
+            assert!(matches!(
+                handle.closed_result(),
+                Err(Error::OwnerTerminated)
+            ));
+        }
+
+        let (handle, mut core) = owner();
+        let cause = Error::InvalidState {
+            reason: "owner stopped before the engine ended".into(),
+        };
+        core.lifecycle.publish_terminal(cause.clone());
+        core.conclude();
+        assert_eq!(
+            format!("{:?}", handle.closed_result().unwrap_err()),
+            format!("{cause:?}")
+        );
     }
 
     fn declared_request(stop: bool) -> crate::runtime::engine::RuntimeRequest {
@@ -1287,6 +1355,48 @@ mod tests {
         for _ in 0..8 {
             assert_eq!(handle.terminal_metrics().unwrap().unwrap(), snapshot);
         }
+    }
+
+    #[test]
+    fn fatal_receive_records_every_preceding_malformed_discard_before_poison() {
+        let (_handle, mut core) = owner();
+        let diagnostics = super::super::tests::DiagnosticRecorder::new(&mut core.state);
+        let step = core.handle(
+            receive(
+                OwnerReceive::Fatal(super::super::ReceiveFatal::FramingFailure {
+                    cause: Error::ResponseTooLarge { max_size: 16 },
+                    discarded: 3,
+                }),
+                Instant::now(),
+            ),
+            &mut Datagrams,
+            Instant::now(),
+            false,
+        );
+        run_turn(&mut core, step);
+        let events = diagnostics.events();
+        let relevant: Vec<_> = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    DiagnosticEvent::Ignored { .. } | DiagnosticEvent::SessionChanged { .. }
+                )
+            })
+            .collect();
+        assert_eq!(relevant.len(), 4);
+        assert!(relevant[..3]
+            .iter()
+            .all(|event| matches!(event, DiagnosticEvent::Ignored { .. })));
+        assert!(matches!(
+            relevant[3],
+            DiagnosticEvent::SessionChanged {
+                to: crate::SessionStatus::Poisoned,
+                ..
+            }
+        ));
+        assert_eq!(core.state.metrics().ignored_malformed_frames, 3);
+        assert_eq!(core.state.state(), SessionState::Poisoned);
     }
 
     #[test]
@@ -1413,7 +1523,7 @@ mod tests {
                 prepared: crate::prepared::PreparedHalt {
                     target: TargetSlot::CAMERA_1,
                     axes: Some(crate::AffectedAxes::ZOOM),
-                    requests: [None, Some(Ok(declared_request(true))), None],
+                    requests: [None, Some(Ok(declared_request(true).into())), None],
                     budget: Duration::from_secs(1),
                 },
                 validity: AdmissionValidity::until(deadline),

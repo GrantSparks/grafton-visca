@@ -16,13 +16,15 @@ struct PositionInquiry;
 struct LocalLevel(u8);
 
 impl LocalLevel {
-    fn new(value: u8) -> Result<Self, Error> {
+    fn new(value: grafton_visca::types::ZoomPosition) -> Result<Self, Error> {
+        let value = u8::try_from(value.value())
+            .map_err(|_| Error::invalid_response("local level fitting u8", Vec::new()))?;
         Ok(Self(value))
     }
 }
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x47, response = ZoomPosition, typed_response = LocalLevel, typed_field = position, typed_constructor = new_u8)]
+#[visca(opcode = 0x47, response = ZoomPosition, typed_response = LocalLevel, typed_field = position, typed_constructor = new)]
 struct CheckedLocalInquiry;
 
 fn custom(payload: &[u8]) -> Result<InquiryData, Error> {
@@ -39,12 +41,12 @@ struct CustomInquiry;
 fn canonical_iris_accepts_the_real_four_byte_reply_and_rejects_the_old_selector_width() {
     assert!(matches!(
         IrisInquiry.parse_response(&[0, 0, 1, 4]),
-        Ok(InquiryData::Iris { position: 20 })
+        Ok(InquiryData::Iris { position }) if position.value() == 20
     ));
     assert!(IrisInquiry.parse_response(&[1, 4]).is_err());
     assert!(matches!(
         IrisInquiry.decoder().decode(&[0, 0, 1, 4]),
-        Ok(Response::Inquiry(InquiryData::Iris { position: 20 }))
+        Ok(Response::Inquiry(InquiryData::Iris { position })) if position.value() == 20
     ));
 }
 

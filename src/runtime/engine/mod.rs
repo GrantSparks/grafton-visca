@@ -430,8 +430,7 @@ pub(crate) struct EngineCore {
     last_command_sent: Option<Instant>,
     last_inquiry_sent: Option<Instant>,
     inquiry_cooldown_until: Option<Instant>,
-    state: SessionState,
-    terminal_error: Option<Error>,
+    session: EngineSession,
 }
 
 impl std::ops::Deref for ProtocolEngine {
@@ -484,8 +483,7 @@ impl ProtocolEngine {
                 last_command_sent: None,
                 last_inquiry_sent: None,
                 inquiry_cooldown_until: None,
-                state: SessionState::Running,
-                terminal_error: None,
+                session: EngineSession::Running,
             },
         })
     }
@@ -509,11 +507,13 @@ impl ProtocolEngine {
     }
 
     pub(crate) const fn state(&self) -> SessionState {
-        self.core.state
+        self.core.session.state()
     }
 
-    pub(crate) fn terminal_error(&self) -> Option<Error> {
-        EngineMethods::terminal_error(self)
+    /// Project the retained cause from the engine's complete terminal verdict.
+    /// Terminal effects carry that same verdict directly to their consumers.
+    pub(crate) const fn terminal_error(&self) -> Option<&Error> {
+        self.core.session.terminal_error()
     }
 
     #[cfg(test)]
@@ -531,25 +531,58 @@ impl ProtocolEngine {
         EngineMethods::assert_input_boundary(self)
     }
 
+    // Test drivers collect effects; production always appends to owner-owned storage.
+    #[cfg(test)]
     pub(crate) fn handle(&mut self, input: Input, now: Instant) -> Vec<Effect> {
-        EngineMethods::handle(self, input, now)
+        let mut effects = Vec::new();
+        self.handle_into(input, now, &mut effects);
+        effects
     }
 
+    pub(crate) fn handle_into(&mut self, input: Input, now: Instant, effects: &mut Vec<Effect>) {
+        EngineMethods::handle_into(self, input, now, effects);
+    }
+
+    #[cfg(test)]
     pub(crate) fn handle_turn(
         &mut self,
         input: Input,
         now: Instant,
         engine_turn: EngineTurn,
     ) -> Vec<Effect> {
-        EngineMethods::handle_turn(self, input, now, engine_turn)
+        let mut effects = Vec::new();
+        self.handle_turn_into(input, now, engine_turn, &mut effects);
+        effects
+    }
+
+    pub(crate) fn handle_turn_into(
+        &mut self,
+        input: Input,
+        now: Instant,
+        engine_turn: EngineTurn,
+        effects: &mut Vec<Effect>,
+    ) {
+        EngineMethods::handle_turn_into(self, input, now, engine_turn, effects);
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> InputTurn {
         EngineMethods::begin_input_turn(self, now)
     }
 
+    #[cfg(test)]
     pub(crate) fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
-        EngineMethods::handle_in_turn(self, turn, input)
+        let mut effects = Vec::new();
+        self.handle_in_turn_into(turn, input, &mut effects);
+        effects
+    }
+
+    pub(crate) fn handle_in_turn_into(
+        &mut self,
+        turn: &InputTurn,
+        input: Input,
+        effects: &mut Vec<Effect>,
+    ) {
+        EngineMethods::handle_in_turn_into(self, turn, input, effects);
     }
 
     pub(crate) fn admit_in_turn(
@@ -561,31 +594,54 @@ impl ProtocolEngine {
         EngineMethods::admit_in_turn(self, turn, request, slot)
     }
 
-    pub(crate) fn cancel_in_turn(
+    pub(crate) fn cancel_in_turn_into(
         &mut self,
         turn: &InputTurn,
         id: RequestId,
-    ) -> (Vec<Effect>, Result<(), Error>) {
-        EngineMethods::cancel_in_turn(self, turn, id)
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), Error> {
+        EngineMethods::cancel_in_turn_into(self, turn, id, effects)
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_input_turn(
         &mut self,
         input_turn: InputTurn,
         engine_turn: EngineTurn,
     ) -> Vec<Effect> {
-        EngineMethods::finish_input_turn(self, input_turn, engine_turn)
+        let mut effects = Vec::new();
+        self.finish_input_turn_into(input_turn, engine_turn, &mut effects);
+        effects
     }
 
+    pub(crate) fn finish_input_turn_into(
+        &mut self,
+        input_turn: InputTurn,
+        engine_turn: EngineTurn,
+        effects: &mut Vec<Effect>,
+    ) {
+        EngineMethods::finish_input_turn_into(self, input_turn, engine_turn, effects);
+    }
+
+    #[cfg(test)]
     pub(crate) fn advance(&mut self, now: Instant) -> Vec<Effect> {
-        EngineMethods::advance(self, now)
+        let mut effects = Vec::new();
+        self.advance_into(now, &mut effects);
+        effects
+    }
+
+    pub(crate) fn advance_into(&mut self, now: Instant, effects: &mut Vec<Effect>) {
+        EngineMethods::advance_into(self, now, effects);
     }
 
     #[cfg(test)]
     pub(crate) fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> Vec<Effect> {
-        EngineMethods::advance_turn(self, now, turn)
+        let mut effects = Vec::new();
+        EngineMethods::advance_turn_into(self, now, turn, &mut effects);
+        effects
     }
 
+    #[cfg(test)]
     pub(crate) fn halt_in_turn(
         &mut self,
         turn: &InputTurn,
@@ -593,16 +649,42 @@ impl ProtocolEngine {
         axes: crate::AffectedAxes,
         cutoff: u64,
     ) -> Vec<Effect> {
-        EngineMethods::halt_in_turn(self, turn, target, axes, cutoff)
+        let mut effects = Vec::new();
+        self.halt_in_turn_into(turn, target, axes, cutoff, &mut effects);
+        effects
     }
 
+    pub(crate) fn halt_in_turn_into(
+        &mut self,
+        turn: &InputTurn,
+        target: TargetSlot,
+        axes: crate::AffectedAxes,
+        cutoff: u64,
+        effects: &mut Vec<Effect>,
+    ) {
+        EngineMethods::halt_in_turn_into(self, turn, target, axes, cutoff, effects);
+    }
+
+    #[cfg(test)]
     pub(crate) fn expire_unwritten_halt(
         &mut self,
         request: RequestId,
         transmission: TransmissionId,
         now: Instant,
     ) -> Option<Vec<Effect>> {
-        EngineMethods::expire_unwritten_halt(self, request, transmission, now)
+        let mut effects = Vec::new();
+        self.expire_unwritten_halt_into(request, transmission, now, &mut effects)
+            .then_some(effects)
+    }
+
+    pub(crate) fn expire_unwritten_halt_into(
+        &mut self,
+        request: RequestId,
+        transmission: TransmissionId,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) -> bool {
+        EngineMethods::expire_unwritten_halt_into(self, request, transmission, now, effects)
     }
 
     pub(crate) fn raw_correlation_releases_due(&self, now: Instant) -> RawCorrelationReleaseSet {
@@ -816,19 +898,6 @@ trait EngineMethods: EngineAccess {
         Ok(())
     }
 
-    /// The exact error the engine recorded when it left `Running`, if it has.
-    ///
-    /// Every terminal transition — an owner-supplied `Close`/`Poison`/`Shutdown`
-    /// and every engine-initiated verdict alike (deadline expiry, the strict
-    /// `strict_unconfirmed_poison` opt-in, a stream/framing self-poison) — is
-    /// funneled through [`Self::terminate_session`], which stamps this field
-    /// before emitting [`Effect::SessionChanged`]. Owners read this retained
-    /// cause directly, including engine-initiated poison, rather than deriving
-    /// a second verdict from the input boundary.
-    fn terminal_error(&self) -> Option<Error> {
-        self.terminal_error.clone()
-    }
-
     // Read-only inspection seams for engine and owner tests.
     #[cfg(test)]
     fn entry(&self, id: RequestId) -> Option<&Entry> {
@@ -880,32 +949,31 @@ trait EngineMethods: EngineAccess {
     }
 
     /// Applies one ordered external input first, then all work due at `now`.
-    fn handle(&mut self, input: Input, now: Instant) -> Vec<Effect> {
-        self.handle_turn(input, now, EngineTurn::Complete)
+    fn handle_into(&mut self, input: Input, now: Instant, effects: &mut Vec<Effect>) {
+        self.handle_turn_into(input, now, EngineTurn::Complete, effects);
     }
 
-    /// Applies one ordered external input and completes it under `turn`.
-    ///
-    /// This is the single runtime-neutral entry point for the scheduler
-    /// boundaries needed by both owner shells. The ordinary [`Self::handle`]
-    /// convenience path selects [`EngineTurn::Complete`].
-    /// Every returned transmit must be written and completed before applying
-    /// another input or running due work; both owners share this write-first
-    /// contract.
-    fn handle_turn(&mut self, input: Input, now: Instant, engine_turn: EngineTurn) -> Vec<Effect> {
+    /// Apply one external input and append its complete turn to the owner's sink.
+    /// Every emitted transmit must be written and completed before another input.
+    fn handle_turn_into(
+        &mut self,
+        input: Input,
+        now: Instant,
+        engine_turn: EngineTurn,
+        effects: &mut Vec<Effect>,
+    ) {
         let input_turn = self.begin_input_turn(now);
-        let mut effects = self.handle_in_turn(&input_turn, input);
-        effects.extend(self.finish_input_turn(input_turn, engine_turn));
-        effects
+        self.handle_in_turn_into(&input_turn, input, effects);
+        self.finish_input_turn_into(input_turn, engine_turn, effects);
     }
 
     /// Starts an ordered external-input turn at one owner-sampled instant.
     ///
     /// The owner must fully drain the effects returned for one input before it
     /// applies the next input in the turn. Any identified transmission result
-    /// produced by that draining is applied with [`Self::handle_in_turn`] and
+    /// produced by that draining is applied with [`Self::handle_in_turn_into`] and
     /// the same token. Once every frame in wire order is applied, the owner
-    /// calls [`Self::finish_input_turn`] exactly once with the selected
+    /// calls [`Self::finish_input_turn_into`] exactly once with the selected
     /// [`EngineTurn`] boundary.
     fn begin_input_turn(&self, now: Instant) -> InputTurn {
         InputTurn { now }
@@ -916,17 +984,18 @@ trait EngineMethods: EngineAccess {
     /// This is the recursive input seam for an active [`InputTurn`]. Effects
     /// remain in the exact order produced by this input; the owner drains them
     /// before passing the next wire frame.
-    fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
+    fn handle_in_turn_into(&mut self, turn: &InputTurn, input: Input, sink: &mut Vec<Effect>) {
         if !matches!(input, Input::TransmissionFinished { .. }) {
             self.debug_assert_input_boundary();
         }
         #[cfg(test)]
         if let Input::Cancel { id } = input {
-            return self.cancel_in_turn(turn, id).0;
+            let _ = self.cancel_in_turn_into(turn, id, sink);
+            return;
         }
-        let mut effects = Decision::new();
+        let mut effects = Decision::new(sink);
         self.apply_input(input, turn.now, &mut effects);
-        self.finish_decision(turn.now, effects)
+        self.finish_decision(turn.now, effects);
     }
 
     /// Returns the admission verdict inside the caller's sampled input turn.
@@ -945,15 +1014,17 @@ trait EngineMethods: EngineAccess {
 
     /// Applies cancellation in an input turn and returns synchronous refusal
     /// directly, so the owner does not need a parallel refusal latch.
-    fn cancel_in_turn(
+    fn cancel_in_turn_into(
         &mut self,
         turn: &InputTurn,
         id: RequestId,
-    ) -> (Vec<Effect>, Result<(), Error>) {
+        sink: &mut Vec<Effect>,
+    ) -> Result<(), Error> {
         self.debug_assert_input_boundary();
-        let mut effects = Decision::new();
+        let mut effects = Decision::new(sink);
         let result = self.cancel(id, turn.now, &mut effects);
-        (self.finish_decision(turn.now, effects), result)
+        self.finish_decision(turn.now, effects);
+        result
     }
 
     /// Ends an ordered input turn, then runs due work, pending cancellation,
@@ -962,8 +1033,13 @@ trait EngineMethods: EngineAccess {
     /// External inputs at the turn timestamp therefore win over deadlines at
     /// that same timestamp, while frame and recursively produced effect order
     /// remains owner-controlled and deterministic.
-    fn finish_input_turn(&mut self, input_turn: InputTurn, engine_turn: EngineTurn) -> Vec<Effect> {
-        let mut effects = Decision::new();
+    fn finish_input_turn_into(
+        &mut self,
+        input_turn: InputTurn,
+        engine_turn: EngineTurn,
+        sink: &mut Vec<Effect>,
+    ) {
+        let mut effects = Decision::new(sink);
         if engine_turn.runs_due() {
             self.run_due(input_turn.now, &mut effects);
             self.drain_pending_cancellations(input_turn.now, &mut effects);
@@ -972,12 +1048,11 @@ trait EngineMethods: EngineAccess {
         self.finish_decision(input_turn.now, effects)
     }
 
-    fn finish_decision(&mut self, now: Instant, mut decision: Decision) -> Vec<Effect> {
+    fn finish_decision(&mut self, now: Instant, mut decision: Decision<'_>) {
         while decision.has_deferred() {
             self.apply_retro(now, &mut decision);
         }
         self.debug_assert_invariants();
-        decision.into_effects()
     }
 
     fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Decision) {
@@ -1007,19 +1082,19 @@ trait EngineMethods: EngineAccess {
             Input::ReceiveFault { error } => self.receive_fault(&error, now, effects),
             Input::Shutdown(reason) => match reason {
                 ShutdownReason::Explicit => self.terminate_session(
-                    SessionState::Shutdown,
+                    EndStatus::Shutdown,
                     Error::RuntimeShutdown,
                     now,
                     effects,
                 ),
                 ShutdownReason::TransportClosed { cause } => self.terminate_session(
-                    SessionState::Closed,
+                    EndStatus::Closed,
                     Error::connection_closed(cause),
                     now,
                     effects,
                 ),
                 ShutdownReason::FramingFailure { cause } => self.terminate_session(
-                    SessionState::Poisoned,
+                    EndStatus::Poisoned,
                     Error::stream_poisoned(cause),
                     now,
                     effects,
@@ -1033,13 +1108,13 @@ trait EngineMethods: EngineAccess {
     }
 
     /// Runs due internal work, pending cancellation, and ordinary dispatch.
-    fn advance(&mut self, now: Instant) -> Vec<Effect> {
-        self.advance_turn(now, EngineTurn::Complete)
+    fn advance_into(&mut self, now: Instant, sink: &mut Vec<Effect>) {
+        self.advance_turn_into(now, EngineTurn::Complete, sink);
     }
 
     /// Runs the scheduler work selected by `turn` at `now`.
-    fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> Vec<Effect> {
-        let mut effects = Decision::new();
+    fn advance_turn_into(&mut self, now: Instant, turn: EngineTurn, sink: &mut Vec<Effect>) {
+        let mut effects = Decision::new(sink);
         if turn.runs_due() {
             self.run_due(now, &mut effects);
             self.drain_pending_cancellations(now, &mut effects);
@@ -1100,16 +1175,16 @@ trait EngineMethods: EngineAccess {
     /// Establish a one-time owner halt fence without dispatching or discarding
     /// correlation for writes already in flight. Ready/retry work is terminal;
     /// future retry decisions consult the same bounded fence table.
-    fn halt_in_turn(
+    fn halt_in_turn_into(
         &mut self,
         turn: &InputTurn,
         target: TargetSlot,
         axes: crate::AffectedAxes,
         cutoff: u64,
-    ) -> Vec<Effect> {
-        let effects = self.halt_inner(target, axes, cutoff, turn.now);
+        sink: &mut Vec<Effect>,
+    ) {
+        self.halt_inner(target, axes, cutoff, turn.now, sink);
         self.debug_assert_invariants();
-        effects
     }
 
     fn halt_inner(
@@ -1118,7 +1193,8 @@ trait EngineMethods: EngineAccess {
         axes: crate::AffectedAxes,
         cutoff: u64,
         now: Instant,
-    ) -> Vec<Effect> {
+        sink: &mut Vec<Effect>,
+    ) {
         let fences = &mut self.targets[target].motion_fences;
         for (index, fence) in fences.iter_mut().enumerate() {
             if axes.bits() & (1 << index) != 0 {
@@ -1134,7 +1210,7 @@ trait EngineMethods: EngineAccess {
                 .then_some((*id, entry.certainty(AttemptEvidence::Unwritten)))
             })
             .collect();
-        let mut effects = Decision::new();
+        let mut effects = Decision::new(sink);
         for (id, certainty) in ids {
             // A queued or backed-off request is not on the wire. It can have
             // affected the camera only through an earlier attempt that the
@@ -1154,15 +1230,16 @@ trait EngineMethods: EngineAccess {
 
     /// A staged write is still unsent. Expire an overdue halt STOP here,
     /// without fabricating a transport failure or poisoning a healthy stream.
-    fn expire_unwritten_halt(
+    fn expire_unwritten_halt_into(
         &mut self,
         request: RequestId,
         transmission: TransmissionId,
         now: Instant,
-    ) -> Option<Vec<Effect>> {
-        let effects = self.expire_unwritten_halt_inner(request, transmission, now);
+        sink: &mut Vec<Effect>,
+    ) -> bool {
+        let expired = self.expire_unwritten_halt_inner(request, transmission, now, sink);
         self.debug_assert_invariants();
-        effects
+        expired
     }
 
     fn expire_unwritten_halt_inner(
@@ -1170,15 +1247,18 @@ trait EngineMethods: EngineAccess {
         request: RequestId,
         transmission: TransmissionId,
         now: Instant,
-    ) -> Option<Vec<Effect>> {
+        sink: &mut Vec<Effect>,
+    ) -> bool {
         let Some(owner) = self.transmission_owner(request, transmission) else {
-            return Some(vec![Effect::Ignored(IgnoreReason::StaleTransmission)]);
+            sink.push(Effect::Ignored(IgnoreReason::StaleTransmission));
+            return true;
         };
         if owner.kind != CorrelationKind::Request {
-            return None;
+            return false;
         }
         let Some(entry) = self.entries.get(&owner.request) else {
-            return Some(vec![Effect::Ignored(IgnoreReason::StaleTransmission)]);
+            sink.push(Effect::Ignored(IgnoreReason::StaleTransmission));
+            return true;
         };
         if entry
             .request
@@ -1186,12 +1266,10 @@ trait EngineMethods: EngineAccess {
             .dispatch_deadline
             .is_none_or(|deadline| now < deadline)
         {
-            return None;
+            return false;
         }
-        // The staged write never left; only an earlier attempt that the camera
-        // did not conclusively reject can have had an effect.
         let certainty = entry.certainty(AttemptEvidence::Unwritten);
-        let mut effects = Decision::new();
+        let mut effects = Decision::new(sink);
         self.finish_observed(
             owner.request,
             Error::timeout(FailureStage::Terminal, certainty),
@@ -1201,7 +1279,8 @@ trait EngineMethods: EngineAccess {
         );
         // A STOP that never left may decide a dispute naming it.
         self.apply_retro(now, &mut effects);
-        Some(self.finish_decision(now, effects))
+        self.finish_decision(now, effects);
+        true
     }
 
     fn motion_superseded(&self, context: &RequestContext) -> Option<crate::AffectedAxes> {
@@ -1224,11 +1303,8 @@ trait EngineMethods: EngineAccess {
         slot: AdmissionSlot,
         now: Instant,
     ) -> Result<RequestId, Error> {
-        if self.state != SessionState::Running {
-            return Err(self
-                .terminal_error
-                .clone()
-                .unwrap_or(Error::RuntimeShutdown));
+        if let EngineSession::Ended(end) = &self.session {
+            return Err(end.cause.clone());
         }
         let context = *request.context();
         context.validate_at(now)?;
@@ -1351,7 +1427,7 @@ trait EngineMethods: EngineAccess {
     }
 
     fn dispatch_one(&mut self, now: Instant, effects: &mut Decision) {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             return;
         }
         if let Some(selected) = self.select_dispatch(now) {
@@ -1366,7 +1442,7 @@ trait EngineMethods: EngineAccess {
     /// profiles drain the complete urgent set; a positive spacing naturally
     /// stops the scan after the first write advances [`Self::last_request_sent`].
     fn drain_pending_cancellations(&mut self, now: Instant, effects: &mut Decision) {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             return;
         }
         loop {
@@ -2100,7 +2176,7 @@ trait EngineMethods: EngineAccess {
     ///
     /// Keeping this at the engine's one transmission-result ingress also makes
     /// an [`EngineTurn::InputOnly`] write-result turn obey the same boundary
-    /// as an ordinary [`Self::handle`] turn.
+    /// as an ordinary [`Self::handle_into`] turn.
     fn write_result_after_total_budget(
         &mut self,
         owner: TransmissionOwner,
@@ -2356,7 +2432,7 @@ trait EngineMethods: EngineAccess {
     ) {
         if self.policy.transport == TransportKind::Stream {
             self.terminate_session(
-                SessionState::Poisoned,
+                EndStatus::Poisoned,
                 Error::stream_poisoned(error),
                 now,
                 effects,
@@ -2474,7 +2550,7 @@ trait EngineMethods: EngineAccess {
     /// and a request with cancellation in flight is left to its ambiguity deadline, because
     /// retrying it would abandon the quarantine that owns its socket.
     fn receive_fault(&mut self, error: &Error, now: Instant, effects: &mut Decision) {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
         }
@@ -2559,7 +2635,7 @@ trait EngineMethods: EngineAccess {
     }
 
     fn frame(&mut self, frame: DecodedFrame, now: Instant, effects: &mut Decision) {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
         }
@@ -4077,7 +4153,7 @@ trait EngineMethods: EngineAccess {
     /// Its recovery guidance covers a raw command whose completion is uncertain.
     fn poison_strict_unconfirmed(&mut self, now: Instant, effects: &mut Decision) {
         self.terminate_session(
-            SessionState::Poisoned,
+            EndStatus::Poisoned,
             Error::stream_poisoned(Error::UnsequencedCommandUnconfirmed),
             now,
             effects,
@@ -4558,7 +4634,7 @@ trait EngineMethods: EngineAccess {
 
     /// Earliest scheduler deadline, retry eligibility, pacing release, or cooldown.
     fn next_wake(&self, now: Instant) -> Option<Instant> {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             return None;
         }
         let occupancy = Occupancy::build(&self.entries);
@@ -4725,18 +4801,22 @@ trait EngineMethods: EngineAccess {
 
     fn terminate_session(
         &mut self,
-        state: SessionState,
+        status: EndStatus,
         error: Error,
         now: Instant,
         effects: &mut Decision,
     ) {
-        if self.state != SessionState::Running {
-            return;
+        match &self.session {
+            EngineSession::Ended(_) => return,
+            EngineSession::Running => {
+                let end = SessionEnd {
+                    status,
+                    cause: error.clone(),
+                };
+                self.session = EngineSession::Ended(end.clone());
+                effects.push(Effect::SessionEnded(end));
+            }
         }
-        let from = self.state;
-        self.state = state;
-        self.terminal_error = Some(error.clone());
-        effects.push(Effect::SessionChanged { from, to: state });
         let mut active: Vec<_> = self
             .entries
             .iter()
@@ -4811,7 +4891,7 @@ trait EngineMethods: EngineAccess {
     /// Audits cross-domain safety rules that construction alone cannot prove.
     fn assert_invariants(&self) -> Result<(), Box<str>> {
         self.check_inquiry_shape_invariants()?;
-        if self.state != SessionState::Running
+        if !matches!(self.session, EngineSession::Running)
             && (!self.entries.is_empty()
                 || !self.mode().holds().is_empty()
                 || !self.mode().ledger().is_empty())

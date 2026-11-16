@@ -198,13 +198,15 @@ impl WireEncode for Fr7SetSeparatePresetSpeed {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Fr7SetSeparatePresetDuration {
     preset: PresetNumber,
-    duration: Duration,
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_preset_duration"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Duration"))]
+    duration: PresetDuration,
 }
 
 impl Fr7SetSeparatePresetDuration {
     /// Creates a preset-local duration setting.
     pub fn new(preset: PresetNumber, duration: Duration) -> Result<Self, Error> {
-        PresetDuration::from_duration(duration)?;
+        let duration = PresetDuration::from_duration(duration)?;
         Ok(Self { preset, duration })
     }
 
@@ -218,7 +220,7 @@ impl Fr7SetSeparatePresetDuration {
     #[must_use]
     #[cfg(test)]
     pub const fn duration(self) -> Duration {
-        self.duration
+        self.duration.duration()
     }
 }
 
@@ -227,9 +229,17 @@ impl WireEncode for Fr7SetSeparatePresetDuration {
         FrameWriter::new(camera_id, buffer)
             .bytes(&sony_fr7_presets::SEPARATE_PRESET_DURATION)
             .byte(self.preset.value())
-            .nibbles::<3>(PresetDuration::from_duration(self.duration)?.to_wire())
+            .nibbles::<3>(self.duration.to_wire())
             .finish()
     }
+}
+
+#[cfg(feature = "serde")]
+fn serialize_preset_duration<S: serde::Serializer>(
+    duration: &PresetDuration,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serde::Serialize::serialize(&duration.duration(), serializer)
 }
 
 #[cfg(feature = "serde")]
@@ -521,5 +531,23 @@ mod tests {
             r#"{"preset":0,"mode":"unknown"}"#
         )
         .is_err());
+    }
+
+    #[cfg(feature = "schemars")]
+    #[test]
+    fn checked_duration_storage_preserves_the_physical_duration_schema() {
+        /// Set the separate recall duration for one FR7 preset (R7 p. 19).
+        #[derive(serde::Serialize, schemars::JsonSchema)]
+        #[serde(deny_unknown_fields)]
+        #[schemars(rename = "Fr7SetSeparatePresetDuration")]
+        struct PhysicalDurationSetting {
+            preset: PresetNumber,
+            duration: Duration,
+        }
+
+        assert_eq!(
+            schemars::schema_for!(Fr7SetSeparatePresetDuration),
+            schemars::schema_for!(PhysicalDurationSetting),
+        );
     }
 }

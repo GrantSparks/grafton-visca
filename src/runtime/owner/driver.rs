@@ -113,6 +113,7 @@ macro_rules! owner_turn_driver {
                     &mut effects,
                 );
             }
+            self.core.recycle_effects(effects);
         }
     };
 }

@@ -137,13 +137,10 @@ mod tests {
     fn density_steps_and_auto_switch_preserve_their_wire_commands() {
         assert_eq!(packet(&DensityUp), [0x81, 1, 0x7e, 4, 0x12, 2, 0xff]);
         assert_eq!(packet(&DensityDown), [0x81, 1, 0x7e, 4, 0x12, 3, 0xff]);
-        for enabled in [false, true] {
+        for (enabled, code) in [(false, 0x03), (true, 0x02)] {
             let request = SetAuto::new(enabled);
             assert_eq!(request.enabled(), enabled);
-            assert_eq!(
-                packet(&request),
-                [0x81, 1, 0x7e, 4, 0x53, if enabled { 2 } else { 3 }, 0xff]
-            );
+            assert_eq!(packet(&request), [0x81, 1, 0x7e, 4, 0x53, code, 0xff]);
         }
     }
 }

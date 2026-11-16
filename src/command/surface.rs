@@ -29,33 +29,49 @@ pub(crate) enum RowGate {
 }
 
 impl RowGate {
+    /// Tests a row before a validated profile exists, using the same capability
+    /// contract that request and inquiry admission enforce.
+    pub(crate) fn permits(self, capabilities: &crate::capabilities::Capabilities) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Domain(domain) => domain.permits_capabilities(capabilities),
+            Self::Typed(surfaces) => surfaces
+                .iter()
+                .all(|surface| capabilities.supports(surface)),
+            Self::DomainAndTyped(domain, surfaces) => {
+                domain.permits_capabilities(capabilities)
+                    && Self::Typed(surfaces).permits(capabilities)
+            }
+        }
+    }
+
     /// Enforces the same noun-row contract for commands and inquiries.
     pub(crate) fn validate(
         self,
         profile: &crate::ProfileSpec,
         feature: &'static str,
     ) -> crate::Result<()> {
-        let denied = match self {
-            Self::DomainAndTyped(domain, surfaces) => {
-                Self::Domain(domain).validate(profile, feature)?;
-                return Self::Typed(surfaces).validate(profile, feature);
-            }
-            Self::Always => return Ok(()),
-            Self::Domain(domain) if domain.permits(profile) => return Ok(()),
-            Self::Domain(_) => feature,
-            Self::Typed(surfaces) => {
-                let Some(surface) = surfaces
-                    .iter()
-                    .find(|surface| !profile.capabilities().supports(*surface))
-                else {
-                    return Ok(());
-                };
-                if surface == crate::capabilities::TypedSupportSurface::ExposureMode {
-                    crate::command::exposure_wire::SHARED_EXPOSURE_MODE_FEATURE
-                } else {
-                    feature
-                }
-            }
+        let capabilities = profile.capabilities();
+        if self.permits(capabilities) {
+            return Ok(());
+        }
+        // Admission above uses the same predicate as profile validation. The
+        // remaining lookup only chooses the established refusal diagnostic,
+        // checking a missing domain before any refining typed permission.
+        let typed = match self {
+            Self::Typed(surfaces) => Some(surfaces),
+            Self::DomainAndTyped(domain, surfaces) if domain.permits(profile) => Some(surfaces),
+            _ => None,
+        };
+        let missing = typed.and_then(|surfaces| {
+            surfaces
+                .iter()
+                .find(|surface| !capabilities.supports(*surface))
+        });
+        let denied = if missing == Some(crate::capabilities::TypedSupportSurface::ExposureMode) {
+            crate::command::exposure_wire::SHARED_EXPOSURE_MODE_FEATURE
+        } else {
+            feature
         };
         Err(crate::Error::FeatureNotSupported { feature: denied })
     }
@@ -109,7 +125,14 @@ impl DomainGate {
     /// Domain presence is represented once in the validated capability records.
     /// Optional method grants are checked independently by `RowGate`.
     pub(crate) fn permits(self, profile: &crate::ProfileSpec) -> bool {
-        let capabilities = profile.capabilities();
+        self.permits_capabilities(profile.capabilities())
+    }
+
+    /// Tests the domain while profile facts are still being validated.
+    pub(crate) fn permits_capabilities(
+        self,
+        capabilities: &crate::capabilities::Capabilities,
+    ) -> bool {
         match self {
             Self::Power => capabilities.power.is_some(),
             Self::Zoom => capabilities.zoom.is_some(),
@@ -421,13 +444,12 @@ macro_rules! surface_registry {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
-                dyn_trait: $dyn_trait:ident,
                 gate: $base:tt,
                 doc: $doc:literal $(,)?
             };
             $(
                 $(#[$row_doc:meta])*
-                $kind:ident [$key:ident] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$key:ident] $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
@@ -657,8 +679,7 @@ mod tests {
     #[test]
     fn declared_query_views_keep_their_own_gate_before_private_alias_fallback() {
         use crate::command::inquiry_structs::{
-            ExposureCompensationInquiry, ExposureCompensationPositionInquiry, Fr7AeLevelInquiry,
-            GeneratedInquiry,
+            ExposureCompensationInquiry, Fr7AeLevelInquiry, GeneratedInquiry,
         };
         assert_eq!(
             <Fr7AeLevelInquiry as GeneratedInquiry>::GATE,
@@ -666,10 +687,6 @@ mod tests {
         );
         assert_ne!(
             <Fr7AeLevelInquiry as GeneratedInquiry>::GATE,
-            <ExposureCompensationInquiry as GeneratedInquiry>::GATE
-        );
-        assert_eq!(
-            <ExposureCompensationPositionInquiry as GeneratedInquiry>::GATE,
             <ExposureCompensationInquiry as GeneratedInquiry>::GATE
         );
     }

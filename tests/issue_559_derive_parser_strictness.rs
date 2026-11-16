@@ -95,17 +95,17 @@ fn canonical_decoders_require_exact_wire_lengths() {
 
     assert!(matches!(
         StrictDirectByteInquiry.parse_response(&[0x07]),
-        ::core::result::Result::Ok(InquiryData::GainLimit { limit: 0x07 })
+        ::core::result::Result::Ok(InquiryData::GainLimit { limit }) if limit.value() == 0x07
     ));
     assert!(StrictDirectByteInquiry
         .parse_response(&[0x07, 0x00])
         .is_err());
 
     assert!(matches!(
-        StrictByteInquiry.parse_response(&[0x07]),
-        ::core::result::Result::Ok(InquiryData::NoiseReduction2D { level: 0x07 })
+        StrictByteInquiry.parse_response(&[0x05]),
+        ::core::result::Result::Ok(InquiryData::NoiseReduction2D { level }) if grafton_visca::wire::WireValue::to_wire(level) == 0x05
     ));
-    assert!(StrictByteInquiry.parse_response(&[0x07, 0x00]).is_err());
+    assert!(StrictByteInquiry.parse_response(&[0x05, 0x00]).is_err());
 
     assert!(StrictFlagsInquiry.parse_response(&[0x03]).is_ok());
     assert!(StrictFlagsInquiry.parse_response(&[0x03, 0x00]).is_err());

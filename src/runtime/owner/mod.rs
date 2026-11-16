@@ -7,6 +7,8 @@
 mod adapter;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod halt;
+mod lane;
+pub(crate) use lane::LaneRequest;
 mod motion;
 use crate::observability::DiagnosticEvent;
 mod diagnostics;
@@ -33,6 +35,10 @@ mod receipt;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod shell;
 mod turn;
+#[cfg(feature = "test-utils")]
+mod turn_probe;
+#[cfg(feature = "test-utils")]
+pub(crate) use turn_probe::TurnProbe;
 
 #[cfg(feature = "async")]
 pub(crate) use async_actor::*;
@@ -547,7 +553,59 @@ impl Drop for AdmissionPermit {
 
 /// Reusable receive storage, consumed in source order and returned to the owner.
 #[cfg(any(feature = "async", feature = "blocking"))]
-pub(crate) type FrameBatch = VecDeque<DecodedFrame>;
+#[derive(Debug, Default)]
+pub(crate) struct FrameBatch {
+    frames: VecDeque<DecodedFrame>,
+    pub(crate) discarded: usize,
+}
+
+impl FrameBatch {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            frames: VecDeque::with_capacity(capacity),
+            discarded: 0,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.frames.clear();
+        self.discarded = 0;
+    }
+}
+
+impl std::ops::Deref for FrameBatch {
+    type Target = VecDeque<DecodedFrame>;
+    fn deref(&self) -> &Self::Target {
+        &self.frames
+    }
+}
+impl std::ops::DerefMut for FrameBatch {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.frames
+    }
+}
+#[cfg(test)]
+impl From<Vec<DecodedFrame>> for FrameBatch {
+    fn from(frames: Vec<DecodedFrame>) -> Self {
+        Self {
+            frames: frames.into(),
+            discarded: 0,
+        }
+    }
+}
+#[cfg(test)]
+impl From<VecDeque<DecodedFrame>> for FrameBatch {
+    fn from(frames: VecDeque<DecodedFrame>) -> Self {
+        Self {
+            frames,
+            discarded: 0,
+        }
+    }
+}
 
 /// Closed receive verdict. Only the adapter classifies transport evidence;
 /// the shell executes this decision without inspecting the error again.
@@ -569,7 +627,7 @@ pub(crate) enum NoProgressReason {
 #[derive(Debug)]
 pub(crate) enum ReceiveFatal {
     TransportClosed { cause: Option<Error> },
-    FramingFailure { cause: Error },
+    FramingFailure { cause: Error, discarded: usize },
 }
 
 impl OwnerReceive {
@@ -610,9 +668,21 @@ impl OwnerReceive {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn consumed_error(error: Error, transport: TransportKind) -> Self {
+        Self::consumed_error_with_discards(error, transport, 0)
+    }
+
+    pub(crate) fn consumed_error_with_discards(
+        error: Error,
+        transport: TransportKind,
+        discarded: usize,
+    ) -> Self {
         match transport {
-            TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure { cause: error }),
+            TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure {
+                cause: error,
+                discarded,
+            }),
             TransportKind::Datagram => Self::NoProgress(NoProgressReason::MalformedDatagram),
         }
     }
@@ -812,8 +882,22 @@ impl TerminalSlot {
             (Self::Inquiry(cell), RuntimeOutcome::Inquiry(outcome)) => cell.resolve_at(outcome, at),
             #[cfg(test)]
             (Self::Test(cell), outcome) => cell.resolve_at(outcome, at),
-            _ => unreachable!("an admitted request and its terminal effect have the same lane"),
+            // Typed staging prevents a mismatch at the admission boundary.
+            // If an internal producer ever violates that invariant, resolve
+            // the actual observer with an error instead of unwinding the owner.
+            (Self::Command(cell), RuntimeOutcome::Inquiry(_)) => {
+                cell.resolve_at(CommandOutcome::Failed(terminal_lane_mismatch()), at)
+            }
+            (Self::Inquiry(cell), RuntimeOutcome::Command(_)) => {
+                cell.resolve_at(InquiryOutcome::Failed(terminal_lane_mismatch()), at)
+            }
         }
+    }
+}
+
+fn terminal_lane_mismatch() -> Error {
+    Error::InvalidState {
+        reason: "terminal outcome lane disagrees with its admitted request".into(),
     }
 }
 
@@ -1189,23 +1273,19 @@ struct DiagnosticSubscriber {
     sender: flume::Sender<DiagnosticEvent>,
 }
 
-/// Reused for every write/read/framing operation. Capacities never grow after
-/// construction; over-size input is rejected before mutation.
+/// Reused for every write/read/framing operation. Wire and receive capacities
+/// are bounded at construction; over-size input is rejected before mutation.
+/// Effect storage retains its warmed capacity across complete drive turns.
 #[derive(Debug)]
 pub(crate) struct OwnerBuffers {
     send: Vec<u8>,
     transmit: BytesMut,
     receive: Box<[u8]>,
     frames: FrameBatch,
-    /// Count of delimited-but-unclassifiable frames the last stream decode
-    /// discarded as malformed (#672). It is a side channel from the shared
-    /// decode, which owns the framer but not the owner's diagnostics, back to
-    /// the owner: the owner takes it after each decode and records one
-    /// `Ignored(MalformedFrame)` per discarded frame. A genuine framing-position
-    /// loss stays a decode `Err` and still poisons; this counts only the frames
-    /// a byte stream tolerated and kept running past, exactly as a datagram
-    /// already discards a malformed frame.
-    discarded_malformed: usize,
+    /// Lent to each engine decision and kept warm between turns.
+    effect_scratch: Vec<Effect>,
+    /// Lent to the mode-native drive loop and returned before continuation.
+    effects: VecDeque<Effect>,
 }
 
 impl OwnerBuffers {
@@ -1220,27 +1300,31 @@ impl OwnerBuffers {
             transmit: BytesMut::with_capacity(MAX_BYTES.saturating_add(8)),
             receive: vec![0; limits.receive_bytes].into_boxed_slice(),
             frames: FrameBatch::with_capacity(limits.frames_per_receive),
-            discarded_malformed: 0,
+            effect_scratch: Vec::new(),
+            effects: VecDeque::new(),
         })
     }
 
-    /// Records how many malformed frames the current decode discarded. Called by
-    /// the shared decode; overwrites (never accumulates) so a value only ever
-    /// reflects the most recent decode.
-    pub(crate) fn set_discarded_malformed(&mut self, count: usize) {
-        self.discarded_malformed = count;
+    /// Lend the warmed drive queue after appending this decision's effects.
+    fn take_effects(&mut self) -> VecDeque<Effect> {
+        let mut effects = std::mem::take(&mut self.effects);
+        effects.extend(self.effect_scratch.drain(..));
+        effects
     }
 
-    /// Takes and clears the malformed-frame discard count from the last decode.
-    pub(crate) fn take_discarded_malformed(&mut self) -> usize {
-        std::mem::take(&mut self.discarded_malformed)
+    /// A continuation may reuse the queue only after its drive has finished.
+    pub(super) fn recycle_effects(&mut self, mut effects: VecDeque<Effect>) {
+        effects.clear();
+        if effects.capacity() > self.effects.capacity() {
+            self.effects = effects;
+        }
     }
 
-    /// Peeks the malformed-frame discard count without clearing it, so a drain
-    /// pass can decide it made progress and hand the count on to the owner.
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn discarded_malformed(&self) -> usize {
-        self.discarded_malformed
+    /// Recursive write/expiry results must precede effects already queued.
+    fn prepend_effects(&mut self, effects: &mut VecDeque<Effect>) {
+        for effect in self.effect_scratch.drain(..).rev() {
+            effects.push_front(effect);
+        }
     }
 
     fn prepare(&mut self, transmission: &Transmission) -> Result<(&[u8], &mut BytesMut), Error> {
@@ -1347,7 +1431,7 @@ pub(crate) struct StagedWrite {
 /// The engine token is intentionally opaque here so blocking and async owners
 /// cannot manufacture a different timestamp for recursive write completions.
 #[derive(Debug)]
-pub(crate) struct OwnerInputTurn(InputTurn, Instant);
+pub(crate) struct OwnerInputTurn(InputTurn);
 
 impl StagedWrite {
     fn framing(&self) -> &WriteFraming {
@@ -1372,6 +1456,7 @@ pub(crate) enum AppliedEffect {
     #[cfg(test)]
     AdmissionRejected(Error),
     Transmit(StagedWrite),
+    SessionEnded(Error),
 }
 
 /// The owner's live operational tuning, shared with every handle that prepares
@@ -1455,7 +1540,6 @@ pub(crate) enum RawReleaseResolution {
 #[derive(Debug)]
 pub(crate) struct OwnerState {
     engine: ProtocolEngine,
-    observed_at: Instant,
     policy: OwnerPolicy,
     tuning: LiveTuning,
     permits: AdmissionPermitPool,
@@ -1499,7 +1583,6 @@ impl OwnerState {
         let tuning = LiveTuning::new(policy.tuning);
         Ok(Self {
             engine,
-            observed_at: now,
             policy,
             tuning,
             permits,
@@ -1581,7 +1664,7 @@ impl OwnerState {
     }
 
     pub(crate) fn boundary_error(&self) -> Option<Error> {
-        self.engine.terminal_error()
+        self.engine.terminal_error().cloned()
     }
 
     /// Whether `id` is still an active request: admitted, and its terminal
@@ -1729,20 +1812,21 @@ impl OwnerState {
                                 .into(),
                         });
                     }
-                    let _ = self.apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+                    self.record_ignored(IgnoreReason::MalformedFrame);
                 }
             }
         }
     }
 
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
-        self.observed_at = now;
         self.observe_input(&input);
-        self.engine.handle(input, now).into()
+        self.engine
+            .handle_into(input, now, &mut self.buffers.effect_scratch);
+        self.buffers.take_effects()
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
-        OwnerInputTurn(self.engine.begin_input_turn(now), now)
+        OwnerInputTurn(self.engine.begin_input_turn(now))
     }
 
     /// Applies an input in an active decoded-input turn without running due
@@ -1753,9 +1837,10 @@ impl OwnerState {
         turn: &OwnerInputTurn,
         input: Input,
     ) -> VecDeque<Effect> {
-        self.observed_at = turn.1;
         self.observe_input(&input);
-        self.engine.handle_in_turn(&turn.0, input).into()
+        self.engine
+            .handle_in_turn_into(&turn.0, input, &mut self.buffers.effect_scratch);
+        self.buffers.take_effects()
     }
 
     pub(crate) fn finish_input_turn(
@@ -1763,8 +1848,21 @@ impl OwnerState {
         turn: OwnerInputTurn,
         engine_turn: EngineTurn,
     ) -> VecDeque<Effect> {
-        self.observed_at = turn.1;
-        self.engine.finish_input_turn(turn.0, engine_turn).into()
+        self.engine
+            .finish_input_turn_into(turn.0, engine_turn, &mut self.buffers.effect_scratch);
+        self.buffers.take_effects()
+    }
+
+    /// Complete an input-only decision after its already queued source effects.
+    pub(super) fn finish_input_turn_into(
+        &mut self,
+        turn: OwnerInputTurn,
+        engine_turn: EngineTurn,
+        effects: &mut VecDeque<Effect>,
+    ) {
+        self.engine
+            .finish_input_turn_into(turn.0, engine_turn, &mut self.buffers.effect_scratch);
+        effects.extend(self.buffers.effect_scratch.drain(..));
     }
 
     fn observe_input(&mut self, input: &Input) {
@@ -1788,10 +1886,12 @@ impl OwnerState {
     }
 
     pub(crate) fn advance(&mut self, now: Instant) -> VecDeque<Effect> {
-        self.observed_at = now;
-        self.engine.advance(now).into()
+        self.engine
+            .advance_into(now, &mut self.buffers.effect_scratch);
+        self.buffers.take_effects()
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_write(
         &mut self,
         staged: &StagedWrite,
@@ -1801,6 +1901,7 @@ impl OwnerState {
         self.finish_write_turn(staged, result, now, EngineTurn::Complete)
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_write_turn(
         &mut self,
         staged: &StagedWrite,
@@ -1808,41 +1909,69 @@ impl OwnerState {
         now: Instant,
         turn: EngineTurn,
     ) -> VecDeque<Effect> {
-        self.observed_at = now;
+        let mut effects = self.buffers.take_effects();
+        self.finish_write_turn_into(staged, result, now, turn, &mut effects);
+        effects
+    }
+
+    pub(super) fn finish_write_turn_into(
+        &mut self,
+        staged: &StagedWrite,
+        result: WriteOutcome,
+        now: Instant,
+        turn: EngineTurn,
+        effects: &mut VecDeque<Effect>,
+    ) {
         self.observe_write(staged, &result);
-        self.engine
-            .handle_turn(
-                Input::TransmissionFinished {
-                    request: staged.request,
-                    transmission: staged.transmission,
-                    result,
-                },
-                now,
-                turn,
-            )
-            .into()
+        self.engine.handle_turn_into(
+            Input::TransmissionFinished {
+                request: staged.request,
+                transmission: staged.transmission,
+                result,
+            },
+            now,
+            turn,
+            &mut self.buffers.effect_scratch,
+        );
+        self.buffers.prepend_effects(effects);
     }
 
     /// Records and applies an identified write result in the same decoded-input
     /// turn that produced it, without allowing deadlines between source frames.
-    pub(crate) fn finish_write_in_turn(
+    pub(super) fn finish_write_in_turn_into(
         &mut self,
         turn: &OwnerInputTurn,
         staged: &StagedWrite,
         result: WriteOutcome,
-    ) -> VecDeque<Effect> {
-        self.observed_at = turn.1;
+        effects: &mut VecDeque<Effect>,
+    ) {
         self.observe_write(staged, &result);
-        self.engine
-            .handle_in_turn(
-                &turn.0,
-                Input::TransmissionFinished {
-                    request: staged.request,
-                    transmission: staged.transmission,
-                    result,
-                },
-            )
-            .into()
+        self.engine.handle_in_turn_into(
+            &turn.0,
+            Input::TransmissionFinished {
+                request: staged.request,
+                transmission: staged.transmission,
+                result,
+            },
+            &mut self.buffers.effect_scratch,
+        );
+        self.buffers.prepend_effects(effects);
+    }
+
+    pub(super) fn expire_unwritten_halt_into(
+        &mut self,
+        staged: &StagedWrite,
+        now: Instant,
+        effects: &mut VecDeque<Effect>,
+    ) -> bool {
+        let expired = self.engine.expire_unwritten_halt_into(
+            staged.request,
+            staged.transmission,
+            now,
+            &mut self.buffers.effect_scratch,
+        );
+        self.buffers.prepend_effects(effects);
+        expired
     }
 
     fn observe_write(&mut self, staged: &StagedWrite, result: &WriteOutcome) {
@@ -1872,7 +2001,6 @@ impl OwnerState {
         permit: AdmissionPermit,
         observer: impl Into<TerminalSlot>,
     ) -> Result<Admitted, Error> {
-        self.observed_at = turn.1;
         let summary = RequestSummary::new(&request);
         let context = *request.context();
         let slot = permit.slot();
@@ -1932,17 +2060,15 @@ impl OwnerState {
     /// that failed without ending the operation, which reaches the handle's
     /// cancellation observer. The operation's terminal slot is untouched
     /// either way (#777).
-    fn cancellation_failed(&mut self, id: RequestId, error: Error) {
+    fn cancellation_failed(&mut self, id: RequestId, error: Error, delivered_at: Instant) {
         let Some(active) = self.active.get_mut(&id) else {
             return;
         };
         match &active.cancellation {
             Some(CancellationIntent::Recorded(observer)) => {
                 if matches!(
-                    observer.resolve_at(
-                        Error::cancellation_observation_failed(error),
-                        self.observed_at
-                    ),
+                    observer
+                        .resolve_at(Error::cancellation_observation_failed(error), delivered_at),
                     ObserverResolution::ReceiverLost
                 ) {
                     self.metrics.dropped_observer_events =
@@ -1963,23 +2089,28 @@ impl OwnerState {
         now: Instant,
     ) -> (VecDeque<Effect>, Result<(), Error>) {
         let Some(active) = self.active.get_mut(&request.id) else {
-            return (VecDeque::new(), Ok(()));
+            return (self.buffers.take_effects(), Ok(()));
         };
         if active.cancellation.is_some() {
-            return (VecDeque::new(), Ok(()));
+            return (self.buffers.take_effects(), Ok(()));
         }
         active.cancellation = Some(CancellationIntent::Requested(request.observer));
-        self.observed_at = now;
         let turn = self.engine.begin_input_turn(now);
-        let (mut effects, answer) = self.engine.cancel_in_turn(&turn, request.id);
+        let answer =
+            self.engine
+                .cancel_in_turn_into(&turn, request.id, &mut self.buffers.effect_scratch);
         if answer.is_err() {
             // A refusal records no intent; the original operation stays live.
             if let Some(active) = self.active.get_mut(&request.id) {
                 active.cancellation = None;
             }
         }
-        effects.extend(self.engine.finish_input_turn(turn, EngineTurn::Complete));
-        (effects.into(), answer)
+        self.engine.finish_input_turn_into(
+            turn,
+            EngineTurn::Complete,
+            &mut self.buffers.effect_scratch,
+        );
+        (self.buffers.take_effects(), answer)
     }
 
     #[cfg(any(feature = "async", feature = "blocking", test))]
@@ -2112,7 +2243,7 @@ impl OwnerState {
     /// `Transmit` is returned to the caller and must be executed immediately;
     /// its exact `TransmissionFinished` effects are prepended before processing
     /// any previously queued effect or unrelated boundary input.
-    pub(crate) fn apply_effect(&mut self, effect: Effect) -> AppliedEffect {
+    pub(crate) fn apply_effect(&mut self, effect: Effect, delivered_at: Instant) -> AppliedEffect {
         match effect {
             // Admission effects are emitted only by test compatibility shims;
             // production admission installs its owner record synchronously.
@@ -2196,7 +2327,7 @@ impl OwnerState {
                     | CancellationObservation::Cancelled
                     | CancellationObservation::Completed => self.mark_cancellation_recorded(id),
                     CancellationObservation::Failed(error) => {
-                        self.cancellation_failed(id, error);
+                        self.cancellation_failed(id, error, delivered_at);
                     }
                 }
                 if let Some(target) = target {
@@ -2227,7 +2358,7 @@ impl OwnerState {
                 if let Some(active) = self.active.remove(&id) {
                     let target = active.summary.target;
                     if matches!(
-                        active.observer.resolve_at(outcome, self.observed_at),
+                        active.observer.resolve_at(outcome, delivered_at),
                         ObserverResolution::ReceiverLost
                     ) {
                         self.metrics.dropped_observer_events =
@@ -2243,44 +2374,42 @@ impl OwnerState {
                 self.metrics.terminal = self.metrics.terminal.saturating_add(1);
                 AppliedEffect::None
             }
-            Effect::SessionChanged { from, to } => {
-                // The engine records the exact cause before emitting this
-                // transition, including engine-initiated stream poison.
-                let reason = self
-                    .engine
-                    .terminal_error()
-                    .as_ref()
-                    .map_or(ErrorKind::Other, Error::kind);
+            Effect::SessionEnded(end) => {
                 self.record(DiagnosticEvent::SessionChanged {
-                    from: crate::observability::SessionStatus::from_engine(from),
-                    to: crate::observability::SessionStatus::from_engine(to),
-                    reason,
+                    from: crate::observability::SessionStatus::Running,
+                    to: crate::observability::SessionStatus::from_engine(end.status.state()),
+                    reason: end.cause.kind(),
                 });
-                AppliedEffect::None
+                AppliedEffect::SessionEnded(end.cause)
             }
             Effect::Ignored(reason) => {
-                if reason == IgnoreReason::UnmatchedSequencedFrame {
-                    self.metrics.ignored_unmatched_sequenced_replies = self
-                        .metrics
-                        .ignored_unmatched_sequenced_replies
-                        .saturating_add(1);
-                }
-                if reason == IgnoreReason::MalformedFrame {
-                    self.metrics.ignored_malformed_frames =
-                        self.metrics.ignored_malformed_frames.saturating_add(1);
-                }
-                if reason == IgnoreReason::ReplyShapeMismatch {
-                    self.metrics.ignored_reply_shape_mismatches = self
-                        .metrics
-                        .ignored_reply_shape_mismatches
-                        .saturating_add(1);
-                }
-                self.record(DiagnosticEvent::Ignored {
-                    reason: diagnostics::ignored(reason),
-                });
+                self.record_ignored(reason);
                 AppliedEffect::None
             }
         }
+    }
+
+    /// Record a discarded frame without selecting a terminal delivery instant.
+    pub(super) fn record_ignored(&mut self, reason: IgnoreReason) {
+        if reason == IgnoreReason::UnmatchedSequencedFrame {
+            self.metrics.ignored_unmatched_sequenced_replies = self
+                .metrics
+                .ignored_unmatched_sequenced_replies
+                .saturating_add(1);
+        }
+        if reason == IgnoreReason::MalformedFrame {
+            self.metrics.ignored_malformed_frames =
+                self.metrics.ignored_malformed_frames.saturating_add(1);
+        }
+        if reason == IgnoreReason::ReplyShapeMismatch {
+            self.metrics.ignored_reply_shape_mismatches = self
+                .metrics
+                .ignored_reply_shape_mismatches
+                .saturating_add(1);
+        }
+        self.record(DiagnosticEvent::Ignored {
+            reason: diagnostics::ignored(reason),
+        });
     }
 
     // Consumed only by the async actor's boundary drain (#636).
@@ -2398,7 +2527,8 @@ pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
     }
 }
 
-/// Prepend recursively produced effects while preserving their source order.
+/// Prepend test-driver effects while preserving their source order.
+#[cfg(test)]
 pub(crate) fn prepend_effects(queue: &mut VecDeque<Effect>, produced: VecDeque<Effect>) {
     for effect in produced.into_iter().rev() {
         queue.push_front(effect);

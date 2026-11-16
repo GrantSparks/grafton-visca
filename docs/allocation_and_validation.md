@@ -31,6 +31,11 @@ The following boundaries are release gates:
   awaiting ACK, or after active retry-budget expiry in `Sending`, `AwaitingAck`,
   `AwaitingCompletion`, or `Executing`; ambiguity is never converted into a
   replay merely to preserve this allocation property.
+* Engine decisions append effects into owner-owned scratch storage, and the
+  owner drains and recycles its warmed drive queue. Dispatch, write-result,
+  ACK/completion and harmless frame turns allocate no effect storage after
+  warm-up. Per-request admission and bounded completion-observer storage remain
+  lifecycle allocations, separate from the protocol-turn guarantee.
 * Async owners retain their four read, write, pacing and wake timers for the
   actor lifetime. A turn resets an existing timer instead of constructing a
   fresh timer future.
@@ -67,6 +72,7 @@ The stable test boundaries are:
 | Pure built-in command and inquiry preparation | `tests/issue_548_allocation_baselines.rs::built_in_command_and_inquiry_preparation_stay_inline`, through `testing::preparation` with `test-utils` |
 | Profile-aware position preparation and decoder cloning | `tests/issue_548_allocation_baselines.rs::profiled_position_inquiry_preparation_and_decoder_clones_stay_inline`, for G2, BRC-300 and FR7 |
 | Warmed receive lowering, decoding and batch recycling | `tests/issue_548_allocation_baselines.rs::warmed_receive_decoding_and_batch_recycling_do_not_allocate`, through `testing::receive::ReceiveProbe` for raw/Sony streams and datagrams |
+| Warmed engine decisions and complete owner command/frame turns | `tests/issue_548_allocation_baselines.rs::warmed_owner_command_and_frame_turns_do_not_allocate`, through `testing::turns::TurnProbe`; raw/Sony streams and datagrams run the production turn driver, recursive exact-write handling, ACK/completion and terminal delivery. Admission and the bounded observer queue are staged outside the measurement. |
 | Warmed raw/Sony framing reuse | `tests/issue_548_allocation_baselines.rs`, framing test near the end of the file |
 | Safe retry encoded-command reuse | `runtime::engine` unit test `inert_wire_is_inline_and_reused_across_retry_without_reallocation`, plus `runtime::owner` unit test `warmed_raw_and_sony_retries_reuse_owner_buffers`; raw coverage must be limited to conclusive rejection, never ambiguity or active-budget expiry |
 | Warmed owner-thread executor timer reset | `tests/issue_548_allocation_baselines.rs::{warmed_tokio_timer_resets_do_not_allocate,warmed_smol_timer_resets_do_not_allocate,warmed_manual_clock_timer_resets_do_not_allocate}`. The generic executor checks keep timers pending; ManualClock additionally checks immediate wakes, completed rearming and duplicate pending resets with a retained noop waker. Its wake batch stores four wakes inline; larger fanouts may spill. The actual runtime-free `ManualClockExecutor::local` retains four factories across forty applied commands, control and idle turns in `tests/issue_866_owner_timers.rs::local_manual_clock_actor_reuses_four_timer_factories`; `owner_turns_reuse_the_same_four_manual_timers` also covers the private owner clock fixture. |

@@ -27,10 +27,6 @@ pub enum PanTiltWireCodec {
 impl PanTiltWireCodec {
     /// Complete size of this grammar's longest position or limit frame.
     pub(crate) const fn maximum_position_frame_bytes(self) -> usize {
-        match self {
-            Self::StandardVisca => 15,
-            Self::SonyBrc300 => 16,
-            Self::SonyFr7 => 17,
-        }
+        self.position_framing().maximum_position_frame_bytes()
     }
 }

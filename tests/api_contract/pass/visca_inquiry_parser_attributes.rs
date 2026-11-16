@@ -11,7 +11,7 @@ struct ModeInquiry;
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
 #[visca(
     opcode = 0x4B, response = Iris,
-    typed_response = u8, typed_field = position
+    typed_response = grafton_visca::types::IrisLevel, typed_field = position
 )]
 struct NibbleInquiry;
 
@@ -38,7 +38,7 @@ fn main() {
         NibbleInquiry
             .decoder()
             .decode(&[0x00, 0x00, 0x00, 0x05])
-            .unwrap(),
+            .unwrap().value(),
         5
     );
     assert!(CustomInquiry.decoder().decode(&[0xA5]).unwrap());

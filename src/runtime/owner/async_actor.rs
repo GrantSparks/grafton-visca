@@ -421,7 +421,7 @@ impl AsyncOwnerHandle {
         request: RuntimeRequest,
     ) -> Result<ReceiptCore<super::RuntimeOutcome>, Error> {
         let timeout = test_observer_timeout(&request);
-        self.submit_with_timeout(request, timeout).await
+        self.submit_with_timeout(request.into(), timeout).await
     }
 
     /// Non-waiting admission used by capacity-sensitive owner tests. Failure

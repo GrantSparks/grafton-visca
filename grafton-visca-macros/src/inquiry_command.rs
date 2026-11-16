@@ -50,7 +50,11 @@ struct RawAttributes {
     typed_is_tuple: AttrSlot<()>,
 }
 
-/// How a typed response is built from the destructured inquiry fields.
+/// How a downstream typed response is projected from inquiry fields.
+///
+/// Canonical built-in scalar fields already carry checked values, so their
+/// matching typed response uses `Identity`. Constructor modes remain useful
+/// for custom response types and explicit custom parsers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TypedConstructor {
     /// `Ok(field)`.
@@ -703,7 +707,7 @@ mod tests {
     #[test]
     fn narrowing_is_checked_and_uses_absolute_primitive_and_trait_paths() {
         let tokens = expanded(syn::parse_quote! {
-            #[visca(opcode = 0, response = Iris, typed_response = LocalLevel, typed_field = position, typed_constructor = new_u8)] struct Probe;
+            #[visca(opcode = 0, response = ColorTemperature, parser = Custom, parse_with = custom, typed_response = LocalLevel, typed_field = temperature, typed_constructor = new_u8)] struct Probe;
         });
         assert!(
             tokens.contains(":: core :: primitive :: u8 as :: core :: convert :: TryFrom"),

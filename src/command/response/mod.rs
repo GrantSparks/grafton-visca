@@ -171,11 +171,17 @@ mod tests {
 
     #[test]
     fn test_parse_zoom_position_response() {
-        let zoom_response_bytes = &[0x90, 0x50, 0x0A, 0x0B, 0x0C, 0x0D, VISCA_TERMINATOR];
+        let out_of_range = &[0x90, 0x50, 0x0A, 0x0B, 0x0C, 0x0D, VISCA_TERMINATOR];
+        let error =
+            Response::parse_with_type(out_of_range, &InquiryKind::ZoomPosition).unwrap_err();
+        assert!(matches!(error, Error::InvalidResponse { .. }));
+        assert_eq!(error.kind(), crate::ErrorKind::Protocol);
+
+        let zoom_response_bytes = &[0x90, 0x50, 0x07, 0x0B, 0x0C, 0x0D, VISCA_TERMINATOR];
         let response = Response::parse_with_type(zoom_response_bytes, &InquiryKind::ZoomPosition);
         match response {
             Ok(Response::Inquiry(InquiryData::ZoomPosition { position })) => {
-                assert_eq!(position, 0xABCD);
+                assert_eq!(position.value(), 0x7BCD);
             }
             _ => panic!("Expected ZoomPosition inquiry response"),
         }
@@ -187,7 +193,7 @@ mod tests {
         let response = Response::parse_with_type(focus_response_bytes, &InquiryKind::FocusPosition);
         match response {
             Ok(Response::Inquiry(InquiryData::FocusPosition { position })) => {
-                assert_eq!(position, 0x1234);
+                assert_eq!(position.value(), 0x1234);
             }
             _ => panic!("Expected FocusPosition inquiry response"),
         }
@@ -226,7 +232,7 @@ mod tests {
         let response = Response::parse_with_type(luminance_response_bytes, &InquiryKind::Luminance);
         match response {
             Ok(Response::Inquiry(InquiryData::Luminance { level })) => {
-                assert_eq!(level, 0x00);
+                assert_eq!(level.value(), 0x00);
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
@@ -236,7 +242,7 @@ mod tests {
         let response = Response::parse_with_type(luminance_response_bytes, &InquiryKind::Luminance);
         match response {
             Ok(Response::Inquiry(InquiryData::Luminance { level })) => {
-                assert_eq!(level, 0x07);
+                assert_eq!(level.value(), 0x07);
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
@@ -246,7 +252,7 @@ mod tests {
         let response = Response::parse_with_type(luminance_response_bytes, &InquiryKind::Luminance);
         match response {
             Ok(Response::Inquiry(InquiryData::Luminance { level })) => {
-                assert_eq!(level, 0x0E);
+                assert_eq!(level.value(), 0x0E);
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
@@ -260,7 +266,7 @@ mod tests {
         let response = Response::parse_with_type(contrast_response_bytes, &InquiryKind::Contrast);
         match response {
             Ok(Response::Inquiry(InquiryData::Contrast { level })) => {
-                assert_eq!(level, 0x00);
+                assert_eq!(level.value(), 0x00);
             }
             _ => panic!("Expected Contrast inquiry response"),
         }
@@ -270,7 +276,7 @@ mod tests {
         let response = Response::parse_with_type(contrast_response_bytes, &InquiryKind::Contrast);
         match response {
             Ok(Response::Inquiry(InquiryData::Contrast { level })) => {
-                assert_eq!(level, 0x07);
+                assert_eq!(level.value(), 0x07);
             }
             _ => panic!("Expected Contrast inquiry response"),
         }
@@ -280,7 +286,7 @@ mod tests {
         let response = Response::parse_with_type(contrast_response_bytes, &InquiryKind::Contrast);
         match response {
             Ok(Response::Inquiry(InquiryData::Contrast { level })) => {
-                assert_eq!(level, 0x0E);
+                assert_eq!(level.value(), 0x0E);
             }
             _ => panic!("Expected Contrast inquiry response"),
         }
@@ -321,7 +327,7 @@ mod tests {
             Response::parse_with_type(sharpness_pos_bytes, &InquiryKind::SharpnessPosition);
         match response {
             Ok(Response::Inquiry(InquiryData::SharpnessPosition { position })) => {
-                assert_eq!(position, 0x0003);
+                assert_eq!(position.value(), 0x0003);
             }
             _ => panic!("Expected SharpnessPosition inquiry response"),
         }
@@ -331,12 +337,9 @@ mod tests {
         let sharpness_pos_bytes = &[0x90, 0x50, 0x00, 0x00, 0x01, 0x02, VISCA_TERMINATOR];
         let response =
             Response::parse_with_type(sharpness_pos_bytes, &InquiryKind::SharpnessPosition);
-        match response {
-            Ok(Response::Inquiry(InquiryData::SharpnessPosition { position })) => {
-                assert_eq!(position, 0x12);
-            }
-            _ => panic!("Expected SharpnessPosition inquiry response"),
-        }
+        let error = response.unwrap_err();
+        assert!(matches!(error, Error::InvalidResponse { .. }));
+        assert_eq!(error.kind(), crate::ErrorKind::Protocol);
 
         let sharpness_pos_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR];
         let response =
@@ -355,7 +358,7 @@ mod tests {
             Response::parse_with_type(exp_comp_bytes, &InquiryKind::ExposureCompensation);
         match response {
             Ok(Response::Inquiry(InquiryData::ExposureCompensation { value })) => {
-                assert_eq!(value, -7);
+                assert_eq!(value.value(), -7);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
         }
@@ -366,7 +369,7 @@ mod tests {
             Response::parse_with_type(exp_comp_bytes, &InquiryKind::ExposureCompensation);
         match response {
             Ok(Response::Inquiry(InquiryData::ExposureCompensation { value })) => {
-                assert_eq!(value, 0);
+                assert_eq!(value.value(), 0);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
         }
@@ -377,7 +380,7 @@ mod tests {
             Response::parse_with_type(exp_comp_bytes, &InquiryKind::ExposureCompensation);
         match response {
             Ok(Response::Inquiry(InquiryData::ExposureCompensation { value })) => {
-                assert_eq!(value, 7);
+                assert_eq!(value.value(), 7);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
         }
@@ -412,7 +415,7 @@ mod tests {
         let response = Response::parse_with_type(iris_bytes, &InquiryKind::Iris);
         match response {
             Ok(Response::Inquiry(InquiryData::Iris { position })) => {
-                assert_eq!(position, 0x00);
+                assert_eq!(position.value(), 0x00);
             }
             _ => panic!("Expected Iris inquiry response"),
         }
@@ -422,7 +425,7 @@ mod tests {
         let response = Response::parse_with_type(iris_bytes, &InquiryKind::Iris);
         match response {
             Ok(Response::Inquiry(InquiryData::Iris { position })) => {
-                assert_eq!(position, 0x0C);
+                assert_eq!(position.value(), 0x0C);
             }
             _ => panic!("Expected Iris inquiry response"),
         }
@@ -435,7 +438,7 @@ mod tests {
         let response = Response::parse_with_type(shutter_bytes, &InquiryKind::Shutter);
         match response {
             Ok(Response::Inquiry(InquiryData::Shutter { position })) => {
-                assert_eq!(position, 0x01);
+                assert_eq!(position.value(), 0x01);
             }
             _ => panic!("Expected Shutter inquiry response"),
         }
@@ -445,7 +448,7 @@ mod tests {
         let response = Response::parse_with_type(shutter_bytes, &InquiryKind::Shutter);
         match response {
             Ok(Response::Inquiry(InquiryData::Shutter { position })) => {
-                assert_eq!(position, 0x11);
+                assert_eq!(position.value(), 0x11);
             }
             _ => panic!("Expected Shutter inquiry response"),
         }
@@ -458,7 +461,7 @@ mod tests {
         let response = Response::parse_with_type(gain_bytes, &InquiryKind::Gain);
         match response {
             Ok(Response::Inquiry(InquiryData::Gain { gain })) => {
-                assert_eq!(gain, 0x07);
+                assert_eq!(gain.value(), 0x07);
             }
             _ => panic!("Expected Gain inquiry response"),
         }
@@ -468,7 +471,7 @@ mod tests {
         let response = Response::parse_with_type(gain_limit_bytes, &InquiryKind::GainLimit);
         match response {
             Ok(Response::Inquiry(InquiryData::GainLimit { limit })) => {
-                assert_eq!(limit, 0x0F);
+                assert_eq!(limit.value(), 0x0F);
             }
             _ => panic!("Expected GainLimit inquiry response"),
         }

@@ -88,7 +88,7 @@ fn assert_progress(scenario: Scenario, expected: fn(DueAction) -> bool) {
     assert!(due.at <= now);
     assert!(expected(due.action), "unexpected action: {:?}", due.action);
 
-    engine.apply_due(due, now, &mut Decision::new());
+    engine.apply_due(due, now, &mut Decision::new(&mut Vec::new()));
     assert!(engine
         .entry(id)
         .and_then(|entry| entry.due(id))
@@ -159,7 +159,7 @@ fn late_observation_and_retry_ready_actions_finish_without_another_due_iteration
         let now = Instant::now() + Duration::from_secs(20);
         let due = engine.next_due().unwrap();
 
-        engine.apply_due(due, now, &mut Decision::new());
+        engine.apply_due(due, now, &mut Decision::new(&mut Vec::new()));
         assert!(engine.entry(id).is_none());
     }
 }
@@ -186,7 +186,7 @@ fn immediate_timeout_retries_end_the_action_ready() {
         send_ok(&mut engine, &write, Some(0x1001), now);
         let due = engine.next_due().unwrap();
 
-        engine.apply_due(due, due.at, &mut Decision::new());
+        engine.apply_due(due, due.at, &mut Decision::new(&mut Vec::new()));
         assert!(matches!(phase_of(&engine, id), Some(Phase::Ready)));
         assert!(engine
             .entry(id)
@@ -297,7 +297,7 @@ fn preexisting_requests_make_progress_when_the_clock_reaches_its_last_instant() 
         let (mut engine, id, _) = fixture(scenario);
         let due = engine.next_due().unwrap();
 
-        engine.apply_due(due, latest, &mut Decision::new());
+        engine.apply_due(due, latest, &mut Decision::new(&mut Vec::new()));
         assert!(
             engine.entry(id).is_none(),
             "a finite wait cannot extend beyond the final instant"

@@ -129,6 +129,9 @@ pub fn __noun_signature_types(input: TokenStream) -> TokenStream {
 /// Use `parser = Custom, parse_with = path` for an explicit custom parser.
 /// `data_variant` is available only for a custom parser with `typed_response`.
 /// Typed response paths resolve exactly as written in the deriving scope.
+/// Built-in scalar fields already contain checked values; use the default
+/// identity conversion when `typed_response` names that same checked type.
+/// Constructor modes support downstream projections and custom parsers.
 /// `typed_constructor = new_u8` checks narrowing and rejects overflow with
 /// `InvalidResponse`. Other parser selectors are unsupported: omit `parser`
 /// for canonical decoding, or use `Custom` and the checked payload helpers.

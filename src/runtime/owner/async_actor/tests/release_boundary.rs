@@ -362,7 +362,7 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
     let successor = tokio::spawn(async move {
         expiring_handle
             .submit_with_timeout_until::<RuntimeOutcome>(
-                command(),
+                command().into(),
                 Duration::from_secs(1),
                 deadline,
             )

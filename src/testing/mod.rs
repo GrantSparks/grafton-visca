@@ -78,6 +78,10 @@ pub mod preparation;
 #[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
 pub mod receive;
 
+/// Production engine and owner turn probes.
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+pub mod turns;
+
 /// Internal protocol fuzz entry points.
 #[doc(hidden)]
 #[cfg(all(feature = "test-utils", feature = "blocking"))]

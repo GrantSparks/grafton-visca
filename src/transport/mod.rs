@@ -121,6 +121,8 @@ pub(crate) mod datagram;
 #[cfg(test)]
 mod entry_point_tests;
 pub(crate) mod envelope;
+mod kind;
+pub(crate) use kind::{NetworkTransport, StandardTransport};
 #[path = "serial/config.rs"]
 pub(crate) mod serial_config;
 pub use serial_config::{SerialConfig, SerialStartup};

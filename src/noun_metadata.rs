@@ -145,13 +145,12 @@ macro_rules! project_noun_rows {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
-                dyn_trait: $dyn_trait:ident,
                 gate: $base:tt,
                 doc: $doc:literal $(,)?
             };
             $(
                 $(#[doc = $row_doc:literal])*
-                $kind:ident [$($command:ident)?] $method:ident($($argument:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$($command:ident)?] $method:ident($($(#[$coercion:ident])? $argument:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
@@ -185,7 +184,6 @@ macro_rules! project_motion_rows {
         @motion {
             accessor: $accessor:ident,
             getter: $getter:ident,
-            dyn_trait: $dyn_trait:ident,
             doc: $doc:literal $(,)?
         };
         $(

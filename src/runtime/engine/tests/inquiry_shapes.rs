@@ -312,9 +312,9 @@ impl Session {
                     }
                 }
                 Effect::AdmissionRejected { .. } => self.coverage.rejected += 1,
-                Effect::SessionChanged { to, .. } => {
+                Effect::SessionEnded(end) => {
                     assert_eq!(
-                        to,
+                        end.status.state(),
                         SessionState::Running,
                         "an inquiry workload ended its session"
                     );

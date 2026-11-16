@@ -64,6 +64,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#938): Profile-independent `InquiryData` numeric fields carry
+  checked value types. Canonical wire parsers and derived inquiries reject
+  out-of-domain replies as `InvalidResponse` protocol errors at decoding,
+  consistently with typed camera inquiries. The duplicate
+  `InquiryKind::ExposureCompensationPosition` is removed.
+
+- Blocking and async facade documentation shares the same camera ownership,
+  request admission and operation-handle contracts (#943).
+
+- Engine decisions append effects into retained owner buffers. After warm-up,
+  standard command and frame turns reuse their effect storage without heap
+  allocation; per-request observer storage remains lifecycle storage (#942).
+
 - **BREAKING** (#932): Blocking and async cameras expose the same 249 canonical
   noun methods and 246 request types. Runtime profiles use the normal
   `Camera<AnyProfile>` surface with checks before I/O; the separate `dyn-api`
@@ -512,6 +525,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   helpers. Use `ManualClockExecutor::local` and its `run_until` driver instead.
 
 ### Fixed
+
+- Custom and persisted profiles may advertise a settlement position inquiry
+  only when that inquiry's capability gate permits it. In particular, IRIS
+  settlement requires the `Iris` grant; invalid specs are rejected during
+  validation rather than when a settling operation prepares its query (#937).
+
+- Malformed-frame diagnostics retain every discarded frame when a later
+  framing failure terminates the same receive batch (#941).
 
 - Gain-limit commands accept all documented nibble values, including `0x8..=0xF`,
   on PTZOptics G2, G3 and 30X. Admission uses the gain-limit register domain

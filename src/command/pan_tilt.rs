@@ -548,16 +548,19 @@ mod tests {
 
     #[test]
     fn pan_tilt_word_width_boundaries_round_trip_and_reject_overflow() {
+        use crate::capabilities::{
+            Capabilities, CapabilityRange, EndpointQuantization, PanTiltCaps, TiltRanges,
+        };
+
         for codec in [
             PanTiltWireCodec::StandardVisca,
             PanTiltWireCodec::SonyBrc300,
             PanTiltWireCodec::SonyFr7,
         ] {
-            let framing = PanTiltFraming::new(codec, CoordinateSystem::SignedCentered)
-                .expect("signed framing");
+            let framing = codec.position_framing();
             for (pan, tilt) in [
-                (-framing.pan.maximum() - 1, -framing.tilt.maximum() - 1),
-                (framing.pan.maximum(), framing.tilt.maximum()),
+                (-framing.pan_maximum() - 1, -framing.tilt_maximum() - 1),
+                (framing.pan_maximum(), framing.tilt_maximum()),
             ] {
                 let mut buffer = [0; 12];
                 let count = framing
@@ -576,14 +579,104 @@ mod tests {
                     (pan, tilt)
                 );
             }
-            let mut buffer = [0; 12];
-            assert!(framing
-                .write_offset(
-                    FrameWriter::new(crate::CameraId::CAMERA_1, &mut buffer),
-                    framing.pan.maximum() + 1,
-                    0
+
+            let mut caps = Capabilities::runtime_baseline("Boundary test", 1).expect("baseline");
+            caps.pan_tilt = Some(PanTiltCaps {
+                pan_range: CapabilityRange::<i32>::new(0, 1),
+                tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(0, 1)),
+                pan_speed: CapabilityRange::<u8>::new(1, 8),
+                tilt_speed: CapabilityRange::<u8>::new(1, 8),
+                coordinates: crate::PanTiltCoordinateConversion::new(
+                    CoordinateSystem::SignedCentered,
+                    codec,
+                    1.0,
+                    1.0,
                 )
-                .is_err());
+                .expect("signed conversion"),
+                endpoint_quantization: EndpointQuantization::Exact,
+                simultaneous: true,
+                preset_recovery_time: std::time::Duration::ZERO,
+                variable_speed: false,
+                motion_sync_speed_range: None,
+            });
+            for (pan_axis, word) in [(true, framing.pan), (false, framing.tilt)] {
+                for (value, accepted) in [
+                    (-word.maximum() - 2, false),
+                    (-word.maximum() - 1, true),
+                    (-word.maximum(), true),
+                    (word.maximum(), true),
+                    (word.maximum() + 1, false),
+                ] {
+                    let mut candidate = caps.clone();
+                    let domain = candidate.pan_tilt.as_mut().expect("pan/tilt domain");
+                    let range = CapabilityRange::<i32>::new(value.min(0), value.max(0));
+                    if pan_axis {
+                        domain.pan_range = range;
+                    } else {
+                        domain.tilt_ranges = TiltRanges::Single(range);
+                    }
+                    assert_eq!(
+                        candidate.validate_domains().is_ok(),
+                        accepted,
+                        "{codec:?}, pan axis {pan_axis}, value {value}"
+                    );
+                    let mut buffer = [0; 7];
+                    assert_eq!(
+                        word.write(
+                            FrameWriter::new(crate::CameraId::CAMERA_1, &mut buffer),
+                            value
+                        )
+                        .is_ok(),
+                        accepted,
+                        "encoder {codec:?}, pan axis {pan_axis}, value {value}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn longest_position_and_limit_frames_match_the_derived_capacity() {
+        for (codec, expected) in [
+            (PanTiltWireCodec::StandardVisca, 15),
+            (PanTiltWireCodec::SonyBrc300, 16),
+            (PanTiltWireCodec::SonyFr7, 17),
+        ] {
+            let framing = codec.position_framing();
+            let speeds = framing
+                .move_speeds(
+                    PanSpeed::new(9).expect("pan"),
+                    TiltSpeed::new(9).expect("tilt"),
+                )
+                .expect("matching speeds");
+            for command in [
+                PanTiltProfiled::AbsolutePosition {
+                    framing,
+                    pan: framing.pan_maximum(),
+                    tilt: framing.tilt_maximum(),
+                    speeds,
+                },
+                PanTiltProfiled::RelativePosition {
+                    framing,
+                    pan: -framing.pan_maximum() - 1,
+                    tilt: -framing.tilt_maximum() - 1,
+                    speeds,
+                },
+                PanTiltProfiled::LimitSet {
+                    framing,
+                    corner: PanTiltLimitCorner::UpRight,
+                    pan: framing.pan_maximum(),
+                    tilt: framing.tilt_maximum(),
+                },
+                PanTiltProfiled::LimitClear {
+                    codec,
+                    corner: PanTiltLimitCorner::UpRight,
+                },
+            ] {
+                let bytes = profiled_bytes(command);
+                assert_eq!(bytes.len(), expected, "{command:?}");
+                assert_eq!(bytes.len(), codec.maximum_position_frame_bytes());
+            }
         }
     }
 
@@ -775,6 +868,9 @@ pub(crate) enum MoveSpeeds {
 }
 
 impl MoveSpeeds {
+    // Paired speeds and the single-speed-plus-zero layout occupy the same space.
+    const WIRE_BYTES: usize = 2;
+
     pub(crate) const fn values(self) -> (u8, u8) {
         match self {
             Self::Paired { pan, tilt } => (pan.value(), tilt.value()),
@@ -783,10 +879,11 @@ impl MoveSpeeds {
     }
 
     fn write(self, frame: FrameWriter<'_>) -> FrameWriter<'_> {
-        match self {
-            Self::Paired { pan, tilt } => frame.byte(pan.value()).byte(tilt.value()),
-            Self::Single(speed) => frame.byte(speed.value()).byte(0),
-        }
+        let bytes: [u8; Self::WIRE_BYTES] = match self {
+            Self::Paired { pan, tilt } => [pan.value(), tilt.value()],
+            Self::Single(speed) => [speed.value(), 0],
+        };
+        frame.bytes(&bytes)
     }
 }
 
@@ -839,6 +936,23 @@ impl PanTiltFraming {
             tilt,
             single_speed,
         }
+    }
+
+    /// Signed position bounds used by both profile validation and encoding.
+    pub(crate) const fn pan_maximum(self) -> i32 {
+        self.pan.maximum()
+    }
+
+    pub(crate) const fn tilt_maximum(self) -> i32 {
+        self.tilt.maximum()
+    }
+
+    /// Complete longest position/limit frame, including address and terminator.
+    pub(crate) const fn maximum_position_frame_bytes(self) -> usize {
+        let position = pan_tilt::ABSOLUTE.len() + MoveSpeeds::WIRE_BYTES;
+        let limit = pan_tilt::LIMIT_SET.len() + 1; // Corner selector.
+        let prefix = if position > limit { position } else { limit };
+        1 + prefix + self.position_nibbles() + 1
     }
 
     /// Build the only speed shape that the selected grammar can encode.
@@ -912,6 +1026,20 @@ impl PanTiltFraming {
         }
     }
 }
+
+impl PanTiltWireCodec {
+    pub(crate) const fn position_framing(self) -> PanTiltFraming {
+        PanTiltFraming::select(self, CoordinateSystem::SignedCentered)
+    }
+}
+
+// Current published grammars have these complete frame sizes. A layout change
+// must deliberately update the capacity contract as well as the wire golden.
+const _: () = {
+    assert!(PanTiltWireCodec::StandardVisca.maximum_position_frame_bytes() == 15);
+    assert!(PanTiltWireCodec::SonyBrc300.maximum_position_frame_bytes() == 16);
+    assert!(PanTiltWireCodec::SonyFr7.maximum_position_frame_bytes() == 17);
+};
 
 impl WireEncode for PanTiltProfiled {
     fn write_into(

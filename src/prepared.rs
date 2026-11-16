@@ -11,13 +11,7 @@ use crate::session_config::ValidatedTuning;
 use crate::CameraId;
 use crate::{
     camera::{MotionQuery, MovementTolerance, PanTiltUnits},
-    command::{
-        inquiry::{
-            FocusPositionInquiry, IrisInquiry, NdFilterInquiry, PanTiltPositionInquiry,
-            ZoomPositionInquiry,
-        },
-        NdFilterDensity,
-    },
+    command::NdFilterDensity,
     completion,
     profiles::{RetryBounds, DEFAULT_RETRY_BASE},
     target::TargetSlot,
@@ -30,9 +24,13 @@ use crate::{Error, Result};
 
 use crate::raw::MAX_BYTES;
 use crate::runtime::engine::{
-    AppliedStateProjection, CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape,
-    RequestContext, RetryPolicy, RuntimeRequest, TimeoutPolicy,
+    AppliedStateProjection, CancellationPolicy, CommandOutcome, ControlPolicy, EncodedMessage,
+    InquiryOutcome, ReplyShape, RequestContext, RetryPolicy, TimeoutPolicy,
 };
+
+#[cfg(test)]
+use crate::runtime::engine::RuntimeRequest;
+use crate::runtime::owner::LaneRequest;
 
 /// How one submission's scheduling lane is chosen.
 ///
@@ -214,101 +212,55 @@ impl<R: PositionReading> PositionQuery<R> {
     }
 }
 
-/// Complete set of typed position inquiries selected for one operation.
-#[derive(Debug, Clone)]
-pub(crate) struct PositionQueryPlan {
-    pub(crate) pan_tilt: Option<PositionQuery<PanTiltUnits>>,
-    pub(crate) zoom: Option<PositionQuery<ZoomPosition>>,
-    pub(crate) focus: Option<PositionQuery<FocusPosition>>,
-    pub(crate) iris: Option<PositionQuery<IrisLevel>>,
-    pub(crate) nd_filter: Option<PositionQuery<NdFilterDensity>>,
-}
+/// Generates typed polling storage, budgeting and preparation from the same
+/// axis-to-inquiry declaration that validates profile settlement availability.
+macro_rules! position_query_plan {
+    ($($axis:ident, $field:ident => $inquiry:ident;)*) => {
+        /// Complete set of typed position inquiries selected for one operation.
+        #[derive(Debug, Clone)]
+        pub(crate) struct PositionQueryPlan {
+            $(pub(crate) $field: Option<PositionQuery<
+                <crate::command::inquiry::$inquiry as Inquiry>::Response,
+            >>,)*
+        }
 
-impl PositionQueryPlan {
-    /// Budget one complete sample from the exact inquiries the plan lowers.
-    /// Each inquiry's observer covers its own retry budget, and pacing may
-    /// delay its admission after the preceding query.
-    fn snapshot_budget(&self) -> Option<Duration> {
-        [
-            self.pan_tilt.as_ref().map(|query| &query.inquiry.context),
-            self.zoom.as_ref().map(|query| &query.inquiry.context),
-            self.focus.as_ref().map(|query| &query.inquiry.context),
-            self.iris.as_ref().map(|query| &query.inquiry.context),
-            self.nd_filter.as_ref().map(|query| &query.inquiry.context),
-        ]
-        .into_iter()
-        .flatten()
-        .try_fold(Duration::ZERO, |budget, context| {
-            budget
-                .checked_add(observation_timeout(context, context.timeout.inquiry.get()))?
-                .checked_add(context.control.minimum_spacing)
-        })
-    }
+        impl PositionQueryPlan {
+            /// Budget one complete sample from the exact inquiries the plan lowers.
+            /// Each inquiry's observer covers its own retry budget, and pacing may
+            /// delay its admission after the preceding query.
+            fn snapshot_budget(&self) -> Option<Duration> {
+                [$(self.$field.as_ref().map(|query| &query.inquiry.context),)*]
+                    .into_iter()
+                    .flatten()
+                    .try_fold(Duration::ZERO, |budget, context| {
+                        budget
+                            .checked_add(observation_timeout(context, context.timeout.inquiry.get()))?
+                            .checked_add(context.control.minimum_spacing)
+                    })
+            }
 
-    fn prepare(
-        registration: &crate::TargetRegistration,
-        tuning: ValidatedTuning,
-        axes: AffectedAxes,
-    ) -> Result<Self> {
-        Ok(Self {
-            pan_tilt: axes
-                .contains(AffectedAxes::PAN_TILT)
-                .then(|| {
-                    prepare_inquiry(
-                        &PanTiltPositionInquiry,
-                        registration,
-                        tuning,
-                        ClassSelection::Request,
-                    )
+            fn prepare(
+                registration: &crate::TargetRegistration,
+                tuning: ValidatedTuning,
+                axes: AffectedAxes,
+            ) -> Result<Self> {
+                Ok(Self {
+                    $($field: axes.iter()
+                        .any(|axis| axis == crate::requests::AffectedAxis::$axis)
+                        .then(|| prepare_inquiry(
+                            &crate::command::inquiry::$inquiry,
+                            registration,
+                            tuning,
+                            ClassSelection::Request,
+                        ))
+                        .transpose()?
+                        .map(|prepared| PositionQuery::new(prepared.into_template())),)*
                 })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-            zoom: axes
-                .contains(AffectedAxes::ZOOM)
-                .then(|| {
-                    prepare_inquiry(
-                        &ZoomPositionInquiry,
-                        registration,
-                        tuning,
-                        ClassSelection::Request,
-                    )
-                })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-            focus: axes
-                .contains(AffectedAxes::FOCUS)
-                .then(|| {
-                    prepare_inquiry(
-                        &FocusPositionInquiry,
-                        registration,
-                        tuning,
-                        ClassSelection::Request,
-                    )
-                })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-            iris: axes
-                .contains(AffectedAxes::IRIS)
-                .then(|| {
-                    prepare_inquiry(&IrisInquiry, registration, tuning, ClassSelection::Request)
-                })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-            nd_filter: axes
-                .contains(AffectedAxes::ND_FILTER)
-                .then(|| {
-                    prepare_inquiry(
-                        &NdFilterInquiry,
-                        registration,
-                        tuning,
-                        ClassSelection::Request,
-                    )
-                })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-        })
-    }
+            }
+        }
+    };
 }
+crate::position_inquiries::settlement_inquiries!(position_query_plan);
 
 /// Prepares the complete set of position inquiries for one explicitly
 /// selected motion-axis set.
@@ -1008,17 +960,20 @@ const fn lower_reply_shape(shape: crate::raw::RawReplyShape) -> ReplyShape {
 }
 
 impl PreparedCommand {
-    pub(crate) fn admit_with<T>(self, admit: impl FnOnce(RuntimeRequest, Duration) -> T) -> T {
+    pub(crate) fn admit_with<T>(
+        self,
+        admit: impl FnOnce(LaneRequest<CommandOutcome>, Duration) -> T,
+    ) -> T {
         let timeout = observation_timeout(
             &self.context,
             command_attempt_timeout(&self.context.timeout, self.reply_shape),
         );
-        let request = RuntimeRequest::Command {
-            reply_shape: self.reply_shape,
-            wire: self.wire.into_shared(),
-            context: self.context,
-            applied_state: self.applied_state,
-        };
+        let request = LaneRequest::command(
+            self.reply_shape,
+            self.wire.into_shared(),
+            self.context,
+            self.applied_state,
+        );
         admit(request, timeout)
     }
 }
@@ -1067,14 +1022,11 @@ impl<R> PreparedInquiry<R> {
 
     pub(crate) fn admit_with<T>(
         self,
-        admit: impl FnOnce(RuntimeRequest, ResponseDecoder<R>, Duration) -> T,
+        admit: impl FnOnce(LaneRequest<InquiryOutcome>, ResponseDecoder<R>, Duration) -> T,
     ) -> T {
         let timeout = observation_timeout(&self.context, self.context.timeout.inquiry.get());
-        let request = RuntimeRequest::Inquiry {
-            wire: self.wire.into_shared(),
-            context: self.context,
-            payload_shape: self.payload_shape,
-        };
+        let request =
+            LaneRequest::inquiry(self.wire.into_shared(), self.context, self.payload_shape);
         admit(request, self.decoder, timeout)
     }
 }
@@ -1086,7 +1038,7 @@ where
     pub(crate) fn admit_with<T>(
         self,
         admit: impl FnOnce(
-            RuntimeRequest,
+            LaneRequest<CommandOutcome>,
             AffectedAxes,
             completion::SettlementPlan<K>,
             OperationTimeouts,
@@ -1107,12 +1059,12 @@ where
                 .get()
                 .saturating_add(self.context.timeout.cancellation.get()),
         );
-        let request = RuntimeRequest::Command {
-            reply_shape: self.reply_shape,
-            wire: self.wire.into_shared(),
-            context: self.context,
-            applied_state: self.applied_state,
-        };
+        let request = LaneRequest::command(
+            self.reply_shape,
+            self.wire.into_shared(),
+            self.context,
+            self.applied_state,
+        );
         admit(
             request,
             self.affected_axes,
@@ -1236,6 +1188,53 @@ mod tests {
     };
 
     #[test]
+    fn prepared_requests_fix_the_terminal_lane_before_staging() {
+        fn command_lane(request: LaneRequest<CommandOutcome>) {
+            assert!(matches!(
+                request.into_inner(),
+                RuntimeRequest::Command { .. }
+            ));
+        }
+        fn inquiry_lane(request: LaneRequest<InquiryOutcome>) {
+            assert!(matches!(
+                request.into_inner(),
+                RuntimeRequest::Inquiry { .. }
+            ));
+        }
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("valid built-in profile");
+        let registration = crate::TargetRegistration::new(CameraId::CAMERA_1, profile)
+            .expect("valid target registration");
+        prepare_command(
+            &crate::command::PowerOn,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepare the plain command lane")
+        .admit_with(|request, _| command_lane(request));
+        prepare_operation::<completion::AppliedOnly, _>(
+            &ZoomStop,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepare the operation command lane")
+        .admit_with(|request, _, _, _| command_lane(request));
+        let inquiry = prepare_inquiry(
+            &ZoomPositionInquiry,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepare the inquiry lane");
+        inquiry
+            .into_template()
+            .instantiate()
+            .admit_with(|request, _, _| inquiry_lane(request));
+    }
+
+    #[test]
     fn profile_payload_shape_is_selected_once_and_retained_through_templates_and_admission() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         struct ProfileSelectedInquiry(AtomicUsize);
@@ -1301,7 +1300,7 @@ mod tests {
         for template in [template.clone(), template] {
             template.instantiate().admit_with(|request, decoder, _| {
                 assert!(matches!(
-                    request,
+                    request.into_inner(),
                     RuntimeRequest::Inquiry {
                         payload_shape: crate::PayloadShape::Nibbles(4),
                         ..
@@ -3486,7 +3485,71 @@ mod tests {
         check::<crate::profiles::GenericVisca>();
     }
 
+    #[test]
+    fn every_builtin_can_prepare_its_declared_queries_without_exact_completion() {
+        for id in crate::profiles::ProfileId::all() {
+            let mut facts = id.raw_facts();
+            facts.capabilities.profile_id = None;
+            facts.supports_operation_complete = false;
+            let profile = ProfileSpec::from_facts(facts).expect("built-in settlement facts");
+            let queries = profile.position_inquiries().expect("position inquiries");
+            let recall_axes = profile.preset_recall_axes().expect("preset axes");
+            let target = crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile);
+            prepare_position_queries(&target, OperationalTuning::default(), queries)
+                .unwrap_or_else(|error| panic!("{id:?} declared queries: {error}"));
+            prepare_position_queries(&target, OperationalTuning::default(), recall_axes)
+                .unwrap_or_else(|error| panic!("{id:?} recall queries: {error}"));
+        }
+    }
+
     proptest::proptest! {
+        #[test]
+        fn validated_profile_mutations_admit_their_settlement_inquiries(
+            query_bits in 0u8..32,
+            recall_bits in 1u8..32,
+            iris in proptest::bool::ANY,
+            iris_steps in proptest::bool::ANY,
+            nd_filter in proptest::bool::ANY,
+            exact_completion in proptest::bool::ANY,
+        ) {
+            use crate::capabilities::TypedSupportSurface;
+
+            for id in crate::profiles::ProfileId::all() {
+                let mut facts = id.raw_facts();
+                facts.capabilities.profile_id = None;
+                facts.supports_operation_complete = exact_completion;
+                facts.position_inquiries = AffectedAxes::from_bits(query_bits).ok();
+                if let Some(presets) = facts.capabilities.presets.as_mut() {
+                    presets.recall_axes = AffectedAxes::from_bits(recall_bits).expect("nonempty axes");
+                }
+                for (surface, granted) in [
+                    (TypedSupportSurface::Iris, iris),
+                    (TypedSupportSurface::IrisSteps, iris_steps),
+                    (TypedSupportSurface::NdFilter, nd_filter),
+                ] {
+                    facts.capabilities.typed_support = if granted {
+                        facts.capabilities.typed_support.union(TypedSupportSet::from_surface(surface))
+                    } else {
+                        facts.capabilities.typed_support.without(surface)
+                    };
+                }
+                let Ok(profile) = ProfileSpec::from_facts(facts) else { continue; };
+                let queries = profile.position_inquiries();
+                let recall_axes = profile.preset_recall_axes();
+                let target = crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile);
+                if let Some(axes) = queries {
+                    let prepared = prepare_position_queries(&target, OperationalTuning::default(), axes);
+                    proptest::prop_assert!(prepared.is_ok(), "{id:?} declared queries: {prepared:?}");
+                }
+                if !exact_completion {
+                    if let Some(axes) = recall_axes {
+                        let prepared = prepare_position_queries(&target, OperationalTuning::default(), axes);
+                        proptest::prop_assert!(prepared.is_ok(), "{id:?} recall queries: {prepared:?}");
+                    }
+                }
+            }
+        }
+
         #[test]
         fn retry_budget_and_observer_cover_arbitrary_valid_ack_overrides(
             ack_ms in 500_u64..=3_600_000,
@@ -4693,7 +4756,7 @@ mod tests {
 pub(crate) struct PreparedHalt {
     pub(crate) target: TargetSlot,
     pub(crate) axes: Option<AffectedAxes>,
-    pub(crate) requests: [Option<Result<RuntimeRequest>>; 3],
+    pub(crate) requests: [Option<Result<LaneRequest<CommandOutcome>>>; 3],
     pub(crate) budget: Duration,
 }
 

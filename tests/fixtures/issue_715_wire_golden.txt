@@ -496,7 +496,6 @@ ColorTemperatureInquiry	81 09 04 20 FF
 ContrastInquiry	81 09 04 A2 FF
 ExposureCompensationInquiry	81 09 04 4E FF
 ExposureCompensationModeInquiry	81 09 04 3E FF
-ExposureCompensationPositionInquiry	81 09 04 4E FF
 ExposureModeInquiry	81 09 04 39 FF
 FlickerModeInquiry	81 09 04 55 FF
 FlipStateInquiry	81 09 04 A4 FF

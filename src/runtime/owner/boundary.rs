@@ -27,8 +27,8 @@ use super::OwnerMetrics;
 use super::SessionState;
 use super::{
     AdmissionPermit, AdmissionPermitPool, Admitted, CancellationRequest, DiagnosticSubscription,
-    Lane, LiveTuning, OwnerState, RuntimeRequest, TargetStateCache, TerminalLane, TerminalObserver,
-    TerminalSlot,
+    Lane, LaneRequest, LiveTuning, OwnerState, RuntimeRequest, TargetStateCache, TerminalLane,
+    TerminalObserver, TerminalSlot,
 };
 
 /// The one-way decision for an admission constrained by an outer deadline.
@@ -56,7 +56,9 @@ enum AdmissionValidityState {
 /// boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum AdmissionClaim {
-    Claimed,
+    Claimed {
+        remaining: crate::runtime::engine::NonZeroDuration,
+    },
     /// This owner observed the deadline first and rejected the boundary.
     ExpiredHere,
     /// The caller had already rejected the boundary before this owner turn.
@@ -87,7 +89,11 @@ impl AdmissionValidity {
     /// its reply rather than turn that admitted work into a pre-admission
     /// timeout.
     pub(super) fn claim_for_admission(&self, now: Instant) -> AdmissionClaim {
-        if now >= self.deadline {
+        // Saturation is zero exactly when the sampled instant has reached
+        // the deadline. A successful claim carries this proved budget.
+        let Ok(remaining) = crate::runtime::engine::NonZeroDuration::new(
+            self.deadline.saturating_duration_since(now),
+        ) else {
             return if self
                 .state
                 .compare_exchange(
@@ -102,7 +108,7 @@ impl AdmissionValidity {
             } else {
                 AdmissionClaim::ExpiredElsewhere
             };
-        }
+        };
 
         if self
             .state
@@ -114,7 +120,7 @@ impl AdmissionValidity {
             )
             .is_ok()
         {
-            AdmissionClaim::Claimed
+            AdmissionClaim::Claimed { remaining }
         } else {
             AdmissionClaim::ExpiredElsewhere
         }
@@ -571,6 +577,18 @@ impl OwnerLifecycle {
         self.lock_state().terminal()
     }
 
+    /// Preserve an owner's known stop reason when its engine never ended.
+    /// An accepted shutdown alone is no evidence that shutdown completed.
+    pub(super) fn conclusion_error(&self) -> Error {
+        match &*self.lock_state() {
+            LifecycleState::SignalFailed(error) | LifecycleState::Terminated { error, .. } => {
+                error.clone()
+            }
+            LifecycleState::ShutDown { .. } => Error::RuntimeShutdown,
+            LifecycleState::Open | LifecycleState::ShutdownAccepted => missing_terminal_error(),
+        }
+    }
+
     fn metrics(&self) -> Option<Result<crate::observability::MetricsSnapshot, Error>> {
         self.lock_state().metrics()
     }
@@ -600,7 +618,7 @@ impl OwnerLifecycle {
 
     /// Publish a terminal engine verdict at the lifecycle linearization point.
     ///
-    /// The owner calls this while the terminal `SessionChanged` effect is
+    /// The owner calls this while the terminal `SessionEnded` effect is
     /// being driven, rather than only once its loop has ended. A shutdown
     /// caller can otherwise enter the still-live one-slot lane after the
     /// engine has become terminal but before the loop's epilogue, and
@@ -816,9 +834,10 @@ impl OwnerHandleCore {
     /// is recorded as a pre-admission rejection.
     pub(super) fn enqueue_admission<T: TerminalLane>(
         &self,
-        request: RuntimeRequest,
+        request: impl Into<LaneRequest<T>>,
         validity: Option<AdmissionValidity>,
     ) -> Result<(TerminalObserver<T>, AdmissionReply), Error> {
+        let request = request.into().into_inner();
         let target = request.context().target;
         let lane = request.lane();
         if let Some(error) = self.admission_rejection() {
@@ -882,7 +901,7 @@ impl OwnerHandleCore {
     /// [`PendingAdmission`].
     pub(super) fn admit<T: TerminalLane>(
         &self,
-        request: RuntimeRequest,
+        request: impl Into<LaneRequest<T>>,
     ) -> Result<PendingAdmission<T>, Error> {
         let (completion, reply) = self.enqueue_admission(request, None)?;
         Ok(PendingAdmission {
@@ -897,10 +916,11 @@ impl OwnerHandleCore {
     /// enqueuing anything.
     pub(super) fn admit_until<T: TerminalLane>(
         &self,
-        request: RuntimeRequest,
+        request: impl Into<LaneRequest<T>>,
         deadline: Instant,
         now: Instant,
     ) -> Result<PendingAdmission<T>, Error> {
+        let request = request.into();
         let target = request.context().target;
         let lane = request.lane();
         if now >= deadline {
@@ -1095,6 +1115,22 @@ mod tests {
             Some(FAILED),
             FAILED,
             Some(FAILED),
+        );
+    }
+
+    #[test]
+    fn conclusion_preserves_a_signal_failure_before_the_engine_ends() {
+        let lifecycle = OwnerLifecycle::new();
+        let error = Error::InvalidState {
+            reason: "shutdown signal failed".into(),
+        };
+        *lifecycle.lock_state() = LifecycleState::SignalFailed(error.clone());
+        let concluded = lifecycle.conclusion_error();
+        assert_eq!(format!("{concluded:?}"), format!("{error:?}"));
+        lifecycle.publish_terminal(concluded);
+        assert_eq!(
+            format!("{:?}", lifecycle.terminal().unwrap()),
+            format!("{error:?}")
         );
     }
 

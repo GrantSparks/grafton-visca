@@ -29,163 +29,13 @@ use crate::{
 
 use crate::OperationId;
 
-/// A blocking handle on one admitted operation.
-///
-/// The completion marker `K` is the only type parameter. No profile,
-/// transport, executor, or runtime type appears in this public handle, and it
-/// borrows nothing: it keeps the session's owner alive, so it may outlive the
-/// [`Session`] and [`Camera`] it came from and move to another thread. The
-/// owner remains authoritative for protocol lifecycle, timeouts, settlement,
-/// and cancellation policy; the handle observes it.
-///
-/// # Waits borrow the handle
-///
-/// Every wait takes `&mut self`, and the handle caches the authoritative
-/// result once received. Waiting again returns the cached result, an
-/// [`applied`](Self::applied) wait can be followed by
-/// [`settled`](Operation::settled), and a wait that times out releases only
-/// that wait: the operation keeps running and the handle keeps observing it.
-///
-/// # Dropping never stops the camera
-///
-/// Dropping this handle is exactly [`detach`](Self::detach): it relinquishes
-/// observation and nothing else. The owner keeps the protocol state, never
-/// interprets handle drop as cancellation, and no STOP is written, so an early
-/// `?` return or a panic unwinding past a live handle leaves physical movement
-/// running until something ends it.
-///
-/// To bound movement by a scope, write a small guard whose own `Drop` submits
-/// the typed STOP — see the guard pattern in `docs/migration_2_0.md` and
-/// `examples/operation_handles.rs`. For an explicit stop on a path you
-/// control, use `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
-/// `camera.focus().stop()`, or `camera.motion().stop_all()`;
-/// [`cancel`](Self::cancel) is protocol cancellation and does not by itself
-/// prove motion ended.
-#[must_use = "observe, cancel, or explicitly detach this operation"]
-pub struct Operation<K>
-where
-    K: completion::Kind,
-{
-    receipt: BlockingOperationReceipt<K>,
-}
-
-impl<K> Operation<K>
-where
-    K: completion::Kind,
-{
-    /// Creates a public handle over an admitted owner receipt.
-    ///
-    /// This constructor is crate-private: only the blocking admission path may
-    /// create a lifecycle handle, after the owner admitted the request.
-    pub(crate) fn from_receipt(receipt: BlockingOperationReceipt<K>) -> Self {
-        Self { receipt }
-    }
-
-    /// Returns the opaque identity assigned when this operation was admitted.
-    #[must_use]
-    pub fn id(&self) -> OperationId {
-        OperationId::from_nonzero(self.receipt.id())
-    }
-
-    /// Waits for exact protocol application, bounded by the configured
-    /// observer deadline.
-    pub fn applied(&mut self) -> Result<(), Error> {
-        self.receipt.applied(None)
-    }
-
-    /// Waits for exact protocol application, bounded by `timeout`.
-    ///
-    /// The deadline bounds only this wait. If it expires the wait returns
-    /// [`Error::ObservationTimeout`]: the operation keeps running, its
-    /// scheduler deadline is unchanged, and the handle can wait again.
-    pub fn applied_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
-        self.receipt.applied(Some(timeout))
-    }
-
-    /// Cancels the operation and waits for the cancellation's conclusion,
-    /// bounded by the configured cancellation deadline.
-    ///
-    /// The result is [`crate::operation::CancellationOutcome::Cancelled`] when cancellation
-    /// won, [`crate::operation::CancellationOutcome::Completed`] when the operation was applied
-    /// first, and the operation's own error when it failed first.
-    ///
-    /// Cancelling is idempotent. The handle has one cancellation intent;
-    /// calling `cancel` again, including after a timed-out call, observes that
-    /// intent instead of sending a second cancellation. Once the operation's
-    /// outcome is known, `cancel` answers from it without sending anything.
-    ///
-    /// # A refused cancellation leaves the operation running
-    ///
-    /// Cancelling a request that is still queued always succeeds. Cancelling
-    /// one that has already been written needs profile support for the
-    /// standard VISCA socket-cancel command; without it — the built-in
-    /// PTZOptics profiles ([`crate::profiles::PtzOpticsG2`], [`crate::profiles::PtzOpticsG3`] and
-    /// [`crate::profiles::PtzOptics30x`]) are in that position — the owner refuses with
-    /// [`Error::CancellationNotSupported`] and leaves the original request scheduled,
-    /// retryable, and able to complete. The handle is unaffected and can
-    /// still wait for it. A refusal does not stop the camera; a moving axis
-    /// ends with an applied typed STOP.
-    ///
-    /// A cancellation that was accepted but then failed without ending the
-    /// operation (its cancel write failed, or its observation deadline
-    /// expired) returns that error; the handle still observes the operation's
-    /// own outcome.
-    ///
-    /// [`crate::profiles::PtzOpticsG2`]: crate::profiles::PtzOpticsG2
-    /// [`crate::profiles::PtzOpticsG3`]: crate::profiles::PtzOpticsG3
-    /// [`crate::profiles::PtzOptics30x`]: crate::profiles::PtzOptics30x
-    pub fn cancel(&mut self) -> Result<CancellationOutcome, Error> {
-        self.receipt.cancel(None)
-    }
-
-    /// [`cancel`](Self::cancel), bounded by `timeout` instead of the
-    /// configured cancellation deadline. If it expires, the cancellation
-    /// intent stays recorded and a later `cancel` observes it.
-    pub fn cancel_with_timeout(&mut self, timeout: Duration) -> Result<CancellationOutcome, Error> {
-        self.receipt.cancel(Some(timeout))
-    }
-
-    /// Explicitly relinquishes this operation's observation.
-    ///
-    /// Detaching never records cancellation and never emits a physical STOP.
-    /// It is the explicit spelling of what dropping the handle already does;
-    /// movement continues until something else ends it.
-    pub fn detach(self) {}
-}
-
-impl Operation<completion::Targeted> {
-    /// Waits for exact application and the profile-selected protocol
-    /// settlement condition. The default budget is the larger of the configured
-    /// settlement override and this request's retry budget. Use
-    /// [`settled_with_timeout`](Self::settled_with_timeout) for an exact bound.
-    ///
-    /// Application is cached, so calling this after
-    /// [`applied`](Operation::applied) continues from it. Polled settlement proves observed stability, not arrival at the requested endpoint.
-    /// Later conflicting admission supersedes unfinished polled evidence. Settlement proven
-    /// by position polling is cached once proven; a polling wait that times
-    /// out restarts with a fresh proof.
-    pub fn settled(&mut self) -> Result<crate::Settlement, Error> {
-        self.receipt.settled(None)
-    }
-
-    /// [`settled`](Self::settled), bounded by `timeout`.
-    ///
-    /// The deadline bounds only this wait; the prepared scheduler and
-    /// settlement policy are unchanged. Each abandoned polling attempt may
-    /// leave its admitted position inquiries running until their own
-    /// deadlines, within the session's admission capacity.
-    pub fn settled_with_timeout(&mut self, timeout: Duration) -> Result<crate::Settlement, Error> {
-        self.receipt.settled(Some(timeout))
-    }
-}
-
-impl<K> fmt::Debug for Operation<K>
-where
-    K: completion::Kind,
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.receipt.fmt_public_handle(formatter)
-    }
+crate::operation_handle::operation_handle! {
+    receipt: BlockingOperationReceipt,
+    async: [],
+    await: [],
+    description: "A blocking handle on one admitted operation.",
+    wait_doc: "Waits block the calling thread while the owner worker continues processing other requests.",
+    must_use: "observe, cancel, or explicitly detach this operation",
 }
 
 use crate::{camera::CameraConfig, SessionConfig};
@@ -236,71 +86,20 @@ impl fmt::Debug for Diagnostics {
     }
 }
 
-/// One blocking owner session.
-///
-/// The transport is moved into one native owner worker thread at
-/// construction (D24). The session and its [`Camera`] views are
-/// `Clone + Send + Sync`. An [`Operation`] handle is `Send + Sync`, borrows
-/// nothing, and can move to another thread; its waits borrow that handle.
-/// The worker serializes every call, and one thread waiting on an operation never blocks
-/// another thread's submit, cancel, or STOP. Timers, reads, and correlation
-/// cleanup progress on the worker even while no caller is inside the session.
-///
-/// Every clone shares the one worker. Dropping the last handle — session,
-/// camera, or operation — stops it and releases the transport without sending
-/// a protocol STOP; [`close`](Self::close) is the explicit, joining teardown.
-#[derive(Clone)]
-pub struct Session {
-    owner: BlockingOwnerHandle,
-    config: Arc<crate::session_config::ValidatedSessionConfig>,
-}
-
-impl fmt::Debug for Session {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Session")
-            .field("targets", &self.config.target_count())
-            .finish_non_exhaustive()
-    }
-}
-
 impl Session {
     /// Connects the configured standard transport and starts one owner session.
     ///
     /// Profile, policy, transport and endpoint validation complete before DNS,
     /// device opening or owner startup. A serial session may register several targets.
     pub fn connect(config: &SessionConfig) -> Result<Self> {
-        if let crate::camera::TransportOptions::Serial { port, baud_rate } = config.transport() {
-            let session_config = config.clone().validated()?;
-            session_config.validate_for_transport(crate::transport::TransportIdentity::Serial {
-                bus: None,
-            })?;
-            let serial_config = config.serial_config(port, *baud_rate)?;
-            #[cfg(feature = "transport-serial")]
-            {
-                return crate::camera::construction::connect_blocking_serial(
-                    serial_config,
-                    session_config,
-                );
-            }
-            #[cfg(not(feature = "transport-serial"))]
-            {
-                let _ = serial_config;
-                return Err(Error::FeatureNotSupported {
-                    feature: "blocking serial transport",
-                });
-            }
-        }
-        let plan = config.standard_connection_plan()?;
-        crate::camera::construction::connect_blocking(
-            plan.kind,
-            &plan.endpoint,
-            plan.transport_config,
-            plan.session_config,
-        )
+        crate::camera::construction::connect_blocking(config.connection_plan()?)
     }
 
     /// Opens a blocking session over a configured transport and profile.
+    ///
+    /// Profile compatibility is checked against the actual opened transport.
+    /// The standard connection selection stored in `config` is not used here;
+    /// [`CameraSession::open`] additionally validates its camera configuration's selection.
     ///
     /// Startup validates the profiles, tuning, transport buffers, and the
     /// immutable owner policy, and sends the optional Sony sequence RESET on
@@ -482,202 +281,6 @@ impl Session {
     }
 }
 
-/// One blocking owner session with one typed or runtime-profile camera.
-///
-/// This is the single-target counterpart of [`Session`]. The profile is named
-/// once, at construction, and the [`Camera`] this type hands out was built from
-/// that same profile parameter: the session path's second, runtime-checked
-/// profile naming (`session.camera::<P>(target)?`) has no equivalent here, so a
-/// profile mismatch is not expressible.
-///
-/// The value owns its session, so it is self-sufficient: the connection lives
-/// as long as this camera session (or a [`Camera`] taken out of it) is alive.
-/// Dropping the final owner handle stops the worker and releases the
-/// transport, but does not emit a protocol STOP. Use [`close`](Self::close)
-/// for the explicit teardown that mirrors [`Session::close`].
-pub struct CameraSession<P: CameraProfile = AnyProfile> {
-    session: Session,
-    camera: Camera<P>,
-}
-
-impl<P: CameraProfile> fmt::Debug for CameraSession<P> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("CameraSession")
-            .field("target", &self.camera.target())
-            .field("profile", &self.camera.profile())
-            .finish_non_exhaustive()
-    }
-}
-
-impl<P: CameraProfile> CameraSession<P> {
-    /// Binds the sole camera selected by a validated `CameraConfig<P>`.
-    ///
-    /// Construction already checked the selection's `CameraProfile` contract,
-    /// so this internal bind reuses those facts without another profile resolution.
-    pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
-        let target = TargetSlot::try_from(target)?;
-        let profile = session.config.registered_target(target)?;
-        let camera = Camera::from_core(session.core(profile));
-        Ok(Self { session, camera })
-    }
-
-    /// Connects a typed or runtime-selected camera configuration to one owner.
-    ///
-    /// TCP, UDP and serial return the same single-camera session shape.
-    pub fn connect(config: &CameraConfig<P>) -> Result<Self> {
-        if let crate::camera::TransportOptions::Serial { port, baud_rate } = config.transport() {
-            let session_config = config.validated_session_config()?;
-            let target = session_config.sole_target_for("CameraConfig::with_camera_id")?;
-            session_config.validate_for_transport(crate::transport::TransportIdentity::Serial {
-                bus: None,
-            })?;
-            let serial_config = config.serial_config(port, *baud_rate)?;
-            #[cfg(feature = "transport-serial")]
-            {
-                let session = crate::camera::construction::connect_blocking_serial(
-                    serial_config,
-                    session_config,
-                )?;
-                return Self::from_session(session, target);
-            }
-            #[cfg(not(feature = "transport-serial"))]
-            {
-                let _ = (serial_config, target);
-                return Err(Error::FeatureNotSupported {
-                    feature: "blocking serial transport",
-                });
-            }
-        }
-        let plan = config.standard_connection_plan()?;
-        let target = plan.camera_id;
-        let session = crate::camera::construction::connect_blocking(
-            plan.kind,
-            &plan.endpoint,
-            plan.transport_config,
-            plan.session_config,
-        )?;
-        Self::from_session(session, target)
-    }
-
-    /// Opens one single-camera owner session over a caller-owned transport.
-    ///
-    /// This is the [`Session::open`] counterpart for callers that already own
-    /// a transport. The profile comes from `config`, so the camera this
-    /// session hands out is bound to the same `P` the configuration was
-    /// written for.
-    pub fn open<T>(transport: T, config: &CameraConfig<P>) -> Result<Self, Error>
-    where
-        T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
-    {
-        let session_config = config.validated_session_config()?;
-        let target = session_config.sole_target_for("CameraConfig::with_camera_id")?;
-        let session = Session::open_validated(transport, session_config)?;
-        Self::from_session(session, target)
-    }
-
-    /// Erases only the compile-time profile parameter, retaining the same owner.
-    #[must_use]
-    pub fn into_any(self) -> CameraSession<AnyProfile> {
-        CameraSession {
-            session: self.session,
-            camera: self.camera.into_any(),
-        }
-    }
-
-    /// Checks the complete registered profile before selecting a typed view.
-    pub fn into_typed<T: CompileTimeProfile>(self) -> Result<CameraSession<T>> {
-        Ok(CameraSession {
-            session: self.session,
-            camera: self.camera.into_typed::<T>()?,
-        })
-    }
-
-    /// Returns this session's profile-bound camera view.
-    ///
-    /// The profile is not named again and the call cannot fail.
-    pub const fn camera(&self) -> &Camera<P> {
-        &self.camera
-    }
-
-    /// Returns the submission-class default this session's camera carries.
-    ///
-    /// See [`Camera::submission_class`].
-    #[must_use]
-    pub const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.camera.submission_class()
-    }
-
-    /// Sets the submission-class default for this session's camera.
-    ///
-    /// This is [`Camera::set_submission_class`] applied to the camera this
-    /// session owns, so every view handed out by [`camera`](Self::camera) and
-    /// every noun accessor reached through it submits in `class` afterwards.
-    /// A [`Camera`] already taken out with [`into_camera`](Self::into_camera)
-    /// carries its own copy and is unaffected.
-    pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.camera.set_submission_class(class);
-    }
-
-    /// Consumes this value and returns the owned camera.
-    ///
-    /// The camera keeps the owner alive, so the connection survives; the
-    /// explicit [`close`](Self::close) is given up in exchange.
-    pub fn into_camera(self) -> Camera<P> {
-        self.camera
-    }
-
-    /// Returns the owned session behind this camera.
-    #[must_use]
-    pub const fn session(&self) -> &Session {
-        &self.session
-    }
-
-    /// Returns this session's sole camera target.
-    #[must_use]
-    pub fn target(&self) -> CameraId {
-        self.camera.target()
-    }
-
-    /// Returns the operational tuning this session is currently preparing
-    /// requests under.
-    #[must_use]
-    pub fn tuning(&self) -> OperationalTuning {
-        self.session.tuning()
-    }
-
-    /// Replaces this session's operational tuning at runtime.
-    ///
-    /// This is [`Session::set_tuning`] on the session this camera owns; see
-    /// there for the exact scope, in particular that requests already in flight
-    /// keep the deadlines they were admitted with.
-    ///
-    /// # Errors
-    ///
-    /// See [`Session::set_tuning`].
-    pub fn set_tuning(&self, tuning: OperationalTuning) -> Result<(), Error> {
-        self.session.set_tuning(tuning)
-    }
-
-    /// Requests owner shutdown without consuming this value.
-    ///
-    /// This is the idempotent, non-joining signal; use [`Self::close`] when
-    /// the worker and owned transport must be fully released before continuing.
-    pub fn shutdown(&self) -> Result<(), Error> {
-        self.session.shutdown()
-    }
-
-    /// Requests owner shutdown and consumes this camera session, waiting for
-    /// the worker and its owned transport to be fully released.
-    ///
-    /// This is the deterministic teardown barrier described by
-    /// [`Session::close`]; use [`Self::shutdown`] when only an idempotent,
-    /// non-joining signal is required.
-    pub fn close(self) -> Result<(), Error> {
-        self.session.close()
-    }
-}
-
 impl<P: CompileTimeProfile> CameraSession<P> {
     /// Connects a typed camera using its documented TCP port for host-only addresses.
     pub fn connect_tcp(address: impl Into<String>) -> Result<Self>
@@ -712,125 +315,51 @@ crate::camera_core::camera_core! {
     await: [],
 }
 
-/// A profile-aware camera view onto one [`Session`] target.
-///
-/// The profile parameter supplies compile-time capability gates; owner and
-/// transport state remain in the shared erased core. The view is
-/// `Clone + Send + Sync` and borrows nothing: it keeps the session's owner
-/// alive, and concurrent calls through it are serialized by the owner worker.
-#[must_use]
-pub struct Camera<P: CameraProfile = AnyProfile> {
+crate::camera_facade::camera_facade! {
     core: BlockingCameraCore,
-    _profile: PhantomData<fn() -> P>,
-}
-
-impl<P: CameraProfile> Clone for Camera<P> {
-    fn clone(&self) -> Self {
-        Self {
-            core: self.core.clone(),
-            _profile: PhantomData,
+    owner: BlockingOwnerHandle,
+    async: [],
+    await: [],
+    error: [, Error],
+    session_mode_doc: "Construction moves the transport into one native worker thread. A blocking wait does not block another thread’s submit, cancel, or STOP; `close` joins the worker after transport teardown.",
+    camera_session_constructors: {
+        /// Connects a typed or runtime-selected camera configuration to one owner.
+        ///
+        /// TCP, UDP and serial return the same single-camera session shape.
+        pub fn connect(config: &CameraConfig<P>) -> Result<Self> {
+            let plan = config.connection_plan()?;
+            let session = crate::camera::construction::connect_blocking(plan.connection)?;
+            Ok(Self::from_registration(session, plan.registration))
         }
-    }
-}
 
-impl<P: CameraProfile> fmt::Debug for Camera<P> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Camera")
-            .field("target", &self.core.target())
-            .field("profile", &self.core.profile())
-            .finish_non_exhaustive()
-    }
-}
-
-impl<P: CameraProfile> Camera<P> {
-    pub(crate) fn from_core(core: BlockingCameraCore) -> Self {
-        Self {
-            core,
-            _profile: PhantomData,
+        /// Opens one single-camera owner session over a caller-owned transport.
+        ///
+        /// Both the transport selected in `config` and the actual opened transport
+        /// must support the profile, as for [`CameraConfig::validate`](crate::config::CameraConfig::validate).
+        /// Use `TransportOptions::Custom` in the configuration when only the opened
+        /// transport should select the transport kind.
+        ///
+        /// This is the [`Session::open`] counterpart for callers that already own
+        /// a transport. The profile comes from `config`, so the camera this
+        /// session hands out is bound to the same `P` the configuration was
+        /// written for.
+        pub fn open<T>(transport: T, config: &CameraConfig<P>) -> Result<Self, Error>
+        where
+            T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
+        {
+            let (session_config, registration) = config.validated_camera_config()?;
+            let session = Session::open_validated(transport, session_config)?;
+            Ok(Self::from_registration(session, registration))
         }
-    }
-
-    pub(crate) const fn core(&self) -> &BlockingCameraCore {
-        &self.core
-    }
-
-    crate::camera_view::camera_view_getters!();
-
-    /// Erases only the compile-time profile parameter, retaining this owner and target.
-    pub fn into_any(self) -> Camera<AnyProfile> {
-        Camera::from_core(self.core)
-    }
-
-    /// Checks the complete registered profile before selecting a typed view.
-    pub fn into_typed<T: CompileTimeProfile>(self) -> Result<Camera<T>> {
-        T::validate_spec(self.core.profile())?;
-        Ok(Camera::from_core(self.core))
-    }
-
-    /// Executes a plain command through this camera's shared owner.
-    ///
-    /// This intentionally has no request-specific `Permits` bound. Noun and
-    /// accessor methods use sealed `Permits<gate::X>` bounds: evidenced typed
-    /// profiles and `AnyProfile` permit calls, while preparation checks the
-    /// registered profile before I/O. `Has*` markers remain evidence claims;
-    /// this direct method is the uniform typed/downstream extension boundary.
-    ///
-    /// Preparation calls [`crate::request::Request::validate_for_target`] before
-    /// encoding, owner admission, or transport I/O. Crate-provided requests
-    /// submitted directly return [`crate::Error::FeatureNotSupported`] there
-    /// when the selected profile lacks their required feature. Raw and other
-    /// downstream requests are explicit low-level extensions and may provide
-    /// their own profile validation.
-    ///
-    /// Ordinary commands wait for their terminal protocol application. A raw
-    /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
-    /// local transport write succeeds; it does not claim camera application.
-    pub fn execute<C>(&self, command: &C) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.core.execute(command)
-    }
-
-    /// Sends an inquiry and decodes its response through the shared owner.
-    ///
-    /// This intentionally has no request-specific `Permits` bound. Noun and
-    /// accessor methods use sealed `Permits<gate::X>` bounds: evidenced typed
-    /// profiles and `AnyProfile` permit calls, while preparation checks the
-    /// registered profile before I/O. `Has*` markers remain evidence claims;
-    /// this direct method is the uniform typed/downstream extension boundary.
-    ///
-    /// Preparation calls [`crate::request::Request::validate_for_target`] before
-    /// encoding, owner admission, or transport I/O. Crate-provided inquiries
-    /// submitted directly return [`crate::Error::FeatureNotSupported`] there
-    /// when the selected profile lacks their required feature. Raw and other
-    /// downstream requests are explicit low-level extensions and may provide
-    /// their own profile validation.
-    pub fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.core.inquire(inquiry)
-    }
-
-    /// Submits a typed operation and returns its owner-backed handle once the
-    /// owner has admitted it.
-    pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<K>, Error>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.core.submit(operation)
-    }
+    },
 }
 
 #[path = "blocking_nouns.rs"]
 mod blocking_nouns;
 
 use crate::noun_table::reexport_nouns;
-crate::noun_table::noun_table!(reexport_nouns, [accessor], [blocking_nouns]);
-crate::noun_table::motion_table!(reexport_nouns, [accessor], [blocking_nouns]);
+crate::noun_table::noun_table!(reexport_nouns, [blocking_nouns]);
+crate::noun_table::motion_table!(reexport_nouns, [blocking_nouns]);
 
 #[cfg(all(test, feature = "test-utils"))]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -1145,9 +674,13 @@ mod tests {
             .expect("matching complete profile");
         assert_eq!(typed.target(), CameraId::CAMERA_1);
         assert_eq!(typed.submission_class(), Some(SubmissionClass::Background));
-        let mut single =
-            CameraSession::<PtzOpticsG2>::from_session(session.clone(), CameraId::CAMERA_1)
-                .expect("single camera");
+        let mut single = CameraSession::<PtzOpticsG2>::from_registration(
+            session.clone(),
+            session
+                .config
+                .registered_target(TargetSlot::CAMERA_1)
+                .expect("registered target"),
+        );
         single.set_submission_class(Some(SubmissionClass::User));
         let single: CameraSession = single.into_any();
         let single = single

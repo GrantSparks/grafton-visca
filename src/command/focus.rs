@@ -203,10 +203,14 @@ impl FocusNearLimitCommand {
     }
 }
 
-/// Enables or disables focus lock using the documented camera register.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FocusLockCommand {
-    enabled: bool,
+crate::macros::consolidated::on_off_command! {
+    /// Enables or disables focus lock using the documented camera register.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct FocusLockCommand {
+        enabled: bool,
+    };
+    prefix = focus::LOCK;
+    convention = crate::wire::BoolConvention::OnIs02;
 }
 
 impl FocusLockCommand {
@@ -218,15 +222,6 @@ impl FocusLockCommand {
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub const fn enabled(self) -> bool {
         self.enabled
-    }
-}
-
-impl WireEncode for FocusLockCommand {
-    fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        FrameWriter::new(camera_id, buffer)
-            .bytes(&focus::LOCK)
-            .byte(if self.enabled { 0x02 } else { 0x03 })
-            .finish()
     }
 }
 

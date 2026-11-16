@@ -3,6 +3,8 @@
 //! The FR7 supports switching between normal 24-step and extended 50-step
 //! pan/tilt speed ranges.
 
+use crate::wire::WireValue;
+
 use crate::{
     command::{
         bytes::{constants::variable_speed, FrameWriter},
@@ -47,10 +49,7 @@ impl WireEncode for SetVariableSpeedMode {
     ) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&variable_speed::STEP_RANGE)
-            .byte(match self.mode {
-                PanTiltSpeedMode::Standard24 => 0x08,
-                PanTiltSpeedMode::Fine50 => 0x18,
-            })
+            .byte(self.mode.to_wire())
             .finish()
     }
 }

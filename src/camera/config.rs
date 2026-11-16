@@ -34,7 +34,7 @@ pub enum TransportKind {
     Udp,
     /// Serial transport.
     Serial,
-    /// Custom transport with no standard transport kind.
+    /// Configuration selects a caller-owned transport, outside the standard support matrix.
     Custom,
 }
 
@@ -119,18 +119,28 @@ impl TransportOptions {
         &self,
         profile: crate::camera::profiles::ProfileId,
     ) -> Result<(), Error> {
-        let transport = self.kind();
-        let facts = profile.spec()?;
-        let supported = match transport {
-            TransportKind::Tcp => facts.transports().tcp_port().is_some(),
-            TransportKind::Udp => facts.transports().udp_port().is_some(),
-            TransportKind::Serial => facts.transports().supports_serial(),
-            TransportKind::Custom => true,
-        };
+        let supported = self.identity().is_none_or(|identity| {
+            identity
+                .standard_kind()
+                .is_none_or(|kind| profile.transport_compatibility().supports(kind))
+        });
         if supported {
             Ok(())
         } else {
-            Err(Error::UnsupportedTransport { profile, transport })
+            Err(Error::UnsupportedTransport {
+                profile,
+                transport: self.kind(),
+            })
+        }
+    }
+
+    /// The selected standard descriptor, or a caller-owned transport selection.
+    pub(crate) const fn identity(&self) -> Option<crate::transport::TransportIdentity<'static>> {
+        match self {
+            Self::Tcp { .. } => Some(crate::transport::TransportIdentity::Tcp),
+            Self::Udp { .. } => Some(crate::transport::TransportIdentity::Udp),
+            Self::Serial { .. } => Some(crate::transport::TransportIdentity::Serial { bus: None }),
+            Self::Custom => None,
         }
     }
 
@@ -345,20 +355,25 @@ impl<P: CameraProfile> CameraConfig<P> {
             camera_id: self.camera_id,
         }
     }
-    /// Lowers the selected profile into a target registry without transport I/O.
+    /// Resolves the sole registration once and builds its reusable session data.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    fn session_config_data(&self) -> crate::Result<crate::session_config::SessionConfig> {
+    fn session_config_data(
+        &self,
+    ) -> crate::Result<(
+        crate::session_config::SessionConfig,
+        std::sync::Arc<crate::TargetRegistration>,
+    )> {
         let profile = P::selected_spec(&self.profile)?;
         let id = self
             .camera_id
             .unwrap_or_else(|| profile.capabilities().default_camera_id.into());
-        Ok(
-            crate::session_config::SessionConfig::for_target(id, profile)?
-                .with_policy(self.policy)
-                .with_transport(self.transport.clone())
-                .with_serial_startup(self.serial_startup)
-                .with_optional_transport_config(self.transport_config),
-        )
+        let registration = std::sync::Arc::new(crate::TargetRegistration::new(id, profile)?);
+        let config = crate::session_config::SessionConfig::from_registration(registration.clone())
+            .with_policy(self.policy)
+            .with_transport(self.transport.clone())
+            .with_serial_startup(self.serial_startup)
+            .with_optional_transport_config(self.transport_config);
+        Ok((config, registration))
     }
     /// Returns the session registry after profile, policy and transport validation.
     #[cfg(any(feature = "async", feature = "blocking"))]
@@ -375,27 +390,28 @@ impl<P: CameraProfile> CameraConfig<P> {
     pub(crate) fn validated_session_config(
         &self,
     ) -> crate::Result<crate::session_config::ValidatedSessionConfig> {
-        let config = self.session_config_data()?.validated()?;
+        self.validated_camera_config().map(|(config, _)| config)
+    }
+    /// Keeps configured-transport validation for caller-owned `open`, too.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn validated_camera_config(
+        &self,
+    ) -> crate::Result<(
+        crate::session_config::ValidatedSessionConfig,
+        std::sync::Arc<crate::TargetRegistration>,
+    )> {
+        let (config, registration) = self.session_config_data()?;
+        let config = config.validated()?;
         validate_selected_transport(&config, &self.transport)?;
-        Ok(config)
+        Ok((config, registration))
     }
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn standard_connection_plan(&self) -> crate::Result<StandardConnectionPlan> {
-        let plan = self.session_config_data()?.standard_connection_plan()?;
-        let camera_id = plan
-            .session_config
-            .sole_target_for("CameraConfig::camera_id")?;
-        Ok(StandardConnectionPlan {
-            kind: plan.kind,
-            endpoint: plan.endpoint,
-            transport_config: plan.transport_config,
-            session_config: plan.session_config,
-            camera_id,
+    pub(crate) fn connection_plan(&self) -> crate::Result<CameraConnectionPlan> {
+        let (config, registration) = self.session_config_data()?;
+        Ok(CameraConnectionPlan {
+            connection: config.connection_plan()?,
+            registration,
         })
-    }
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn serial_config(&self, port: &str, baud_rate: u32) -> crate::Result<SerialConfig> {
-        serial_device_config(port, baud_rate, self.transport_config, self.serial_startup)
     }
 }
 
@@ -431,35 +447,72 @@ pub(crate) fn validate_selected_transport(
     config: &crate::session_config::ValidatedSessionConfig,
     selected: &TransportOptions,
 ) -> crate::Result<()> {
-    let identity = match selected {
-        TransportOptions::Tcp { .. } => crate::transport::TransportIdentity::Tcp,
-        TransportOptions::Udp { .. } => crate::transport::TransportIdentity::Udp,
-        TransportOptions::Serial { .. } => {
-            crate::transport::TransportIdentity::Serial { bus: None }
-        }
-        TransportOptions::Custom => return Ok(()),
-    };
-    config.validate_for_transport(identity)
+    match selected.identity() {
+        Some(identity) => config.validate_for_transport(identity),
+        None => Ok(()),
+    }
 }
 
-/// Pure network construction state shared by both execution facades.
+/// One validated construction plan, shared by both execution facades.
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "async", feature = "blocking"))]
-pub(crate) struct SessionConnectionPlan {
-    pub(crate) kind: TransportKind,
-    pub(crate) endpoint: String,
-    pub(crate) transport_config: TransportConfig,
+pub(crate) struct ConnectionPlan {
+    pub(crate) transport: ConnectionTransport,
     pub(crate) session_config: crate::session_config::ValidatedSessionConfig,
 }
-/// A single-camera network plan with its validated target identity.
+
+/// Only network variants carry endpoints and network transport settings.
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "async", feature = "blocking"))]
-pub(crate) struct StandardConnectionPlan {
-    pub(crate) kind: TransportKind,
+pub(crate) enum ConnectionTransport {
+    Network(NetworkConnection),
+    Serial(SerialConfig),
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl ConnectionTransport {
+    /// The already-resolved endpoint or serial device path.
+    #[cfg(all(test, feature = "serde", feature = "blocking"))]
+    pub(crate) fn endpoint(&self) -> &str {
+        match self {
+            Self::Network(network) => &network.endpoint,
+            Self::Serial(serial) => serial.port(),
+        }
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::panic)]
+    pub(crate) fn into_serial(self) -> SerialConfig {
+        match self {
+            Self::Serial(serial) => serial,
+            Self::Network(_) => panic!("test requires a serial plan"),
+        }
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::panic)]
+    pub(crate) fn into_network(self) -> NetworkConnection {
+        match self {
+            Self::Network(network) => network,
+            Self::Serial(_) => panic!("test requires a network plan"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) struct NetworkConnection {
+    pub(crate) kind: crate::transport::NetworkTransport,
     pub(crate) endpoint: String,
     pub(crate) transport_config: TransportConfig,
-    pub(crate) session_config: crate::session_config::ValidatedSessionConfig,
-    pub(crate) camera_id: CameraId,
+}
+
+/// A single-camera plan retains the registration already proved by its config.
+#[derive(Debug, Clone)]
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) struct CameraConnectionPlan {
+    pub(crate) connection: ConnectionPlan,
+    pub(crate) registration: std::sync::Arc<crate::TargetRegistration>,
 }
 
 #[cfg(test)]
@@ -467,6 +520,74 @@ pub(crate) struct StandardConnectionPlan {
 mod tests {
     #[cfg(any(feature = "blocking", feature = "async"))]
     use super::TransportOptions;
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn every_connection_plan_shares_its_single_proven_registration() {
+        use crate::{camera::CameraConfig, profiles::PtzOpticsG2, CameraId};
+        for config in [
+            CameraConfig::<PtzOpticsG2>::tcp("camera.invalid"),
+            CameraConfig::<PtzOpticsG2>::udp("camera.invalid"),
+            CameraConfig::<PtzOpticsG2>::serial("/dev/not-opened", 9600),
+        ] {
+            let plan = config
+                .with_camera_id(CameraId::CAMERA_3)
+                .connection_plan()
+                .expect("pure connection plan");
+            assert_eq!(plan.registration.target(), CameraId::CAMERA_3);
+            let stored = plan
+                .connection
+                .session_config
+                .registered_target(plan.registration.slot())
+                .expect("same registered camera");
+            assert!(std::sync::Arc::ptr_eq(&plan.registration, &stored));
+            if matches!(
+                plan.connection.transport,
+                super::ConnectionTransport::Serial(_)
+            ) {
+                assert_eq!(
+                    plan.connection.transport.into_serial().port(),
+                    "/dev/not-opened"
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "blocking")]
+    #[test]
+    fn blocking_camera_open_preserves_configured_transport_validation() {
+        use crate::{
+            blocking::{CameraSession, Session},
+            camera::{CameraConfig, TransportKind},
+            profiles::{ProfileId, SonyFr7},
+            transport::blocking::Udp,
+            Error, SessionConfig,
+        };
+        let camera = CameraConfig::new(ProfileId::SonyFr7, TransportOptions::tcp("unused.invalid"))
+            .with_camera_id(crate::types::CameraId::CAMERA_3);
+        let udp = || {
+            Udp::connect_with_config("127.0.0.1:9", crate::transport::TransportConfig::for_udp())
+                .expect("local UDP transport")
+        };
+        assert!(matches!(
+            CameraSession::open(udp(), &camera),
+            Err(Error::UnsupportedTransport {
+                transport: TransportKind::Tcp,
+                ..
+            })
+        ));
+        let config = SessionConfig::from_compile_time::<SonyFr7>()
+            .expect("profile")
+            .with_transport(TransportOptions::tcp("unused.invalid"));
+        Session::open(udp(), &config)
+            .expect("session checks actual UDP transport")
+            .close()
+            .expect("close");
+        let single = CameraSession::open(udp(), &camera.with_transport(TransportOptions::Custom))
+            .expect("custom selection uses opened UDP facts");
+        assert_eq!(single.target(), crate::types::CameraId::CAMERA_3);
+        single.close().expect("close");
+    }
+
     /// #822: a downstream profile's host-only TCP/UDP address resolves to
     /// its validated profile port, whether the configuration is
     /// built with `CameraConfig::tcp`/`udp` or with `.with_transport(..)`.
@@ -508,7 +629,7 @@ mod tests {
                             .maximum_command_sockets(base.maximum_command_sockets())
                             .supports_operation_complete(base.supports_operation_complete())
                             .supports_command_cancel(base.supports_command_cancel())
-                            .position_inquiries(base.position_inquiries())
+                            .position_inquiries(crate::AffectedAxes::MOVEMENT)
                             .build()
                     }
                 }
@@ -525,23 +646,23 @@ mod tests {
 
         let config = CameraConfig::<Downstream>::tcp("camera.local");
         assert_eq!(RESOLUTIONS.load(Ordering::SeqCst), 0);
-        let plan = config
-            .standard_connection_plan()
-            .expect("default target plan");
+        let plan = config.connection_plan().expect("default target plan");
         assert_eq!(RESOLUTIONS.load(Ordering::SeqCst), 1);
-        assert_eq!(plan.camera_id, crate::CameraId::CAMERA_2);
+        assert_eq!(plan.registration.target(), crate::CameraId::CAMERA_2);
         assert_eq!(
             config
                 .with_camera_id(crate::CameraId::CAMERA_3)
-                .standard_connection_plan()
+                .connection_plan()
                 .expect("address override")
-                .camera_id,
+                .registration
+                .target(),
             crate::CameraId::CAMERA_3
         );
 
         let endpoint = |config: CameraConfig<Downstream>| {
             config
-                .standard_connection_plan()
+                .connection_plan()
+                .map(|plan| plan.connection.transport.into_network())
                 .expect("downstream plan")
                 .endpoint
         };
@@ -599,11 +720,13 @@ mod tests {
         }
         assert!(CameraConfig::<UdpOnly>::typed(TransportOptions::Custom)
             .with_transport(TransportOptions::tcp("camera.local"))
-            .standard_connection_plan()
+            .connection_plan()
+            .map(|plan| plan.connection.transport.into_network())
             .is_err());
         assert_eq!(
             CameraConfig::<UdpOnly>::udp("camera.local")
-                .standard_connection_plan()
+                .connection_plan()
+                .map(|plan| plan.connection.transport.into_network())
                 .expect("UDP plan")
                 .endpoint,
             "camera.local:9877"
@@ -641,7 +764,8 @@ mod tests {
         assert_eq!(
             error.to_string(),
             config
-                .standard_connection_plan()
+                .connection_plan()
+                .map(|plan| plan.connection.transport.into_network())
                 .expect_err("profile before endpoint")
                 .to_string()
         );
@@ -660,9 +784,9 @@ mod tests {
         use std::time::Duration;
 
         use crate::{
-            camera::{CameraConfig, TransportKind, TransportOptions},
+            camera::{CameraConfig, TransportOptions},
             profiles::{PtzOpticsG2, SonyFr7},
-            transport::{BufferConfig, TcpKeepaliveConfig, TransportConfig},
+            transport::{BufferConfig, NetworkTransport, TcpKeepaliveConfig, TransportConfig},
         };
 
         let transport_config = TransportConfig {
@@ -680,9 +804,10 @@ mod tests {
 
         let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local")
             .with_transport_config(transport_config)
-            .standard_connection_plan()
+            .connection_plan()
+            .map(|plan| plan.connection.transport.into_network())
             .expect("TCP plan");
-        assert_eq!(tcp.kind, TransportKind::Tcp);
+        assert_eq!(tcp.kind, NetworkTransport::Tcp);
         assert_eq!(tcp.endpoint, "camera.local:5678");
         assert_eq!(
             tcp.transport_config.connect_timeout,
@@ -706,9 +831,10 @@ mod tests {
 
         let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
             .with_transport_config(transport_config)
-            .standard_connection_plan()
+            .connection_plan()
+            .map(|plan| plan.connection.transport.into_network())
             .expect("UDP plan");
-        assert_eq!(udp.kind, TransportKind::Udp);
+        assert_eq!(udp.kind, NetworkTransport::Udp);
         assert_eq!(udp.endpoint, "camera.local:1259");
         assert_eq!(
             udp.transport_config.connect_timeout,
@@ -726,22 +852,25 @@ mod tests {
         assert_eq!(udp.transport_config.ttl, Some(41));
 
         let sony = CameraConfig::<SonyFr7>::udp("camera.local")
-            .standard_connection_plan()
+            .connection_plan()
+            .map(|plan| plan.connection.transport.into_network())
             .expect("Sony UDP plan");
         assert_eq!(sony.endpoint, "camera.local:52381");
 
         let mut connector_calls = 0;
         let unsupported = CameraConfig::<SonyFr7>::typed(TransportOptions::Custom)
             .with_transport(TransportOptions::tcp("does-not-resolve.invalid"))
-            .standard_connection_plan();
+            .connection_plan()
+            .map(|plan| plan.connection.transport.into_network());
         if unsupported.is_ok() {
             connector_calls += 1;
         }
         assert!(unsupported.is_err());
         assert_eq!(connector_calls, 0);
 
-        let malformed =
-            CameraConfig::<PtzOpticsG2>::udp("invalid:address:format").standard_connection_plan();
+        let malformed = CameraConfig::<PtzOpticsG2>::udp("invalid:address:format")
+            .connection_plan()
+            .map(|plan| plan.connection.transport.into_network());
         if malformed.is_ok() {
             connector_calls += 1;
         }
@@ -870,7 +999,8 @@ mod tests {
                         buffer_config,
                         ..TransportConfig::default()
                     })
-                    .standard_connection_plan()
+                    .connection_plan()
+                    .map(|plan| plan.connection.transport.into_network())
                     .expect_err("invalid buffer bounds must fail in preflight");
                 assert!(matches!(
                     error,
@@ -907,7 +1037,8 @@ mod tests {
         let config = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 38_400)
             .with_transport_config(transport_config);
         let serial = config
-            .serial_config("/dev/fake-visca", 38_400)
+            .connection_plan()
+            .map(|plan| plan.connection.transport.into_serial())
             .expect("valid serial config");
         assert_eq!(serial.port, "/dev/fake-visca");
         assert_eq!(serial.baud_rate, 38_400);
@@ -930,7 +1061,8 @@ mod tests {
         use crate::{camera::CameraConfig, profiles::PtzOpticsG2, transport::SerialStartup};
 
         let plain = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 9_600)
-            .serial_config("/dev/fake-visca", 9_600)
+            .connection_plan()
+            .map(|plan| plan.connection.transport.into_serial())
             .expect("valid serial config");
         assert_eq!(plain.startup, SerialStartup::default());
         assert!(!plain.startup.address_set && !plain.startup.interface_clear);
@@ -940,7 +1072,8 @@ mod tests {
             .with_interface_clear(true);
         let configured = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 9_600)
             .with_serial_startup(selected)
-            .serial_config("/dev/fake-visca", 9_600)
+            .connection_plan()
+            .map(|plan| plan.connection.transport.into_serial())
             .expect("valid serial config");
         assert_eq!(configured.startup, selected);
     }
@@ -993,7 +1126,8 @@ mod tests {
                     buffer_config,
                     ..TransportConfig::default()
                 })
-                .serial_config("/dev/not-opened", 9_600)
+                .connection_plan()
+                .map(|plan| plan.connection.transport.into_serial())
                 .expect_err("invalid buffer bounds must fail before serial-device open");
             assert!(matches!(
                 error,

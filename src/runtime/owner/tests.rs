@@ -210,13 +210,6 @@ fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
 }
 
 #[test]
-fn owner_construction_retains_the_selected_clock_anchor() {
-    let selected = Instant::now() + Duration::from_secs(123);
-    let state = reconfigurable_owner_state_at(selected);
-    assert_eq!(state.observed_at, selected);
-}
-
-#[test]
 fn retune_checks_the_selected_clock_before_replacing_live_tuning() {
     let mut state = reconfigurable_owner_state_at(Instant::now());
     let live = state.live_tuning();
@@ -665,7 +658,7 @@ mod metrics {
         now: Instant,
     ) {
         while let Some(effect) = effects.pop_front() {
-            if let AppliedEffect::Transmit(staged) = state.apply_effect(effect) {
+            if let AppliedEffect::Transmit(staged) = state.apply_effect(effect, now) {
                 let produced = state.finish_write(
                     &staged,
                     WriteOutcome::Sent(sequence.map_or(TransmissionMeta::Raw, |sequence| {
@@ -750,7 +743,7 @@ mod metrics {
             ClassSelection::Request,
         )
         .unwrap();
-        let request = prepared.admit_with(|request, _| request);
+        let request = prepared.admit_with(|request, _| request.into_inner());
         let observer = sent(&mut state, request, None, start);
         apply(
             &mut state,
@@ -1060,7 +1053,7 @@ mod metrics {
         };
         let turn = state.begin_input_turn(now);
         for effect in input.in_turn(state, &turn) {
-            let _ = state.apply_effect(effect);
+            let _ = state.apply_effect(effect, now);
         }
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         let core = ReceiptCore::admitted(admitted.recv().unwrap().unwrap(), observer, ACK);
@@ -1070,6 +1063,86 @@ mod metrics {
     fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<CommandOutcome>>) {
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         admit_observation(&mut state, command(retrying()), Instant::now())
+    }
+
+    #[test]
+    fn halt_supersession_uses_its_delivery_instant_after_an_earlier_turn() {
+        use crate::AffectedAxes;
+        let earlier = Instant::now();
+        let deadline = earlier + Duration::from_millis(1);
+        let delivered = earlier + Duration::from_millis(2);
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), earlier).unwrap();
+        let mut request = command(retrying());
+        request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
+            axes: AffectedAxes::PAN_TILT,
+            stop: false,
+        });
+        request.context_mut().submission_order = 1;
+        let (mut observation, _) = admit_observation(&mut state, request, earlier);
+        let halt_deadline = delivered + ACK;
+        let boundary::AdmissionClaim::Claimed { remaining } =
+            boundary::AdmissionValidity::until(halt_deadline).claim_for_admission(delivered)
+        else {
+            panic!("the halt has a positive admission budget");
+        };
+        let receipt = state.accept_halt(
+            crate::prepared::PreparedHalt {
+                target: TargetSlot::CAMERA_1,
+                axes: Some(AffectedAxes::PAN_TILT),
+                requests: [None, None, None],
+                budget: ACK,
+            },
+            halt_deadline,
+            2,
+            remaining,
+            delivered,
+        );
+        assert!(receipt.slots.iter().all(Option::is_none));
+        observation.poll();
+        let terminal = observation
+            .terminal
+            .clone()
+            .expect("halt superseded queued motion");
+        assert_eq!(terminal.at, delivered);
+        assert!(matches!(
+            terminal.value,
+            CommandOutcome::Failed(Error::MotionSuperseded { .. })
+        ));
+        assert!(matches!(
+            observation.core.conclude(terminal, deadline),
+            Err(Error::ObservationTimeout { .. })
+        ));
+    }
+
+    #[test]
+    fn cancellation_failure_uses_the_explicit_delivery_instant() {
+        let earlier = Instant::now();
+        let deadline = earlier + Duration::from_millis(1);
+        let delivered = earlier + Duration::from_millis(2);
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), earlier).unwrap();
+        let (mut observation, _) = admit_observation(&mut state, command(retrying()), earlier);
+        let cancellation = observation.cancellation_request();
+        state
+            .active
+            .get_mut(&observation.id())
+            .unwrap()
+            .cancellation = Some(CancellationIntent::Recorded(cancellation.observer));
+        state.apply_effect(
+            Effect::CancellationObservation {
+                id: observation.id(),
+                observation: CancellationObservation::Failed(Error::CancellationUnconfirmed),
+            },
+            delivered,
+        );
+        assert!(observation.cancellation(deadline).is_none());
+        assert_eq!(
+            observation.cancellation_failure.as_ref().unwrap().at,
+            delivered
+        );
+        assert!(matches!(
+            observation.cancellation(delivered),
+            Some(Err(Error::CancellationUnconfirmed))
+        ));
     }
 
     #[test]
@@ -1156,7 +1229,7 @@ mod metrics {
             "engine admission invalidates attribution before its Admitted effect drains"
         );
         for effect in effects {
-            let _ = state.apply_effect(effect);
+            let _ = state.apply_effect(effect, now);
         }
         let _ = state.finish_input_turn(admission_turn, EngineTurn::InputOnly);
         let later = OperationObservation::new(
@@ -1165,7 +1238,7 @@ mod metrics {
         );
         let turn = state.begin_input_turn(now);
         for effect in state.input_in_turn(&turn, Input::Cancel { id: later.id() }) {
-            let _ = state.apply_effect(effect);
+            let _ = state.apply_effect(effect, now);
         }
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         assert!(matches!(
@@ -1476,14 +1549,15 @@ mod metrics {
                 target: TargetSlot::CAMERA_1,
                 axes: Some(crate::AffectedAxes::MOVEMENT),
                 requests: [
-                    Some(Ok(stop.clone())),
-                    Some(Ok(stop.clone())),
-                    Some(Ok(stop)),
+                    Some(Ok(stop.clone().into())),
+                    Some(Ok(stop.clone().into())),
+                    Some(Ok(stop.into())),
                 ],
                 budget: ACK,
             },
             now + ACK,
             1,
+            crate::runtime::engine::NonZeroDuration::new(ACK).unwrap(),
             now,
         );
         for slot in receipt.slots {
@@ -1634,13 +1708,13 @@ fn engine_terminal_cause_is_authoritative_before_effect_delivery() {
         }),
         now,
     );
-    let expected = state.engine.terminal_error().unwrap();
+    let expected = state.engine.terminal_error().unwrap().clone();
     assert_eq!(
         state.boundary_error().unwrap().to_string(),
         expected.to_string()
     );
     for effect in effects {
-        state.apply_effect(effect);
+        state.apply_effect(effect, now);
     }
     state.input(Input::Shutdown(ShutdownReason::Explicit), now);
     assert_eq!(
@@ -2432,7 +2506,7 @@ mod lifecycle_trace {
                         self.record_admission_rejected(effect, out);
                     }
                     Effect::Transition { id, from, to, .. } => {
-                        self.state_mut().apply_effect(effect);
+                        self.apply_effect(effect);
                         out.push(format!(
                             "{} effect state id={} from={} to={}",
                             self.at,
@@ -2446,10 +2520,10 @@ mod lifecycle_trace {
                     }
                     Effect::DeadlineExpired { id, .. } => {
                         deadlines.insert(id);
-                        self.state_mut().apply_effect(effect);
+                        self.apply_effect(effect);
                     }
                     Effect::CancellationRecorded { id } => {
-                        self.state_mut().apply_effect(effect);
+                        self.apply_effect(effect);
                         let queued = matches!(
                             self.cancel_phase,
                             Some(Phase::Ready | Phase::Backoff { .. })
@@ -2488,11 +2562,10 @@ mod lifecycle_trace {
                                 id.get()
                             ),
                         ));
-                        self.state_mut().apply_effect(effect);
+                        self.apply_effect(effect);
                     }
                     Effect::AppliedState { effect: projection } => {
-                        self.state_mut()
-                            .apply_effect(Effect::AppliedState { effect: projection });
+                        self.apply_effect(Effect::AppliedState { effect: projection });
                         let entry = self.state().target_cache[projection.target]
                             .lock()
                             .unwrap()
@@ -2526,7 +2599,7 @@ mod lifecycle_trace {
                         };
                         let text = outcome_text(outcome);
                         let permits_before = self.state().permits().available();
-                        self.state_mut().apply_effect(effect.clone());
+                        self.apply_effect(effect.clone());
                         let removed = self.state().request_state(id).is_none();
                         let released = self.state().permits().available() == permits_before + 1;
                         out.push(format!(
@@ -2552,8 +2625,10 @@ mod lifecycle_trace {
                             !mine
                         });
                     }
-                    Effect::SessionChanged { from, to } => {
-                        self.state_mut().apply_effect(effect);
+                    Effect::SessionEnded(ref end) => {
+                        let from = SessionState::Running;
+                        let to = end.status.state();
+                        self.apply_effect(effect);
                         let detail = match to {
                             SessionState::Poisoned => {
                                 format!("cause={}", poison_cause(self.state()))
@@ -2581,9 +2656,14 @@ mod lifecycle_trace {
             }
         }
 
+        fn apply_effect(&mut self, effect: Effect) -> AppliedEffect {
+            let delivered_at = self.now;
+            self.state_mut().apply_effect(effect, delivered_at)
+        }
+
         fn record_admitted(&mut self, id: RequestId, effect: Effect, out: &mut Vec<String>) {
             let pending = self.pending.take().expect("a staged admission");
-            self.state_mut().apply_effect(effect);
+            self.apply_effect(effect);
             let target = self
                 .diagnostics
                 .as_ref()
@@ -2646,8 +2726,7 @@ mod lifecycle_trace {
 
         fn record_admission_rejected(&mut self, effect: Effect, out: &mut Vec<String>) {
             let pending = self.pending.take().expect("a staged admission");
-            let AppliedEffect::AdmissionRejected(error) = self.state_mut().apply_effect(effect)
-            else {
+            let AppliedEffect::AdmissionRejected(error) = self.apply_effect(effect) else {
                 panic!("a rejected admission did not report its error")
             };
             let capacity = match &error {
@@ -2709,7 +2788,7 @@ mod lifecycle_trace {
                     ));
                 }
             }
-            let AppliedEffect::Transmit(staged) = self.state_mut().apply_effect(effect) else {
+            let AppliedEffect::Transmit(staged) = self.apply_effect(effect) else {
                 panic!("a transmit effect did not stage a write")
             };
             let label = self.write_label.clone();
@@ -2780,9 +2859,7 @@ mod lifecycle_trace {
             | Effect::RetryScheduled { id, .. } => Some(*id),
             Effect::AppliedState { effect } => Some(effect.request),
             Effect::Transmit { request, .. } => Some(*request),
-            Effect::AdmissionRejected { .. }
-            | Effect::SessionChanged { .. }
-            | Effect::Ignored(_) => None,
+            Effect::AdmissionRejected { .. } | Effect::SessionEnded(_) | Effect::Ignored(_) => None,
         }
     }
 
@@ -2940,7 +3017,7 @@ fn fatal_receive_io_table_drives_raw_and_wrapped_verdicts() {
 #[test]
 fn consumed_input_verdict_preserves_stream_cause_and_discards_one_datagram() {
     let error = Error::ResponseTooLarge { max_size: 24 }.with_context("consumed reply");
-    let OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause }) =
+    let OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause, .. }) =
         OwnerReceive::consumed_error(error.clone(), TransportKind::Stream)
     else {
         panic!("consumed stream bytes lost their framing boundary");
@@ -2950,4 +3027,42 @@ fn consumed_input_verdict_preserves_stream_cause_and_discards_one_datagram() {
         OwnerReceive::consumed_error(error, TransportKind::Datagram),
         OwnerReceive::NoProgress(NoProgressReason::MalformedDatagram)
     ));
+}
+
+#[test]
+fn effect_storage_retains_warm_capacity_and_prepends_recursive_results_in_order() {
+    let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+    buffers.effect_scratch.extend([
+        Effect::Ignored(IgnoreReason::UnknownRequest),
+        Effect::Ignored(IgnoreReason::MalformedFrame),
+    ]);
+    let mut effects = buffers.take_effects();
+    buffers.effect_scratch.extend([
+        Effect::Ignored(IgnoreReason::StaleTransmission),
+        Effect::Ignored(IgnoreReason::ReplyShapeMismatch),
+    ]);
+    buffers.prepend_effects(&mut effects);
+    let reasons: Vec<_> = effects
+        .iter()
+        .map(|effect| match effect {
+            Effect::Ignored(reason) => *reason,
+            _ => panic!("only ignored effects in this queue fixture"),
+        })
+        .collect();
+    assert_eq!(
+        reasons,
+        [
+            IgnoreReason::StaleTransmission,
+            IgnoreReason::ReplyShapeMismatch,
+            IgnoreReason::UnknownRequest,
+            IgnoreReason::MalformedFrame,
+        ]
+    );
+    let queue_capacity = effects.capacity();
+    let scratch_capacity = buffers.effect_scratch.capacity();
+    effects.clear();
+    buffers.recycle_effects(effects);
+    assert_eq!(buffers.take_effects().capacity(), queue_capacity);
+    assert_eq!(buffers.effect_scratch.capacity(), scratch_capacity);
+    assert!(buffers.effect_scratch.is_empty());
 }

@@ -5,7 +5,7 @@ The fuzz package exercises five bounded protocol layers through doc-hidden
 
 | Target | Coverage |
 | --- | --- |
-| `response_parser` | Raw-frame admission, basic response parsing, and every generated `InquiryKind` decoder (currently 74 distinct kinds). |
+| `response_parser` | Raw-frame admission, basic response parsing, and every generated `InquiryKind` decoder. |
 | `protocol_framer` | Raw and Sony framing with whole and split reads, plus a structurally valid Sony frame derived from each input. |
 | `sony_envelope` | Sony request framing, public VISCA extraction, owner control-reply extraction, and sequence RESET framing. |
 | `response_target` | Strict serial and single-/multi-target IP source routing. |
@@ -32,10 +32,9 @@ Run `python3 fuzz/seed_corpus.py` to materialize each target's ignored
 generator preserves additional inputs discovered by local fuzz runs. The
 structured harnesses derive valid framing from the mutated input, so the finite CI budget reaches past protocol headers.
 Every `response_parser` seed is run through the complete generated inquiry
-inventory: the 74 sourced queryable rows have 74 distinct response kinds,
-including parameterized queries. Together the existing seed patterns form the
-requested kind × pattern matrix, and a newly added inquiry kind joins it
-automatically.
+inventory, including parameterized queries. Together the existing seed patterns
+form the requested kind × pattern matrix, and a newly added inquiry kind joins
+it automatically.
 
 The seeds are grouped by filename prefix:
 

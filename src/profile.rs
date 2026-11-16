@@ -135,16 +135,36 @@ impl TransportCompatibility {
         self
     }
 
+    /// Answers the standard profile support matrix in one place.
+    pub(crate) const fn supports(self, transport: crate::transport::StandardTransport) -> bool {
+        match transport {
+            crate::transport::StandardTransport::Tcp => self.tcp_port().is_some(),
+            crate::transport::StandardTransport::Udp => self.udp_port().is_some(),
+            crate::transport::StandardTransport::Serial => self.serial,
+        }
+    }
+
+    /// Returns the profile-selected port of a network transport.
+    pub(crate) const fn default_port(
+        self,
+        transport: crate::transport::NetworkTransport,
+    ) -> Option<u16> {
+        match transport {
+            crate::transport::NetworkTransport::Tcp => self.tcp_port,
+            crate::transport::NetworkTransport::Udp => self.udp_port,
+        }
+    }
+
     /// Returns the default TCP port when TCP is supported.
     #[must_use]
     pub const fn tcp_port(self) -> Option<u16> {
-        self.tcp_port
+        self.default_port(crate::transport::NetworkTransport::Tcp)
     }
 
     /// Returns the default UDP port when UDP is supported.
     #[must_use]
     pub const fn udp_port(self) -> Option<u16> {
-        self.udp_port
+        self.default_port(crate::transport::NetworkTransport::Udp)
     }
 
     /// Returns whether serial transport is supported.
@@ -908,8 +928,8 @@ pub(crate) struct ProfileFacts {
     pub(crate) maximum_command_sockets: u8,
     pub(crate) supports_operation_complete: bool,
     pub(crate) supports_command_cancel: bool,
-    // Settlement query availability is a low-level protocol fact, distinct
-    // from permission to expose a public typed inquiry.
+    // Each settlement axis uses its public inquiry's canonical gate. In
+    // particular, polling iris requires the Iris typed-support grant.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "required_option"))]
     #[cfg_attr(feature = "schemars", schemars(required, transform = nullable_schema))]
     pub(crate) position_inquiries: Option<AffectedAxes>,
@@ -1255,7 +1275,9 @@ impl ProfileSpec {
     /// Returns whether the profile declares every selected physical axis.
     ///
     /// This checks the capability inventory, not position-inquiry availability;
-    /// callers that need to poll must also check that [`Self::position_inquiries`]
+    /// polling availability follows each axis's settlement inquiry gate (iris
+    /// requires `Iris`, while an `IrisSteps` grant still counts as inventory).
+    /// Callers that need to poll must check that [`Self::position_inquiries`]
     /// contains their complete selection.
     #[must_use]
     pub fn supports_axes(&self, axes: AffectedAxes) -> bool {
@@ -1590,52 +1612,48 @@ impl ProfileFacts {
                 "position inquiries require profile inquiry support",
             ));
         }
-        if (can_query(AffectedAxes::PAN_TILT) && caps.pan_tilt.is_none())
-            || (can_query(AffectedAxes::ZOOM) && caps.zoom.is_none())
-            || (can_query(AffectedAxes::FOCUS) && caps.focus.is_none())
-            || (can_query(AffectedAxes::IRIS)
-                && caps
-                    .exposure
-                    .as_ref()
-                    .is_none_or(|domain| domain.iris_range.is_none()))
-            || (can_query(AffectedAxes::ND_FILTER)
-                && !caps.supports(capabilities::TypedSupportSurface::NdFilter))
-        {
+        if queries.is_some_and(|axes| !crate::position_inquiries::permits(caps, axes)) {
             return Err(invalid_profile_fields(
-                &["position_inquiries", "capabilities"],
-                "position inquiry support names an unsupported axis",
+                &[
+                    "position_inquiries",
+                    "capabilities",
+                    "capabilities.typed_support",
+                ],
+                "position inquiry support names an axis whose settlement inquiry is not permitted",
             ));
         }
-        if !self.supports_operation_complete
-            && ((caps.pan_tilt.is_some() && !can_query(AffectedAxes::PAN_TILT))
-                || (caps.focus.is_some() && !can_query(AffectedAxes::FOCUS))
-                || (caps.supports(capabilities::TypedSupportSurface::DirectZoom)
-                    && !can_query(AffectedAxes::ZOOM))
-                || (caps.supports(capabilities::TypedSupportSurface::Iris)
-                    && !can_query(AffectedAxes::IRIS))
-                || (caps.supports(capabilities::TypedSupportSurface::NdFilter)
-                    && !can_query(AffectedAxes::ND_FILTER)))
-        {
-            return Err(invalid_profile_fields(
-                &["supports_operation_complete", "position_inquiries"],
-                "a profile without exact completion needs inquiries for every targeted axis",
-            ));
+        if !self.supports_operation_complete {
+            use crate::command::{
+                semantics::{BuiltinAxisSelection, BuiltinCommand, BuiltinRequestClass},
+                surface::row_gate,
+            };
+            let targeted_axes = BuiltinCommand::ALL
+                .iter()
+                .filter_map(|command| match command.classification() {
+                    BuiltinRequestClass::Targeted {
+                        axes: BuiltinAxisSelection::Exact(axes),
+                    } if row_gate(*command).permits(caps) => Some(axes),
+                    _ => None,
+                })
+                .fold(None, |all: Option<AffectedAxes>, axes| {
+                    Some(all.map_or(axes, |all| all.union(axes)))
+                });
+            if targeted_axes.is_some_and(|axes| !can_query(axes)) {
+                return Err(invalid_profile_fields(
+                    &["supports_operation_complete", "position_inquiries"],
+                    "a profile without exact completion needs inquiries for every targeted axis",
+                ));
+            }
         }
         if let Some(presets) = &caps.presets {
-            if (presets.recall_axes.contains(AffectedAxes::PAN_TILT) && caps.pan_tilt.is_none())
-                || (presets.recall_axes.contains(AffectedAxes::ZOOM) && caps.zoom.is_none())
-                || (presets.recall_axes.contains(AffectedAxes::FOCUS) && caps.focus.is_none())
-                || (presets.recall_axes.contains(AffectedAxes::IRIS)
-                    && caps
-                        .exposure
-                        .as_ref()
-                        .is_none_or(|domain| domain.iris_range.is_none()))
-                || (presets.recall_axes.contains(AffectedAxes::ND_FILTER)
-                    && !caps.supports(capabilities::TypedSupportSurface::NdFilter))
-            {
+            if !crate::position_inquiries::permits(caps, presets.recall_axes) {
                 return Err(invalid_profile_fields(
-                    &["capabilities.presets.recall_axes"],
-                    "preset recall must name present physical axes",
+                    &[
+                        "capabilities.presets.recall_axes",
+                        "capabilities",
+                        "capabilities.typed_support",
+                    ],
+                    "preset recall must name axes whose settlement inquiries are permitted",
                 ));
             }
             if !self.supports_operation_complete && !can_query(presets.recall_axes) {
@@ -2953,6 +2971,143 @@ mod tests {
             builder = builder.encoding(selection);
         }
         builder
+    }
+
+    #[test]
+    fn iris_settlement_requires_the_inquiry_grant_for_queries_and_recall() {
+        for recall in [false, true] {
+            let mut facts = ProfileId::PtzOpticsG2.raw_facts();
+            facts.capabilities.profile_id = None;
+            facts.supports_operation_complete = false;
+            facts.capabilities.typed_support = facts
+                .capabilities
+                .typed_support
+                .without(TypedSupportSurface::Iris);
+            if recall {
+                facts.position_inquiries =
+                    Some(AffectedAxes::PAN_TILT | AffectedAxes::ZOOM | AffectedAxes::FOCUS);
+                facts
+                    .capabilities
+                    .presets
+                    .as_mut()
+                    .expect("presets")
+                    .recall_axes = AffectedAxes::IRIS;
+            }
+            let error = facts
+                .clone()
+                .validate()
+                .expect_err("iris grant is required")
+                .to_string();
+            assert!(error.contains("capabilities.typed_support"), "{error}");
+            let field = if recall {
+                "capabilities.presets.recall_axes"
+            } else {
+                "position_inquiries"
+            };
+            assert!(error.contains(field), "{error}");
+
+            facts.capabilities.typed_support = facts
+                .capabilities
+                .typed_support
+                .union(TypedSupportSet::from_surface(TypedSupportSurface::Iris));
+            facts.position_inquiries =
+                Some(facts.position_inquiries.expect("inquiries") | AffectedAxes::IRIS);
+            facts
+                .validate()
+                .expect("the public iris inquiry is now admitted");
+        }
+    }
+
+    #[test]
+    fn every_position_axis_is_validated_against_its_public_inquiry() {
+        use crate::command::inquiry::{
+            FocusPositionInquiry, IrisInquiry, NdFilterInquiry, PanTiltPositionInquiry,
+            ZoomPositionInquiry,
+        };
+
+        fn check<I: crate::Inquiry>(
+            inquiry: I,
+            axis: AffectedAxes,
+            remove: impl FnOnce(&mut Capabilities),
+        ) {
+            let mut facts = ProfileId::PtzOpticsG2.raw_facts();
+            facts.capabilities.profile_id = None;
+            facts.capabilities.typed_support = TypedSupportSet::from_surfaces(&[
+                TypedSupportSurface::Iris,
+                TypedSupportSurface::NdFilter,
+            ]);
+            facts.capabilities.presets = None;
+            facts.encodings = capabilities::ProfileEncodings::default();
+            facts.supports_operation_complete = true;
+            facts.position_inquiries = Some(axis);
+            let profile = ProfileSpec::from_facts(facts.clone()).expect("permitted axis");
+            let target = crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                profile,
+            );
+            inquiry
+                .validate_for_target(&target)
+                .expect("public inquiry admits the axis");
+
+            remove(&mut facts.capabilities);
+            // Check the inquiry's independent admission rule even though this
+            // deliberately invalid profile cannot be built by a caller.
+            let target = crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                ProfileSpec {
+                    facts: facts.clone(),
+                },
+            );
+            assert!(matches!(
+                inquiry.validate_for_target(&target),
+                Err(Error::FeatureNotSupported { .. })
+            ));
+            let error = facts
+                .validate()
+                .expect_err("the inquiry gate denies this axis")
+                .to_string();
+            assert!(error.contains("position_inquiries"), "{error}");
+        }
+
+        check(PanTiltPositionInquiry, AffectedAxes::PAN_TILT, |caps| {
+            caps.pan_tilt = None
+        });
+        check(ZoomPositionInquiry, AffectedAxes::ZOOM, |caps| {
+            caps.zoom = None
+        });
+        check(FocusPositionInquiry, AffectedAxes::FOCUS, |caps| {
+            caps.focus = None
+        });
+        check(IrisInquiry, AffectedAxes::IRIS, |caps| {
+            caps.typed_support = TypedSupportSet::empty()
+        });
+        check(NdFilterInquiry, AffectedAxes::ND_FILTER, |caps| {
+            caps.typed_support = TypedSupportSet::empty()
+        });
+    }
+
+    #[test]
+    fn iris_steps_remain_inventory_without_granting_position_polling() {
+        let mut facts = ProfileId::PtzOpticsG2.raw_facts();
+        facts.capabilities.profile_id = None;
+        facts.capabilities.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::IrisSteps);
+        facts
+            .capabilities
+            .exposure
+            .as_mut()
+            .expect("exposure")
+            .iris_range = None;
+        facts.capabilities.presets = None;
+        facts.encodings = capabilities::ProfileEncodings::default();
+        facts.supports_operation_complete = true;
+        facts.position_inquiries = None;
+        let profile = ProfileSpec::from_facts(facts).expect("step-only iris inventory");
+        assert!(profile.supports_axes(AffectedAxes::IRIS));
+        assert!(!crate::position_inquiries::permits(
+            profile.capabilities(),
+            AffectedAxes::IRIS
+        ));
     }
 
     #[test]

@@ -15,7 +15,6 @@ use bytes::Bytes;
 use smallvec::SmallVec;
 
 use crate::{
-    camera::TransportKind as CameraTransportKind,
     profiles::{ProfileEnvelope, ProfileSpec},
     protocol::{
         framer::{Framer, FramingError, RawFramer, SonyFramer},
@@ -290,7 +289,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
 
     config.validate()?;
 
-    let transport = identity.engine_kind();
+    let transport = identity.send_semantics().into();
 
     // Raw targets exclude only overlapping inquiry declarations. Admission
     // capacity still bounds total concurrent inquiries, as for Sony sequences.
@@ -472,11 +471,12 @@ impl<T, F> TransportAdapter<T, F> {
         read: Result<ReceiveOutcome, Error>,
     ) -> OwnerReceive {
         let decoded = match read {
-            Ok(outcome) if !outcome.is_complete() => {
-                Err(ReceiveDecodeFailure::Fatal(Error::ResponseTooLarge {
+            Ok(outcome) if !outcome.is_complete() => Err(ReceiveDecodeFailure::Fatal {
+                error: Error::ResponseTooLarge {
                     max_size: self.policy.limits.receive_bytes,
-                }))
-            }
+                },
+                discarded: 0,
+            }),
             Ok(outcome) if outcome.copied_len() == 0 => {
                 return OwnerReceive::Fatal(ReceiveFatal::TransportClosed { cause: None })
             }
@@ -649,7 +649,7 @@ impl AdapterFraming {
         frame_limit: usize,
     ) -> Result<Option<FrameBatch>, ReceiveDecodeFailure> {
         let buffered = self.decode(buffers, 0, frame_limit)?;
-        if !buffered.is_empty() || buffers.discarded_malformed() > 0 {
+        if !buffered.is_empty() || buffered.discarded > 0 {
             Ok(Some(buffered))
         } else {
             buffers.recycle_frames(buffered);
@@ -700,12 +700,15 @@ impl RetainedStreamInput for AdapterFraming {
 /// on the owner receive path. Fatal framing faults retain their typed cause.
 #[derive(Debug)]
 pub(crate) enum ReceiveDecodeFailure {
-    Fatal(Error),
+    Fatal { error: Error, discarded: usize },
     Malformed(MalformedFrame),
 }
 impl From<FramingError> for ReceiveDecodeFailure {
     fn from(error: FramingError) -> Self {
-        Self::Fatal(error.into())
+        Self::Fatal {
+            error: error.into(),
+            discarded: 0,
+        }
     }
 }
 impl From<MalformedFrame> for ReceiveDecodeFailure {
@@ -714,9 +717,21 @@ impl From<MalformedFrame> for ReceiveDecodeFailure {
     }
 }
 impl ReceiveDecodeFailure {
+    fn with_discarded(self, count: usize) -> Self {
+        match self {
+            Self::Fatal { error, discarded } => Self::Fatal {
+                error,
+                discarded: discarded.saturating_add(count),
+            },
+            Self::Malformed(verdict) => Self::Malformed(verdict),
+        }
+    }
+
     fn owner_receive(self, transport: TransportKind) -> OwnerReceive {
         match self {
-            Self::Fatal(error) => OwnerReceive::consumed_error(error, transport),
+            Self::Fatal { error, discarded } => {
+                OwnerReceive::consumed_error_with_discards(error, transport, discarded)
+            }
             Self::Malformed(_verdict) => {
                 OwnerReceive::NoProgress(super::NoProgressReason::MalformedDatagram)
             }
@@ -734,19 +749,21 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
     frame_limit: usize,
     transport: TransportKind,
 ) -> Result<FrameBatch, ReceiveDecodeFailure> {
-    buffers.set_discarded_malformed(0);
     if received > buffers.receive_mut().len() {
-        return Err(ReceiveDecodeFailure::Fatal(Error::InvalidResponse {
-            expected: Cow::Borrowed("transport read fitting the owner receive buffer"),
-            actual: received.to_le_bytes().to_vec(),
-        }));
+        return Err(ReceiveDecodeFailure::Fatal {
+            error: Error::InvalidResponse {
+                expected: Cow::Borrowed("transport read fitting the owner receive buffer"),
+                actual: received.to_le_bytes().to_vec(),
+            },
+            discarded: 0,
+        });
     }
     if received == 0 && (transport == TransportKind::Datagram || !framer.has_buffered_data()) {
         return Ok(FrameBatch::new());
     }
     let mut frames = buffers.take_frames();
     let mut discarded = 0_usize;
-    let result = match transport {
+    let result: Result<(), ReceiveDecodeFailure> = match transport {
         TransportKind::Datagram => (|| {
             let input = &buffers.receive_mut()[..received];
             let mut offset = 0;
@@ -788,12 +805,12 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
     };
     match result {
         Ok(()) => {
-            buffers.set_discarded_malformed(discarded);
+            frames.discarded = discarded;
             Ok(frames)
         }
         Err(error) => {
             buffers.recycle_frames(frames);
-            Err(error)
+            Err(error.with_discarded(discarded))
         }
     }
 }
@@ -971,24 +988,6 @@ fn classify_response_source(routing: RoutingState, source: u8) -> ResponseSource
     }
 }
 
-/// Convert profile envelope facts to the camera-level transport kind for
-/// callers that need to validate a standard transport before opening it.
-pub(crate) fn profile_supports_transport(
-    profile: &ProfileSpec,
-    identity: TransportIdentity<'_>,
-) -> bool {
-    let Some(kind) = identity.standard_transport_kind() else {
-        // Custom transports intentionally remain an explicit escape hatch.
-        return true;
-    };
-    match kind {
-        CameraTransportKind::Tcp => profile.transports().tcp_port().is_some(),
-        CameraTransportKind::Udp => profile.transports().udp_port().is_some(),
-        CameraTransportKind::Serial => profile.transports().supports_serial(),
-        CameraTransportKind::Custom => true,
-    }
-}
-
 /// Validate a standard transport kind against a runtime profile before any
 /// owner or transport startup work occurs.  A transport that does not expose
 /// a standard kind is an explicit custom escape hatch and remains allowed.
@@ -996,15 +995,13 @@ pub(crate) fn validate_profile_transport(
     profile: &ProfileSpec,
     identity: TransportIdentity<'_>,
 ) -> Result<(), Error> {
-    if profile_supports_transport(profile, identity) {
-        return Ok(());
-    }
-
-    let Some(kind) = identity.standard_transport_kind() else {
-        // `profile_supports_transport` currently returns true for this case;
-        // keep the branch defensive if that policy ever changes.
+    let Some(standard) = identity.standard_kind() else {
         return Ok(());
     };
+    if profile.transports().supports(standard) {
+        return Ok(());
+    }
+    let kind = standard.configuration_kind();
     if let Some(profile_id) = profile.capabilities().profile_id {
         return Err(Error::UnsupportedTransport {
             profile: profile_id,
@@ -1467,11 +1464,59 @@ mod tests {
                 4,
                 TransportKind::Stream,
             ),
-            Err(ReceiveDecodeFailure::Fatal(Error::ResponseTooLarge {
-                max_size: 5
-            }))
+            Err(ReceiveDecodeFailure::Fatal {
+                error: Error::ResponseTooLarge { max_size: 5 },
+                discarded: 0,
+            })
         ));
         assert!(framer.has_buffered_data());
+    }
+
+    #[test]
+    fn malformed_discards_survive_a_later_fatal_error_in_the_same_stream_batch() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
+        );
+        let mut framer = SonyFramer::new_with_limits(64, 16, 64);
+        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut bytes = Vec::new();
+        for sequence in 0..3 {
+            // A delimited Sony response carrying an invalid padded VISCA ACK.
+            bytes.extend_from_slice(&[1, 0x11, 0, 4, 0, 0, 0, sequence, 0x90, 0x41, 0, 0xff]);
+        }
+        // This following header loses framing position: its declared frame
+        // exceeds the configured frame bound before a body is available.
+        bytes.extend_from_slice(&[1, 0x11, 0, 32, 0, 0, 0, 3]);
+        buffers.receive_mut()[..bytes.len()].copy_from_slice(&bytes);
+        let failure = decode_frames_with_routing(
+            &envelope,
+            &mut framer,
+            routing,
+            &mut buffers,
+            bytes.len(),
+            8,
+            TransportKind::Stream,
+        )
+        .expect_err("oversized Sony frame is fatal");
+        assert!(matches!(
+            failure,
+            ReceiveDecodeFailure::Fatal {
+                error: Error::ResponseTooLarge { max_size: 16 },
+                discarded: 3,
+            }
+        ));
+        assert!(matches!(
+            failure.owner_receive(TransportKind::Stream),
+            OwnerReceive::Fatal(ReceiveFatal::FramingFailure { discarded: 3, .. })
+        ));
+        let recycled = buffers.take_frames();
+        assert!(recycled.is_empty());
+        assert_eq!(
+            recycled.discarded, 0,
+            "recycling clears the previous batch's count"
+        );
     }
 
     /// Issue #672: a delimited-but-unclassifiable frame on a stream is discarded
@@ -1508,8 +1553,7 @@ mod tests {
             DecodedResponse::Completion { .. }
         ));
         assert_eq!(
-            buffers.take_discarded_malformed(),
-            1,
+            frames.discarded, 1,
             "the padded ACK is reported as one discarded malformed frame"
         );
         assert!(!framer.has_buffered_data());
@@ -1575,7 +1619,7 @@ mod tests {
         )
         .expect("an over-limit stream read is not a framing failure");
         assert_eq!(first.len(), 2, "the read stops at the frame limit");
-        assert_eq!(buffers.take_discarded_malformed(), 0);
+        assert_eq!(first.discarded, 0);
         assert!(
             framer.has_buffered_data(),
             "the third frame is left buffered for the next receive"
@@ -1794,6 +1838,16 @@ pub(crate) struct ReceiveProbe {
     buffers: OwnerBuffers,
 }
 
+// Receive-only methods mutate the same framing and byte storage this probe
+// held before effect buffering was added. Its shared OwnerBuffers also owns
+// effect queues, but those stay empty and cannot be accessed through the
+// receive-only API. Preserve the probe's existing unwind marker contract
+// without asserting anything about live owners or their effect storage.
+#[cfg(feature = "test-utils")]
+impl std::panic::UnwindSafe for ReceiveProbe {}
+#[cfg(feature = "test-utils")]
+impl std::panic::RefUnwindSafe for ReceiveProbe {}
+
 #[cfg(feature = "test-utils")]
 #[derive(Debug)]
 struct ProbeConfig(TransportConfig, SendSemantics);
@@ -1860,7 +1914,7 @@ impl ReceiveProbe {
             OwnerReceive::Fatal(ReceiveFatal::TransportClosed { cause }) => {
                 Err(cause.unwrap_or_else(|| Error::connection_closed(None)))
             }
-            OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause }) => Err(cause),
+            OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause, .. }) => Err(cause),
         }
     }
 }
