@@ -45,7 +45,7 @@ fn main() {
 
     assert!(matches!(
         ZoomPositionProbe.parse_response(&[0x00, 0x01, 0x02, 0x03]),
-        ::core::result::Result::Ok(InquiryData::ZoomPosition { position: 0x0123 })
+        ::core::result::Result::Ok(InquiryData::ZoomPosition { position }) if position.value() == 0x0123
     ));
     assert!(ZoomPositionProbe
         .parse_response(&[0x00, 0x01, 0x02, 0x03, 0x00])

@@ -23,7 +23,7 @@ mod tests {
     fn test_red_channel_g2_wire_format() {
         let resp = decode(InquiryKind::RedChannel, &[0x00, 0x00, 0x0D, 0x05]);
         match resp {
-            Response::Inquiry(InquiryData::RedChannel { gain }) => assert_eq!(gain, 0xD5),
+            Response::Inquiry(InquiryData::RedChannel { gain }) => assert_eq!(gain.value(), 0xD5),
             other => panic!("unexpected response: {other:?}"),
         }
     }
@@ -32,7 +32,7 @@ mod tests {
     fn test_blue_channel_g2_wire_format() {
         let resp = decode(InquiryKind::BlueChannel, &[0x00, 0x00, 0x0B, 0x01]);
         match resp {
-            Response::Inquiry(InquiryData::BlueChannel { gain }) => assert_eq!(gain, 0xB1),
+            Response::Inquiry(InquiryData::BlueChannel { gain }) => assert_eq!(gain.value(), 0xB1),
             other => panic!("unexpected response: {other:?}"),
         }
     }
@@ -52,7 +52,7 @@ mod tests {
     fn test_red_tuning_g2_wire_format() {
         let resp = decode(InquiryKind::RedTuning, &[0x00, 0x00, 0x00, 0x0F]);
         match resp {
-            Response::Inquiry(InquiryData::RedTuning { level }) => assert_eq!(level, 5),
+            Response::Inquiry(InquiryData::RedTuning { level }) => assert_eq!(level.value(), 5),
             other => panic!("unexpected response: {other:?}"),
         }
     }
@@ -61,7 +61,7 @@ mod tests {
     fn test_blue_tuning_g2_wire_format() {
         let resp = decode(InquiryKind::BlueTuning, &[0x00, 0x00, 0x00, 0x0A]);
         match resp {
-            Response::Inquiry(InquiryData::BlueTuning { level }) => assert_eq!(level, 0),
+            Response::Inquiry(InquiryData::BlueTuning { level }) => assert_eq!(level.value(), 0),
             other => panic!("unexpected response: {other:?}"),
         }
     }

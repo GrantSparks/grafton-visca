@@ -1891,15 +1891,6 @@ vendor-verified claim from this built-in catalog.
 | r1-ptzopticsg2-autowhitebalancesensitivity-query | R1 | PtzOpticsG2 | AutoWhiteBalanceSensitivityInquiry | 09 04 A9 | - | §7.10; command inquiry list |
 | r14-ptzopticsg3-autowhitebalancesensitivity-query | R14 | PtzOpticsG3 | AutoWhiteBalanceSensitivityInquiry | 09 04 A9 | - | Queries page; current model scope |
 | r1-ptzoptics30x-autowhitebalancesensitivity-query | R1 | PtzOptics30x | AutoWhiteBalanceSensitivityInquiry | 09 04 A9 | - | §7.10; command inquiry list |
-| r1-ptzopticsg2-exposurecompensationposition-query | R1 | PtzOpticsG2 | ExposureCompensationPositionInquiry | 09 04 4E | - | §7.10; command inquiry list |
-| r14-ptzopticsg3-exposurecompensationposition-query | R14 | PtzOpticsG3 | ExposureCompensationPositionInquiry | 09 04 4E | - | Queries page; current model scope |
-| r1-ptzoptics30x-exposurecompensationposition-query | R1 | PtzOptics30x | ExposureCompensationPositionInquiry | 09 04 4E | - | §7.10; command inquiry list |
-| r8-sonyevih100-exposurecompensationposition-query | R8 | SonyEviH100 | ExposureCompensationPositionInquiry | 09 04 4E | - | Technical Manual inquiry list |
-| r12-sonybrc300-exposurecompensationposition-query | R12 | SonyBrc300 | ExposureCompensationPositionInquiry | 09 04 4E | - | Technical Manual inquiry list |
-| r21-nearusbrc300-exposurecompensationposition-query | R21 | NearusBrc300 | ExposureCompensationPositionInquiry | 09 04 4E | - | Command List inquiry list |
-| r8-genericvisca-exposurecompensationposition-query | R8 | GenericVisca | ExposureCompensationPositionInquiry | 09 04 4E | - | Technical Manual inquiry list |
-| r12-genericvisca-exposurecompensationposition-query | R12 | GenericVisca | ExposureCompensationPositionInquiry | 09 04 4E | - | Technical Manual inquiry list |
-| r21-genericvisca-exposurecompensationposition-query | R21 | GenericVisca | ExposureCompensationPositionInquiry | 09 04 4E | - | Command List inquiry list |
 | r1-ptzopticsg2-redtuning-query | R1 | PtzOpticsG2 | RedTuningInquiry | 09 04 43 | - | §7.10; command inquiry list |
 | r14-ptzopticsg3-redtuning-query | R14 | PtzOpticsG3 | RedTuningInquiry | 09 04 43 | - | Queries page; current model scope |
 | r1-ptzoptics30x-redtuning-query | R1 | PtzOptics30x | RedTuningInquiry | 09 04 43 | - | §7.10; command inquiry list |

@@ -656,8 +656,7 @@ mod tests {
     #[test]
     fn declared_query_views_keep_their_own_gate_before_private_alias_fallback() {
         use crate::command::inquiry_structs::{
-            ExposureCompensationInquiry, ExposureCompensationPositionInquiry, Fr7AeLevelInquiry,
-            GeneratedInquiry,
+            ExposureCompensationInquiry, Fr7AeLevelInquiry, GeneratedInquiry,
         };
         assert_eq!(
             <Fr7AeLevelInquiry as GeneratedInquiry>::GATE,
@@ -665,10 +664,6 @@ mod tests {
         );
         assert_ne!(
             <Fr7AeLevelInquiry as GeneratedInquiry>::GATE,
-            <ExposureCompensationInquiry as GeneratedInquiry>::GATE
-        );
-        assert_eq!(
-            <ExposureCompensationPositionInquiry as GeneratedInquiry>::GATE,
             <ExposureCompensationInquiry as GeneratedInquiry>::GATE
         );
     }
