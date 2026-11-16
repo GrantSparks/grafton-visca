@@ -821,3 +821,48 @@ fn warmed_malformed_receive_decoding_does_not_allocate() {
         assert_eq!(allocations, 0, "malformed input allocated: {semantics:?}");
     }
 }
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn warmed_owner_command_and_frame_turns_do_not_allocate() {
+    use grafton_visca::{
+        profiles::{GenericVisca, ProfileSpec, SonyFr7},
+        testing::turns::TurnProbe,
+        transport::{SendSemantics, TransportConfig},
+    };
+
+    for (label, profile) in [
+        (
+            "raw",
+            ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+        ),
+        ("Sony", ProfileSpec::from_compile_time::<SonyFr7>().unwrap()),
+    ] {
+        for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
+            let mut probe =
+                TurnProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+            probe.stage_command().unwrap();
+            probe.command_turn().unwrap();
+            probe.frame_turn().unwrap();
+            let mut command_allocations = 0;
+            for _ in 0..8 {
+                probe.stage_command().unwrap();
+                command_allocations += allocations_during(|| probe.command_turn().unwrap());
+            }
+            let frame_allocations = allocations_during(|| {
+                for _ in 0..128 {
+                    probe.frame_turn().unwrap();
+                }
+            });
+            eprintln!("{label} {semantics:?}: command allocations={command_allocations}/8; inert frame allocations={frame_allocations}/128");
+            assert_eq!(
+                command_allocations, 0,
+                "{label} {semantics:?} warmed command turns allocated"
+            );
+            assert_eq!(
+                frame_allocations, 0,
+                "{label} {semantics:?} warmed inert frame turns allocated"
+            );
+        }
+    }
+}

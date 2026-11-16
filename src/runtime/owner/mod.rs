@@ -35,6 +35,10 @@ mod receipt;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod shell;
 mod turn;
+#[cfg(feature = "test-utils")]
+mod turn_probe;
+#[cfg(feature = "test-utils")]
+pub(crate) use turn_probe::TurnProbe;
 
 #[cfg(feature = "async")]
 pub(crate) use async_actor::*;
