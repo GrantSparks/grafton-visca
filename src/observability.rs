@@ -52,7 +52,8 @@ pub enum SessionStatus {
 pub struct MetricsSnapshot {
     /// Requests admitted into authoritative engine state.
     pub admitted: u64,
-    /// Requests rejected before admission.
+    /// Requests rejected before admission, including async submissions whose
+    /// caller abandoned the admission future before the owner admitted them.
     pub admission_rejected: u64,
     /// Urgent typed STOPs admitted into their target's control reserve
     /// rather than an ordinary admission slot (D26, #778).

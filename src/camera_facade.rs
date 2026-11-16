@@ -148,6 +148,12 @@ macro_rules! camera_facade {
 
             /// Submits a typed operation and returns its owner-backed handle once the
             /// owner has admitted it.
+            ///
+            /// On the async facade, dropping a submission future before the
+            /// owner admits its request prevents that request from being written.
+            /// Admission and its reply happen in one synchronous owner turn;
+            /// dropping after that admission is observation-only detachment,
+            /// even if the caller has not yet received the returned handle.
             pub $($async)* fn submit<K, O>(&self, operation: &O) -> Result<Operation<K> $($error)*>
             where
                 K: completion::Kind,

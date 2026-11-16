@@ -1495,7 +1495,12 @@ The owner's cancellation intent is a closed requested/recorded state. A
 refusal is returned synchronously by the same engine cancellation input, rather
 than extracted from a later unrelated turn. Admission claims likewise use
 unbounded/pending/claimed states, so a claim cannot be both missing and pending
-(#854).
+(#854). Before initial admission or replay of a retained admission, the owner
+also rejects a boundary whose admission-reply receiver has disconnected. The
+boundary's permit and observer are dropped without engine input or transport
+I/O, and one admission rejection is recorded; an earlier caller-side deadline
+rejection is not counted again. Losing the future after the owner's synchronous
+admission turn is ordinary observer detachment (#964).
 
 Cancellation is one intent per handle. The first `cancel` creates the
 cancellation slot and ships it with the request; a later `cancel` — after a

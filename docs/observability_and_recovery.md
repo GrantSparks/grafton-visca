@@ -11,7 +11,7 @@ without granting control over the protocol engine.
 | Field | Meaning |
 | --- | --- |
 | `admitted` | Requests admitted into authoritative engine state. |
-| `admission_rejected` | Requests rejected before admission. |
+| `admission_rejected` | Requests rejected before admission, including abandoned async submissions (`Cancelled` admission diagnostics); those never produce dropped-observer events. |
 | `control_reserve_admitted` | Urgent typed STOPs admitted into their camera's control reserve rather than an ordinary slot. |
 | `control_reserve_rejected` | Urgent typed STOPs rejected because their camera's control reserve and ordinary admission were both full (also counted in `admission_rejected`). |
 | `writes` | Transport writes attempted. |

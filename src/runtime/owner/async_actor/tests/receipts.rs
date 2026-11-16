@@ -1,3 +1,171 @@
+/// Dropping a pending command, inquiry, or operation must not turn queued
+/// boundary work into unobservable hardware activity (#964). The same
+/// serialized owner boundary is exercised on both supported async runtimes.
+async fn abandoned_admission_matrix<R: Runtime>(runtime: R) {
+    let (handle, actor) = AsyncOwnerActor::new(policy(5), runtime).unwrap();
+    let harness = harness();
+    let started = harness.started.clone();
+    let gates = harness.gates.clone();
+    let frames = harness.frames.clone();
+    let writes = Arc::clone(&harness.writes);
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
+    let client = async {
+        let first = handle.submit(command()).await.unwrap();
+        assert_eq!(started.recv_async().await.unwrap(), first.id);
+
+        // Poll each public-class seam until it has queued its admission, then
+        // abandon the future while the actor is blocked in the first write.
+        {
+            let pending = handle.submit_command(prepared_focus(&profile));
+            let mut pending = std::pin::pin!(pending);
+            assert!(future::poll_once(pending.as_mut()).await.is_none());
+        }
+        {
+            let pending = handle.submit(inquiry());
+            let mut pending = std::pin::pin!(pending);
+            assert!(future::poll_once(pending.as_mut()).await.is_none());
+        }
+        {
+            let pending = handle.submit_operation(prepared_zoom(&profile));
+            let mut pending = std::pin::pin!(pending);
+            assert!(future::poll_once(pending.as_mut()).await.is_none());
+        }
+        {
+            let deadline = handle.deadline_after(Duration::from_secs(1)).unwrap();
+            let pending = handle.submit_with_timeout_until::<RuntimeOutcome>(
+                inquiry().into(),
+                Duration::from_secs(5),
+                deadline,
+            );
+            let mut pending = std::pin::pin!(pending);
+            assert!(future::poll_once(pending.as_mut()).await.is_none());
+        }
+        assert_eq!(handle.core.admissions.len(), 4);
+        assert_eq!(handle.core.permits.available(), 0);
+
+        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        frames
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        frames
+            .send_async(batch(vec![completion(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        assert!(matches!(
+            first.terminal().await.unwrap(),
+            RuntimeOutcome::Command(CommandOutcome::Applied)
+        ));
+        assert_eq!(
+            writes.lock().unwrap().len(),
+            1,
+            "abandoned work never writes"
+        );
+        let metrics = handle.metrics().await.unwrap();
+        assert_eq!(metrics.admitted, 1);
+        assert_eq!(metrics.admission_rejected, 4);
+        assert_eq!(metrics.dropped_observer_events, 0);
+        assert_eq!(metrics.writes, 1);
+        assert_eq!(metrics.active, 0);
+        assert_eq!(metrics.pending, 0);
+        assert_eq!(writes.lock().unwrap().len(), 1);
+        assert_eq!(
+            handle.core.permits.available(),
+            handle.core.permits.capacity()
+        );
+        handle.shutdown().unwrap();
+    };
+    let ((), snapshot) = future::zip(client, actor.run(harness.driver)).await;
+    assert_eq!(snapshot.active, 0);
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn tokio_abandoned_admissions_never_write_and_release_capacity() {
+    abandoned_admission_matrix(TokioRuntime::from_current().unwrap()).await;
+}
+
+#[cfg(feature = "runtime-smol")]
+#[test]
+fn smol_abandoned_admissions_never_write_and_release_capacity() {
+    smol::block_on(abandoned_admission_matrix(SmolRuntime::new()));
+}
+
+/// An outer async timeout drops an unbounded submission future. Starting
+/// the owner afterwards cannot turn that elapsed call into a camera move.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test(start_paused = true)]
+async fn timed_out_operation_before_admission_never_writes() {
+    let (handle, mut actor) =
+        AsyncOwnerActor::new(policy(1), TokioRuntime::from_current().unwrap()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
+    assert!(tokio::time::timeout(
+        Duration::from_millis(1),
+        handle.submit_operation(prepared_zoom(&profile)),
+    )
+    .await
+    .is_err());
+    assert_eq!(handle.core.admissions.len(), 1);
+    let harness = harness();
+    let writes = Arc::clone(&harness.writes);
+    let actor_task = tokio::spawn(actor.run(harness.driver));
+    let metrics = handle.metrics().await.unwrap();
+    assert_eq!(metrics.admitted, 0);
+    assert_eq!(metrics.admission_rejected, 1);
+    assert_eq!(metrics.active, 0);
+    assert_eq!(metrics.pending, 0);
+    assert_eq!(metrics.writes, 0);
+    assert_eq!(metrics.dropped_observer_events, 0);
+    assert_eq!(
+        handle.core.permits.available(),
+        handle.core.permits.capacity()
+    );
+    assert!(writes.lock().unwrap().is_empty());
+    assert_eq!(
+        diagnostics.events(),
+        vec![DiagnosticEvent::AdmissionRejected {
+            target: crate::CameraId::CAMERA_1,
+            lane: crate::observability::DiagnosticLane::Command,
+            error: crate::ErrorKind::Cancelled,
+        }]
+    );
+    handle.shutdown().unwrap();
+    actor_task.await.unwrap();
+}
+
+/// Channel disconnect is observed after queued messages. Abandoning the
+/// session must not drain those messages as fresh hardware commands (#964).
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn dropping_last_handle_does_not_write_abandoned_admissions() {
+    let (handle, actor) =
+        AsyncOwnerActor::new(policy(4), TokioRuntime::from_current().unwrap()).unwrap();
+    let harness = harness();
+    let started = harness.started.clone();
+    let gates = harness.gates.clone();
+    let writes = Arc::clone(&harness.writes);
+    let actor_task = tokio::spawn(actor.run(harness.driver));
+    let first = handle.submit(command()).await.unwrap();
+    assert_eq!(started.recv_async().await.unwrap(), first.id);
+    for request in [command(), inquiry(), command()] {
+        let pending = handle.submit(request);
+        let mut pending = std::pin::pin!(pending);
+        assert!(future::poll_once(pending.as_mut()).await.is_none());
+    }
+    assert_eq!(handle.core.admissions.len(), 3);
+    drop(handle);
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    let snapshot = actor_task.await.unwrap();
+    assert_eq!(snapshot.metrics.admitted, 1);
+    assert_eq!(snapshot.metrics.admission_rejected, 3);
+    assert_eq!(snapshot.metrics.dropped_observer_events, 0);
+    assert_eq!(snapshot.metrics.writes, 1);
+    assert_eq!(writes.lock().unwrap().len(), 1);
+    assert_eq!(snapshot.active, 0);
+    drop(first);
+}
+
 use super::*;
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::owner::boundary::PreAdmissionRejection;

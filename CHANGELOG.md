@@ -562,6 +562,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preserve their exact cause in `RequestUnconfirmed` and require reconciliation;
   cancelling during retry waiting never falsely confirms cancellation (#962).
 
+- Async command, inquiry and operation futures abandoned before admission never
+  write their queued request, including behind raw-release gates. Their permits
+  return and admission rejections are counted separately from dropped operation
+  observers; dropping after admission remains observation-only detachment (#964).
+
 - Raw stream disputes retire individual members of merged STOP debt runs, and
   socketless disputed ACKs retain executing-socket evidence, preventing later
   replies from being assigned to unrelated requests (#950).

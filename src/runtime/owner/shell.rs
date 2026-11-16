@@ -924,18 +924,34 @@ impl OwnerShellCore {
 
     /// Claims the one-way pre-admission deadline race before this boundary is
     /// either staged immediately or held behind an exact raw-release gate.
-    /// Returning `false` means this method already answered the caller.
+    /// Returning `false` means the boundary was rejected or abandoned, and
+    /// its permit and observer must be dropped without entering the engine.
     fn claim_admission_boundary(
         &mut self,
         admission: &mut AdmissionBoundary,
         now: Instant,
     ) -> bool {
+        let target = admission.request.context().target;
+        let lane = admission.request.lane();
+        if admission.reply.is_disconnected() {
+            // No receipt can be returned to this caller. Check again when a
+            // retained boundary is replayed: claiming its deadline race did
+            // not yet admit it to engine state. A caller that already won
+            // deadline expiry recorded this rejection through its ingress.
+            let record = match &admission.claim {
+                AdmissionBoundaryClaim::Pending(validity) => validity.expire_before_admission(),
+                AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => true,
+            };
+            if record {
+                self.state
+                    .record_admission_rejection(target, lane, &Error::CommandCancelled);
+            }
+            return false;
+        }
         let validity = match &admission.claim {
             AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => return true,
             AdmissionBoundaryClaim::Pending(validity) => validity,
         };
-        let target = admission.request.context().target;
-        let lane = admission.request.lane();
         match validity.claim_for_admission(now) {
             AdmissionClaim::Claimed { .. } => {
                 admission.claim = AdmissionBoundaryClaim::Claimed;
@@ -955,10 +971,10 @@ impl OwnerShellCore {
     }
 
     fn admit(&mut self, mut admission: AdmissionBoundary, accepted_at: Instant) -> TurnStep {
-        // A deadline that wins before this exact boundary is admitted is not
-        // observer detachment: no engine entry exists yet. Drop the boundary
-        // (and therefore its permit and observer) before staging any engine
-        // input, so a stale admission can never become a later write. The
+        // A deadline or abandoned caller that wins before this exact boundary
+        // is admitted is not observer detachment: no engine entry exists yet.
+        // Drop the boundary (and therefore its permit and observer) before
+        // staging engine input, so stale work can never become a later write. The
         // winner records the rejection exactly once: caller-expiry already
         // entered the handle-side ingress, while owner-expiry records directly
         // into the serialized owner state.

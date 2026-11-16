@@ -434,6 +434,14 @@ hardware, so an error path leaves movement running until something else ends
 it; see the scoped stop-on-exit guard in
 [`migration_2_0.md`](migration_2_0.md#drop-never-stops-hardware).
 
+On the async facade, dropping an `execute`, `inquire`, or `submit` future before
+its owner admission prevents the request from being written, including work
+queued behind another write or a raw-correlation release gate. The owner drops
+the abandoned boundary and restores its admission capacity. Admission and the
+reply happen in one synchronous owner turn: dropping after admission detaches
+observation, even if the caller has not yet received the handle. It does not
+cancel admitted hardware work.
+
 ## Optional ecosystem surfaces
 
 `serde` provides serialization for supported public values and configuration;
