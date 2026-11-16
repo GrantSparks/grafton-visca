@@ -954,7 +954,9 @@ fn targeted_operation_preparation_does_not_build_unused_polling_queries() {
         ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300"),
     ] {
-        let target = TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+        let target =
+            TargetRegistration::new(grafton_visca::types::IndividualCameraId::CAMERA_1, profile)
+                .expect("target");
         preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
             .expect("warm operation preparation");
         let allocations = allocations_during(|| {

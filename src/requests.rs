@@ -777,7 +777,7 @@ mod bound_temperature_decoder_tests {
     fn custom_temperature_table_encodes_and_decodes_the_same_steps() -> Result<()> {
         let profile = custom_profile(Arc::from([3100, 4200, 6300]))?;
         let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile);
-        let target = crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile)?;
+        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)?;
         for (kelvin, wire) in [(3100, 0), (4200, 1), (6300, 2)] {
             let temperature = Kelvin::new(kelvin)?;
             let command = crate::command::white_balance::SetColorTemperature::for_target(

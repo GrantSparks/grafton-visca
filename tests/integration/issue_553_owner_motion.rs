@@ -377,7 +377,7 @@ facade_matrix! {
             )
         )
         .expect("raw session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         let polling_started = Instant::now();
         for _ in 0..6 {

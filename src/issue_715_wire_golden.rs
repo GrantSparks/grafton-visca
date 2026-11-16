@@ -2195,8 +2195,8 @@ fn registered_profile_rows() -> Vec<String> {
             .expect("power")
             .status_query = crate::capabilities::PowerStatusQuery::Extended;
         let profile = crate::ProfileSpec::from_facts(facts).expect("custom power query");
-        let target =
-            crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("custom target");
+        let target = crate::TargetRegistration::new(IndividualCameraId::CAMERA_1, profile)
+            .expect("custom target");
         case!(label, prepared_query(&PowerInquiry, &target));
     }
     output

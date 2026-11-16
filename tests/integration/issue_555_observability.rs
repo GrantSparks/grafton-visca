@@ -136,7 +136,10 @@ mod blocking_observability {
             )
             .unwrap();
         let cache = camera.state_cache();
-        assert_eq!(cache.target(), CameraId::CAMERA_1);
+        assert_eq!(
+            cache.target(),
+            grafton_visca::types::IndividualCameraId::CAMERA_1
+        );
         assert_unknown(&cache, StateKey::PanTiltLimit);
         assert_metrics_shape(session.metrics().unwrap());
 

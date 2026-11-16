@@ -323,7 +323,7 @@ facade_matrix! {
             else { answer.reply(frames::ack(1)).reply(frames::complete(1)); }
         });
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
-        let view = session.camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
         let mut operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("admission");
         let error = wait!(operation.applied()).expect_err("a failed write may have applied");
         assert!(matches!(error, Error::UnsequencedCommandUnconfirmed), "{error:?}");
