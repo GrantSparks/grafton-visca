@@ -129,8 +129,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   standard command and frame turns reuse their effect storage without heap
   allocation; per-request observer storage remains lifecycle storage (#942).
 
-- **BREAKING** (#932): Blocking and async cameras expose the same 249 canonical
-  noun methods and 246 request types. Runtime profiles use the normal
+- **BREAKING** (#932): Blocking and async cameras expose the same 248 canonical
+  noun methods and 245 request types. Runtime profiles use the normal
   `Camera<AnyProfile>` surface with checks before I/O; the separate `dyn-api`
   feature, erased camera traits, and their CI feature legs are removed.
   Values, requests, operations, configurations, profiles, transports and wire

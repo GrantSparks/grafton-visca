@@ -77,9 +77,9 @@ macro_rules! api_convention_tests {
             }
 
             #[test]
-            fn closed_surface_has_249_unique_methods_and_one_naming_grammar() {
+            fn closed_surface_has_248_unique_methods_and_one_naming_grammar() {
                 let rows = rows();
-                assert_eq!(rows.len(), 249, "Appendix A's complete surface changed");
+                assert_eq!(rows.len(), 248, "Appendix A's complete surface changed");
                 assert_eq!(rows.iter().filter(|row| row.kind == NounKind::Motion).count(), 3);
                 let mut identities = BTreeSet::new();
                 for row in rows {
