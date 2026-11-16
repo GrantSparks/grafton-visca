@@ -63,7 +63,8 @@ fn session_config() -> SessionConfig {
 
 struct RestartingCamera {
     endpoint: SocketAddr,
-    worker: Mutex<Option<JoinHandle<()>>>,
+    worker: Mutex<Option<JoinHandle<Instant>>>,
+    send_failure: Mutex<Option<(Error, Instant)>>,
 }
 
 impl RestartingCamera {
@@ -75,10 +76,12 @@ impl RestartingCamera {
         *self.worker.lock().unwrap() = Some(thread::spawn(move || {
             let mut command = [0; 128];
             let (length, peer) = socket.recv_from(&mut command).expect("later command");
-            assert_eq!(&command[..length], &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]);
+            let received_at = Instant::now();
+            assert_eq!(&command[..length], &[0x81, 0x01, 0x04, 0x07, 0x02, 0xff]);
             for reply in [frames::ack(1), frames::complete(1)] {
                 socket.send_to(&reply, peer).expect("camera response");
             }
+            received_at
         }));
     }
 }
@@ -132,6 +135,9 @@ impl BlockingTransport for PrimeSend {
         assert!(
             matches!(&cause, Error::Io { source: error } if error.kind() == io::ErrorKind::ConnectionRefused)
         );
+        // Preserve the native transport boundary's typed OS error separately
+        // from the raw request's source-less unconfirmed terminal.
+        *self.camera.send_failure.lock().unwrap() = Some((cause.clone(), Instant::now()));
         self.camera.after_send_failure();
         Err(cause)
     }
@@ -155,6 +161,7 @@ fn a_real_udp_send_preserves_econnrefused_and_later_work_applies() {
     let camera = Arc::new(RestartingCamera {
         endpoint,
         worker: Mutex::new(None),
+        send_failure: Mutex::new(None),
     });
     let inner = crate::transport::blocking::Udp::connect_with_config(
         &endpoint.to_string(),
@@ -178,9 +185,24 @@ fn a_real_udp_send_preserves_econnrefused_and_later_work_applies() {
         .submit::<AppliedOnly, _>(&crate::command::zoom::Stop)
         .unwrap();
     let failure = first.applied().expect_err("the actual send failed");
-    assert_eq!(failure.kind(), ErrorKind::Transport);
+    assert!(matches!(failure, Error::UnsequencedCommandUnconfirmed));
+    assert_eq!(failure.kind(), ErrorKind::Unconfirmed);
+    assert_eq!(failure.recovery(), crate::Recovery::Reconcile);
+    assert_eq!(
+        failure.failure_context(),
+        Some(crate::FailureContext::new(
+            crate::FailureStage::Terminal,
+            crate::Certainty::Unconfirmed,
+        ))
+    );
     assert!(!failure.requires_new_session());
-    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&failure);
+    let (transport_failure, failed_at) = camera
+        .send_failure
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("native UDP send failed before owner normalization");
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&transport_failure);
     let mut os_kind = None;
     while let Some(error) = source {
         if let Some(error) = error.downcast_ref::<io::Error>() {
@@ -195,7 +217,7 @@ fn a_real_udp_send_preserves_econnrefused_and_later_work_applies() {
     }
     assert_eq!(os_kind, Some(io::ErrorKind::ConnectionRefused));
     let mut next = target
-        .submit::<AppliedOnly, _>(&crate::command::zoom::Stop)
+        .submit::<AppliedOnly, _>(&crate::command::zoom::Tele)
         .unwrap();
     next.applied().expect("the same UDP session remains usable");
     let metrics = session.metrics().unwrap();
@@ -203,7 +225,7 @@ fn a_real_udp_send_preserves_econnrefused_and_later_work_applies() {
     assert_eq!(metrics.writes, 2);
     assert_eq!(metrics.write_failures, 1);
     session.close().unwrap();
-    camera
+    let received_at = camera
         .worker
         .lock()
         .unwrap()
@@ -211,6 +233,14 @@ fn a_real_udp_send_preserves_econnrefused_and_later_work_applies() {
         .unwrap()
         .join()
         .unwrap();
+    assert!(
+        received_at.duration_since(failed_at)
+            >= NonDefaultCompileTimeProfile::spec()
+                .unwrap()
+                .timing()
+                .ambiguity_timeout(),
+        "a nonurgent successor must not reach the wire before the raw ambiguity hold expires"
+    );
 }
 
 fn synthetic_spec(

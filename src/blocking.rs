@@ -561,9 +561,21 @@ mod tests {
         assert!(matches!(report.pan_tilt, crate::HaltOutcome::Unsupported));
         assert!(matches!(
             report.zoom,
-            crate::HaltOutcome::Failed(Error::TransportError { .. })
+            crate::HaltOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
         ));
         assert!(matches!(report.focus, crate::HaltOutcome::Applied));
+        let failure = report
+            .clone()
+            .into_result()
+            .expect_err("zoom STOP may have applied");
+        assert_eq!(failure.recovery(), crate::Recovery::Reconcile);
+        assert_eq!(
+            failure.failure_context(),
+            Some(crate::FailureContext::new(
+                crate::FailureStage::Terminal,
+                crate::Certainty::Unconfirmed,
+            ))
+        );
         assert_eq!(
             writes.lock().expect("writes lock").clone(),
             vec![
