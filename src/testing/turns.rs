@@ -11,6 +11,23 @@ use crate::{
 /// admission and bounded observer storage are prepared separately so a measured
 /// turn includes framing, engine decisions, recursive effect draining and
 /// terminal delivery without counting permitted lifecycle allocations.
+///
+/// # Examples
+///
+/// ```
+/// use grafton_visca::{
+///     profiles::{GenericVisca, ProfileSpec},
+///     testing::turns::TurnProbe,
+///     transport::{SendSemantics, TransportConfig},
+/// };
+///
+/// let profile = ProfileSpec::from_compile_time::<GenericVisca>()?;
+/// let mut probe = TurnProbe::new(&profile, TransportConfig::default(), SendSemantics::Stream)?;
+/// probe.stage_command()?;
+/// probe.command_turn()?;
+/// probe.frame_turn()?;
+/// # Ok::<(), grafton_visca::Error>(())
+/// ```
 #[derive(Debug)]
 pub struct TurnProbe {
     inner: crate::runtime::owner::TurnProbe,
