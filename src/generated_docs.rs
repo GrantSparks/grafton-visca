@@ -1,6 +1,7 @@
 //! Deterministic documentation projections of the live registries.
 //!
-//! These tests deliberately have no camera connection or source-text scanner.
+//! Registry projections use live values; test citations use the shared
+//! delimiter-aware source scanner. No test needs a camera connection.
 //! Authored evidence remains separate from the generated grant-key index.
 
 #![allow(clippy::expect_used, clippy::panic)]
@@ -9,9 +10,15 @@ use std::{collections::BTreeSet, fmt::Write as _, path::PathBuf};
 
 use grafton_visca_test_support::bless_or_assert;
 
+#[path = "release_gate_citations.rs"]
+mod release_gate_citations;
+
 use crate::{
     camera::profiles::BUILTIN_PROFILE_FACTS,
     capabilities::TypedSupportSurface,
+    command::semantics::{
+        AppliedStateEffectRequirement, BuiltinAxisSelection, BuiltinCommand, BuiltinRequestClass,
+    },
     noun_metadata::{self, NounRow},
     profiles::{ProfileId, ProfileSpec},
     source_evidence::Source,
@@ -373,6 +380,52 @@ fn test_utilities() -> String {
     output
 }
 
+fn ledger_rows() -> Vec<(BuiltinCommand, BuiltinRequestClass)> {
+    BuiltinCommand::ALL
+        .iter()
+        .map(|&row| (row, row.classification()))
+        .collect()
+}
+
+fn ledger_decisions(rows: &[(BuiltinCommand, BuiltinRequestClass)]) -> String {
+    fn axes(selection: BuiltinAxisSelection) -> String {
+        match selection {
+            BuiltinAxisSelection::Exact(axes) => {
+                inline_names(axes.iter().map(|axis| format!("{axis:?}")))
+            }
+            BuiltinAxisSelection::ProfilePresetRecall => "profile-selected exact axes".into(),
+        }
+    }
+    let mut output = table("Built-in row | Class and exact axes | Applied-state requirement");
+    for &(row, class) in rows {
+        let kind = match class {
+            BuiltinRequestClass::Plain { .. } => "Plain".into(),
+            BuiltinRequestClass::Targeted { axes: selection } => {
+                format!("Targeted — {}", axes(selection))
+            }
+            BuiltinRequestClass::AppliedOnly {
+                axes: selection, ..
+            } => format!(
+                "AppliedOnly{} — {}",
+                if class.is_stop() { " STOP" } else { "" },
+                axes(selection)
+            ),
+        };
+        let effect = match class.state_effect() {
+            None => "—".into(),
+            Some(AppliedStateEffectRequirement::Set(key)) => format!("Set `{key:?}`"),
+            Some(AppliedStateEffectRequirement::Clear(key)) => format!("Clear `{key:?}`"),
+            Some(AppliedStateEffectRequirement::Invalidate(key)) => format!("Invalidate `{key:?}`"),
+        };
+        let _ = writeln!(output, "| `{row:?}` | {kind} | {effect} |");
+    }
+    output
+}
+
+fn write_only_keys(keys: &[StateKey]) -> String {
+    inline_names(keys.iter().map(|key| format!("{key:?}"))) + ".\n"
+}
+
 fn assert_blocks(blocks: &[(&str, &str, String)]) {
     // Bless every requested block before propagating the helper's intentional
     // failure; otherwise a multi-block page would need one invocation per block.
@@ -481,6 +534,42 @@ fn generated_documents_grant_key_index() {
         "TYPED GRANT KEY INDEX",
         Documentation::current().grant_index(),
     )]);
+}
+
+#[test]
+fn generated_documents_request_semantics() {
+    assert_blocks(&[
+        (
+            "docs/request_semantics.md",
+            "LEDGER DECISIONS",
+            ledger_decisions(&ledger_rows()),
+        ),
+        (
+            "docs/request_semantics.md",
+            "WRITE-ONLY STATE KEYS",
+            write_only_keys(StateKey::ALL),
+        ),
+    ]);
+}
+
+#[test]
+fn stale_request_semantics_detect_changed_ledger_effects_and_keys() {
+    let original = ledger_rows();
+    let mut changed = original.clone();
+    let row = changed
+        .iter_mut()
+        .find(|(row, _)| *row == BuiltinCommand::TallyFlash)
+        .expect("tally row exists");
+    row.1 = BuiltinRequestClass::Plain {
+        state_effect: Some(AppliedStateEffectRequirement::Invalidate(
+            StateKey::TallyMode,
+        )),
+    };
+    assert_stale(&ledger_decisions(&original), &ledger_decisions(&changed));
+    assert_stale(
+        &write_only_keys(StateKey::ALL),
+        &write_only_keys(&StateKey::ALL[1..]),
+    );
 }
 
 fn edited_spec(

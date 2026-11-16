@@ -319,13 +319,13 @@ profile first grants them.
 
 ### 4. Adding a Built-in Command
 
-A built-in command is declared in four places, and every other projection is
+A built-in command is declared in five places, and every other projection is
 generated from them:
 
 1. **Ledger row** (`src/command/semantics.rs`): one `builtin_command_ledger!`
    row gives the command its `BuiltinCommand` identity and its class
-   (`plain`, `applied(<AXES>)` or `targeted(<AXES>)`), plus any write-only
-   state effect. Its `packet:` column owns one `PacketPattern` built from
+   (`plain`, `applied(<AXES>)`, `applied_stop(<AXES>)` or `targeted(<AXES>)`), plus any
+   write-only state effect. Its `packet:` column owns one `PacketPattern` built from
    `command::bytes::constants`, with explicit selector bytes or nibble masks
    where needed. Sourced rows require a nonempty `Some(pattern)`; use `None`
    only for unsourced rows. `source!` references contain the source ID, model
@@ -346,19 +346,22 @@ generated from them:
    match whose patterns are variant paths (a wildcard is rejected), and its
    generated request hook gates each value on the row it selects,
    `self.ledger_row()`, before per-value validation.
-4. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
+4. **Noun wrapper** (`src/command/nouns/<noun>.rs`): use `forward_request!`
+   to forward every request hook and derive its reviewed state projection.
+   A value-selecting wrapper declares `rows = [Row, ...]`; a wrapper that
+   selects different inner requests uses the generator's `select` form,
+   which checks each arm's class, allocation bound and policy.
+   Use `forward_inquiry!` for inquiry wrappers.
+5. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
    gives the method name, arguments, rustdoc, capability `where` marker and
    request. The blocking and async methods, the semantic surface entry
    and the typed-request inventory are all expanded from it.
 
 The compiler rejects a ledger row without a noun row, a noun row whose kind
 disagrees with the ledger class, and a request type without a `rows:` entry
-whose noun rows disagree on their capability gate. For a type with a `rows:`
-entry, every noun row that
-sends it must use `[by_value <const expr>]`, or
-`[by_value [<const witness>] <runtime expr>]` for an argument-bearing constructor.
-The constant must select the noun row's ledger row; generated preparation tests
-also check the ledger row selected by the evaluated runtime request. A typed built-in inquiry is added to
+whose noun rows disagree on their capability gate. For a value-selecting
+type, declare every possible ledger row on its noun wrapper; generated preparation tests check the row selected by each
+evaluated noun request. A typed built-in inquiry is added to
 `define_builtin_inquiries!` in `src/command/inquiry_structs.rs` and gets its
 runtime gate from its noun row in the same way. Its `bytes:` references a
 catalogue-owned body, including for inquiry-only registers. Model-specific

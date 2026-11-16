@@ -11254,6 +11254,50 @@ fn urgent_ack_binds_when_its_preack_hold_has_no_live_predecessor() {
     engine.assert_invariants().unwrap();
 }
 
+/// The datagram urgent exception admits two positional candidates, so an
+/// unsequenced ACK proves neither request owns the named socket.
+#[test]
+fn urgent_raw_command_bypasses_preack_gate_and_ambiguous_ack_binds_neither() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (ordinary, ordinary_id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        now,
+    );
+    send_ok(&mut engine, &ordinary, None, now);
+    let (urgent, urgent_id) = admit(
+        &mut engine,
+        2,
+        urgent_command(1, CancellationPolicy::Supported),
+        now,
+    );
+    assert_eq!(request_transmit(&urgent).1, urgent_id);
+    send_ok(&mut engine, &urgent, None, now);
+    let answer = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        now,
+    );
+    assert!(answer
+        .iter()
+        .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))));
+    for id in [ordinary_id, urgent_id] {
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingAck { .. })
+        ));
+        assert_eq!(socket_of(&engine, id), None);
+    }
+    engine.assert_invariants().unwrap();
+}
+
 /// The identified write-result ingress shares the Sending timeout policy. A
 /// result at equality remains input-first and then reaches the due pass; a
 /// result one nanosecond later must install the same target hold before it

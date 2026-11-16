@@ -87,9 +87,9 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 /// a variant path, optionally with tuple or named fields, so a top-level wildcard or
 /// binding cannot absorb a variant added later. The generated request hook
 /// gates each value on the row it selects. Every row then classifies like
-/// the entry's row. Noun rows with the same class and capability gate can send
-/// a value-selecting type; constant `by_value` rows additionally prove their
-/// exact selected row at compile time.
+/// the entry's row. Noun wrappers use `forward_request!(..., rows = [...])`
+/// to declare the exact row set of a value-selecting type; the generated
+/// typed-request inventory checks each noun's evaluated request against it.
 macro_rules! builtin_request {
     (@class Plain) => { request::PlainClass };
     (@class Targeted) => { request::OperationClass<completion::Targeted> };

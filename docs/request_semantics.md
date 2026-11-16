@@ -70,55 +70,211 @@ the profile's exact preset axes.  It must not substitute all axes.
 
 ## Ledger decisions
 
-| Domain | Built-in rows | Class and exact axes | Applied-state requirement |
-| --- | --- | --- | --- |
-| Pan/tilt | `PanTiltHome`, `PanTiltReset`, `PanTiltAbsolute`, `PanTiltRelative` | Targeted — `PanTilt` | — |
-| Pan/tilt | `PanTiltDrive`, `PanTiltStop` | AppliedOnly — `PanTilt` | — |
-| Pan/tilt | `PanTiltLimitSet`, `PanTiltLimitClear` | Plain | Set/Clear `PanTiltLimits` |
-| Zoom | `ZoomPosition` | Targeted — `Zoom` | — |
-| Zoom | `ZoomStop`, `ZoomTele`, `ZoomWide`, `ZoomTeleVariable`, `ZoomWideVariable` | AppliedOnly — `Zoom` | — |
-| Zoom | `DigitalZoom` | Plain | Set `DigitalZoomMode` |
-| Focus | `FocusPosition`, `FocusInfinity` | Targeted — `Focus` | — |
-| Focus | `FocusStop`, `FocusFar`, `FocusNear`, `FocusFarVariable`, `FocusNearVariable`, `FocusOnePush`, `FocusSnap` | AppliedOnly — `Focus` | — |
-| Focus | `PushAfPress`, `PushAfRelease` | AppliedOnly — `Focus` | — |
-| Focus | `FocusAuto`, `FocusManual`, `FocusToggle`, `FocusZone`, `FocusAutoSensitivity`, `FocusNearLimit` | Plain | — |
-| Focus state | `FocusLock` | Plain | Set `FocusLockMode` |
-| Presets | `PresetRecall` | Targeted — profile-selected exact axes | — |
-| Presets | `PresetRecallSpeed` | Plain | Set `PresetRecallSpeed` |
-| Presets | `PresetSet`, `PresetReset` | Plain | — |
-| Power | `PowerOn`, `PowerStandby` | Plain | — |
-| Exposure | `ExposureMode`, all `ExposureCompensation*`, `DynamicRange`, `Shutter*`, `Brightness*`, `AntiFlicker` | Plain | — |
-| Iris | `IrisReset`, `IrisUp`, `IrisDown`, `IrisDirect` | Targeted — `Iris` | — |
-| Exposure state | `SpotlightOn`, `SpotlightOff` | Plain | Set `Spotlight` |
-| Exposure state | `AutoSlowShutterOn`, `AutoSlowShutterOff` | Plain | Set `AutoSlowShutter` |
-| Gain | `GainReset`, `GainUp`, `GainDown`, `GainDirect`, `GainLimit` | Plain | — |
-| White balance | all `WhiteBalance*`, `AutoWhiteBalanceSensitivity`, `OnePushWhiteBalanceTrigger` | Plain | — |
-| Color | `RedTuning`, `BlueTuning`, `Saturation`, `Hue`, all `ColorTemperature*`, `RedGain*`, `BlueGain*` | Plain | — |
-| Image | all `Sharpness*`, `Luminance`, `Contrast`, `Gamma`, `Backlight`, `PictureEffect` | Plain | — |
-| Image state | `ImageFlipBoth`, `ImageFlipCombined` | Plain | Set `Flip` |
-| Image state | `ImageFlipOff`, `ImageFlipHorizontal`, `ImageFlipHorizontalOff`, `ImageFlipVertical` | Plain | Invalidate `Flip` |
-| Image state | `ImageFreezeOn`, `ImageFreezeOff` | Plain | Set `ImageFreeze` |
-| ND filter | `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown` | Targeted — `NdFilter` | — |
-| ND filter | `NdFilterMode` | Plain | Set `NdFilterMode` |
-| ND filter | `NdFilterAutoOn`, `NdFilterAutoOff` | Plain | Set `AutoNdFilter` |
-| Tally | `TallyRedOn`, `TallyRedOff`, `TallyGreenOn`, `TallyGreenOff` | Plain | — (status inquiries exist) |
-| Tally | `TallyBrightLow`, `TallyBrightHigh` | Plain | Set `TallyBrightness` |
-| Tally | `TallyFlash` | Plain | Invalidate `TallyMode` |
-| Tally | `TallyOn`, `TallyOff` | Plain | Set `TallyMode` |
-| Menu | `MenuNavigate` | Applied-only — `PanTilt` | — |
-| Menu | `MenuDisplay`, `MenuSelect`, `MenuCancel`, `DirectMenu` | Plain | — |
-| Streaming | `MulticastStreamingOn`, `MulticastStreamingOff`, `NdiQuality` | Plain | Set corresponding state |
-| Streaming | `UsbAudioOn`, `UsbAudioOff` | Plain | — (USB audio inquiry exists) |
-| System | `SettingsSave` | Plain | — |
-| Serial setup/recovery | `AddressSet`, `InterfaceClear` wire commands | Owner-only transport handshake | — |
-| Cancellation | socket-specific `CommandCancel` wire command | Owner-only operation lifecycle | — |
-| Motion configuration | `MotionSyncMode`, `MotionSyncPreset`, `VariableSpeedMode` | Plain | Set `VariableSpeedMode` for the latter |
-| FR7 iris | `Fr7IrisUp`, `Fr7IrisDown` | AppliedOnly — `Iris` | — |
-| FR7 zoom | `Fr7ZoomHighResolutionTele`, `Fr7ZoomHighResolutionWide`, `Fr7ZoomHighResolutionStop` | AppliedOnly — `Zoom` | — |
-| FR7 exposure | `Fr7AeLevelUp`, `Fr7AeLevelDown`, `Fr7AutoGain`, `Fr7AutoShutter`, `Fr7AutoIris` | Plain | — |
-| FR7 white balance | `Fr7WhiteBalanceSet`, all `Fr7PresetWhite*`, `Fr7Memory*`, `Fr7Atw*` | Plain | — |
-| FR7 image | all `Fr7MasterBlack*`, `Fr7RedBlack*`, `Fr7BlueBlack*`, `Fr7DetailSetting`, `Fr7KneeSetting`, `Fr7SetKnee*` | Plain | — |
-| FR7 presets | `Fr7SetPresetSpeedSelection`, `Fr7SetCommonPresetSpeed`, `Fr7SetSeparatePresetMode`, `Fr7SetSeparatePresetSpeed`, `Fr7SetSeparatePresetDuration` | Plain | — |
+<!-- BEGIN LEDGER DECISIONS -->
+| Built-in row | Class and exact axes | Applied-state requirement |
+| --- | --- | --- |
+| `PanTiltHome` | Targeted — `PanTilt` | — |
+| `PanTiltReset` | Targeted — `PanTilt` | — |
+| `PanTiltDrive` | AppliedOnly — `PanTilt` | — |
+| `PanTiltStop` | AppliedOnly STOP — `PanTilt` | — |
+| `PanTiltAbsolute` | Targeted — `PanTilt` | — |
+| `PanTiltRelative` | Targeted — `PanTilt` | — |
+| `PanTiltLimitSet` | Plain | Set `PanTiltLimit` |
+| `PanTiltLimitClear` | Plain | Clear `PanTiltLimit` |
+| `ZoomStop` | AppliedOnly STOP — `Zoom` | — |
+| `ZoomTele` | AppliedOnly — `Zoom` | — |
+| `ZoomWide` | AppliedOnly — `Zoom` | — |
+| `ZoomTeleVariable` | AppliedOnly — `Zoom` | — |
+| `ZoomWideVariable` | AppliedOnly — `Zoom` | — |
+| `ZoomPosition` | Targeted — `Zoom` | — |
+| `DigitalZoom` | Plain | Set `ZoomDigitalZoom` |
+| `FocusStop` | AppliedOnly STOP — `Focus` | — |
+| `FocusFar` | AppliedOnly — `Focus` | — |
+| `FocusNear` | AppliedOnly — `Focus` | — |
+| `FocusFarVariable` | AppliedOnly — `Focus` | — |
+| `FocusNearVariable` | AppliedOnly — `Focus` | — |
+| `FocusPosition` | Targeted — `Focus` | — |
+| `FocusAuto` | Plain | — |
+| `FocusManual` | Plain | — |
+| `FocusOnePush` | AppliedOnly — `Focus` | — |
+| `FocusInfinity` | Targeted — `Focus` | — |
+| `FocusToggle` | Plain | — |
+| `FocusSnap` | AppliedOnly — `Focus` | — |
+| `FocusZone` | Plain | — |
+| `FocusAutoSensitivity` | Plain | — |
+| `FocusNearLimit` | Plain | — |
+| `FocusLock` | Plain | Set `FocusLock` |
+| `PushAfPress` | AppliedOnly — `Focus` | — |
+| `PushAfRelease` | AppliedOnly — `Focus` | — |
+| `PresetRecall` | Targeted — profile-selected exact axes | — |
+| `PresetRecallSpeed` | Plain | Set `PresetsRecallSpeed` |
+| `PresetSet` | Plain | — |
+| `PresetReset` | Plain | — |
+| `PowerOn` | Plain | — |
+| `PowerStandby` | Plain | — |
+| `ExposureMode` | Plain | — |
+| `ExposureCompensationOn` | Plain | — |
+| `ExposureCompensationOff` | Plain | — |
+| `ExposureCompensationReset` | Plain | — |
+| `ExposureCompensationUp` | Plain | — |
+| `ExposureCompensationDown` | Plain | — |
+| `ExposureCompensationDirect` | Plain | — |
+| `DynamicRange` | Plain | — |
+| `IrisReset` | Targeted — `Iris` | — |
+| `IrisUp` | Targeted — `Iris` | — |
+| `IrisDown` | Targeted — `Iris` | — |
+| `IrisDirect` | Targeted — `Iris` | — |
+| `ShutterReset` | Plain | — |
+| `ShutterUp` | Plain | — |
+| `ShutterDown` | Plain | — |
+| `ShutterDirect` | Plain | — |
+| `BrightnessReset` | Plain | — |
+| `BrightnessUp` | Plain | — |
+| `BrightnessDown` | Plain | — |
+| `BrightnessSet` | Plain | — |
+| `AntiFlicker` | Plain | — |
+| `SpotlightOn` | Plain | Set `ExposureSpotlight` |
+| `SpotlightOff` | Plain | Set `ExposureSpotlight` |
+| `AutoSlowShutterOn` | Plain | Set `ExposureAutoSlowShutter` |
+| `AutoSlowShutterOff` | Plain | Set `ExposureAutoSlowShutter` |
+| `GainReset` | Plain | — |
+| `GainUp` | Plain | — |
+| `GainDown` | Plain | — |
+| `GainDirect` | Plain | — |
+| `GainLimit` | Plain | — |
+| `WhiteBalanceAuto` | Plain | — |
+| `WhiteBalanceIndoor` | Plain | — |
+| `WhiteBalanceOutdoor` | Plain | — |
+| `WhiteBalanceOnePush` | Plain | — |
+| `WhiteBalanceAutoTracking` | Plain | — |
+| `WhiteBalanceManual` | Plain | — |
+| `WhiteBalanceColorTemperature` | Plain | — |
+| `AutoWhiteBalanceSensitivity` | Plain | — |
+| `OnePushWhiteBalanceTrigger` | Plain | — |
+| `RedTuning` | Plain | — |
+| `BlueTuning` | Plain | — |
+| `Saturation` | Plain | — |
+| `Hue` | Plain | — |
+| `ColorTemperatureReset` | Plain | — |
+| `ColorTemperatureUp` | Plain | — |
+| `ColorTemperatureDown` | Plain | — |
+| `ColorTemperatureDirect` | Plain | — |
+| `RedGainReset` | Plain | — |
+| `RedGainUp` | Plain | — |
+| `RedGainDown` | Plain | — |
+| `RedGainDirect` | Plain | — |
+| `BlueGainReset` | Plain | — |
+| `BlueGainUp` | Plain | — |
+| `BlueGainDown` | Plain | — |
+| `BlueGainDirect` | Plain | — |
+| `SharpnessMode` | Plain | — |
+| `SharpnessReset` | Plain | — |
+| `SharpnessUp` | Plain | — |
+| `SharpnessDown` | Plain | — |
+| `SharpnessDirect` | Plain | — |
+| `Luminance` | Plain | — |
+| `Contrast` | Plain | — |
+| `Gamma` | Plain | — |
+| `Backlight` | Plain | — |
+| `NoiseReduction2dMode` | Plain | — |
+| `NoiseReduction2d` | Plain | — |
+| `NoiseReduction2dOff` | Plain | — |
+| `NoiseReduction3d` | Plain | — |
+| `NoiseReduction3dOff` | Plain | — |
+| `ImageFlipOff` | Plain | Invalidate `ImageFlipMode` |
+| `ImageFlipHorizontal` | Plain | Invalidate `ImageFlipMode` |
+| `ImageFlipHorizontalOff` | Plain | Invalidate `ImageFlipMode` |
+| `ImageFlipVertical` | Plain | Invalidate `ImageFlipMode` |
+| `ImageFlipBoth` | Plain | Set `ImageFlipMode` |
+| `ImageFlipCombined` | Plain | Set `ImageFlipMode` |
+| `ImageFreezeOn` | Plain | Set `ImageFreeze` |
+| `ImageFreezeOff` | Plain | Set `ImageFreeze` |
+| `PictureEffect` | Plain | — |
+| `NdFilterMode` | Plain | Set `NdFilterMode` |
+| `NdFilterDirect` | Targeted — `NdFilter` | — |
+| `NdFilterStepUp` | Targeted — `NdFilter` | — |
+| `NdFilterStepDown` | Targeted — `NdFilter` | — |
+| `NdFilterAutoOn` | Plain | Set `NdFilterAuto` |
+| `NdFilterAutoOff` | Plain | Set `NdFilterAuto` |
+| `TallyRedOn` | Plain | — |
+| `TallyRedOff` | Plain | — |
+| `TallyBrightLow` | Plain | Set `TallyBrightness` |
+| `TallyBrightHigh` | Plain | Set `TallyBrightness` |
+| `TallyGreenOn` | Plain | — |
+| `TallyGreenOff` | Plain | — |
+| `TallyFlash` | Plain | Set `TallyMode` |
+| `TallyOn` | Plain | Set `TallyMode` |
+| `TallyOff` | Plain | Set `TallyMode` |
+| `MenuDisplay` | Plain | — |
+| `MenuNavigate` | AppliedOnly — `PanTilt` | — |
+| `MenuSelect` | Plain | — |
+| `MenuCancel` | Plain | — |
+| `DirectMenu` | Plain | — |
+| `MulticastStreamingOn` | Plain | Set `StreamingMulticast` |
+| `MulticastStreamingOff` | Plain | Set `StreamingMulticast` |
+| `NdiQuality` | Plain | Set `StreamingNdiQuality` |
+| `UsbAudioOn` | Plain | — |
+| `UsbAudioOff` | Plain | — |
+| `AddressSet` | Plain | — |
+| `InterfaceClear` | Plain | — |
+| `CommandCancel` | Plain | — |
+| `SettingsSave` | Plain | — |
+| `MotionSyncMode` | Plain | — |
+| `MotionSyncPreset` | Plain | Set `MotionSyncSpeed` |
+| `VariableSpeedMode` | Plain | Set `PanTiltSpeedMode` |
+| `Fr7AeLevelUp` | Plain | — |
+| `Fr7AeLevelDown` | Plain | — |
+| `Fr7AutoGain` | Plain | — |
+| `Fr7AutoShutter` | Plain | — |
+| `Fr7AutoIris` | Plain | — |
+| `Fr7IrisUp` | AppliedOnly — `Iris` | — |
+| `Fr7IrisDown` | AppliedOnly — `Iris` | — |
+| `Fr7WhiteBalanceSet` | Plain | — |
+| `Fr7PresetWhiteUp` | Plain | — |
+| `Fr7PresetWhiteDown` | Plain | — |
+| `Fr7PresetWhiteDirect` | Plain | — |
+| `Fr7MemoryColorTemperatureUp` | Plain | — |
+| `Fr7MemoryColorTemperatureDown` | Plain | — |
+| `Fr7MemoryColorTemperatureDirect` | Plain | — |
+| `Fr7MemoryRedGainUp` | Plain | — |
+| `Fr7MemoryRedGainDown` | Plain | — |
+| `Fr7MemoryRedGainDirect` | Plain | — |
+| `Fr7MemoryBlueGainUp` | Plain | — |
+| `Fr7MemoryBlueGainDown` | Plain | — |
+| `Fr7MemoryBlueGainDirect` | Plain | — |
+| `Fr7MemoryTintUp` | Plain | — |
+| `Fr7MemoryTintDown` | Plain | — |
+| `Fr7MemoryTintDirect` | Plain | — |
+| `Fr7AtwColorTemperatureOffsetUp` | Plain | — |
+| `Fr7AtwColorTemperatureOffsetDown` | Plain | — |
+| `Fr7AtwColorTemperatureOffsetDirect` | Plain | — |
+| `Fr7AtwTintOffsetUp` | Plain | — |
+| `Fr7AtwTintOffsetDown` | Plain | — |
+| `Fr7AtwTintOffsetDirect` | Plain | — |
+| `Fr7MasterBlackUp` | Plain | — |
+| `Fr7MasterBlackDown` | Plain | — |
+| `Fr7MasterBlackDirect` | Plain | — |
+| `Fr7RedBlackUp` | Plain | — |
+| `Fr7RedBlackDown` | Plain | — |
+| `Fr7RedBlackDirect` | Plain | — |
+| `Fr7BlueBlackUp` | Plain | — |
+| `Fr7BlueBlackDown` | Plain | — |
+| `Fr7BlueBlackDirect` | Plain | — |
+| `Fr7DetailSetting` | Plain | — |
+| `Fr7KneeSetting` | Plain | — |
+| `Fr7SetKneeMode` | Plain | — |
+| `Fr7SetKneeSlope` | Plain | — |
+| `Fr7SetKneePoint` | Plain | — |
+| `Fr7ZoomHighResolutionTele` | AppliedOnly — `Zoom` | — |
+| `Fr7ZoomHighResolutionWide` | AppliedOnly — `Zoom` | — |
+| `Fr7ZoomHighResolutionStop` | AppliedOnly STOP — `Zoom` | — |
+| `Fr7SetPresetSpeedSelection` | Plain | — |
+| `Fr7SetCommonPresetSpeed` | Plain | — |
+| `Fr7SetSeparatePresetMode` | Plain | — |
+| `Fr7SetSeparatePresetSpeed` | Plain | — |
+| `Fr7SetSeparatePresetDuration` | Plain | — |
+| `WhiteBalancePreset` | Plain | — |
+<!-- END LEDGER DECISIONS -->
 
 The three owner-only rows are deliberately absent from
 `request::builtin`. Address assignment and interface clear require exclusive
@@ -260,7 +416,8 @@ never encoded as scalar arrays for the cache:
   as `StateEntry::Set`, so the corner and its known removal remain observable.
   A deterministic boolean `Off` is likewise `Set` with `false`.
 - `Invalidate` marks a state unknown when the command's result cannot be
-  represented exactly (for example vendor tally flash/on/off behavior).
+  represented exactly (for example a single-axis image-flip command cannot establish the
+  complete `ImageFlipMode` value).
 
 A write with any state requirement that may have taken effect but terminates
 without confirmation invalidates its key. Never-written and conclusively
@@ -271,10 +428,12 @@ One `state_key_ledger!` row defines each key, its native value type, its
 `KnownState` variant and its typed cache accessor. The fixed table retains one
 slot per key without map allocation or eviction.
 
-Current write-only state keys are `PanTiltLimits`, `PresetRecallSpeed`,
-`FocusLockMode`, `Spotlight`, `AutoSlowShutter`, `NdFilterMode`,
-`AutoNdFilter`, `ImageFreeze`, `DigitalZoomMode`, `MulticastStreaming`,
-`NdiQuality`, `TallyBrightness`, `VariableSpeedMode`, `TallyMode`, and `Flip`.
+Current write-only state keys are:
+
+<!-- BEGIN WRITE-ONLY STATE KEYS -->
+`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`.
+<!-- END WRITE-ONLY STATE KEYS -->
+
 USB-audio is intentionally not in this list because the built-in inquiry
 inventory has a typed USB-audio status response. A future write-only property
 must add a key and explicit ledger rows before it can be exposed by a typed

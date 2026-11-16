@@ -196,9 +196,13 @@ pub fn production_code(source: &str) -> String {
 /// Whitespace and literal contents cannot affect a constructor or export
 /// comparison. Punctuation remains separate so paths and delimiters stay visible.
 pub fn production_tokens(source: &str) -> Vec<String> {
+    tokens(&production_code(source))
+}
+
+fn tokens(source: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut word = String::new();
-    for ch in production_code(source).chars() {
+    for ch in source.chars() {
         if ch.is_alphanumeric() || ch == '_' {
             word.push(ch);
         } else {
@@ -214,6 +218,23 @@ pub fn production_tokens(source: &str) -> Vec<String> {
         result.push(word);
     }
     result
+}
+
+/// Names every function declaration, including test-only items.
+///
+/// Comments and literal contents cannot satisfy a documentation citation.
+/// Macro bodies with concrete function names remain visible; metavariables
+/// such as `fn $name` are not declarations of a concrete function.
+pub fn function_names(source: &str) -> Vec<String> {
+    tokens(&clean(source))
+        .windows(3)
+        .filter(|window| {
+            window[0] == "fn"
+                && window[1].starts_with(|ch: char| ch.is_ascii_alphabetic() || ch == '_')
+                && matches!(window[2].as_str(), "(" | "<")
+        })
+        .map(|window| window[1].clone())
+        .collect()
 }
 
 fn strip_test_items(source: &str, cleaned: &str) -> String {

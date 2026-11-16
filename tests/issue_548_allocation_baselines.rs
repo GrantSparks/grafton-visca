@@ -956,3 +956,30 @@ fn async_builtin_camera_and_into_typed_views_do_not_allocate() {
         brc.close().await.unwrap();
     });
 }
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn warmed_raw_and_sony_retries_reuse_owner_buffers() {
+    use grafton_visca::{
+        profiles::{GenericVisca, ProfileSpec, SonyFr7},
+        testing::turns::TurnProbe,
+        transport::{SendSemantics, TransportConfig},
+    };
+
+    for profile in [
+        ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
+    ] {
+        for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
+            let mut probe =
+                TurnProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+            probe.stage_retry().unwrap();
+            probe.retry_turn().unwrap();
+            for _ in 0..8 {
+                probe.stage_retry().unwrap();
+                let allocations = allocations_during(|| probe.retry_turn().unwrap());
+                assert_eq!(allocations, 0, "safe retry allocated: {semantics:?}");
+            }
+        }
+    }
+}

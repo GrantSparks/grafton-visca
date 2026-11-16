@@ -52,9 +52,24 @@ impl TurnProbe {
         self.inner.stage_command()
     }
 
+    /// Stage a command that permits one retry after a conclusive buffer-full rejection.
+    ///
+    /// Call this outside an allocation measurement, then call [`Self::retry_turn`].
+    pub fn stage_retry(&mut self) -> Result<()> {
+        self.inner.stage_retry()
+    }
+
     /// Drive the staged command through write, ACK and completion to its observer.
     pub fn command_turn(&mut self) -> Result<()> {
         self.inner.command_turn()
+    }
+
+    /// Drive a pre-ACK rejection, safe retry and successful completion.
+    ///
+    /// Checks that both attempts write identical bytes (including the Sony
+    /// sequence) using the same framing-buffer pointer and capacity.
+    pub fn retry_turn(&mut self) -> Result<()> {
+        self.inner.retry_turn()
     }
 
     /// Drive a harmless unmatched reply through one complete owner frame turn.
