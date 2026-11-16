@@ -4887,6 +4887,8 @@ struct FuzzCoverage {
     tombstoned: usize,
     single_flight_blocked: usize,
     strict_poisoned: usize,
+    /// The directed socket-reuse seed reached the strict displacement path.
+    strict_displacements: usize,
     /// Stream writes that failed: the step that poisoned a default-mode
     /// stream session, which nothing else the generator does can poison.
     failed_stream_writes: usize,
@@ -4936,6 +4938,12 @@ impl FuzzCoverage {
                 _ => {}
             }
         }
+        if engine.policy.strict_unconfirmed_poison && engine.mode().is_raw() {
+            assert_eq!(
+                self.quarantined, 0,
+                "a strict raw session emitted a survivable unconfirmed terminal"
+            );
+        }
         if !engine.correlation.holds().is_empty() {
             self.tombstoned += 1;
         }
@@ -4965,7 +4973,8 @@ fn fuzz_coverage_floor_met(configuration: FuzzConfiguration, coverage: &FuzzCove
             || configuration.strict_unconfirmed_poison
             || coverage.quarantined > 0)
         && (configuration.inquiry_capacity != 1 || coverage.single_flight_blocked > 0)
-        && (!configuration.strict_unconfirmed_poison || coverage.strict_poisoned > 0)
+        && (!configuration.strict_unconfirmed_poison
+            || (coverage.strict_poisoned > 0 && coverage.strict_displacements > 0))
 }
 
 /// Seeds every generated session with real traffic through each required state
@@ -5409,6 +5418,64 @@ fn seed_fuzz_coverage(
             Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [2]
         ));
         *now = release_at + Duration::from_micros(1);
+    }
+
+    // #951 directed seed: the first command's completion is lost and the
+    // second command's ACK reuses its socket. No deadline or receive fault
+    // precedes the evidence, so this can poison only through displacement.
+    // Keep this last: a strict session is terminal after the second ACK.
+    if envelope == EnvelopeKind::Raw && configuration.strict_unconfirmed_poison {
+        let first = seed_admit(
+            engine,
+            ticket,
+            coverage,
+            command(2, CancellationPolicy::Supported),
+            *now,
+        );
+        let sent = send_ok(engine, &first, None, *now);
+        coverage.record(engine, &sent);
+        let first_id = admitted(&first);
+        let acked = engine.handle(
+            frame(
+                2,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            *now,
+        );
+        coverage.record(engine, &acked);
+        let second = seed_admit(
+            engine,
+            ticket,
+            coverage,
+            command(2, CancellationPolicy::Supported),
+            *now,
+        );
+        let sent = send_ok(engine, &second, None, *now);
+        coverage.record(engine, &sent);
+        let second_id = admitted(&second);
+        let displaced = engine.handle(
+            frame(
+                2,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            *now,
+        );
+        coverage.record(engine, &displaced);
+        for id in [first_id, second_id] {
+            assert!(matches!(terminal_failure(&displaced, id),
+                Some(Error::StreamPoisoned { source })
+                    if matches!(source.as_ref(), Error::UnsequencedCommandUnconfirmed)));
+        }
+        assert_eq!(engine.state(), SessionState::Poisoned);
+        coverage.strict_displacements += 1;
+        engine.assert_invariants().unwrap();
+        return;
     }
 
     // Raw ACK loss reaches either the default immediate per-request failure plus

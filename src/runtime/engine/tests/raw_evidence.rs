@@ -2936,3 +2936,169 @@ fn accepting_a_dispute_preserves_the_second_stop_debt_in_the_engine() {
     assert!(terminal_outcome(&completed, successor).is_none());
     engine.assert_invariants().unwrap();
 }
+
+/// Strict mode promotes every live displacement victim to the same terminal
+/// session verdict and leaves no work that could consume the rest of a frame.
+fn assert_strict_displacement(engine: &ProtocolEngine, effects: &[Effect], live: &[RequestId]) {
+    let poisoned = |error: &Error| {
+        let error = match error {
+            Error::InquiryFailed { source } => source.as_ref(),
+            error => error,
+        };
+        matches!(error, Error::StreamPoisoned { source }
+            if matches!(source.as_ref(), Error::UnsequencedCommandUnconfirmed))
+    };
+    assert_eq!(engine.state(), SessionState::Poisoned);
+    assert!(poisoned(engine.terminal_error().unwrap()));
+    let ends: Vec<_> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::SessionEnded(end) => Some(end),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ends.len(), 1);
+    assert_eq!(ends[0].status, EndStatus::Poisoned);
+    assert!(poisoned(&ends[0].cause));
+    for id in live {
+        let terminals: Vec<_> = effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Terminal {
+                    id: terminal,
+                    outcome:
+                        RuntimeOutcome::Command(CommandOutcome::Failed(error))
+                        | RuntimeOutcome::Inquiry(InquiryOutcome::Failed(error)),
+                } if terminal == id => Some(error),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(terminals.len(), 1, "{id:?}: {effects:?}");
+        assert!(poisoned(terminals[0]), "{id:?}: {terminals:?}");
+    }
+    assert!(engine.entries.is_empty());
+    assert!(engine.correlation.holds().is_empty());
+    assert!(engine.correlation.ledger().is_empty());
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Transmit { .. })));
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn a_strict_raw_ack_reusing_a_live_socket_poisons_every_request() {
+    for transport in [TransportKind::Datagram, TransportKind::Stream] {
+        let now = Instant::now();
+        let mut engine = fresh(EnvelopeKind::Raw, transport);
+        engine.policy.strict_unconfirmed_poison = true;
+        let stale = executing_on(&mut engine, 1, ViscaSocket::S1, now);
+        let next = command_awaiting_ack(&mut engine, 2, now);
+        let (effects, unrelated) = admit(&mut engine, 3, inquiry(2), now);
+        send_ok(&mut engine, &effects, None, now);
+        let displaced = engine.handle(ack(1, ViscaSocket::S1), now);
+        assert_strict_displacement(&engine, &displaced, &[stale, next, unrelated]);
+    }
+}
+
+#[test]
+fn a_strict_raw_ack_reusing_only_a_socket_hold_keeps_the_session_live() {
+    for transport in [TransportKind::Datagram, TransportKind::Stream] {
+        let now = Instant::now();
+        let mut engine = fresh(EnvelopeKind::Raw, transport);
+        engine.policy.strict_unconfirmed_poison = true;
+        let completed = executing_with_cancel(&mut engine, 1, ViscaSocket::S1, now);
+        let done = engine.handle(completion(1, ViscaSocket::S1), now);
+        assert!(matches!(
+            terminal_outcome(&done, completed),
+            Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+        ));
+        assert!(engine
+            .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
+            .is_some());
+        let next = command_awaiting_ack(&mut engine, 2, now);
+        let assigned = engine.handle(ack(1, ViscaSocket::S1), now);
+        assert_eq!(engine.state(), SessionState::Running);
+        assert!(terminal_id(&assigned).is_none());
+        assert_eq!(socket_of(&engine, next), Some(ViscaSocket::S1));
+        engine.assert_invariants().unwrap();
+    }
+}
+
+#[test]
+fn an_owed_ack_displacement_uses_the_strict_terminator() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let stale = executing_on(&mut engine, 1, ViscaSocket::S2, now);
+    let (effects, owed) = admit(&mut engine, 2, stop_command(1), now);
+    send_ok(&mut engine, &effects, None, now);
+    let later = now + Duration::from_millis(20);
+    let expired = engine.advance(later);
+    assert!(matches!(
+        terminal_failure(&expired, owed),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    let (effects, next) = admit(&mut engine, 3, stop_command(1), later);
+    send_ok(&mut engine, &effects, None, later);
+    // Seed an existing debt using the default policy, then select the strict
+    // branch at the evidence boundary. Strict production deadlines otherwise
+    // poison before this particular debt can be made; this pins the shared
+    // owed-ACK displacement ingress independently of its debt producer.
+    engine.policy.strict_unconfirmed_poison = true;
+    let paid = engine.handle(ack(1, ViscaSocket::S2), later);
+    assert_strict_displacement(&engine, &paid, &[stale, next]);
+}
+
+#[test]
+fn a_disputed_ack_displacement_poisons_a_strict_stream() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    engine.policy.strict_unconfirmed_poison = true;
+    let stale = executing_on(&mut engine, 1, ViscaSocket::S2, now);
+    let (effects, first_stop) = admit(&mut engine, 2, stop_command(1), now);
+    send_ok(&mut engine, &effects, None, now);
+    let rejection = engine.handle_turn(
+        named_error(1, ViscaSocket::S2, 0x41),
+        now,
+        EngineTurn::InputOnly,
+    );
+    assert!(terminal_id(&rejection).is_none());
+    let mut request = stop_command(1);
+    request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
+    let (_, second_stop) = admit(&mut engine, 3, request, now);
+    let at = now + Duration::from_millis(10);
+    let written = engine.advance(at);
+    assert_eq!(request_transmit(&written).1, second_stop);
+    send_ok(&mut engine, &written, None, at);
+    let displaced = engine.handle_turn(ack(1, ViscaSocket::S2), at, EngineTurn::InputOnly);
+    assert_strict_displacement(&engine, &displaced, &[stale, first_stop, second_stop]);
+}
+
+#[test]
+fn a_late_cancel_reaching_a_successor_poisons_a_strict_stream() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    engine.policy.strict_unconfirmed_poison = true;
+    let original = executing_on(&mut engine, 1, ViscaSocket::S1, now);
+    let successor = command_awaiting_ack(&mut engine, 2, now);
+    let cancel = engine.handle(Input::Cancel { id: original }, now);
+    let (transmission, _, _) = cancel_transmit(&cancel);
+    engine.handle(
+        Input::TransmissionFinished {
+            request: original,
+            transmission,
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
+        },
+        now,
+    );
+    let done = engine.handle(completion(1, ViscaSocket::S1), now);
+    assert!(matches!(
+        terminal_outcome(&done, original),
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+    ));
+    engine.handle(ack(1, ViscaSocket::S1), now);
+    assert_eq!(socket_of(&engine, successor), Some(ViscaSocket::S1));
+    let (effects, unrelated) = admit(&mut engine, 3, inquiry(2), now);
+    send_ok(&mut engine, &effects, None, now);
+    let reached = engine.handle(named_error(1, ViscaSocket::S1, 0x04), now);
+    assert_strict_displacement(&engine, &reached, &[successor, unrelated]);
+}

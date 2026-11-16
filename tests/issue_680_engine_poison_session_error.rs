@@ -176,3 +176,76 @@ fn healthy_session() -> Session {
     // recovery loop.
     Session::open(FakeCamera::acking(1).blocking_wire(), &config).expect("healthy session")
 }
+
+/// #951: socket reuse is evidence of a lost completion, so the strict policy
+/// ends both operations and the owner with the same recoverable session cause.
+#[test]
+fn socket_reuse_in_a_strict_session_surfaces_the_poison_to_every_observer() {
+    use grafton_visca::{
+        config::OperationalTuning, observability::DiagnosticPhase, types::CameraId,
+    };
+    use std::time::Duration;
+
+    let camera = FakeCamera::new(|_, answer| {
+        answer.reply(fake_camera::frames::ack(1));
+    });
+    let config = SessionConfig::new(
+        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>().expect("raw profile"),
+    )
+    .with_strict_unconfirmed_poison(true)
+    .with_tuning(
+        OperationalTuning::new()
+            .with_ack_timeout(Duration::from_secs(5))
+            .with_quick_timeout(Duration::from_secs(5)),
+    );
+    let session = Session::open(camera.blocking_wire(), &config).expect("strict session");
+    let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
+    let view = session
+        .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+        .expect("view");
+    let mut first = view
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
+        .expect("first command");
+    // Synchronize on the engine transition, so the second command's ACK
+    // displaces an executing owner rather than competing with an unpaid ACK.
+    loop {
+        let event = diagnostics
+            .recv_with_timeout(Duration::from_secs(1))
+            .expect("owner diagnostic")
+            .expect("first command acknowledged promptly");
+        if matches!(
+            event,
+            DiagnosticEvent::Transition {
+                to: DiagnosticPhase::Executing,
+                ..
+            }
+        ) {
+            break;
+        }
+    }
+    let mut second = view
+        .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
+        .expect("second command");
+    for error in [
+        first
+            .applied()
+            .expect_err("stale completion poisons first operation"),
+        second
+            .applied()
+            .expect_err("session poison reaches successor"),
+        session
+            .clone()
+            .close()
+            .expect_err("session retains its poison"),
+    ] {
+        assert!(
+            matches!(error, Error::StreamPoisoned { ref source, .. }
+            if matches!(source.as_ref(), Error::UnsequencedCommandUnconfirmed)),
+            "{error:?}"
+        );
+        assert!(error.requires_new_session());
+    }
+    let metrics = session.metrics().expect("terminal metrics");
+    assert_eq!(metrics.session, SessionStatus::Poisoned);
+    assert_eq!((metrics.active, metrics.pending), (0, 0));
+}

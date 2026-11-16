@@ -50,6 +50,14 @@ pub(crate) use framing::{ProtocolEncoder, WireProtocol, WriteFraming};
 #[cfg(test)]
 mod tests;
 
+/// The response scope retained when a raw command becomes unconfirmable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnconfirmedScope {
+    Lifecycle,
+    /// Camera evidence supersedes the command's socket ownership.
+    Displaced,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CorrelationKind {
     Request,
@@ -2212,7 +2220,12 @@ trait EngineMethods: EngineAccess {
         if raw_active_command {
             // Remove the active transmission and retain raw correlation through its ambiguity window (or poisons in strict
             // recovery mode).
-            self.terminate_unconfirmed_raw(owner.request, now, effects);
+            self.terminate_unconfirmed_raw(
+                owner.request,
+                UnconfirmedScope::Lifecycle,
+                now,
+                effects,
+            );
         } else {
             // A raw inquiry can be physically uncertain while
             // its write result is still pending too. Retain the same bounded
@@ -2678,6 +2691,9 @@ trait EngineMethods: EngineAccess {
                 CorrelationState::RawStream(stream) => {
                     let mut context = StreamContext { core, stream };
                     context.retire_stale_stream_candidates(&frame, now, effects);
+                    if !matches!(context.session, EngineSession::Running) {
+                        return;
+                    }
                     context
                         .resolve_raw_stream(&frame, now, effects)
                         .map(|id| (id, CorrelationKind::Request))
@@ -2697,6 +2713,9 @@ trait EngineMethods: EngineAccess {
             }
         };
         self.apply_retro(now, effects);
+        if !matches!(self.session, EngineSession::Running) {
+            return;
+        }
         let Some((id, correlation_kind)) = resolved else {
             effects.push(Effect::Ignored(unmatched));
             return;
@@ -3156,7 +3175,15 @@ trait EngineMethods: EngineAccess {
                     .socket_owner(target, socket)
                     .filter(|owner| *owner != id)
                 {
-                    self.quarantine_displaced_raw_socket_owner(stale, now, effects);
+                    self.terminate_unconfirmed_raw(
+                        stale,
+                        UnconfirmedScope::Displaced,
+                        now,
+                        effects,
+                    );
+                    if !matches!(self.session, EngineSession::Running) {
+                        return None;
+                    }
                 }
                 let (core, mode) = self.split();
                 match mode {
@@ -3169,38 +3196,6 @@ trait EngineMethods: EngineAccess {
             }
         }
         self.assign_socket(target, requested, id)
-    }
-
-    /// Relinquishes a socket claim superseded by an authoritative camera ACK.
-    /// On a datagram transport a `PreAck` hold covers the stale request's
-    /// ambiguity; a byte stream needs none (#795).
-    fn quarantine_displaced_raw_socket_owner(
-        &mut self,
-        stale: RequestId,
-        now: Instant,
-        effects: &mut Decision,
-    ) {
-        let Some((target, ambiguity)) = self.entries.get(&stale).map(|entry| {
-            debug_assert!(self.mode().is_raw());
-            (
-                entry.request.context().target,
-                entry.request.context().timeout.ambiguity.get(),
-            )
-        }) else {
-            return;
-        };
-        let deadline = add_duration(now, ambiguity);
-        self.release_attempt_ownership(stale);
-        if let CorrelationState::RawDatagram(holds) = self.split().1 {
-            holds.extend(target, RawHoldScope::PreAck, deadline, Some(stale));
-        }
-        self.finish_with_cancel_hold(
-            stale,
-            Error::UnsequencedCommandUnconfirmed,
-            false,
-            now,
-            effects,
-        );
     }
 
     fn ack(
@@ -3237,6 +3232,9 @@ trait EngineMethods: EngineAccess {
         let target = entry.request.context().target;
         let deadline = add_duration(now, entry.request.context().timeout.completion.get());
         let Some(socket) = self.assign_ack_socket(target, socket, id, now, effects) else {
+            if !matches!(self.session, EngineSession::Running) {
+                return;
+            }
             effects.push(Effect::Ignored(IgnoreReason::SocketConflict));
             if !self.mode().is_raw() {
                 // The exact sequence still proves acceptance. A conflicting
@@ -3530,7 +3528,10 @@ trait EngineMethods: EngineAccess {
     fn apply_retro(&mut self, now: Instant, effects: &mut Decision) {
         let deferred = effects.take_deferred();
         for id in deferred.displaced {
-            self.quarantine_displaced_raw_socket_owner(id, now, effects);
+            self.terminate_unconfirmed_raw(id, UnconfirmedScope::Displaced, now, effects);
+            if !matches!(self.session, EngineSession::Running) {
+                return;
+            }
         }
         for retro in deferred.retro {
             let awaiting = self.entries.get(&retro.request).is_some_and(|entry| {
@@ -3561,6 +3562,9 @@ trait EngineMethods: EngineAccess {
                     effects,
                 ),
                 Evidence::Other => {}
+            }
+            if !matches!(self.session, EngineSession::Running) {
+                return;
             }
         }
     }
@@ -4141,13 +4145,52 @@ trait EngineMethods: EngineAccess {
     /// inert keyed hold, rather than a hidden still-live request phase, prevents
     /// late input from binding to a successor. The session and every unrelated
     /// request keep running.
-    fn terminate_unconfirmed_raw(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
+    fn terminate_unconfirmed_raw(
+        &mut self,
+        id: RequestId,
+        scope: UnconfirmedScope,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let target = entry.request.context().target;
+        let ambiguity = entry.request.context().timeout.ambiguity.get();
         if self.raw_unconfirmed_poison() {
             self.poison_strict_unconfirmed(now, effects);
             return;
         }
-        self.quarantine_unconfirmed_raw(id, now);
-        self.finish(id, Error::UnsequencedCommandUnconfirmed, now, effects);
+        debug_assert!(!self.raw_unconfirmed_poison());
+        let keep_cancel_hold = match scope {
+            UnconfirmedScope::Lifecycle => {
+                self.quarantine_unconfirmed_raw(id, now);
+                true
+            }
+            UnconfirmedScope::Displaced => {
+                // The camera has superseded this socket claim. Datagrams
+                // retain only an unkeyed ambiguity hold; a byte stream owes
+                // unanswered frames through its ledger and needs no hold.
+                debug_assert!(self.mode().is_raw());
+                self.release_attempt_ownership(id);
+                if let CorrelationState::RawDatagram(holds) = self.split().1 {
+                    holds.extend(
+                        target,
+                        RawHoldScope::PreAck,
+                        add_duration(now, ambiguity),
+                        Some(id),
+                    );
+                }
+                false
+            }
+        };
+        self.finish_with_cancel_hold(
+            id,
+            Error::UnsequencedCommandUnconfirmed,
+            keep_cancel_hold,
+            now,
+            effects,
+        );
     }
 
     fn finish_cancellation_unconfirmed(
@@ -4158,7 +4201,7 @@ trait EngineMethods: EngineAccess {
     ) {
         match self.mode() {
             CorrelationRef::RawDatagram(_) | CorrelationRef::RawStream(_) => {
-                self.terminate_unconfirmed_raw(id, now, effects)
+                self.terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects)
             }
             CorrelationRef::Sequenced => {
                 self.finish(id, Error::CancellationUnconfirmed, now, effects)
@@ -4211,9 +4254,8 @@ trait EngineMethods: EngineAccess {
                     .cloned()
                     .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
                 match retirement {
-                    BudgetRetirement::Command if self.mode().is_raw() => {
-                        self.terminate_unconfirmed_raw(id, now, effects)
-                    }
+                    BudgetRetirement::Command if self.mode().is_raw() => self
+                        .terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects),
                     BudgetRetirement::Inquiry => {
                         self.retain_unanswered_inquiry(id, now);
                         self.finish(id, error, now, effects);
@@ -4269,10 +4311,15 @@ trait EngineMethods: EngineAccess {
                             effects,
                         );
                     } else {
-                        self.terminate_unconfirmed_raw(id, now, effects);
+                        self.terminate_unconfirmed_raw(
+                            id,
+                            UnconfirmedScope::Lifecycle,
+                            now,
+                            effects,
+                        );
                     }
                 } else if self.mode().is_raw() {
-                    self.terminate_unconfirmed_raw(id, now, effects);
+                    self.terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects);
                 } else if context.retry.ack_timeout {
                     self.schedule_retry(
                         id,
@@ -4300,7 +4347,12 @@ trait EngineMethods: EngineAccess {
                 match completion {
                     CompletionDeadline::Unacknowledged { retry } => {
                         if self.mode().is_raw() {
-                            self.terminate_unconfirmed_raw(id, now, effects);
+                            self.terminate_unconfirmed_raw(
+                                id,
+                                UnconfirmedScope::Lifecycle,
+                                now,
+                                effects,
+                            );
                         } else if context.retry.completion_timeout {
                             self.schedule_retry(
                                 id,
@@ -4324,7 +4376,12 @@ trait EngineMethods: EngineAccess {
                     }
                     CompletionDeadline::Accepted => {
                         if self.mode().is_raw() {
-                            self.terminate_unconfirmed_raw(id, now, effects);
+                            self.terminate_unconfirmed_raw(
+                                id,
+                                UnconfirmedScope::Lifecycle,
+                                now,
+                                effects,
+                            );
                         } else {
                             // Acceptance permanently forbids replay, including
                             // same-sequence Sony retransmission.
