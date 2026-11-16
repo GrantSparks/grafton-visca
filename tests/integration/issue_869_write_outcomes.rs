@@ -15,8 +15,15 @@ use std::{
 };
 
 use grafton_visca::{
-    config::SessionConfig, error::ErrorKind, operation::AppliedOnly, profiles::SonyFr7, raw,
-    request::RetryClass, transport::SendSemantics, Error,
+    config::SessionConfig,
+    error::{Certainty, ErrorKind, FailureContext, FailureStage, Recovery},
+    observability::SessionStatus,
+    operation::AppliedOnly,
+    profiles::SonyFr7,
+    raw,
+    request::RetryClass,
+    transport::SendSemantics,
+    Error,
 };
 use grafton_visca_test_support::{
     facade_matrix,
@@ -78,12 +85,19 @@ facade_matrix! {
             let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
             let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap();
             let error = wait!(first.applied()).unwrap_err();
-            assert_eq!(error.kind(), ErrorKind::Transport, "{kind:?}: {error:?}");
+            assert!(matches!(&error, Error::RequestUnconfirmed { source, .. }
+                if matches!(source.as_ref(), Error::TransportError { .. })), "{kind:?}: {error:?}");
+            assert_eq!(error.kind(), ErrorKind::Unconfirmed, "{kind:?}: {error:?}");
+            assert_eq!(error.recovery(), Recovery::Reconcile);
+            assert_eq!(error.failure_context(), Some(FailureContext::new(
+                FailureStage::Terminal, Certainty::Unconfirmed,
+            )));
             assert!(!error.requires_new_session());
             assert_eq!(io_cause(&error), Some(kind));
             let mut next = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap();
             wait!(next.applied()).unwrap();
             let metrics = wait!(session.metrics()).unwrap();
+            assert_eq!(metrics.session, SessionStatus::Running);
             assert_eq!(metrics.writes, 2);
             assert_eq!(metrics.write_failures, 1);
             wait!(session.close()).unwrap();

@@ -19,6 +19,7 @@ use fake_camera::{frames, Answer, FakeCamera, FOCUS_STOP, ZOOM_STOP};
 use grafton_visca::{
     blocking::Session,
     config::{OperationalTuning, SessionConfig},
+    error::{Certainty, FailureContext, FailureStage, Recovery},
     operation::AppliedOnly,
     profiles::{ProfileSpec, SonyFr7},
     Error,
@@ -187,8 +188,8 @@ fn a_one_socket_target_queues_the_second_operation() {
     session.shutdown().expect("owner shutdown");
 }
 
-/// A typed operation whose datagram send fails is still admitted; the exact
-/// transport error is its outcome (D24). The terminalized entry releases its
+/// A typed operation whose datagram send fails is still admitted; its raw
+/// outcome remains unconfirmed (D24, #968). The terminalized entry releases its
 /// shared permit, so a one-slot session can immediately admit and complete a
 /// later operation.
 #[test]
@@ -206,12 +207,18 @@ fn a_failed_operation_write_is_its_outcome_and_releases_the_permit() {
         .expect("submission succeeds at admission")
         .applied()
         .expect_err("the failed write is the operation's outcome");
-    match &error {
-        Error::TransportError { source: reason, .. } => {
-            assert!(reason.to_string().ends_with(FIRST_WRITE_ERROR))
-        }
-        other => panic!("expected the exact transport error, got {other:?}"),
-    }
+    assert!(
+        matches!(error, Error::UnsequencedCommandUnconfirmed),
+        "{error:?}"
+    );
+    assert_eq!(error.recovery(), Recovery::Reconcile);
+    assert_eq!(
+        error.failure_context(),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::Unconfirmed,
+        ))
+    );
     assert_eq!(fake.write_count(), 1, "the failed operation tried once");
     assert_eq!(
         accepted_count(&accepted),
