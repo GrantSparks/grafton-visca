@@ -154,106 +154,9 @@ impl Session {
         }
     }
 
-    /// Returns a camera view for the registered target.
-    ///
-    /// Typed profiles require exact equality with their validated profile facts;
-    /// [`crate::profiles::AnyProfile`] accepts the registered runtime profile.
-    pub fn camera<P: CameraProfile>(&self, target: crate::IndividualCameraId) -> Result<Camera<P>> {
-        let target = TargetSlot::from(target);
-        let registration = self.config.registered_target(target)?;
-        P::validate_spec(registration.profile())?;
-        Ok(Camera::from_core(self.core(registration)))
-    }
-
-    /// The erased view of `target`, registered with `profile`.
-    fn core(&self, registration: Arc<crate::TargetRegistration>) -> AsyncCameraCore {
-        AsyncCameraCore {
-            owner: self.owner.clone(),
-            registration,
-            class: ClassSelection::Request,
-        }
-    }
-
-    /// Returns the operational tuning this session is currently preparing
-    /// requests under.
-    ///
-    /// This is the live value, not the one the session was opened with: it
-    /// reflects the most recent successful [`set_tuning`](Self::set_tuning),
-    /// including one made through another clone of this session.
-    #[must_use]
-    pub fn tuning(&self) -> OperationalTuning {
-        self.owner.tuning()
-    }
-
-    /// Replaces this session's operational tuning at runtime.
-    ///
-    /// # Scope
-    ///
-    /// **Every request prepared after this future resolves uses the new
-    /// values** — its acknowledgement, completion, settlement, and inquiry
-    /// deadlines, its retry budget, and its pacing floor. The owner's
-    /// session-wide pacing and per-target command-socket capacity are
-    /// re-derived immediately, so work still queued behind pacing is released
-    /// under the new values too.
-    ///
-    /// **Requests already in flight keep the deadlines they were admitted
-    /// with.** 2.0 stamps a request's deadlines once, at preparation, and the
-    /// engine derives its absolute phase deadlines from that stamp; nothing is
-    /// re-timed underneath an [`Operation`] a caller is already holding. This
-    /// is deliberate: a deadline that moved after submission would change the
-    /// contract of work a caller has already observed, so tuning applies only
-    /// to requests prepared after the call. To widen a deadline for a command
-    /// that is already running, cancel it and resubmit.
-    ///
-    /// The update is not a merge: a field left unset returns to its profile
-    /// default rather than keeping the value a previous call installed.
-    /// Construction-only recovery policy lives on [`crate::config::SessionConfig`], outside
-    /// `OperationalTuning`, and is therefore unaffected by this call.
-    ///
-    /// The update travels through the owner's control boundary and the owner is
-    /// its only writer, so two session clones reconfiguring concurrently
-    /// resolve last-writer-wins in the order the owner accepted them; no reader
-    /// ever observes a mixture of the two.
-    ///
-    /// # Errors
-    ///
-    /// Rejects tuning that construction would reject for a registered profile:
-    /// values that weaken pacing minima, raise a socket limit, undercut a
-    /// deadline, or specify incoherent retry timing, leaving the session's
-    /// current tuning untouched. Returns the session's terminal error
-    /// if the owner has shut down; a retained terminal error takes precedence
-    /// over validation of the proposed update.
-    pub async fn set_tuning(&self, tuning: OperationalTuning) -> Result<()> {
-        let validated_tuning = self.config.validate_tuning(tuning);
-        self.owner.reconfigure(validated_tuning).await
-    }
-
-    /// Requests the single owner actor to shut down.
-    ///
-    /// This is an idempotent, non-blocking shutdown request: it returns once
-    /// the request is accepted by the owner's bounded shutdown boundary, so
-    /// it never waits and is not `async`. It does not join
-    /// the detached actor task or claim that transport teardown has finished.
-    /// After this call, new request admission is rejected with
-    /// [`Error::RuntimeShutdown`](crate::Error::RuntimeShutdown). All
-    /// [`Session`] clones share this one shutdown boundary, so a consuming
-    /// [`Self::close`] on any clone waits for the same sole actor.
-    pub fn shutdown(&self) -> Result<()> {
-        self.owner.shutdown()
-    }
-
-    /// Requests owner shutdown and consumes this session, waiting for teardown.
-    ///
-    /// Unlike [`Self::shutdown`], this is a deterministic driver/transport
-    /// teardown barrier. It does not resolve until the detached owner has
-    /// dropped its driver (including the owned transport), so reopening the
-    /// same endpoint after `close` is safe. The barrier does not promise an
-    /// executor-specific task join after that release point. If shutdown was
-    /// accepted, the terminal owner result is returned after teardown: an
-    /// explicit shutdown returns `Ok(())`, while a transport close or stream
-    /// poison that won the source ordering race is returned unchanged. If
-    /// sending this call's shutdown signal fails immediately, that send error
-    /// is preserved.
+    #[doc = crate::camera_facade::session_contract!(close)]
+    /// This awaits release of the detached actor's driver and transport. It
+    /// does not promise an executor-specific task join after that release point.
     pub async fn close(self) -> Result<()> {
         let shutdown_result = self.shutdown();
         let teardown_result = self.owner.wait_closed().await;
@@ -263,23 +166,7 @@ impl Session {
         }
     }
 
-    /// Returns a scalar snapshot of the owner without cloning diagnostics.
-    ///
-    /// After normal conclusion, returns the retained terminal snapshot. An
-    /// owner that unwinds before conclusion reports `OwnerTerminated`.
-    pub async fn metrics(&self) -> Result<MetricsSnapshot> {
-        self.owner.metrics().await
-    }
-
-    /// Subscribes to the owner's bounded, best-effort diagnostic stream.
-    ///
-    /// `capacity` must be in `1..=128`; at most four live subscriptions are
-    /// retained by one owner. A slow subscriber never stalls command or
-    /// transport processing; its dropped events are visible in [`Self::metrics`].
-    ///
-    /// Delivery is not ordered against receipt resolution: a wait on an
-    /// operation can return before that operation's terminal event is queued
-    /// here.
+    #[doc = crate::camera_facade::session_contract!(diagnostics)]
     pub async fn subscribe_diagnostics(&self, capacity: usize) -> Result<Diagnostics> {
         let subscription = self.owner.subscribe_diagnostics(capacity).await?;
         Ok(Diagnostics::from_owner(

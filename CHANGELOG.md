@@ -106,8 +106,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consistently with typed camera inquiries. The duplicate
   `InquiryKind::ExposureCompensationPosition` is removed.
 
-- Blocking and async facade documentation shares the same camera ownership,
-  request admission and operation-handle contracts (#943).
+- Blocking and async facades share generated camera and Session methods plus
+  camera ownership, request admission, tuning, teardown and operation-handle
+  documentation contracts (#943, #976).
 
 - Engine decisions append effects into retained owner buffers. After warm-up,
   standard command and frame turns reuse their effect storage without heap
