@@ -19,7 +19,7 @@ use grafton_visca::{
         TransportCompatibility,
     },
     r#async::Session,
-    types::{CameraId, ExposureMode, UnitInterval, ZoomDomain, ZoomPosition},
+    types::{ExposureMode, UnitInterval, ZoomDomain, ZoomPosition},
     Error,
 };
 
@@ -200,9 +200,14 @@ where
     .await
     .expect("owner-backed session");
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
-    assert_eq!(camera.target(), CameraId::CAMERA_1);
+    assert_eq!(
+        camera.target(),
+        grafton_visca::types::IndividualCameraId::CAMERA_1
+    );
     assert_eq!(camera.profile(), &runtime_profile);
     let typed = camera
         .clone()
@@ -244,7 +249,9 @@ where
     .await
     .expect("partial-profile session");
     let partial_camera = partial_session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("partial dynamic camera");
 
     // Both values map within the documented numeric range; the midpoint also
@@ -309,7 +316,9 @@ where
     .await
     .expect("supported-profile session");
     let supported_camera = supported_session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("supported dynamic camera");
     for position in [midpoint, UnitInterval::MAX] {
         supported_camera
@@ -360,7 +369,9 @@ where
     .await
     .expect("Sony FR7 session");
     let fr7_camera = fr7_session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("Sony FR7 camera");
     let fr7_nouns = &fr7_camera;
 
@@ -419,7 +430,9 @@ where
     .await
     .expect("partial exposure-mode session");
     let partial_camera = partial_session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("partial exposure-mode camera");
     let partial_nouns = &partial_camera;
 
@@ -486,7 +499,9 @@ where
         .await
         .unwrap();
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .unwrap();
         macro_rules! refused {
             ($request:expr) => {{
@@ -620,9 +635,11 @@ where
         )
         .await
         .expect("session");
-        assert!(session.camera::<SonyFr7>(CameraId::CAMERA_1).is_err());
+        assert!(session
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+            .is_err());
         let camera = session
-            .camera::<AnyProfile>(CameraId::CAMERA_1)
+            .camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("view");
         assert_eq!(
             camera.clone().into_typed::<PtzOpticsG2>().is_ok(),

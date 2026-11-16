@@ -304,7 +304,7 @@ assert_generated_inquiry_inventory!(
         "zoom.normalized",
         grafton_visca::command::zoom::NormalizedInquiry::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
@@ -337,7 +337,7 @@ fn zoom_speed() -> ZoomSpeed {
 fn representative_typed_requests_encode_without_heap_allocation() {
     let drive = grafton_visca::command::pan_tilt::Drive::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -353,7 +353,7 @@ fn representative_typed_requests_encode_without_heap_allocation() {
     .expect("drive");
     let zoom = grafton_visca::command::zoom::TeleVariable::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -367,7 +367,7 @@ fn representative_typed_requests_encode_without_heap_allocation() {
     let reset = grafton_visca::command::presets::Clear::new(PresetNumber::new(1).expect("preset"));
     let pan_stop = grafton_visca::command::pan_tilt::Stop::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -500,8 +500,11 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
         testing::preparation,
     };
     let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
-    let target = grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile)
-        .expect("target registration");
+    let target = grafton_visca::config::TargetRegistration::new(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        profile,
+    )
+    .expect("target registration");
     let tuning = OperationalTuning::new();
     let raw = grafton_visca::raw::PlainRequest::new(
         [0x81, 1, 4, 0, 2, 0xff],
@@ -540,8 +543,11 @@ fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
         ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
     ];
     let targets = profiles.map(|profile| {
-        grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile)
-            .expect("target registration")
+        grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            profile,
+        )
+        .expect("target registration")
     });
     for target in &targets {
         let allocations = allocations_during(|| {
@@ -852,10 +858,11 @@ fn blocking_builtin_camera_and_into_typed_views_do_not_allocate() {
     .unwrap();
     assert_builtin_views_do_not_allocate(|| {
         drop(std::hint::black_box(
-            g2.camera::<PtzOpticsG2>(CameraId::CAMERA_1).unwrap(),
+            g2.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                .unwrap(),
         ));
         drop(std::hint::black_box(
-            brc.camera::<AnyProfile>(CameraId::CAMERA_1)
+            brc.camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .unwrap()
                 .into_typed::<SonyBrc300>()
                 .unwrap(),
@@ -895,10 +902,11 @@ fn async_builtin_camera_and_into_typed_views_do_not_allocate() {
         .unwrap();
         assert_builtin_views_do_not_allocate(|| {
             drop(std::hint::black_box(
-                g2.camera::<PtzOpticsG2>(CameraId::CAMERA_1).unwrap(),
+                g2.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                    .unwrap(),
             ));
             drop(std::hint::black_box(
-                brc.camera::<AnyProfile>(CameraId::CAMERA_1)
+                brc.camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                     .unwrap()
                     .into_typed::<SonyBrc300>()
                     .unwrap(),

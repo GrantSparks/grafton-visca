@@ -412,7 +412,8 @@ mod tests {
             .position_inquiries(crate::AffectedAxes::ZOOM)
             .build()
             .expect("custom profile");
-        TargetRegistration::new(CameraId::CAMERA_1, profile).expect("registered target")
+        TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+            .expect("registered target")
     }
 
     #[test]

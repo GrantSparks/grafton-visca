@@ -440,8 +440,8 @@ where
 }
 
 fn assert_session_selectors(session: &Session) {
-    let _: Result<Camera<AnyProfile>, Error> = session.camera::<AnyProfile>(CameraId::CAMERA_1);
-    let _: Result<Camera<AnyProfile>, Error> = session.camera::<AnyProfile>(CameraId::CAMERA_2);
+    let _: Result<Camera<AnyProfile>, Error> = session.camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1);
+    let _: Result<Camera<AnyProfile>, Error> = session.camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_2);
 }
 
 /// Waits borrow the handle (#777): application then settlement on one handle,

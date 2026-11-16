@@ -19,7 +19,7 @@ facade_matrix! {
         });
         let session = open!(peer, SessionConfig::from_compile_time::<GenericVisca>().unwrap())
             .unwrap();
-        let camera = session.camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let camera = session.camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         let fast = wait!(session.subscribe_diagnostics(128)).unwrap();
         let mut delivered = 0;
         for _ in 0..40 {

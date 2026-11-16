@@ -31,7 +31,7 @@ macro_rules! camera_core {
 
         impl $core {
             /// Returns this view's fixed individual target.
-            pub(crate) fn target(&self) -> crate::CameraId {
+            pub(crate) fn target(&self) -> crate::IndividualCameraId {
                 self.registration.target()
             }
 

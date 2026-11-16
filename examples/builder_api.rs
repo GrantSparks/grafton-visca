@@ -13,7 +13,6 @@ use grafton_visca::{
     transport::{
         BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig, TransportIdentity,
     },
-    types::CameraId,
     Error,
 };
 
@@ -83,7 +82,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = CallerUdp::connect(&address)?;
     let config = SessionConfig::from_compile_time::<PtzOpticsG2>()?;
     let session = Session::open(transport, &config)?;
-    let camera = session.camera::<PtzOpticsG2>(CameraId::CAMERA_1)?;
+    let camera =
+        session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?;
     println!("Power: {:?}", camera.power().status()?);
     session.close()?;
     Ok(())

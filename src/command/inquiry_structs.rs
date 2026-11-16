@@ -814,7 +814,7 @@ macro_rules! define_builtin_inquiries {
                 fn write_for_target(&self, target: &crate::TargetRegistration, buffer: &mut [u8], _authority: crate::requests::RequestContractAuthority) -> crate::Result<usize> {
                     #[cfg(test)]
                     increment_generated_inquiry_write_count();
-                    write_query_frame(target.target(), body_for_profile(Self::KIND, Self::BODY, target.profile()), <Self as GeneratedInquiry>::query_argument(self), buffer)
+                    write_query_frame(target.target().into(), body_for_profile(Self::KIND, Self::BODY, target.profile()), <Self as GeneratedInquiry>::query_argument(self), buffer)
                 }
 
                 fn validate_for_target(&self, target: &crate::TargetRegistration) -> crate::Result<()> {

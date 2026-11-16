@@ -248,7 +248,7 @@ mod tests {
         let prepared = prepare_command(
             &crate::request::builtin::FocusModeCommand::Manual,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 profile.clone(),
             )
             .expect("valid target registration"),

@@ -1437,7 +1437,7 @@ mod tests {
         let error = crate::prepared::test_support::prepare_command(
             &command,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 profile.clone(),
             )
             .expect("valid target registration"),

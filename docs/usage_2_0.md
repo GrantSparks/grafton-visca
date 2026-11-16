@@ -107,7 +107,7 @@ use grafton_visca::profiles::ProfileId;
 let g2 = ProfileId::PtzOpticsG2.spec()?;
 let generic = ProfileId::GenericVisca.spec()?;
 let config = SessionConfig::new(g2)
-    .with_target(grafton_visca::types::CameraId::new(2)?, generic)?;
+    .with_target(grafton_visca::types::IndividualCameraId::new(2)?, generic)?;
 
 // Apply one session-wide tuning value before opening. Tuning may only be
 // more conservative than the profile floor, which is 150 ms here; opening the
@@ -341,7 +341,7 @@ use grafton_visca::{
 };
 
 fn share(session: &blocking::Session) -> grafton_visca::Result<()> {
-    let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)?;
+    let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?;
     std::thread::scope(|scope| {
         let worker = scope.spawn(move || camera.power().on());
         worker.join().expect("camera worker")

@@ -94,7 +94,7 @@ facade_matrix! {
         });
         let config = SessionConfig::new(ProfileSpec::from_compile_time::<GenericVisca>().unwrap());
         let session = open!(Stream::new(camera), config).expect("stream owner");
-        let view = session.camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let view = session.camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied())
             .expect("only the following valid ACK and completion apply the command");
 
@@ -113,7 +113,7 @@ facade_matrix! {
         });
         let config = SessionConfig::new(ProfileSpec::from_compile_time::<GenericVisca>().unwrap());
         let session = open!(Stream::new(camera), config).expect("stream owner");
-        let view = session.camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let view = session.camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied())
             .expect_err("193 boundary-free bytes exceed the configured 192-byte bound");
         assert!(error.requires_new_session(), "{error:?}");
@@ -130,7 +130,7 @@ facade_matrix! {
         });
         let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>().unwrap());
         let session = open!(Stream::new(camera), config).expect("Sony stream owner");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied())
             .expect_err("the declared Sony frame cannot be honoured");
         assert!(error.requires_new_session(), "{error:?}");
@@ -143,7 +143,7 @@ facade_matrix! {
         });
         let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>().unwrap());
         let session = open!(Stream::new(camera), config).expect("Sony stream owner");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied()).expect_err("invalid payload type loses the stream boundary");
         assert!(error.requires_new_session(), "{error:?}");
         assert!(format!("{error:?}").contains("Sony header"), "{error:?}");
@@ -162,7 +162,7 @@ facade_matrix! {
         });
         let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>().unwrap());
         let session = open!(Datagram::new(camera), config).expect("Sony datagram owner");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied()).expect("the next Sony ACK and completion still apply");
         let metrics = wait!(session.metrics()).unwrap();
         assert_eq!(metrics.session, SessionStatus::Running);

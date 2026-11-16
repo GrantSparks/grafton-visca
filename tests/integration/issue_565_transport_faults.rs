@@ -40,7 +40,6 @@ use grafton_visca::{
     operation::{AppliedOnly, CancellationOutcome},
     profiles::SonyFr7,
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    types::CameraId,
     Error,
 };
 
@@ -140,7 +139,7 @@ facade_matrix! {
         let camera = receive_fault_on_first_write();
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let error = wait!(
@@ -185,7 +184,7 @@ facade_matrix! {
         )
         .expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let error = wait!(
@@ -211,7 +210,7 @@ facade_matrix! {
     fn sony_transient_receive_fault_retries_same_sequence_and_keeps_session() {
         let camera = receive_fault_on_first_write();
         let session = open!(Rig::datagram(&camera), sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
 
         wait!(
             wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
@@ -258,7 +257,7 @@ facade_matrix! {
         });
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let mut failing = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
@@ -333,10 +332,10 @@ facade_matrix! {
         let session = open!(Rig::serial_stream(&camera), two_camera_session_config())
             .expect("owner session");
         let first_camera = session
-            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera one view");
         let second_camera = session
-            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_2)
             .expect("camera two view");
 
         let mut held =
@@ -376,7 +375,7 @@ facade_matrix! {
         });
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(
@@ -407,7 +406,7 @@ facade_matrix! {
         });
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(
@@ -459,7 +458,7 @@ facade_matrix! {
             previous_sequence = Some(sequence);
         });
         let session = open!(Rig::datagram(&camera), sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
 
         let mut first = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("first submission");
         let mut second =
@@ -500,7 +499,7 @@ facade_matrix! {
         let camera = FakeCamera::acking(1);
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(

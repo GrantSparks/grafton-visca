@@ -25,7 +25,7 @@ use crate::{
     },
     target::TargetSlot,
     transport::{AsyncTransport, HasTransportConfig},
-    CameraId, Inquiry, MetricsSnapshot, OperationCommand, PlainCommand, Result, SessionConfig,
+    Inquiry, MetricsSnapshot, OperationCommand, PlainCommand, Result, SessionConfig,
     SubmissionClass,
 };
 
@@ -158,8 +158,8 @@ impl Session {
     ///
     /// Typed profiles require exact equality with their validated profile facts;
     /// [`crate::profiles::AnyProfile`] accepts the registered runtime profile.
-    pub fn camera<P: CameraProfile>(&self, target: CameraId) -> Result<Camera<P>> {
-        let target = TargetSlot::try_from(target)?;
+    pub fn camera<P: CameraProfile>(&self, target: crate::IndividualCameraId) -> Result<Camera<P>> {
+        let target = TargetSlot::from(target);
         let registration = self.config.registered_target(target)?;
         P::validate_spec(registration.profile())?;
         Ok(Camera::from_core(self.core(registration)))
@@ -686,7 +686,7 @@ mod tests {
             .run_until(Session::open(transport, &config, runtime.clone()))
             .expect("owner session");
         let selected = session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(crate::IndividualCameraId::CAMERA_1)
             .expect("typed camera")
             .with_submission_class(SubmissionClass::Background);
         let erased: Camera = selected.into_any();
@@ -703,7 +703,7 @@ mod tests {
         let typed = erased
             .into_typed::<PtzOpticsG2>()
             .expect("matching complete profile");
-        assert_eq!(typed.target(), CameraId::CAMERA_1);
+        assert_eq!(typed.target(), crate::IndividualCameraId::CAMERA_1);
         assert_eq!(typed.submission_class(), Some(SubmissionClass::Background));
         let mut single = CameraSession::<PtzOpticsG2>::from_registration(
             session.clone(),
@@ -896,7 +896,7 @@ mod tests {
         assert!(runtime
             .run_until(
                 session
-                    .camera::<GenericVisca>(CameraId::CAMERA_1)
+                    .camera::<GenericVisca>(crate::IndividualCameraId::CAMERA_1)
                     .expect("camera")
                     .focus()
                     .set_mode(FocusMode::Manual)

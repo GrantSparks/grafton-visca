@@ -29,7 +29,6 @@ use grafton_visca::{
     runtime::Executor,
     state_cache::{StateEntry, StateKey},
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    types::CameraId,
     Error,
 };
 
@@ -116,12 +115,17 @@ async fn dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles<E: Execut
     let (fake, transport) = probe(AddressingMode::Ip, true);
     let session = open_session(transport, SessionConfig::new(profile()), executor).await;
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
     let root = &camera;
     let nouns = &camera;
 
-    assert_eq!(root.target(), CameraId::CAMERA_1);
+    assert_eq!(
+        root.target(),
+        grafton_visca::types::IndividualCameraId::CAMERA_1
+    );
     assert!(root.capabilities().zoom.is_some());
     assert!(!root
         .capabilities()
@@ -170,7 +174,9 @@ async fn dynamic_unsupported_gate_rejects_before_transport_io<E: Executor>(execu
     let (fake, transport) = probe(AddressingMode::Ip, true);
     let session = open_session(transport, SessionConfig::new(profile()), executor).await;
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
 
     let error = camera
@@ -220,7 +226,9 @@ async fn dynamic_tally_metadata_does_not_grant_typed_permission<E: Executor>(exe
     let (fake, transport) = probe(AddressingMode::Ip, true);
     let session = open_session(transport, SessionConfig::new(profile), executor).await;
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
     let tally = camera.tally();
     for result in [
@@ -296,17 +304,26 @@ async fn dynamic_cache_views_share_state_and_isolate_targets<E: Executor>(execut
     let (_, transport) = probe(AddressingMode::Serial, true);
     let mut config = SessionConfig::new(profile());
     config = config
-        .with_target(CameraId::CAMERA_2, profile())
+        .with_target(
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
+            profile(),
+        )
         .expect("camera 2 registration");
     let session = open_session(transport, config, executor.clone()).await;
     let first = session
-        .camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("camera 1 dynamic view");
     let first_view = session
-        .camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("same-target dynamic view");
     let second = session
-        .camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_2)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
+        )
         .expect("camera 2 dynamic view");
 
     assert_unknown(&first);
@@ -334,7 +351,9 @@ async fn dynamic_cache_views_share_state_and_isolate_targets<E: Executor>(execut
     let (_, fresh_transport) = probe(AddressingMode::Ip, true);
     let fresh = open_session(fresh_transport, SessionConfig::new(profile()), executor).await;
     let fresh_camera = fresh
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("fresh dynamic camera");
     assert_unknown(&fresh_camera);
     fresh.shutdown().expect("fresh shutdown");
@@ -344,31 +363,41 @@ async fn runtime_profile_target_selection_is_explicit_and_checked<E: Executor>(e
     let (fake, transport) = probe(AddressingMode::Serial, true);
     let mut config = SessionConfig::new(profile());
     config = config
-        .with_target(CameraId::CAMERA_2, profile())
+        .with_target(
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
+            profile(),
+        )
         .expect("camera 2 registration");
     let session = open_session(transport, config, executor).await;
 
     assert_eq!(
         session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1
+            )
             .expect("explicit registered target")
             .target(),
-        CameraId::CAMERA_1
+        grafton_visca::types::IndividualCameraId::CAMERA_1
     );
     let selected = session
-        .camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_2)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
+        )
         .expect("explicit dynamic target");
-    assert_eq!(selected.target(), CameraId::CAMERA_2);
+    assert_eq!(
+        selected.target(),
+        grafton_visca::types::IndividualCameraId::CAMERA_2
+    );
     let _ = selected
         .clone()
         .into_typed::<PtzOpticsG2>()
         .expect("matching static projection");
     assert_eq!(
         session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("explicit registered target")
             .target(),
-        CameraId::CAMERA_1
+        grafton_visca::types::IndividualCameraId::CAMERA_1
     );
     assert_eq!(fake.write_count(), 0);
     session.shutdown().expect("shutdown");
@@ -380,7 +409,9 @@ async fn dynamic_queued_targeted_cancel_is_owner_local<E: Executor>(executor: E)
         .with_tuning(OperationalTuning::new().with_maximum_command_sockets(1));
     let session = open_session(transport, config, executor.clone()).await;
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
     let nouns = &camera;
 
@@ -405,10 +436,12 @@ async fn runtime_profile_future_construction_matches_static_without_allocating<E
     let (_, transport) = probe(AddressingMode::Ip, true);
     let session = open_session(transport, SessionConfig::new(profile()), executor).await;
     let static_camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("static camera");
     let dynamic_camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
     let nouns = &dynamic_camera;
     let static_zoom = static_camera.zoom();
@@ -439,7 +472,9 @@ async fn dynamic_noun_targeted_and_applied_handles_share_owner<E: Executor>(exec
     let (_, transport) = probe(AddressingMode::Ip, true);
     let session = open_session(transport, SessionConfig::new(profile()), executor).await;
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
     let nouns = &camera;
 
@@ -467,7 +502,9 @@ async fn dynamic_motion_view_delegates_to_same_owner<E: Executor>(executor: E) {
     let (_, transport) = probe(AddressingMode::Ip, true);
     let session = open_session(transport, SessionConfig::new(profile()), executor).await;
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
 
     camera
@@ -489,7 +526,9 @@ async fn dynamic_unsupported_gate_and_target_selection_are_preflighted<E: Execut
     )
     .await;
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
     let error = camera
         .zoom()
@@ -509,20 +548,30 @@ async fn dynamic_unsupported_gate_and_target_selection_are_preflighted<E: Execut
     let (fake, transport) = probe(AddressingMode::Serial, true);
     let mut config = SessionConfig::new(profile());
     config = config
-        .with_target(CameraId::CAMERA_2, profile())
+        .with_target(
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
+            profile(),
+        )
         .expect("camera 2 registration");
     let session = open_session(transport, config, executor).await;
     assert_eq!(
         session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1
+            )
             .expect("explicit registered target")
             .target(),
-        CameraId::CAMERA_1
+        grafton_visca::types::IndividualCameraId::CAMERA_1
     );
     let selected = session
-        .camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_2)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
+        )
         .expect("explicit target selection");
-    assert_eq!(selected.target(), CameraId::CAMERA_2);
+    assert_eq!(
+        selected.target(),
+        grafton_visca::types::IndividualCameraId::CAMERA_2
+    );
     assert_eq!(fake.write_count(), 0);
     session.shutdown().expect("shutdown");
 }
@@ -531,17 +580,26 @@ async fn dynamic_cache_views_share_and_isolate_owner_state<E: Executor>(executor
     let (_, transport) = probe(AddressingMode::Serial, true);
     let mut config = SessionConfig::new(profile());
     config = config
-        .with_target(CameraId::CAMERA_2, profile())
+        .with_target(
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
+            profile(),
+        )
         .expect("camera 2 registration");
     let session = open_session(transport, config, executor).await;
     let first = session
-        .camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("camera 1 view");
     let same = session
-        .camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("same-target view");
     let second = session
-        .camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_2)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
+        )
         .expect("camera 2 view");
     assert_eq!(
         first.state_cache().value(StateKey::StreamingMulticast),

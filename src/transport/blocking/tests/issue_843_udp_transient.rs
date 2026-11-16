@@ -179,7 +179,7 @@ fn blocking_udp_port_unreachable_retries_and_keeps_session() {
     )
     .expect("session");
     let camera = session
-        .camera::<SonyFr7>(crate::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(crate::IndividualCameraId::CAMERA_1)
         .unwrap();
     camera
         .submit::<AppliedOnly, _>(&crate::command::zoom::Stop)
@@ -215,7 +215,7 @@ async fn async_udp_port_unreachable_retries_and_keeps_session(
     .await
     .expect("session");
     let camera = session
-        .camera::<SonyFr7>(crate::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(crate::IndividualCameraId::CAMERA_1)
         .unwrap();
     camera
         .submit::<AppliedOnly, _>(&crate::command::zoom::Stop)

@@ -329,7 +329,7 @@ fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &FocusModeCommand::Manual,
         &crate::TargetRegistration::new(
-            (crate::target::TargetSlot::CAMERA_1).camera(),
+            (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             profile.clone(),
         )
         .expect("valid target registration"),
@@ -344,7 +344,7 @@ fn limit_clear_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &PanTiltLimitClear::for_profile(PanTiltLimitCorner::DownLeft, profile).unwrap(),
         &crate::TargetRegistration::new(
-            (crate::target::TargetSlot::CAMERA_1).camera(),
+            (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             profile.clone(),
         )
         .expect("valid target registration"),
@@ -386,7 +386,7 @@ fn zoom_stop() -> crate::prepared::PreparedOperation<AppliedOnly> {
     prepare_operation::<AppliedOnly, _>(
         &ZoomStop,
         &crate::TargetRegistration::new(
-            (crate::target::TargetSlot::CAMERA_1).camera(),
+            (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             generic_profile().clone(),
         )
         .expect("valid target registration"),

@@ -2801,8 +2801,8 @@ mod tests {
     #[test]
     fn coordinate_conversion_uses_selected_bounds_and_one_endpoint_policy() {
         let spec = ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7");
-        let desktop =
-            crate::TargetRegistration::new(crate::CameraId::CAMERA_1, spec).expect("target");
+        let desktop = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, spec)
+            .expect("target");
         let ceiling = desktop
             .clone()
             .with_mount(crate::MountPosition::Ceiling)
@@ -2851,7 +2851,7 @@ mod tests {
             10.0,
         );
         let target = crate::TargetRegistration::new(
-            crate::CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             runtime_builder(caps).build().expect("unsigned profile"),
         )
         .expect("target");
@@ -2979,8 +2979,8 @@ mod tests {
             .supports_operation_complete(true)
             .build()
             .expect("command-only digital zoom profile");
-        let target =
-            crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile).expect("target");
+        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+            .expect("target");
         let request = crate::command::zoom::SetNormalized::for_target(
             &target,
             crate::units::UnitInterval::MAX,
@@ -3065,7 +3065,7 @@ mod tests {
                 Capabilities::runtime_baseline("Individual default", number).expect("baseline");
             let profile = conservative_runtime_builder(caps).build().expect("profile");
             let config = crate::SessionConfig::new(profile);
-            assert_eq!(config.sole_target(), Some(crate::CameraId::from(id)));
+            assert_eq!(config.sole_target(), Some(id));
             assert_eq!(
                 crate::target::TargetSlot::from(id).camera(),
                 crate::CameraId::from(id)
@@ -3539,7 +3539,8 @@ mod tests {
         caps.presets.as_mut().expect("presets").highest = 0;
         let profile = runtime_builder(caps).build().expect("preset zero");
         let registration =
-            crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile).expect("target");
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+                .expect("target");
         let set = |number| {
             crate::Request::validate_for_target(
                 &crate::request::builtin::PresetSet::new(

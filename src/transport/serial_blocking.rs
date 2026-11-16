@@ -870,7 +870,7 @@ mod tests {
             });
 
             let config = CameraConfig::<PtzOpticsG2>::serial(path.clone(), 9_600)
-                .with_camera_id(camera)
+                .with_camera_id(camera.try_into().expect("individual camera"))
                 .with_serial_startup(Startup::default().with_address_set(true));
             let result = crate::blocking::CameraSession::connect(&config);
             let _master = bus.join().expect("bus thread");

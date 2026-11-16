@@ -62,7 +62,7 @@ fn tilt_speed(value: u8) -> TiltSpeed {
 fn drive(direction: PanTiltDirection) -> grafton_visca::command::pan_tilt::Drive {
     grafton_visca::command::pan_tilt::Drive::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -168,7 +168,7 @@ fn pan_tilt_stop_home_and_reset_match_golden_frames() {
         "pan/tilt stop",
         &grafton_visca::command::pan_tilt::Stop::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
@@ -222,7 +222,7 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
 
     let absolute = grafton_visca::command::pan_tilt::Absolute::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
         )
         .expect("target registration"),
@@ -244,7 +244,7 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
 
     let relative = grafton_visca::command::pan_tilt::Relative::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
         )
         .expect("target registration"),
@@ -270,9 +270,11 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
 fn g2_relative_negative_45_degrees_matches_the_signed_offset_literal() {
     use grafton_visca::types::Degrees;
 
-    let target =
-        grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, ptz_optics_profile())
-            .expect("G2 registration");
+    let target = grafton_visca::config::TargetRegistration::new(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        ptz_optics_profile(),
+    )
+    .expect("G2 registration");
     let relative = grafton_visca::command::pan_tilt::Relative::for_target(
         &target,
         grafton_visca::types::PanTiltPosition {
@@ -347,7 +349,7 @@ fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
     ] {
         let set = grafton_visca::command::pan_tilt::SetLimit::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.clone(),
             )
             .expect("target registration"),
@@ -362,7 +364,7 @@ fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
 
         let clear = grafton_visca::command::pan_tilt::ClearLimit::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.clone(),
             )
             .expect("target registration"),
@@ -393,7 +395,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let absolute_error = grafton_visca::command::pan_tilt::Absolute::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
         )
         .expect("target registration"),
@@ -414,7 +416,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let relative_error = grafton_visca::command::pan_tilt::Relative::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
         )
         .expect("target registration"),
@@ -435,7 +437,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let absolute = grafton_visca::command::pan_tilt::Absolute::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
         )
         .expect("target registration"),
@@ -460,7 +462,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let relative = grafton_visca::command::pan_tilt::Relative::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
         )
         .expect("target registration"),
@@ -485,7 +487,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let fastest = grafton_visca::command::pan_tilt::Absolute::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
         )
         .expect("target registration"),
@@ -510,7 +512,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let limit = grafton_visca::command::pan_tilt::SetLimit::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
         )
         .expect("target registration"),
@@ -532,7 +534,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let clear = grafton_visca::command::pan_tilt::ClearLimit::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
         )
         .expect("target registration"),
@@ -592,7 +594,7 @@ fn zoom_drive_and_direct_target_match_golden_frames() {
         "zoom tele variable",
         &grafton_visca::command::zoom::TeleVariable::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
@@ -608,7 +610,7 @@ fn zoom_drive_and_direct_target_match_golden_frames() {
         "zoom wide variable",
         &grafton_visca::command::zoom::WideVariable::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
@@ -653,7 +655,7 @@ fn focus_drive_and_direct_target_match_golden_frames() {
         "focus far variable",
         &grafton_visca::command::focus::FarVariable::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
@@ -669,7 +671,7 @@ fn focus_drive_and_direct_target_match_golden_frames() {
         "focus near variable",
         &grafton_visca::command::focus::NearVariable::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
@@ -715,8 +717,11 @@ fn preset_and_power_commands_match_golden_frames() {
     assert_golden(
         "preset recall",
         &grafton_visca::command::presets::Recall::for_target(
-            &grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
-                .expect("target registration"),
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target registration"),
             slot,
         )
         .expect("profile declares preset recall"),
@@ -780,8 +785,11 @@ fn preset_slot_255_stays_terminated() {
     assert_golden(
         "preset recall 255",
         &grafton_visca::command::presets::Recall::for_target(
-            &grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
-                .expect("target registration"),
+            &grafton_visca::config::TargetRegistration::new(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target registration"),
             slot,
         )
         .expect("profile declares preset recall"),

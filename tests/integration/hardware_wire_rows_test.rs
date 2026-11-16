@@ -1154,7 +1154,7 @@ fn hw05_shutter_round_trip() {
 
 fn shutter_round_trip(hw: &Hw, ip: &str) {
     let session = open_session(hw, ip);
-    let outcome = shutter_body(session.camera(), session.target(), hw);
+    let outcome = shutter_body(session.camera(), session.target().into(), hw);
     close_session(hw, session);
     outcome.expect("shutter round trip").assert_all();
 }

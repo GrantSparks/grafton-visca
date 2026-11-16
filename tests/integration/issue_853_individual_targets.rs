@@ -11,7 +11,6 @@ use grafton_visca::{
     profiles::{ProfileSpec, PtzOpticsG2},
     state_cache::{StateEntry, StateKey},
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    types::CameraId,
     Error,
 };
 use grafton_visca_test_support::{facade_matrix, fake_camera::FakeCamera};
@@ -57,17 +56,17 @@ facade_matrix! {
         let camera = SerialCamera::new();
         let mut config = SessionConfig::new(profile());
         for id in 2..=7 {
-            config = config.with_target(CameraId::new(id).unwrap(), profile()).unwrap();
+            config = config.with_target(grafton_visca::types::IndividualCameraId::new(id).unwrap(), profile()).unwrap();
         }
         let session = open!(camera, config).expect("seven registered serial targets");
         for id in 1..=7 {
-            let target = CameraId::new(id).unwrap();
+            let target = grafton_visca::types::IndividualCameraId::new(id).unwrap();
             let view = session.camera::<PtzOpticsG2>(target).unwrap();
-            assert_eq!(view.state_cache().target(), target);
+            assert_eq!(view.state_cache().target(), target.into());
             wait!(view.streaming().set_multicast(true)).expect("target-local applied effect");
             for check in 1..=7 {
                 let cache = session
-                    .camera::<PtzOpticsG2>(CameraId::new(check).unwrap())
+                    .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::new(check).unwrap())
                     .unwrap()
                     .state_cache();
                 match cache.value(StateKey::StreamingMulticast) {
@@ -81,24 +80,20 @@ facade_matrix! {
         session.shutdown().unwrap();
     }
 
-    fn broadcast_and_unregistered_views_fail_before_any_protocol_write() {
+    fn unregistered_views_fail_before_any_protocol_write() {
         let camera = SerialCamera::new();
-        let session = open!(camera, SessionConfig::for_target(CameraId::CAMERA_7, profile()).unwrap())
+        let session = open!(camera, SessionConfig::for_target(grafton_visca::types::IndividualCameraId::CAMERA_7, profile()).unwrap())
             .expect("last individual target has an ordinary table slot");
-        let error = session.camera::<PtzOpticsG2>(CameraId::BROADCAST).unwrap_err();
-        assert!(matches!(error, Error::InvalidRequest { reason }
-            if reason == "a session target must be an individual camera"));
         assert!(matches!(
-            session.camera::<PtzOpticsG2>(CameraId::CAMERA_1),
+            session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1),
             Err(Error::InvalidRequest { .. })
         ));
         #[cfg(any(feature = "async", feature = "blocking"))]
         {
-            assert!(matches!(session.camera::<grafton_visca::profiles::AnyProfile>(CameraId::BROADCAST), Err(Error::InvalidRequest { .. })));
-            assert!(matches!(session.camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_1), Err(Error::InvalidRequest { .. })));
+            assert!(matches!(session.camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1), Err(Error::InvalidRequest { .. })));
         }
         assert_eq!(camera.0.write_count(), 0);
-        assert_eq!(session.camera::<PtzOpticsG2>(CameraId::CAMERA_7).unwrap().target(), CameraId::CAMERA_7);
+        assert_eq!(session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_7).unwrap().target(), grafton_visca::types::IndividualCameraId::CAMERA_7);
         session.shutdown().unwrap();
     }
 }

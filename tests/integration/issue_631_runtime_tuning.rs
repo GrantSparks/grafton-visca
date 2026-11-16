@@ -122,7 +122,7 @@ mod paused {
     /// `facade_matrix!` body.
     macro_rules! time_to_ack_timeout {
     ($session:expr) => {{
-        let camera = $session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let camera = $session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
         let started = now!();
         let error = wait!(wait!(camera.submit::<AppliedOnly, _>(&SilentOperation))
             .expect("submission")
@@ -235,7 +235,7 @@ mod paused {
         fn a_widened_inquiry_timeout_governs_a_pre_existing_view() {
             let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
             let camera = session
-                .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+                .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("camera view taken before the update");
 
             wait!(session.set_tuning(OperationalTuning::new().with_inquiry_timeout(Duration::from_secs(2))))
@@ -265,7 +265,7 @@ mod paused {
         fn a_view_taken_before_the_update_prepares_under_the_new_tuning() {
             let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
             let camera = session
-                .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+                .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("camera view taken before the update");
 
             wait!(session.set_tuning(OperationalTuning::new().with_ack_timeout(WIDE_ACK_TIMEOUT)))
@@ -300,7 +300,7 @@ mod paused {
         fn an_update_while_an_operation_is_outstanding_leaves_it_alone() {
             let fake = FakeCamera::silent();
             let session = open!(fake, sony_session_config()).expect("owner session");
-            let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+            let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
 
             let submitted = now!();
             let mut operation =

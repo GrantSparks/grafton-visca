@@ -61,7 +61,7 @@ async fn ack_and_execution_delays_control_session_observations() {
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
     let camera = session
-        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("generic camera");
     let started = tokio::time::Instant::now();
     let mut movement = camera.zoom().tele().await.expect("zoom admitted");
@@ -80,7 +80,7 @@ async fn busy_probability_refuses_a_session_request_without_ending_the_session()
         .build();
     let session = open(simulator).await;
     let camera = session
-        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("generic camera");
 
     assert!(matches!(
@@ -107,7 +107,7 @@ async fn complete_reply_loss_is_a_request_outcome_and_never_a_failed_write() {
     );
     let session = open(simulator).await;
     let camera = session
-        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("generic camera");
 
     let error = camera
@@ -132,7 +132,7 @@ async fn socket_count_changes_backpressure_seen_by_a_real_session() {
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
     let camera = session
-        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("generic camera");
     let mut movement = camera.zoom().tele().await.expect("first socket admitted");
     assert_eq!(reply(&mut monitor).await, [0x90, 0x41, 0xff]);
@@ -159,7 +159,7 @@ async fn cancelling_an_executing_socket_suppresses_its_pending_completion() {
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
     let camera = session
-        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("generic camera");
     let mut movement = camera.zoom().tele().await.expect("zoom admitted");
     assert_eq!(reply(&mut monitor).await, [0x90, 0x41, 0xff]);
@@ -195,7 +195,7 @@ async fn deterministic_jitter_delays_session_replies_once() {
         let mut monitor = simulator.clone();
         let session = open(simulator).await;
         let camera = session
-            .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("generic camera");
         let started = tokio::time::Instant::now();
         let mut movement = camera.zoom().tele().await.expect("zoom admitted");
@@ -248,7 +248,7 @@ async fn unknown_inquiry_gets_a_syntax_error_instead_of_ack_and_completion() {
     let mut monitor = simulator.clone();
     let session = open(simulator).await;
     let camera = session
-        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("generic camera");
 
     let error = camera
@@ -291,7 +291,7 @@ async fn one_simulator_routes_replies_to_each_registered_camera() {
     let mut monitor = simulator.clone();
     let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
     let config = SessionConfig::new(profile.clone())
-        .with_target(CameraId::CAMERA_2, profile)
+        .with_target(grafton_visca::types::IndividualCameraId::CAMERA_2, profile)
         .expect("second target");
     let session = Session::open(
         simulator,
@@ -300,7 +300,10 @@ async fn one_simulator_routes_replies_to_each_registered_camera() {
     )
     .await
     .expect("multi-camera session");
-    for (target, address) in [(CameraId::CAMERA_1, 0x90), (CameraId::CAMERA_2, 0xa0)] {
+    for (target, address) in [
+        (grafton_visca::types::IndividualCameraId::CAMERA_1, 0x90),
+        (grafton_visca::types::IndividualCameraId::CAMERA_2, 0xa0),
+    ] {
         let camera = session
             .camera::<GenericVisca>(target)
             .expect("target camera");

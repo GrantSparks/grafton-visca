@@ -73,7 +73,7 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
     let session = silent_session();
     let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera facade");
     let error = camera
         .execute(&grafton_visca::command::power::On)
@@ -169,7 +169,7 @@ fn a_caller_configured_retry_budget_is_visible_in_the_scheduled_retry_counter() 
     let session = retrying_silent_session(RETRY_LIMIT);
     let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera facade");
     let error = camera
         .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)

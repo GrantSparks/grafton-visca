@@ -81,7 +81,7 @@ fn command_settles_over_stream(addressing: AddressingMode, reads: Vec<Vec<u8>>) 
     let session = Session::open(stream_camera(addressing, reads), &generic_session_config())
         .expect("owner session");
     let camera = session
-        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -168,7 +168,7 @@ fn a_discarded_malformed_stream_frame_increments_the_published_metric() {
     );
     let session = Session::open(transport, &generic_session_config()).expect("owner session");
     let camera = session
-        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -257,7 +257,7 @@ fn stream_unbounded_garbage_without_a_boundary_still_poisons() {
     let transport = stream_camera(AddressingMode::Ip, garbage);
     let session = Session::open(transport, &generic_session_config()).expect("owner session");
     let camera = session
-        .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera

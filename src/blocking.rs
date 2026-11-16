@@ -23,8 +23,8 @@ use crate::{
         BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter, Clock,
     },
     target::TargetSlot,
-    CameraId, CancellationOutcome, Error, Inquiry, MetricsSnapshot, OperationCommand,
-    OperationalTuning, PlainCommand, Result, SubmissionClass,
+    CancellationOutcome, Error, Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning,
+    PlainCommand, Result, SubmissionClass,
 };
 
 use crate::OperationId;
@@ -159,8 +159,11 @@ impl Session {
     ///
     /// Typed profiles require exact equality with their validated profile facts;
     /// [`crate::profiles::AnyProfile`] accepts the registered runtime profile.
-    pub fn camera<P: CameraProfile>(&self, target: CameraId) -> Result<Camera<P>, Error> {
-        let target = TargetSlot::try_from(target)?;
+    pub fn camera<P: CameraProfile>(
+        &self,
+        target: crate::IndividualCameraId,
+    ) -> Result<Camera<P>, Error> {
+        let target = TargetSlot::from(target);
         let registration = self.config.registered_target(target)?;
         P::validate_spec(registration.profile())?;
         Ok(Camera::from_core(self.core(registration)))
@@ -495,7 +498,9 @@ mod tests {
         ] {
             let transport = ScriptedBlockingTransport::new([step.clone(), step]);
             let session = Session::open(transport, &SessionConfig::new(profile)).unwrap();
-            let camera = session.camera::<AnyProfile>(CameraId::CAMERA_1).unwrap();
+            let camera = session
+                .camera::<AnyProfile>(crate::IndividualCameraId::CAMERA_1)
+                .unwrap();
             reset_request_validation_count();
             camera
                 .presets()
@@ -530,10 +535,10 @@ mod tests {
         let session = Session::open(transport, &config).unwrap();
 
         let first = session
-            .camera::<crate::profiles::PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<crate::profiles::PtzOpticsG2>(crate::IndividualCameraId::CAMERA_1)
             .unwrap();
         let second = session
-            .camera::<crate::profiles::PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<crate::profiles::PtzOpticsG2>(crate::IndividualCameraId::CAMERA_1)
             .unwrap();
         assert_eq!(first.target(), second.target());
 
@@ -694,7 +699,7 @@ mod tests {
             SessionConfig::from_compile_time::<PtzOpticsG2>().expect("typed configuration");
         let session = Session::open(transport, &config).expect("owner session");
         let selected = session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(crate::IndividualCameraId::CAMERA_1)
             .expect("typed camera")
             .with_submission_class(SubmissionClass::Background);
         let erased: Camera = selected.into_any();
@@ -711,7 +716,7 @@ mod tests {
         let typed = erased
             .into_typed::<PtzOpticsG2>()
             .expect("matching complete profile");
-        assert_eq!(typed.target(), CameraId::CAMERA_1);
+        assert_eq!(typed.target(), crate::IndividualCameraId::CAMERA_1);
         assert_eq!(typed.submission_class(), Some(SubmissionClass::Background));
         let mut single = CameraSession::<PtzOpticsG2>::from_registration(
             session.clone(),
@@ -763,7 +768,7 @@ mod tests {
         let sender = session.clone();
         let work = clock.spawn(move || {
             sender
-                .camera::<GenericVisca>(CameraId::CAMERA_1)
+                .camera::<GenericVisca>(crate::IndividualCameraId::CAMERA_1)
                 .expect("camera")
                 .zoom()
                 .stop()
@@ -806,7 +811,7 @@ mod tests {
         let session = Session::open(transport, &config).expect("session");
         let diagnostics = session.subscribe_diagnostics(128).expect("subscription");
         assert!(session
-            .camera::<GenericVisca>(CameraId::CAMERA_1)
+            .camera::<GenericVisca>(crate::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .focus()
             .set_mode(FocusMode::Manual)

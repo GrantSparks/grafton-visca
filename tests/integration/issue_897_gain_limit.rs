@@ -21,7 +21,7 @@ fn blocking_gain_limit_writes_the_documented_upper_boundary() {
     let session =
         Session::open(fake.blocking_wire(), &SessionConfig::new(profile)).expect("session");
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     camera
         .exposure()
@@ -37,7 +37,7 @@ fn assert_unsourced_limit_does_not_write<P: CompileTimeProfile>() {
     let session =
         Session::open(fake.blocking_wire(), &SessionConfig::new(profile)).expect("session");
     let camera = session
-        .camera::<P>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<P>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     assert!(matches!(
         camera.execute(&grafton_visca::command::exposure::SetGainLimit::new(

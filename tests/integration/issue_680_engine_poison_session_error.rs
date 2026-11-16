@@ -59,7 +59,7 @@ fn strict_session() -> Session {
 /// engine's own verdict.
 fn poison_via_strict_opt_in(session: &Session) {
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
     let error = camera
         .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
@@ -181,9 +181,7 @@ fn healthy_session() -> Session {
 /// ends both operations and the owner with the same recoverable session cause.
 #[test]
 fn socket_reuse_in_a_strict_session_surfaces_the_poison_to_every_observer() {
-    use grafton_visca::{
-        config::OperationalTuning, observability::DiagnosticPhase, types::CameraId,
-    };
+    use grafton_visca::{config::OperationalTuning, observability::DiagnosticPhase};
     use std::time::Duration;
 
     let camera = FakeCamera::new(|_, answer| {
@@ -201,7 +199,7 @@ fn socket_reuse_in_a_strict_session_surfaces_the_poison_to_every_observer() {
     let session = Session::open(camera.blocking_wire(), &config).expect("strict session");
     let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
     let view = session
-        .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("view");
     let mut first = view
         .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)

@@ -160,7 +160,7 @@ fn run_blocking(scenario: Scenario) -> Run {
     let fake = scenario.camera();
     let session = Session::open(fake.blocking_wire(), &config()).expect("blocking session");
     let camera = session
-        .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("raw camera");
     let mut outcomes = Vec::new();
     match scenario {
@@ -230,7 +230,7 @@ async fn run_async<E: Executor>(scenario: Scenario, executor: &E) -> Run {
         .await
         .expect("async session");
     let camera = session
-        .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("raw camera");
     let mut outcomes = Vec::new();
     match scenario {
@@ -384,7 +384,9 @@ async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch
         let session = grafton_visca::blocking::Session::open(fake.blocking_wire(), &config())
             .expect("session");
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic blocking camera");
         let outcomes = vec![outcome(camera.motion().stop_all())];
         let metrics = session.metrics().expect("metrics");
@@ -402,7 +404,9 @@ async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch
             .await
             .expect("session");
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
     let outcomes = vec![outcome(camera.motion().stop_all().await)];
     let metrics = session.metrics().await.expect("metrics");

@@ -19,7 +19,7 @@ use grafton_visca::{
     operation::{AppliedOnly, Targeted},
     profiles::ProfileSpec,
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    types::{CameraId, ZoomPosition},
+    types::ZoomPosition,
     Error,
 };
 
@@ -105,7 +105,7 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
     );
     let session = Session::open(stream_wire(&fake), &config).expect("owner session");
     let camera = session
-        .camera::<DirectZoomOnlyTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<DirectZoomOnlyTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera
@@ -153,7 +153,7 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     let profile = ProfileSpec::from_compile_time::<DirectZoomOnlyTypedSupport>()
         .expect("settlement-polling runtime profile");
     let config = SessionConfig::new(profile.clone())
-        .with_target(CameraId::CAMERA_2, profile)
+        .with_target(grafton_visca::types::IndividualCameraId::CAMERA_2, profile)
         .expect("second serial target")
         .with_tuning(
             OperationalTuning::new()
@@ -176,10 +176,10 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     );
     let session = Session::open(serial_stream_wire(&fake), &config).expect("owner session");
     let first_camera = session
-        .camera::<DirectZoomOnlyTypedSupport>(CameraId::CAMERA_1)
+        .camera::<DirectZoomOnlyTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera one view");
     let second_camera = session
-        .camera::<DirectZoomOnlyTypedSupport>(CameraId::CAMERA_2)
+        .camera::<DirectZoomOnlyTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_2)
         .expect("camera two view");
 
     let mut current = first_camera

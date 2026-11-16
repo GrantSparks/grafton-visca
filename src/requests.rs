@@ -946,7 +946,7 @@ pub trait Request: Send + Sync {
         buffer: &mut [u8],
         _authority: RequestContractAuthority,
     ) -> Result<usize> {
-        self.write_into(target.target(), buffer)
+        self.write_into(target.target().into(), buffer)
     }
 
     /// Validates target-specific capability, range and installation facts before encoding.

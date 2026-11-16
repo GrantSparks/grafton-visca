@@ -71,7 +71,7 @@ fn response_counter_distinguishes_silence_from_positive_liveness() {
     let before = silent.metrics().expect("metrics before probe");
     let started = Instant::now();
     let error = silent
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera")
         .power()
         .status()
@@ -100,7 +100,7 @@ fn response_counter_distinguishes_silence_from_positive_liveness() {
     let answering = Session::open(stream_wire(&answering_camera()), &config()).expect("session");
     let before = answering.metrics().expect("metrics before probe");
     assert!(answering
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera")
         .power()
         .status()
@@ -116,7 +116,7 @@ fn os_keepalive_timeout_is_session_death_not_idle_no_data() {
     let session =
         Session::open(stream_wire(&keepalive_expired_camera()), &config()).expect("session");
     let error = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera")
         .power()
         .status()
@@ -148,7 +148,7 @@ fn os_keepalive_timeout_on_an_idle_connection_is_session_death() {
     });
     camera.wait_for_reads(1);
     let error = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera")
         .power()
         .status()

@@ -583,7 +583,7 @@ application idle timeout there are two application-side levers:
    ```rust,ignore
    // Application-owned idle heartbeat; the library starts no timer of its own.
    let before = session.metrics()?.received_frames;
-   let result = session.camera::<PtzOpticsG2>(CameraId::CAMERA_1)?.power().status();
+   let result = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?.power().status();
    if result.as_ref().is_err_and(|error| error.recovery() == Recovery::ReopenSession) {
        rebuild(&config)?;
    } else if session.metrics()?.received_frames > before {

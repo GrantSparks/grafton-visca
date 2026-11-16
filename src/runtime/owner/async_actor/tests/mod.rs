@@ -808,8 +808,11 @@ fn harness() -> Harness {
 fn prepared_focus(profile: &crate::ProfileSpec) -> crate::prepared::PreparedCommand {
     crate::prepared::test_support::prepare_command(
         &crate::request::builtin::FocusModeCommand::Manual,
-        &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-            .expect("valid target registration"),
+        &crate::TargetRegistration::new(
+            (TargetSlot::CAMERA_1).individual_camera(),
+            profile.clone(),
+        )
+        .expect("valid target registration"),
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
     )
@@ -821,8 +824,11 @@ fn prepared_zoom(
 ) -> crate::prepared::PreparedOperation<completion::Targeted> {
     crate::prepared::test_support::prepare_operation::<completion::Targeted, _>(
         &crate::request::builtin::ZoomTarget::new(crate::types::ZoomPosition::new(0x0100).unwrap()),
-        &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-            .expect("valid target registration"),
+        &crate::TargetRegistration::new(
+            (TargetSlot::CAMERA_1).individual_camera(),
+            profile.clone(),
+        )
+        .expect("valid target registration"),
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
     )

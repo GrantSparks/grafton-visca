@@ -79,7 +79,7 @@ mod facades {
             for expected in [PowerStatus::On, PowerStatus::Standby, PowerStatus::CircuitError] {
                 let fake = camera(expected.to_wire());
                 let session = open!(fake, SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap()).unwrap();
-                let view = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+                let view = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
                 assert_eq!(wait!(view.power().status()).unwrap(), expected);
                 assert_eq!(fake.write_count(), 1);
                 session.shutdown().unwrap();
@@ -107,7 +107,7 @@ mod facades {
             .unwrap();
             let view = session
                 .camera::<grafton_visca::profiles::AnyProfile>(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                 )
                 .unwrap();
             assert_eq!(view.power().status().await.unwrap(), expected);

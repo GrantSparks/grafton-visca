@@ -75,7 +75,7 @@ facade_matrix! {
                 }),
             };
             let session = open!(wire, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
-            let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+            let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
             let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap();
             let error = wait!(first.applied()).unwrap_err();
             assert_eq!(error.kind(), ErrorKind::Transport, "{kind:?}: {error:?}");
@@ -102,7 +102,7 @@ facade_matrix! {
             };
             let session = open!(wire, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
             let initial_writes = wire.peer.write_count();
-            let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+            let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
             // FR7's sourced five-nibble positions need 17 payload bytes;
             // this opaque 18-byte request exceeds its actual envelope bound.
             let mut bytes = vec![0; 18];

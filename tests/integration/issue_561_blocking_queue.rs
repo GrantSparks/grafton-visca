@@ -49,7 +49,7 @@ fn two_socket_camera() -> FakeCamera {
 fn pan_tilt_stop() -> grafton_visca::command::pan_tilt::Stop {
     grafton_visca::command::pan_tilt::Stop::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -126,7 +126,7 @@ fn a_third_operation_queues_until_a_socket_frees() {
     let session =
         Session::open(fake.blocking_wire(), &sony_session_config()).expect("owner session");
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let mut first = camera
@@ -172,7 +172,7 @@ fn a_one_socket_target_queues_the_second_operation() {
     let fake = two_socket_camera();
     let session = Session::open(fake.blocking_wire(), &config).expect("owner session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let mut first = camera
@@ -198,7 +198,7 @@ fn a_failed_operation_write_is_its_outcome_and_releases_the_permit() {
     let (fake, accepted) = first_write_failure_camera();
     let session = Session::open(fake.blocking_wire(), &config).expect("owner session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera
@@ -261,7 +261,7 @@ fn typed_operations_respect_profile_pacing() {
     let session =
         Session::open(fake.blocking_wire(), &SessionConfig::new(profile)).expect("owner session");
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let mut first = camera

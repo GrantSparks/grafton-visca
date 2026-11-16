@@ -613,7 +613,7 @@ mod tests {
 
     fn target() -> crate::TargetRegistration {
         crate::TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
                 .expect("generic profile"),
         )

@@ -4,6 +4,17 @@
 supported destination for applications migrating from pre-2.0 vocabulary; the
 historical names are not part of the 2.0 contract.
 
+## Individual session targets (#971)
+
+Session and camera configuration addresses use `types::IndividualCameraId`,
+which permits camera addresses 1–7. Use `IndividualCameraId::CAMERA_1` (through
+`CAMERA_7`) with `SessionConfig::with_target`, `Session::camera` and
+`CameraConfig::with_camera_id`. Camera and registration `target()` getters keep
+that type. Persisted session target and `camera_id` values reject 8 when loaded.
+Raw broadcast frames, including address assignment and interface clear, retain
+`types::CameraId::BROADCAST`; convert an individual address with `.into()` when
+encoding a raw frame.
+
 ## Canonical modules and checked values (#932)
 
 Import each item from its topical module. The crate root retains `Error`,
@@ -162,8 +173,8 @@ inquiry derive. Renamed dependencies remain supported. See
 | Generic mode/transport/executor camera parameters | `blocking::Camera<P>` or `r#async::Camera<P>`; transport and executor types are private owner details. |
 | Caller-owned transport | `Session::open(transport, &session_config)` or `CameraSession::open(transport, &camera_config)`; async forms take an executor last. |
 | Multi-target serial construction | `Session::connect(&config)` with `SessionConfig::with_transport(TransportOptions::serial(port, baud))`; async construction takes a runtime last. |
-| Implicit sole-target session selector / `camera_for` | `Session::camera::<P>(target)` always names the registered `types::CameraId`. `CameraSession<P>::camera()` returns its single bound view. |
-| Raw camera-ID setter / `try_camera_id` | `CameraId::new(raw)?` then `CameraConfig::with_camera_id(id)`; multi-target configuration uses `SessionConfig::for_target` and `with_target`. |
+| Implicit sole-target session selector / `camera_for` | `Session::camera::<P>(target)` always names the registered `types::IndividualCameraId`. `CameraSession<P>::camera()` returns its single bound view. |
+| Raw camera-ID setter / `try_camera_id` | `IndividualCameraId::new(raw)?` then `CameraConfig::with_camera_id(id)`; multi-target configuration uses `SessionConfig::for_target` and `with_target`. |
 | `RuntimeHandle` and private runtime modules | `runtime::{Executor, TokioRuntime, SmolRuntime}`. Executors supply coherent timers, spawn and clock behavior; owners reset their timers across turns. |
 | `Transport` / `NetTransportBuilder` | Use an inherent facade constructor, or implement `transport::BlockingTransport` / `AsyncTransport` for a caller-owned adapter and attach it with `Session::open`. |
 

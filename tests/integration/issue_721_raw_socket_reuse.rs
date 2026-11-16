@@ -122,7 +122,7 @@ facade_matrix! {
         )
         .expect("session");
         let camera = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         let mut displaced = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele))
@@ -162,7 +162,7 @@ facade_matrix! {
         )
         .expect("session");
         let camera = session
-            .camera::<QuarantinedSocketCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<QuarantinedSocketCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         let mut displaced = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele))

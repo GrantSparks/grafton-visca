@@ -1788,7 +1788,7 @@ fn prepared_query<Q: crate::Inquiry + GeneratedInquiry>(
 #[allow(clippy::expect_used)]
 fn registered_target<P: crate::CompileTimeProfile>() -> crate::TargetRegistration {
     crate::TargetRegistration::new(
-        CameraId::CAMERA_1,
+        IndividualCameraId::CAMERA_1,
         crate::ProfileSpec::from_compile_time::<P>().expect("source-backed profile"),
     )
     .expect("individual target")
@@ -1824,7 +1824,7 @@ fn unsigned_target() -> crate::TargetRegistration {
         builder = builder.encoding(selection);
     }
     let profile = builder.build().expect("validated custom profile");
-    crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("unsigned target")
+    crate::TargetRegistration::new(IndividualCameraId::CAMERA_1, profile).expect("unsigned target")
 }
 
 #[allow(clippy::expect_used)]

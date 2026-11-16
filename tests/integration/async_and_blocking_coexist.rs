@@ -152,7 +152,7 @@ mod runtime_coexistence {
         )
         .unwrap();
         blocking
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .unwrap()
             .zoom()
             .stop()
@@ -168,7 +168,7 @@ mod runtime_coexistence {
         .await
         .unwrap();
         async_session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .unwrap()
             .zoom()
             .stop()

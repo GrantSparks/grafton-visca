@@ -24,7 +24,9 @@ fn no_reply_plain_command_returns_after_one_write() {
     let session = Session::open(fake.blocking_wire(), &SessionConfig::new(profile))
         .expect("blocking session");
     let camera = session
-        .camera::<grafton_visca::profiles::PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::PtzOpticsG2>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("camera view");
     let diagnostics = session.subscribe_diagnostics(16).expect("diagnostics");
 

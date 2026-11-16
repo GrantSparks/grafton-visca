@@ -12,7 +12,7 @@ macro_rules! camera_view_getters {
     () => {
         /// Returns this view's fixed camera target.
         #[must_use]
-        pub fn target(&self) -> $crate::CameraId {
+        pub fn target(&self) -> $crate::IndividualCameraId {
             self.core.target()
         }
 

@@ -256,7 +256,7 @@ macro_rules! camera_facade {
 
             /// Returns this session's sole camera target.
             #[must_use]
-            pub fn target(&self) -> CameraId {
+            pub fn target(&self) -> crate::IndividualCameraId {
                 self.camera.target()
             }
 

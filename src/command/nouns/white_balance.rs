@@ -702,7 +702,7 @@ mod tests {
 
     fn target<P: crate::CompileTimeProfile>() -> TargetRegistration {
         TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<P>().expect("profile"),
         )
         .expect("target")

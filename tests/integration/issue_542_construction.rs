@@ -542,7 +542,6 @@ mod blocking_standard {
         config::{CameraConfig, SessionConfig},
         profiles::PtzOpticsG2,
         transport::{AddressingMode, BufferConfig, SendSemantics, TransportConfig},
-        types::CameraId,
         Error,
     };
 
@@ -562,7 +561,7 @@ mod blocking_standard {
     fn custom_blocking_session_open_uses_one_owner_and_hint() {
         let transport = serial_wire(TransportConfig::default());
         let config = SessionConfig::for_target(
-            CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
                 .expect("profile"),
         )
@@ -595,7 +594,7 @@ mod blocking_standard {
         ] {
             let transport = serial_wire(transport_config);
             let config = SessionConfig::for_target(
-                CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
                     .expect("profile"),
             )

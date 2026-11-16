@@ -68,6 +68,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#971): Session targets, camera registrations, camera views and
+  persisted camera configuration use `IndividualCameraId` (1–7). Broadcast
+  remains available on raw wire requests through `CameraId`; invalid target
+  addresses are rejected by the value type before configuration or I/O.
+
 - Built-in typed camera views reuse their validated profile identity and grants
   without allocating; custom profiles retain complete fact comparison (#958).
 

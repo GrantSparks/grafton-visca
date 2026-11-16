@@ -124,7 +124,7 @@ async fn async_camera_open_preserves_configured_transport_validation() {
     };
     let runtime = grafton_visca::runtime::TokioRuntime::from_current().expect("runtime");
     let camera = CameraConfig::new(ProfileId::SonyFr7, TransportOptions::tcp("unused.invalid"))
-        .with_camera_id(grafton_visca::types::CameraId::CAMERA_3);
+        .with_camera_id(grafton_visca::types::IndividualCameraId::CAMERA_3);
     let udp = runtime
         .connect_udp(
             "127.0.0.1:9",
@@ -169,6 +169,9 @@ async fn async_camera_open_preserves_configured_transport_validation() {
     )
     .await
     .expect("custom selection uses opened UDP facts");
-    assert_eq!(single.target(), grafton_visca::types::CameraId::CAMERA_3);
+    assert_eq!(
+        single.target(),
+        grafton_visca::types::IndividualCameraId::CAMERA_3
+    );
     single.close().await.expect("close");
 }

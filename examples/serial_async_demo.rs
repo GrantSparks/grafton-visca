@@ -17,7 +17,7 @@ use std::env;
 
 use grafton_visca::{
     config::CameraConfig, profiles::GenericVisca, r#async::CameraSession, runtime::TokioRuntime,
-    types::CameraId, Error,
+    Error,
 };
 
 #[derive(Debug)]
@@ -73,8 +73,9 @@ async fn main() -> Result<(), Error> {
     println!("Baud rate: 9600");
     println!("Camera ID: {}", args.camera_id);
 
-    let config = CameraConfig::<GenericVisca>::serial(args.port.clone(), 9600)
-        .with_camera_id(CameraId::new(args.camera_id)?);
+    let config = CameraConfig::<GenericVisca>::serial(args.port.clone(), 9600).with_camera_id(
+        grafton_visca::types::IndividualCameraId::new(args.camera_id)?,
+    );
     let runtime = TokioRuntime::from_current()?;
     // A single-camera serial configuration returns the same typed session
     // shape as TCP and UDP; SessionConfig supports a shared multi-target bus.

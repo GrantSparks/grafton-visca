@@ -172,7 +172,7 @@ fn a_real_udp_send_preserves_econnrefused_and_later_work_applies() {
     )
     .unwrap();
     let target = session
-        .camera::<NonDefaultCompileTimeProfile>(crate::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(crate::IndividualCameraId::CAMERA_1)
         .unwrap();
     let mut first = target
         .submit::<AppliedOnly, _>(&crate::command::zoom::Stop)

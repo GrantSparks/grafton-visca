@@ -919,7 +919,7 @@ mod tests {
             )
             .expect("session");
         let camera = session
-            .camera::<crate::profiles::GenericVisca>(crate::types::CameraId::CAMERA_1)
+            .camera::<crate::profiles::GenericVisca>(crate::IndividualCameraId::CAMERA_1)
             .expect("camera");
         let start = clock.now();
         assert!(matches!(

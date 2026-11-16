@@ -36,7 +36,7 @@ fn echo_camera() -> FakeCamera {
 mod blocking_single_camera {
     use std::time::Duration;
 
-    use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2, types::CameraId, Error};
+    use grafton_visca::{blocking::CameraSession, profiles::PtzOpticsG2, Error};
 
     use super::{echo_camera, FakeCamera, ZOOM_STOP};
 
@@ -63,8 +63,14 @@ mod blocking_single_camera {
         )
         .expect("single-camera owner session");
 
-        assert_eq!(camera.target(), CameraId::CAMERA_1);
-        assert_eq!(camera.camera().target(), CameraId::CAMERA_1);
+        assert_eq!(
+            camera.target(),
+            grafton_visca::types::IndividualCameraId::CAMERA_1
+        );
+        assert_eq!(
+            camera.camera().target(),
+            grafton_visca::types::IndividualCameraId::CAMERA_1
+        );
 
         camera
             .camera()
@@ -93,12 +99,17 @@ mod blocking_single_camera {
         )
         .into_typed::<PtzOpticsG2>()
         .expect("typed config")
-        .with_camera_id(CameraId::new(3).expect("camera 3 is addressable"));
+        .with_camera_id(
+            grafton_visca::types::IndividualCameraId::new(3).expect("camera 3 is addressable"),
+        );
 
         let camera = CameraSession::open(fake.blocking_wire(), &config)
             .expect("single-camera owner session");
 
-        assert_eq!(camera.target(), CameraId::new(3).expect("camera 3"));
+        assert_eq!(
+            camera.target(),
+            grafton_visca::types::IndividualCameraId::new(3).expect("camera 3")
+        );
         camera
             .camera()
             .zoom()
@@ -169,7 +180,7 @@ mod blocking_single_camera {
         // The multi-camera path is unchanged and reaches the same owner.
         let session_view = camera
             .session()
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("session projection");
         assert_eq!(session_view.target(), camera.camera().target());
         assert_eq!(session_view.profile(), camera.camera().profile());
@@ -207,7 +218,6 @@ mod async_single_camera {
         r#async::CameraSession,
         runtime::{Executor, Runtime},
         transport::{AddressingMode, TransportConfig},
-        types::CameraId,
         Error,
     };
 
@@ -346,7 +356,10 @@ mod async_single_camera {
         .expect("single-camera owner session");
 
         assert_eq!(runtime.endpoints(), vec!["camera.local:5678".to_owned()]);
-        assert_eq!(camera.target(), CameraId::CAMERA_1);
+        assert_eq!(
+            camera.target(),
+            grafton_visca::types::IndividualCameraId::CAMERA_1
+        );
 
         camera
             .camera()
@@ -372,13 +385,18 @@ mod async_single_camera {
         )
         .into_typed::<PtzOpticsG2>()
         .expect("typed config")
-        .with_camera_id(CameraId::new(3).expect("camera 3 is addressable"));
+        .with_camera_id(
+            grafton_visca::types::IndividualCameraId::new(3).expect("camera 3 is addressable"),
+        );
 
         let camera = CameraSession::open(echo_wire(&fake), &config, executor)
             .await
             .expect("single-camera owner session");
 
-        assert_eq!(camera.target(), CameraId::new(3).expect("camera 3"));
+        assert_eq!(
+            camera.target(),
+            grafton_visca::types::IndividualCameraId::new(3).expect("camera 3")
+        );
         camera
             .camera()
             .zoom()

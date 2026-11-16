@@ -2,7 +2,9 @@
 
 use std::{ops::RangeInclusive, sync::Arc};
 
-use crate::{target::TargetSlot, CameraId, Error, ProfileSpec, Result};
+#[cfg(test)]
+use crate::CameraId;
+use crate::{target::TargetSlot, Error, ProfileSpec, Result};
 
 /// Camera mounting position selected in the FR7's installation menu.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -33,8 +35,8 @@ pub enum MountPosition {
 )]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct TargetRegistration {
-    #[cfg_attr(feature = "schemars", schemars(with = "CameraId"))]
-    #[cfg_attr(feature = "ts-rs", ts(as = "CameraId"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "crate::IndividualCameraId"))]
+    #[cfg_attr(feature = "ts-rs", ts(as = "crate::IndividualCameraId"))]
     target: TargetSlot,
     profile: Arc<ProfileSpec>,
     mount: Option<MountPosition>,
@@ -44,7 +46,7 @@ pub struct TargetRegistration {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TargetRegistrationData {
-    target: CameraId,
+    target: crate::IndividualCameraId,
     profile: ProfileSpec,
     mount: Option<MountPosition>,
 }
@@ -84,8 +86,8 @@ impl<'de> serde::Deserialize<'de> for TargetRegistration {
 
 impl TargetRegistration {
     /// Registers an individual camera with its default installation.
-    pub fn new(target: CameraId, profile: ProfileSpec) -> Result<Self> {
-        Ok(Self::from_profile(TargetSlot::try_from(target)?, profile))
+    pub fn new(target: crate::IndividualCameraId, profile: ProfileSpec) -> Result<Self> {
+        Ok(Self::from_profile(TargetSlot::from(target), profile))
     }
 
     pub(crate) fn from_profile(target: TargetSlot, profile: ProfileSpec) -> Self {
@@ -123,8 +125,8 @@ impl TargetRegistration {
 
     /// Returns the registered individual camera address.
     #[must_use]
-    pub const fn target(&self) -> CameraId {
-        self.target.camera()
+    pub const fn target(&self) -> crate::IndividualCameraId {
+        self.target.individual_camera()
     }
 
     /// Returns the unchanged canonical profile facts.
@@ -254,11 +256,14 @@ mod tests {
     fn fr7_registration_selects_mount_without_changing_profile_identity() {
         let profile = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7");
         let config = crate::SessionConfig::new(profile.clone())
-            .with_mount(CameraId::CAMERA_1, MountPosition::Ceiling)
+            .with_mount(crate::IndividualCameraId::CAMERA_1, MountPosition::Ceiling)
             .expect("ceiling registration");
-        assert_eq!(config.profile(CameraId::CAMERA_1), Some(&profile));
+        assert_eq!(
+            config.profile(crate::IndividualCameraId::CAMERA_1),
+            Some(&profile)
+        );
         let target = config
-            .registration(CameraId::CAMERA_1)
+            .registration(crate::IndividualCameraId::CAMERA_1)
             .expect("registered target");
         assert_eq!(
             target.tilt_range(),
@@ -271,16 +276,18 @@ mod tests {
         assert!(absolute(target, 0.0, -210.0).is_ok());
         assert!(absolute(target, 0.0, 80.0).is_err());
         let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic");
-        assert!(TargetRegistration::new(CameraId::CAMERA_1, generic)
-            .expect("target")
-            .with_mount(MountPosition::Desktop)
-            .is_err());
+        assert!(
+            TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, generic)
+                .expect("target")
+                .with_mount(MountPosition::Desktop)
+                .is_err()
+        );
     }
 
     #[test]
     fn fr7_source_endpoints_snap_only_the_half_unit_rounding_cell() {
         let target = TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         )
         .expect("target");
@@ -311,7 +318,7 @@ mod tests {
     #[test]
     fn fr7_target_validation_rejects_cross_mount_positions_before_encoding() {
         let desktop = TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         )
         .expect("desktop");
@@ -342,8 +349,11 @@ mod portable_tests {
     use crate::profiles::ProfileId;
 
     fn registration(id: ProfileId) -> TargetRegistration {
-        TargetRegistration::new(CameraId::CAMERA_1, id.spec().expect("built-in spec"))
-            .expect("individual target")
+        TargetRegistration::new(
+            crate::IndividualCameraId::CAMERA_1,
+            id.spec().expect("built-in spec"),
+        )
+        .expect("individual target")
     }
 
     #[test]
@@ -460,7 +470,10 @@ mod portable_tests {
             std::collections::BTreeSet::from(["target", "profile", "mount"])
         );
         let declaration = <TargetRegistration as ts_rs::TS>::decl(&ts_rs::Config::default());
-        assert!(declaration.contains("target: CameraId"), "{declaration}");
+        assert!(
+            declaration.contains("target: IndividualCameraId"),
+            "{declaration}"
+        );
         assert!(
             declaration.contains("profile: ProfileSpec"),
             "{declaration}"

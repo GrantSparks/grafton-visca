@@ -9,7 +9,6 @@ use grafton_visca::{
     config::{SessionConfig, TransportKind},
     profiles::{ProfileSpec, SonyFr7},
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    types::CameraId,
     Error,
 };
 
@@ -82,9 +81,12 @@ fn non_default_downstream_profile_projects_as_a_typed_camera() {
     .expect("session");
 
     let camera: Camera<NonDefaultCompileTimeProfile> = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("exact non-default profile projection");
-    assert_eq!(camera.target(), grafton_visca::types::CameraId::CAMERA_1);
+    assert_eq!(
+        camera.target(),
+        grafton_visca::types::IndividualCameraId::CAMERA_1
+    );
     assert_eq!(fake.write_count(), 0, "a projection writes nothing");
     session.shutdown().expect("shutdown");
 }
@@ -96,7 +98,7 @@ fn explicit_target_selection_checks_registration_before_admission_or_io() {
         SessionConfig::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>().expect("config");
     config = config
         .with_target(
-            grafton_visca::types::CameraId::CAMERA_2,
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -108,20 +110,20 @@ fn explicit_target_selection_checks_registration_before_admission_or_io() {
     assert_eq!(
         session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1
+                grafton_visca::types::IndividualCameraId::CAMERA_1
             )
             .expect("explicit registered target")
             .target(),
-        CameraId::CAMERA_1
+        grafton_visca::types::IndividualCameraId::CAMERA_1
     );
     assert!(matches!(
         session.camera::<grafton_visca::profiles::PtzOpticsG2>(
-            grafton_visca::types::CameraId::CAMERA_7
+            grafton_visca::types::IndividualCameraId::CAMERA_7
         ),
         Err(Error::InvalidRequest { .. })
     ));
     assert!(matches!(
-        session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_2),
+        session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_2),
         Err(Error::InvalidRequest { .. })
     ));
     assert_eq!(

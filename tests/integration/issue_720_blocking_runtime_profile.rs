@@ -61,7 +61,9 @@ fn blocking_dynamic_view_drives_a_runtime_only_profile() {
     .expect("runtime-profile session");
 
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic blocking camera");
     assert_eq!(
         camera.profile().capabilities().model_name,

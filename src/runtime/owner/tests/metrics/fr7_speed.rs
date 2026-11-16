@@ -39,7 +39,7 @@ fn drive_request(registration: &TargetRegistration, tuning: OperationalTuning) -
 
 fn queued_mode_refusal(invalidate: bool) {
     let registration = TargetRegistration::new(
-        crate::CameraId::CAMERA_1,
+        crate::IndividualCameraId::CAMERA_1,
         ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
     )
     .unwrap();
@@ -184,7 +184,8 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
     let spacing = profile.timing().command_spacing();
     let ack_timeout = profile.timing().ack_timeout();
     assert!(spacing < ack_timeout);
-    let registration = TargetRegistration::new(crate::CameraId::CAMERA_1, profile).unwrap();
+    let registration =
+        TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile).unwrap();
     let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
     let initial = Instant::now();
     let _enabled = sent(

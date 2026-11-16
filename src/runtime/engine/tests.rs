@@ -65,7 +65,7 @@ pub(super) fn assert_occupancy_agrees<E: EngineMethods + ?Sized>(engine: &E, now
 }
 
 fn camera(value: u8) -> TargetSlot {
-    TargetSlot::try_from(crate::CameraId::new(value).unwrap()).unwrap()
+    TargetSlot::from(crate::IndividualCameraId::new(value).unwrap())
 }
 
 fn policy(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolPolicy {

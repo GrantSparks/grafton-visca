@@ -259,7 +259,7 @@ facade_matrix! {
     fn g2_focus_stop_rejected_on_a_free_socket_fails_conclusively_without_retry() {
         let link = Link::new(halt_transcript());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         let started = now!();
         let report = wait!(camera.motion().stop_all()).expect("halt accepted");
@@ -297,7 +297,7 @@ facade_matrix! {
     fn error_naming_a_busy_socket_ends_the_executing_move_without_replay() {
         let link = Link::new(busy_socket_rejection());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
         wait!(wait!(camera.zoom().stop())
             .expect("zoom stop admitted")
             .applied())
@@ -333,7 +333,7 @@ facade_matrix! {
     fn post_ack_rejection_of_the_executing_move_is_terminal_and_never_replayed() {
         let link = Link::new(post_ack_rejection());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         let result = wait!(wait!(camera
             .pan_tilt()
@@ -370,7 +370,7 @@ facade_matrix! {
     fn stale_stream_ack_never_completes_a_later_stop() {
         let link = Link::new(stalled_stream_camera());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         link.stall();
         let tele = wait!(wait!(camera.zoom().tele())
@@ -406,7 +406,7 @@ facade_matrix! {
     fn ordinary_motion_waits_for_the_owed_stream_response() {
         let link = Link::new(stalled_stream_camera());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         link.stall();
         let tele = wait!(wait!(camera.zoom().tele())
@@ -433,7 +433,7 @@ facade_matrix! {
     fn a_long_stall_latches_only_ordinary_commands_until_the_owed_answer() {
         let link = Link::new(stalled_stream_camera());
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         link.stall();
         let tele = wait!(wait!(camera.zoom().tele())
@@ -482,7 +482,7 @@ facade_matrix! {
     fn halt_superseding_unsent_motion_reports_not_accepted() {
         let link = Link::with_semantics(unanswered_first_command(), SendSemantics::Datagram);
         let session = open!(link, g2_config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         let _first = wait!(camera.zoom().tele()).expect("tele admitted");
         pause!(Duration::from_millis(50));
@@ -515,7 +515,7 @@ mod dispute_regressions {
         raw::{AppliedOnlyRequest, OperationPolicy, OperationReplyShape},
         request::{RetryClass, SubmissionClass},
         testing::testkit::{ManualClock, ScriptedBlockingTransport, Step},
-        types::{AffectedAxes, CameraId},
+        types::AffectedAxes,
         Error,
     };
     use grafton_visca_test_support::profile_fixtures::{
@@ -563,7 +563,9 @@ mod dispute_regressions {
             .open_blocking_session(&participant, wire, session_config())
             .expect("session");
         let camera = session
-            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("camera");
         let mut command = camera
             .submit::<AppliedOnly, _>(&completion_only(CommandTimeoutClass::Quick))
@@ -646,7 +648,7 @@ mod dispute_regressions {
             .expect("session");
         let diagnostics = session.subscribe_diagnostics(64).expect("diagnostics");
         let camera = session
-            .camera::<AnyProfile>(CameraId::CAMERA_1)
+            .camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         let mut command = camera
             .submit::<AppliedOnly, _>(&completion_only(CommandTimeoutClass::LongRunning))

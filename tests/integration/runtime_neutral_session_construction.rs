@@ -17,7 +17,6 @@ use grafton_visca::{
     r#async::Session,
     runtime::{ExecError, Executor},
     transport::AddressingMode,
-    types::CameraId,
     Error,
 };
 
@@ -127,8 +126,12 @@ fn caller_owned_session_opens_and_closes_on_a_custom_executor() {
                 executor,
             )
             .await?;
-            let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)?;
-            assert_eq!(camera.target(), CameraId::CAMERA_1);
+            let camera = session
+                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?;
+            assert_eq!(
+                camera.target(),
+                grafton_visca::types::IndividualCameraId::CAMERA_1
+            );
             assert_eq!(camera.profile(), &expected_profile);
             session.close().await
         })

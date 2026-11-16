@@ -19,10 +19,10 @@ fn surface(session: &Session, camera: &mut grafton_visca::blocking::Camera) -> R
 
     let _: Result<grafton_visca::blocking::Camera, Error> = session
         .camera::<grafton_visca::profiles::AnyProfile>(
-        grafton_visca::types::CameraId::CAMERA_1,
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
     );
     let _: Result<grafton_visca::blocking::Camera, Error> =
-        session.camera::<grafton_visca::profiles::AnyProfile>(CameraId::CAMERA_1);
+        session.camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1);
     Ok(())
 }
 

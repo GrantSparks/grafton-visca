@@ -45,7 +45,7 @@ facade_matrix! {
     fn a_sony_ack_ten_milliseconds_after_its_deadline_prevents_a_second_write() {
         let camera = FakeCamera::new(|_, _| {});
         let session = open!(camera, config()).expect("session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("FR7 view");
         let replies = camera.clone();
         after!(ack_timeout() + Duration::from_millis(10), move || {
             let writes = replies.writes();
@@ -63,7 +63,7 @@ facade_matrix! {
     fn a_sony_completion_during_retry_backoff_finishes_without_rewriting() {
         let camera = FakeCamera::new(|_, _| {});
         let session = open!(camera, config()).expect("session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("FR7 view");
         let replies = camera.clone();
         after!(ack_timeout() + Duration::from_millis(250), move || {
             let writes = replies.writes();

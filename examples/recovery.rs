@@ -28,8 +28,7 @@ use std::{collections::VecDeque, time::Duration};
 use grafton_visca::{
     blocking::Session, config::OperationalTuning, config::SessionConfig, error::Recovery,
     profiles::ProfileSpec, profiles::PtzOpticsG2, transport::BlockingTransport,
-    transport::HasTransportConfig, transport::ReceiveOutcome, transport::TransportConfig,
-    types::CameraId, Error,
+    transport::HasTransportConfig, transport::ReceiveOutcome, transport::TransportConfig, Error,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -139,7 +138,7 @@ fn demonstrate(first_peer: Peer) -> Result<(), Box<dyn std::error::Error>> {
     let session = Session::open(new_transport()?, &config)?;
     let frames_before = session.metrics()?.received_frames;
     let probe = session
-        .camera::<PtzOpticsG2>(CameraId::CAMERA_1)?
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?
         .power()
         .status();
     let frames_after = session.metrics()?.received_frames;
@@ -193,7 +192,8 @@ fn recover(
 fn requery_and_restore(session: &Session) -> Result<(), Error> {
     // The fresh cache is Unknown: read the live values before restoring desired
     // state. The owner never resubmits the old session's commands.
-    let camera = session.camera::<PtzOpticsG2>(CameraId::CAMERA_1)?;
+    let camera =
+        session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?;
     let frames_before = session.metrics()?.received_frames;
     let power = camera.power().status()?;
     let zoom = camera.zoom().position()?;

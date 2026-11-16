@@ -73,7 +73,7 @@ fn zoom_tables_follow_the_sources() {
             target(position)
                 .validate_for_target(
                     &grafton_visca::config::TargetRegistration::new(
-                        grafton_visca::types::CameraId::CAMERA_1,
+                        grafton_visca::types::IndividualCameraId::CAMERA_1,
                         profile.clone(),
                     )
                     .expect("target registration"),
@@ -88,7 +88,7 @@ fn zoom_tables_follow_the_sources() {
             matches!(
                 target(0x7F01).validate_for_target(
                     &grafton_visca::config::TargetRegistration::new(
-                        grafton_visca::types::CameraId::CAMERA_1,
+                        grafton_visca::types::IndividualCameraId::CAMERA_1,
                         profile.clone()
                     )
                     .expect("target registration")
@@ -121,7 +121,7 @@ fn digital_zoom_toggle_and_one_push_focus_are_granted() {
             command
                 .validate_for_target(
                     &grafton_visca::config::TargetRegistration::new(
-                        grafton_visca::types::CameraId::CAMERA_1,
+                        grafton_visca::types::IndividualCameraId::CAMERA_1,
                         profile.clone(),
                     )
                     .expect("target registration"),
@@ -133,7 +133,7 @@ fn digital_zoom_toggle_and_one_push_focus_are_granted() {
         grafton_visca::command::focus::OnePush
             .validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),

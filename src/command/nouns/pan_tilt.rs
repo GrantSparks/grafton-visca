@@ -351,8 +351,11 @@ mod tests {
     };
 
     fn target(id: ProfileId) -> TargetRegistration {
-        TargetRegistration::new(CameraId::CAMERA_1, id.spec().expect("built-in profile"))
-            .expect("registered target")
+        TargetRegistration::new(
+            crate::IndividualCameraId::CAMERA_1,
+            id.spec().expect("built-in profile"),
+        )
+        .expect("registered target")
     }
 
     fn wire(request: &impl Request) -> Vec<u8> {

@@ -57,7 +57,7 @@ impl Fr7 {
 fn fast_drive() -> grafton_visca::command::pan_tilt::Drive {
     grafton_visca::command::pan_tilt::Drive::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::SonyFr7,
             >()
@@ -90,7 +90,7 @@ facade_matrix! {
     fn extended_speed_uses_the_latest_applied_mode_and_a_refusal_keeps_the_stream_live() {
         let wire = Fr7::new(false);
         let session = open!(wire, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
-        let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         let initial_writes = wire.peer.write_count();
 
         let mut refused = wait!(camera.submit::<AppliedOnly, _>(&fast_drive())).unwrap();
@@ -118,7 +118,7 @@ facade_matrix! {
     fn an_unconfirmed_mode_change_invalidates_the_extended_speed_prerequisite() {
         let wire = Fr7::new(true);
         let session = open!(wire, SessionConfig::from_compile_time::<SonyFr7>().unwrap()).unwrap();
-        let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         wait!(camera.pan_tilt().set_speed_mode(PanTiltSpeedMode::Fine50)).unwrap();
         let error = wait!(camera.pan_tilt().set_speed_mode(PanTiltSpeedMode::Standard24))
             .unwrap_err();

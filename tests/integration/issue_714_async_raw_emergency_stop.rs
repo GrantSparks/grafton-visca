@@ -102,7 +102,7 @@ async fn ordinary_successor_waits_for_lost_ack_quarantine<E: Executor>(executor:
     .await
     .expect("async owner session");
     let view = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
     let mut predecessor = view
         .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
@@ -156,7 +156,7 @@ async fn urgent_work_crosses_the_pre_ack_candidate<E: Executor>(executor: E) {
     .await
     .expect("async owner session");
     let view = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
     let mut predecessor = view
         .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
@@ -237,7 +237,9 @@ mod parity {
         )
         .expect("blocking session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("camera view");
         let _predecessor = view
             .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
@@ -273,10 +275,14 @@ mod parity {
         )
         .expect("blocking multi-camera session");
         let camera_one = session
-            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("camera one view");
         let camera_two = session
-            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+            .camera::<NonDefaultCompileTimeProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_2,
+            )
             .expect("camera two view");
 
         let mut predecessor = camera_two
@@ -332,7 +338,9 @@ mod parity {
         .await
         .expect("async session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("camera view");
         let _predecessor = view
             .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)
@@ -372,10 +380,14 @@ mod parity {
         .await
         .expect("async multi-camera session");
         let camera_one = session
-            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("camera one view");
         let camera_two = session
-            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+            .camera::<NonDefaultCompileTimeProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_2,
+            )
             .expect("camera two view");
 
         let mut predecessor = camera_two

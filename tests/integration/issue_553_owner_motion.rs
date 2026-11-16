@@ -139,7 +139,7 @@ facade_matrix! {
         let fake = motion_camera(PositionScript::zoom([10, 10, 10, 10]), false);
         let session = open!(fake, motion_config()).expect("session");
         let camera = session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         assert!(!wait!(camera
             .motion()
@@ -160,7 +160,7 @@ facade_matrix! {
         let fake = motion_camera(PositionScript::default(), false);
         let session = open!(fake, motion_config()).expect("unsupported-axis session");
         let camera = session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         assert!(matches!(
             wait!(camera
@@ -185,7 +185,7 @@ facade_matrix! {
         let fake = motion_camera(PositionScript::zoom([0, 100, 100]), false);
         let session = open!(fake, motion_config()).expect("moving session");
         wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .motion()
             .wait_until_idle(
@@ -205,7 +205,7 @@ facade_matrix! {
         let fake = motion_camera(PositionScript::zoom([0, 0]), false);
         let session = open!(fake, motion_config()).expect("deadline session");
         let camera = session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         let expired = IdleWait::new(AffectedAxes::ZOOM, Duration::ZERO)
             .with_interval(Duration::ZERO);
@@ -238,7 +238,7 @@ facade_matrix! {
         let fake = moving_zoom_camera(Arc::clone(&stopped));
         let session = open!(fake, motion_config()).expect("moving session");
         let camera = session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         assert_eq!(
             wait!(camera.motion().wait_until_idle(
@@ -267,7 +267,7 @@ facade_matrix! {
         let fake = motion_camera(PositionScript::default(), true);
         let session = open!(fake, motion_config()).expect("stop session");
         let report = wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .motion()
             .stop_all())
@@ -298,7 +298,7 @@ facade_matrix! {
             )
         )
         .expect("raw session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         let polling_started = Instant::now();
         for _ in 0..6 {

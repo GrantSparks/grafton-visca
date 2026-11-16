@@ -77,7 +77,7 @@ facade_matrix! {
             let wire = CameraWire { camera: fake.clone(), kind };
             let session = open!(wire, SessionConfig::new(sony_profile())
                 .with_tuning(OperationalTuning::new())).expect("session");
-            let view = session.camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1).expect("runtime camera");
+            let view = session.camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("runtime camera");
             let mut bytes = vec![0; 17];
             bytes[0] = 0x80 | CameraId::CAMERA_1.value();
             bytes[16] = 0xff;

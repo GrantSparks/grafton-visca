@@ -178,7 +178,7 @@ fn debug<T: std::fmt::Debug>(value: &T) -> String {
 macro_rules! running_zoom {
     ($session:expr, $camera:expr) => {{
         let view = $session
-            .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("raw camera");
         let writes = $camera.write_count();
         let reads = $camera.read_count();
@@ -222,7 +222,7 @@ facade_matrix! {
     fn application_then_settlement_restarts_an_abandoned_proof() {
         let (camera, positions) = scripted_camera();
         let session = open!(camera, config()).expect("owner session");
-        let view = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("raw camera");
+        let view = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("raw camera");
         let mut home = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("home admitted");
         wait_for_writes!(camera, 1);
         camera.push(frames::ack(1));
@@ -476,7 +476,7 @@ facade_matrix! {
         camera.push(frames::canceled(1));
         wait_for_reads!(camera, 2);
 
-        let view = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("raw camera");
+        let view = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("raw camera");
         let mut stop = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("stop admitted");
         wait_for_writes!(camera, 3);
         camera.push(frames::ack(1));
@@ -498,7 +498,7 @@ facade_matrix! {
     fn later_admission_supersedes_polled_settlement() {
         let (camera, _) = scripted_camera();
         let session = open!(camera, config()).expect("owner session");
-        let view = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("raw camera");
+        let view = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("raw camera");
         let mut first = wait!(view.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("first home");
         wait_for_writes!(camera, 1);
         camera.push(frames::ack(1));
@@ -546,7 +546,7 @@ mod async_facade {
         camera: &FakeCamera,
     ) -> Operation<AppliedOnly> {
         let view = session
-            .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("raw camera");
         let writes = camera.write_count();
         let reads = camera.read_count();
@@ -686,7 +686,7 @@ mod async_facade {
         camera.wait_for_reads_async(&executor, 2).await;
 
         let view = session
-            .camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("raw camera");
         let mut stop = view
             .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
@@ -712,7 +712,9 @@ mod async_facade {
     async fn runtime_profile_handles_share_the_contract<E: Executor>(executor: E) {
         let (session, camera, positions) = open(&executor).await;
         let view = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
         let mut moving = view
             .submit(&grafton_visca::command::zoom::Tele)

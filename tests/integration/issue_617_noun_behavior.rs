@@ -118,7 +118,7 @@ mod blocking_surface {
         let (session, fake) =
             open_with(ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"));
         let camera = session
-            .camera::<PtzOpticsG3>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG3>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         camera.power().on().expect("power on");
@@ -168,7 +168,7 @@ mod blocking_surface {
     fn blocking_fr7_red_and_green_tally_rows_are_distinct() {
         let (session, fake) = open();
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         camera.tally().set_red(true).expect("red tally on");
@@ -186,7 +186,7 @@ mod blocking_surface {
     fn blocking_pan_tilt_directions_and_normalized_zoom_use_profile_values() {
         let (session, fake) = open();
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         let pan_speed = PanSpeed::new(0x0a).expect("pan speed");
         let tilt_speed = TiltSpeed::new(0x05).expect("tilt speed");
@@ -250,7 +250,7 @@ mod blocking_surface {
         assert!(profile.capabilities().profile_id.is_none());
         let (session, fake) = open_with(profile);
         let camera = session
-            .camera::<CombinedZoomTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<CombinedZoomTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("custom camera");
         let half = UnitInterval::new(0.5).expect("half");
         camera
@@ -274,7 +274,7 @@ mod blocking_surface {
     fn blocking_brc300_speed_level_noun_mirrors_its_one_position_speed() {
         let (session, fake) = open_brc300();
         let camera = session
-            .camera::<SonyBrc300>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyBrc300>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         camera
@@ -312,7 +312,7 @@ mod blocking_surface {
     fn blocking_same_response_type_inquiries_use_their_own_wire_queries() {
         let (session, fake) = open();
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         assert!(camera.power().status().expect("power inquiry").is_on());
@@ -327,7 +327,7 @@ mod blocking_surface {
     fn blocking_direct_exposure_command_rejects_before_any_write() {
         let (session, fake) = open();
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         let error = camera
@@ -354,7 +354,7 @@ mod blocking_surface {
     fn blocking_direct_exposure_mode_inquiry_rejects_before_any_write() {
         let (session, fake) = open();
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         let error = camera
@@ -383,7 +383,7 @@ mod blocking_surface {
         let (session, fake) =
             open_with(ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"));
         let camera = session
-            .camera::<PtzOpticsG3>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG3>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         let error = camera
@@ -423,7 +423,7 @@ mod blocking_surface {
         let (session, fake) =
             open_with(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"));
         session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .focus()
             .set_zone(FocusZone::Zone03)
@@ -437,7 +437,7 @@ mod blocking_surface {
         let (session, fake) =
             open_with(ProfileSpec::from_compile_time::<PtzOptics30x>().expect("30X profile"));
         session
-            .camera::<PtzOptics30x>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOptics30x>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .focus()
             .set_zone(FocusZone::Zone03)
@@ -498,7 +498,7 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<PtzOpticsG3>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG3>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         camera.power().on().await.expect("power on");
@@ -561,7 +561,7 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         camera.tally().set_red(true).await.expect("red tally on");
@@ -592,7 +592,7 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         let pan_speed = PanSpeed::new(0x0a).expect("pan speed");
         let tilt_speed = TiltSpeed::new(0x05).expect("tilt speed");
@@ -664,7 +664,7 @@ mod async_surface {
         let fake = probe_camera();
         let session = open_session(&fake, profile).await;
         let camera = session
-            .camera::<CombinedZoomTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<CombinedZoomTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("custom camera");
         let half = UnitInterval::new(0.5).expect("half");
         camera
@@ -697,7 +697,7 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<SonyBrc300>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyBrc300>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         camera
@@ -744,7 +744,7 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         assert!(camera
@@ -769,7 +769,7 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         let error = camera
@@ -802,7 +802,7 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         let error = camera
@@ -834,7 +834,9 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
         let error = camera
             .zoom()
@@ -865,7 +867,9 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
 
         let error = camera
@@ -908,7 +912,7 @@ mod async_surface {
             let session = open_session(&fake, profile).await;
             let camera = session
                 .camera::<grafton_visca::profiles::AnyProfile>(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                 )
                 .expect("dynamic camera");
 
@@ -945,7 +949,9 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
 
         let error = camera
@@ -981,7 +987,9 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
 
         let error = camera
@@ -1027,7 +1035,7 @@ mod async_surface {
             let session = open_session(&fake, profile).await;
             let camera = session
                 .camera::<grafton_visca::profiles::AnyProfile>(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                 )
                 .expect("dynamic camera");
 
@@ -1066,7 +1074,9 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
 
         assert!(camera
@@ -1098,7 +1108,9 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
 
         for result in [
@@ -1147,7 +1159,9 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
 
         // The tally-mode opcodes are refused, not admitted through a vendor

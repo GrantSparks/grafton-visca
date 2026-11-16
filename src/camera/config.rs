@@ -5,7 +5,7 @@
 //! actual connection process, allowing for easy cloning, reuse, and modification.
 
 use crate::{
-    camera_id::CameraId,
+    camera_id::IndividualCameraId,
     capabilities::{SupportsSerial, SupportsTcp, SupportsUdp},
     error::Error,
     profiles::{
@@ -197,7 +197,7 @@ pub struct CameraConfig<P: CameraProfile = AnyProfile> {
     policy: crate::session_config::SessionPolicy,
     transport_config: Option<TransportConfig>,
     serial_startup: SerialStartup,
-    camera_id: Option<CameraId>,
+    camera_id: Option<IndividualCameraId>,
 }
 
 impl<P: CameraProfile> Clone for CameraConfig<P> {
@@ -303,12 +303,12 @@ impl<P: CameraProfile> CameraConfig<P> {
         self
     }
     /// Returns the explicit VISCA address override, or `None` for the profile default.
-    pub const fn camera_id(&self) -> Option<CameraId> {
+    pub const fn camera_id(&self) -> Option<IndividualCameraId> {
         self.camera_id
     }
-    /// Selects an explicit individual VISCA target, validated when the config opens.
+    /// Selects an explicit individual VISCA target, whose type validates addresses 1–7.
     #[must_use]
-    pub const fn with_camera_id(mut self, id: CameraId) -> Self {
+    pub const fn with_camera_id(mut self, id: IndividualCameraId) -> Self {
         self.camera_id = Some(id);
         self
     }
@@ -366,7 +366,7 @@ impl<P: CameraProfile> CameraConfig<P> {
         let profile = P::selected_spec(&self.profile)?;
         let id = self
             .camera_id
-            .unwrap_or_else(|| profile.capabilities().default_camera_id.into());
+            .unwrap_or(profile.capabilities().default_camera_id);
         let registration = std::sync::Arc::new(crate::TargetRegistration::new(id, profile)?);
         let config = crate::session_config::SessionConfig::from_registration(registration.clone())
             .with_policy(self.policy)
@@ -523,17 +523,17 @@ mod tests {
     #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
     fn every_connection_plan_shares_its_single_proven_registration() {
-        use crate::{camera::CameraConfig, profiles::PtzOpticsG2, CameraId};
+        use crate::{camera::CameraConfig, profiles::PtzOpticsG2, IndividualCameraId};
         for config in [
             CameraConfig::<PtzOpticsG2>::tcp("camera.invalid"),
             CameraConfig::<PtzOpticsG2>::udp("camera.invalid"),
             CameraConfig::<PtzOpticsG2>::serial("/dev/not-opened", 9600),
         ] {
             let plan = config
-                .with_camera_id(CameraId::CAMERA_3)
+                .with_camera_id(IndividualCameraId::CAMERA_3)
                 .connection_plan()
                 .expect("pure connection plan");
-            assert_eq!(plan.registration.target(), CameraId::CAMERA_3);
+            assert_eq!(plan.registration.target(), IndividualCameraId::CAMERA_3);
             let stored = plan
                 .connection
                 .session_config
@@ -563,7 +563,7 @@ mod tests {
             Error, SessionConfig,
         };
         let camera = CameraConfig::new(ProfileId::SonyFr7, TransportOptions::tcp("unused.invalid"))
-            .with_camera_id(crate::types::CameraId::CAMERA_3);
+            .with_camera_id(crate::types::IndividualCameraId::CAMERA_3);
         let udp = || {
             Udp::connect_with_config("127.0.0.1:9", crate::transport::TransportConfig::for_udp())
                 .expect("local UDP transport")
@@ -584,7 +584,7 @@ mod tests {
             .expect("close");
         let single = CameraSession::open(udp(), &camera.with_transport(TransportOptions::Custom))
             .expect("custom selection uses opened UDP facts");
-        assert_eq!(single.target(), crate::types::CameraId::CAMERA_3);
+        assert_eq!(single.target(), crate::types::IndividualCameraId::CAMERA_3);
         single.close().expect("close");
     }
 
@@ -648,15 +648,18 @@ mod tests {
         assert_eq!(RESOLUTIONS.load(Ordering::SeqCst), 0);
         let plan = config.connection_plan().expect("default target plan");
         assert_eq!(RESOLUTIONS.load(Ordering::SeqCst), 1);
-        assert_eq!(plan.registration.target(), crate::CameraId::CAMERA_2);
+        assert_eq!(
+            plan.registration.target(),
+            crate::IndividualCameraId::CAMERA_2
+        );
         assert_eq!(
             config
-                .with_camera_id(crate::CameraId::CAMERA_3)
+                .with_camera_id(crate::IndividualCameraId::CAMERA_3)
                 .connection_plan()
                 .expect("address override")
                 .registration
                 .target(),
-            crate::CameraId::CAMERA_3
+            crate::IndividualCameraId::CAMERA_3
         );
 
         let endpoint = |config: CameraConfig<Downstream>| {
@@ -1171,10 +1174,13 @@ mod tests {
         }
         impl crate::capabilities::SupportsTcp for Community {}
         let config = super::CameraConfig::<Community>::tcp("camera.local")
-            .with_camera_id(crate::CameraId::CAMERA_2);
+            .with_camera_id(crate::IndividualCameraId::CAMERA_2);
         let cloned = config.clone();
         assert_eq!(cloned.address(), Some("camera.local"));
-        assert_eq!(cloned.camera_id(), Some(crate::CameraId::CAMERA_2));
+        assert_eq!(
+            cloned.camera_id(),
+            Some(crate::IndividualCameraId::CAMERA_2)
+        );
         assert!(!format!("{cloned:?}").is_empty());
     }
 
@@ -1183,7 +1189,7 @@ mod tests {
     fn typed_and_runtime_configs_share_one_checked_serialized_shape() {
         use crate::profiles::{PtzOpticsG2, SonyFr7};
         let typed = super::CameraConfig::<PtzOpticsG2>::tcp("camera.local")
-            .with_camera_id(crate::CameraId::CAMERA_2)
+            .with_camera_id(crate::IndividualCameraId::CAMERA_2)
             .with_strict_unconfirmed_poison(true);
         let json = serde_json::to_value(&typed).expect("typed config serialization");
         assert_eq!(json["profile"], "ptzoptics_g2");
@@ -1207,6 +1213,10 @@ mod tests {
         let mut unknown = json.clone();
         unknown["unexpected"] = true.into();
         assert!(serde_json::from_value::<super::CameraConfig>(unknown).is_err());
+        let mut broadcast = json.clone();
+        broadcast["camera_id"] = 8.into();
+        let error = serde_json::from_value::<super::CameraConfig>(broadcast).unwrap_err();
+        assert!(error.to_string().contains("7"), "{error}");
         let mut unknown_policy = json;
         unknown_policy["policy"]["unexpected"] = true.into();
         assert!(serde_json::from_value::<super::CameraConfig>(unknown_policy).is_err());

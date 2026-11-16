@@ -128,7 +128,7 @@ mod blocking_tests {
             Session::open(fake.blocking_wire(), &SessionConfig::new(profile())).expect("session");
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
             .expect("camera");
         let (plain, inquiry, targeted, applied) = raw_values();
@@ -176,7 +176,7 @@ mod async_tests {
             .expect("session");
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
             .expect("camera");
         let (plain, inquiry, targeted, applied) = raw_values();
