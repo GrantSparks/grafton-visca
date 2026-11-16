@@ -251,19 +251,19 @@ pub(super) struct PositionPoll<'a> {
 /// completion to be the settlement evidence.
 pub(super) fn position_poll(
     settlement: &completion::SettlementPlan<completion::Targeted>,
-) -> Option<PositionPoll<'_>> {
+) -> Result<Option<PositionPoll<'_>>, Error> {
     match settlement.plan() {
-        SettlementPlan::CompletionIsSettled { .. } => None,
+        SettlementPlan::CompletionIsSettled { .. } => Ok(None),
         SettlementPlan::Poll {
             queries,
             tolerance,
             interval,
             ..
-        } => Some(PositionPoll {
-            queries,
+        } => Ok(Some(PositionPoll {
+            queries: queries.get()?,
             tolerance: *tolerance,
             interval: *interval,
-        }),
+        })),
     }
 }
 

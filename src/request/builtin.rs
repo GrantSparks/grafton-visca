@@ -130,7 +130,7 @@ macro_rules! builtin_request {
     (@wire $this:tt, $wire:expr) => { ($wire)($this) };
 
     (@target_wire $this:expr, $target:expr, $buffer:expr) => {
-        <Self as Request>::write_into($this, $target.target(), $buffer)
+        <Self as Request>::write_into($this, $target.target().into(), $buffer)
     };
     (@target_wire $this:expr, $target:expr, $buffer:expr, $wire:expr) => {
         ($wire)($this, $target, $buffer)
@@ -632,14 +632,14 @@ fn write_color_temperature_for_target(
         let code = white_balance_facts(target.profile())?.color_temperature_wire(*value)?;
         #[cfg(test)]
         REQUEST_WRITE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
-        crate::command::bytes::FrameWriter::new(target.target(), buffer)
+        crate::command::bytes::FrameWriter::new(target.target().into(), buffer)
             .bytes(&crate::command::bytes::constants::color::TEMPERATURE)
             .nibbles::<2>(code)
             .finish()
     } else {
         <crate::command::color::ColorTemperature as Request>::write_into(
             command,
-            target.target(),
+            target.target().into(),
             buffer,
         )
     }
@@ -2814,7 +2814,8 @@ mod tests {
             let zoom = profile.capabilities().zoom.as_ref().expect("zoom").speed;
             let focus = profile.capabilities().focus.as_ref().expect("focus").speed;
             let target =
-                crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+                crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+                    .expect("target");
             for (value, row, parameter) in [
                 (ZoomDrive::Tele, BuiltinCommand::ZoomTele, 0x02),
                 (ZoomDrive::Wide, BuiltinCommand::ZoomWide, 0x03),
@@ -2943,7 +2944,7 @@ mod tests {
     #[test]
     fn selected_source_still_rejects_a_model_without_that_packet() {
         let ptz = crate::TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"),
         )
         .expect("target");
@@ -2962,7 +2963,7 @@ mod tests {
             "model source denial precedes encoding"
         );
         let sony = crate::TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI"),
         )
         .expect("target");
@@ -2992,7 +2993,7 @@ mod tests {
             Degrees::new(-45.0).expect("finite degrees"),
             PanSpeed::new(10).unwrap(),
             TiltSpeed::new(10).unwrap(),
-            &crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile.clone())
                 .expect("target registration"),
         )
         .expect("reachable relative offset");
@@ -3001,7 +3002,8 @@ mod tests {
         let conversion = profile.pan_tilt_coordinates().unwrap();
         let caps = profile.capabilities().pan_tilt.as_ref().expect("pan/tilt");
         let target =
-            crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone()).expect("target");
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile.clone())
+                .expect("target");
         for (pan, tilt) in [
             (caps.pan_range.max() - caps.pan_range.min(), 0),
             (
@@ -3151,7 +3153,7 @@ mod tests {
             assert!(prepare_builtin_command(
                 &crate::command::UsbAudioCommand::new(true),
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     profile.clone()
                 )
                 .expect("valid target registration"),
@@ -3164,7 +3166,7 @@ mod tests {
             assert!(prepare_builtin_command(
                 &crate::command::UsbAudioCommand::new(true),
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     profile.clone()
                 )
                 .expect("valid target registration"),
@@ -3287,8 +3289,11 @@ mod tests {
         use crate::command::white_balance::SetMode;
         for model in crate::profiles::ProfileId::all() {
             let profile = model.spec().expect("built-in profile");
-            let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
-                .expect("target");
+            let target = crate::TargetRegistration::new(
+                crate::IndividualCameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target");
             let modes = &profile
                 .capabilities()
                 .white_balance
@@ -3347,7 +3352,7 @@ mod tests {
             Degrees::new(10.0).expect("finite degrees"),
             Degrees::new(-5.0).expect("finite degrees"),
             SpeedLevel::Medium,
-            &crate::TargetRegistration::new(CameraId::CAMERA_1, standard.clone())
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, standard.clone())
                 .expect("target registration"),
         )
         .expect("standard coarse absolute position");
@@ -3363,7 +3368,7 @@ mod tests {
             Degrees::new(45.0).expect("finite degrees"),
             Degrees::new(15.0).expect("finite degrees"),
             SpeedLevel::Fastest,
-            &crate::TargetRegistration::new(CameraId::CAMERA_1, brc300.clone())
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, brc300.clone())
                 .expect("target registration"),
         )
         .expect("BRC-300 coarse absolute position");
@@ -3379,7 +3384,7 @@ mod tests {
             Degrees::new(45.0).expect("finite degrees"),
             Degrees::new(15.0).expect("finite degrees"),
             SpeedLevel::Fastest,
-            &crate::TargetRegistration::new(CameraId::CAMERA_1, brc300.clone())
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, brc300.clone())
                 .expect("target registration"),
         )
         .expect("BRC-300 coarse relative position");
@@ -3398,8 +3403,11 @@ mod tests {
                 Degrees::new(0.0).expect("finite degrees"),
                 Degrees::new(0.0).expect("finite degrees"),
                 SpeedLevel::Fastest,
-                &crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
-                    .expect("target registration"),
+                &crate::TargetRegistration::new(
+                    crate::IndividualCameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
             )
             .unwrap_or_else(|error| {
                 panic!(
@@ -3411,8 +3419,11 @@ mod tests {
                 Degrees::new(0.0).expect("finite degrees"),
                 Degrees::new(0.0).expect("finite degrees"),
                 SpeedLevel::Fastest,
-                &crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
-                    .expect("target registration"),
+                &crate::TargetRegistration::new(
+                    crate::IndividualCameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
             )
             .unwrap_or_else(|error| {
                 panic!(
@@ -3515,8 +3526,9 @@ mod tests {
         use crate::command::menu_wire::DirectMenuControl;
 
         let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
-        let registration = crate::TargetRegistration::new(CameraId::CAMERA_1, fr7.clone())
-            .expect("target registration");
+        let registration =
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, fr7.clone())
+                .expect("target registration");
         let highest = PresetNumber::new(99).expect("R7 highest preset");
         prepare_builtin_command(
             &PresetSet::new(highest),
@@ -3610,7 +3622,7 @@ mod tests {
         prepare_command(
             command,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 profile.clone(),
             )
             .expect("valid target registration"),
@@ -3714,7 +3726,7 @@ mod tests {
                 PanTiltLimitCorner::DownLeft,
                 Degrees::new(0.0).expect("finite degrees"),
                 Degrees::new(0.0).expect("finite degrees"),
-                &crate::TargetRegistration::new(CameraId::CAMERA_1, ptz.clone())
+                &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, ptz.clone())
                     .expect("target registration"),
             )
             .expect("limit set"),
@@ -4031,7 +4043,7 @@ mod tests {
                 speed: PresetSpeed::new(12).expect("preset speed"),
             },
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4041,7 +4053,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &FocusLockCommand::new(true),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4051,7 +4063,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &SpotlightOn::new(),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4061,7 +4073,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &AutoSlowShutterOn::new(),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4071,7 +4083,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &NdFilterModeCommand::new(NdFilterMode::Variable),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4081,7 +4093,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &DigitalZoom::new(true),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4091,7 +4103,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &MulticastStreamingCommand::new(true),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4101,7 +4113,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &SetNdiQuality::new(NdiQuality::High),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4111,7 +4123,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &TallyBrightLo::new(),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4121,7 +4133,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &crate::command::SetVariableSpeedMode::new(PanTiltSpeedMode::Standard24),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4131,7 +4143,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &TallyOn::new(),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4141,7 +4153,7 @@ mod tests {
         assert!(prepare_builtin_command(
             &TallyFlash::new(),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone()
             )
             .expect("valid target registration"),
@@ -4369,7 +4381,7 @@ mod tests {
         let profile = runtime_profile_builder(&source, capabilities)
             .build()
             .expect("runtime temperature profile");
-        let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile)
+        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
             .expect("temperature target");
         let direct = ColorTemperature::SetTemperature(Kelvin::new(5700).expect("physical Kelvin"));
         direct
@@ -4437,7 +4449,7 @@ mod tests {
             let request = prepare_builtin_command(
                 &command,
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     profile.clone(),
                 )
                 .expect("valid target registration"),
@@ -4459,7 +4471,7 @@ mod tests {
     fn source_admission_uses_the_actual_variant_of_a_homogeneous_command() {
         use crate::command::image_wire::{Sharpness, SharpnessMode};
         let fr7 = crate::TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         )
         .expect("target");
@@ -4482,7 +4494,7 @@ mod tests {
             Err(Error::FeatureNotSupported { .. })
         ));
         let ptz = crate::TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"),
         )
         .expect("target");
@@ -4692,7 +4704,7 @@ mod tests {
         prepare_builtin_operation::<completion::Targeted, _>(
             &explicit,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 profile.clone(),
             )
             .expect("valid target registration"),
@@ -4703,7 +4715,7 @@ mod tests {
         let error = prepare_builtin_operation::<completion::Targeted, _>(
             &normalized,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 profile.clone(),
             )
             .expect("valid target registration"),
@@ -4729,7 +4741,7 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisReset,
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     fr7.clone(),
                 )
                 .expect("valid target registration"),
@@ -4738,7 +4750,7 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisUp,
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     fr7.clone(),
                 )
                 .expect("valid target registration"),
@@ -4747,7 +4759,7 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisDown,
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     fr7.clone(),
                 )
                 .expect("valid target registration"),
@@ -4760,7 +4772,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris_direct,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 fr7.clone()
             )
             .expect("valid target registration"),
@@ -4771,7 +4783,7 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &nd,
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     generic.clone(),
                 )
                 .expect("valid target registration"),
@@ -4780,7 +4792,7 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepUp,
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     generic.clone(),
                 )
                 .expect("valid target registration"),
@@ -4789,7 +4801,7 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepDown,
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     generic.clone(),
                 )
                 .expect("valid target registration"),
@@ -4802,7 +4814,7 @@ mod tests {
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfPress,
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     generic.clone(),
                 )
                 .expect("valid target registration"),
@@ -4811,7 +4823,7 @@ mod tests {
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfRelease,
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     generic.clone(),
                 )
                 .expect("valid target registration"),
@@ -4830,8 +4842,9 @@ mod tests {
             SetNoiseReduction3d,
         };
         let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
-        let supported = crate::TargetRegistration::new(CameraId::CAMERA_1, source.clone())
-            .expect("supported target");
+        let supported =
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, source.clone())
+                .expect("supported target");
         for validation in [
             NoiseReduction2dInquiry.validate_for_target(&supported),
             NoiseReduction3dInquiry.validate_for_target(&supported),
@@ -4868,7 +4881,8 @@ mod tests {
             .build()
             .expect("withheld family grants");
         let registration =
-            crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+                .expect("target");
         for validation in [
             NoiseReduction2dInquiry.validate_for_target(&registration),
             NoiseReduction3dInquiry.validate_for_target(&registration),
@@ -4895,7 +4909,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 ptz.clone()
             )
             .expect("valid target registration"),
@@ -4905,7 +4919,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 ptz.clone()
             )
             .expect("valid target registration"),
@@ -4915,7 +4929,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisDirect::new(IrisLevel::new(0x19).unwrap()),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 h900.clone()
             )
             .expect("valid target registration"),
@@ -4927,7 +4941,8 @@ mod tests {
         // BRC-H900's sourced maximum is 0x19, not the global type's 0x1E.
         let beyond_h900 = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisDirect::new(IrisLevel::new(0x1A).unwrap()),
-            &crate::TargetRegistration::new(CameraId::CAMERA_1, h900.clone()).expect("H900 target"),
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, h900.clone())
+                .expect("H900 target"),
             OperationalTuning::new(),
         );
         assert!(matches!(
@@ -4942,7 +4957,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 fr7.clone()
             )
             .expect("valid target registration"),
@@ -4952,7 +4967,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 fr7.clone()
             )
             .expect("valid target registration"),
@@ -4964,7 +4979,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterDirect::new(NdFilterDensity::new(4).unwrap()),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 fr7.clone()
             )
             .expect("valid target registration"),
@@ -4974,7 +4989,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterStepUp,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 fr7.clone()
             )
             .expect("valid target registration"),
@@ -4984,7 +4999,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::AppliedOnly, _>(
             &PushAfPress,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 fr7.clone()
             )
             .expect("valid target registration"),
@@ -5003,8 +5018,11 @@ mod tests {
             );
             prepare_builtin_command(
                 &gain,
-                &crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
-                    .expect("target"),
+                &crate::TargetRegistration::new(
+                    crate::IndividualCameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target"),
                 OperationalTuning::new(),
             )
             .expect("documented upper gain boundary prepares");
@@ -5014,12 +5032,12 @@ mod tests {
             crate::types::GainLevel::new(0x0C).expect("representable gain"),
         );
         let fr7 = crate::TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"),
         )
         .expect("FR7 target");
         let ptz = crate::TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
         )
         .expect("G2 target");
@@ -5061,8 +5079,11 @@ mod tests {
             ProfileSpec::from_compile_time::<PtzOptics30x>(),
         ] {
             let profile = profile.expect("sourced PTZOptics profile");
-            let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
-                .expect("target");
+            let target = crate::TargetRegistration::new(
+                crate::IndividualCameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target");
             for value in 0x00..=0x0F {
                 let limit = crate::types::GainLimit::new(value).expect("full nibble");
                 let frame = prepare_builtin_command(
@@ -5084,11 +5105,17 @@ mod tests {
             let mut capabilities = profile.capabilities().clone();
             capabilities.profile_id = None;
             capabilities.exposure.as_mut().expect("exposure").gain_range = None;
+            capabilities.typed_support = capabilities
+                .typed_support
+                .without(TypedSupportSurface::Gain);
             let without_gain_levels = runtime_profile_builder(&profile, capabilities)
                 .build()
                 .expect("gain-limit support needs no gain-level range");
-            let target = crate::TargetRegistration::new(CameraId::CAMERA_1, without_gain_levels)
-                .expect("target without gain levels");
+            let target = crate::TargetRegistration::new(
+                crate::IndividualCameraId::CAMERA_1,
+                without_gain_levels,
+            )
+            .expect("target without gain levels");
             prepare_builtin_command(
                 &GainLimitCommand::new(decoded),
                 &target,
@@ -5112,7 +5139,7 @@ mod tests {
             ProfileSpec::from_compile_time::<GenericVisca>(),
         ] {
             let target = crate::TargetRegistration::new(
-                CameraId::CAMERA_1,
+                crate::IndividualCameraId::CAMERA_1,
                 profile.expect("unsourced built-in profile"),
             )
             .expect("target");
@@ -5140,7 +5167,7 @@ mod tests {
             let error = prepare_builtin_command(
                 &ExposureCommand::new(mode),
                 &crate::TargetRegistration::new(
-                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                     fr7.clone(),
                 )
                 .expect("valid target registration"),
@@ -5184,7 +5211,7 @@ mod tests {
         let error = prepare_builtin_command(
             &ExposureCommand::new(ExposureMode::Auto),
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 generic.clone(),
             )
             .expect("valid target registration"),
@@ -5214,7 +5241,7 @@ mod tests {
                 prepare_builtin_command(
                     &$command,
                     &crate::TargetRegistration::new(
-                        (crate::target::TargetSlot::CAMERA_1).camera(),
+                        (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                         ($profile).clone(),
                     )
                     .expect("valid target registration"),

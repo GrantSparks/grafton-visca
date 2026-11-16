@@ -98,7 +98,7 @@ fn callback_metrics(during_write: bool) {
         .expect("install callback");
     if during_write {
         let camera = session
-            .camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("typed camera");
         drop(
             camera

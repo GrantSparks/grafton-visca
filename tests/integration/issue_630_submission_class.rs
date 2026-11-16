@@ -108,7 +108,7 @@ facade_matrix! {
     fn background_yields_to_a_later_user_submission() {
         let fake = lane_camera();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         let first =
             wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).expect("first socket");
@@ -161,7 +161,7 @@ facade_matrix! {
     fn handle_default_and_derived_view_override() {
         let fake = lane_camera();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         let first =
             wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).expect("first socket");
@@ -238,7 +238,7 @@ facade_matrix! {
     fn urgent_cannot_be_demoted_by_any_submission_override() {
         let fake = lane_camera();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         let first =
             wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).expect("first socket");
@@ -301,7 +301,7 @@ facade_matrix! {
     fn classified_execute_reaches_the_wire() {
         let fake = lane_camera();
         let session = open!(fake, g2_config()).expect("owner session");
-        let mut camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let mut camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         let completion = complete_after_writes(&fake, 1, 2);
         wait!(camera
@@ -364,7 +364,9 @@ async fn runtime_profile_projection_has_the_same_surface<E: Executor>(executor: 
             .await
             .expect("owner session");
     let dynamic = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic view");
 
     let first = dynamic

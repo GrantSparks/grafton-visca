@@ -2,12 +2,14 @@
 
 use std::ops::{Index, IndexMut};
 
-use crate::{CameraId, Error};
+#[cfg(any(feature = "blocking", feature = "async", test))]
+use crate::CameraId;
+use crate::IndividualCameraId;
 
 /// A validated individual camera, never the controller or broadcast address.
 ///
 /// The representation is a zero-based index, private to this module. Public
-/// camera addresses cross into owner state through `TryFrom<CameraId>`.
+/// camera addresses cross into owner state through `From<IndividualCameraId>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct TargetSlot(u8);
 
@@ -48,6 +50,7 @@ impl TargetSlot {
     pub(crate) const CAMERA_7: Self = Self::ALL[6];
 
     /// The corresponding wire camera address.
+    #[cfg(any(feature = "blocking", feature = "async", test))]
     pub(crate) const fn camera(self) -> CameraId {
         const CAMERAS: [CameraId; TargetSlot::COUNT] = [
             CameraId::CAMERA_1,
@@ -61,28 +64,29 @@ impl TargetSlot {
         CAMERAS[self.index()]
     }
 
+    /// The corresponding individual camera address, retaining its range proof.
+    pub(crate) const fn individual_camera(self) -> IndividualCameraId {
+        const CAMERAS: [IndividualCameraId; TargetSlot::COUNT] = [
+            IndividualCameraId::CAMERA_1,
+            IndividualCameraId::CAMERA_2,
+            IndividualCameraId::CAMERA_3,
+            IndividualCameraId::CAMERA_4,
+            IndividualCameraId::CAMERA_5,
+            IndividualCameraId::CAMERA_6,
+            IndividualCameraId::CAMERA_7,
+        ];
+        CAMERAS[self.index()]
+    }
+
     /// The bounded array index for this key, in `0..7`.
     pub(crate) const fn index(self) -> usize {
         self.0 as usize
     }
 }
 
-impl From<crate::IndividualCameraId> for TargetSlot {
-    fn from(camera: crate::IndividualCameraId) -> Self {
+impl From<IndividualCameraId> for TargetSlot {
+    fn from(camera: IndividualCameraId) -> Self {
         Self(camera.value() - 1)
-    }
-}
-
-impl TryFrom<CameraId> for TargetSlot {
-    type Error = Error;
-
-    fn try_from(camera: CameraId) -> Result<Self, Self::Error> {
-        match camera.value() {
-            1..=7 => Ok(Self(camera.value() - 1)),
-            _ => Err(Error::InvalidRequest {
-                reason: "a session target must be an individual camera".into(),
-            }),
-        }
     }
 }
 
@@ -137,14 +141,10 @@ mod tests {
         for (index, target) in TargetSlot::ALL.into_iter().enumerate() {
             assert_eq!(target.index(), index);
             assert_eq!(usize::from(target.camera().value()), index + 1);
-            assert_eq!(TargetSlot::try_from(target.camera()).ok(), Some(target));
+            assert_eq!(TargetSlot::from(target.individual_camera()), target);
         }
         assert!(CameraId::new(0).is_err());
-        assert!(matches!(
-            TargetSlot::try_from(CameraId::BROADCAST),
-            Err(Error::InvalidRequest { reason })
-                if reason == "a session target must be an individual camera"
-        ));
+        assert!(IndividualCameraId::try_from(CameraId::BROADCAST).is_err());
         assert_eq!(size_of::<TargetSlot>(), 1);
     }
 

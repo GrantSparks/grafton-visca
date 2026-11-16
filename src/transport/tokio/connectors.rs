@@ -19,7 +19,7 @@ use crate::{
         async_tcp::NetStream,
         async_udp::NetDatagram,
         datagram::recv_datagram,
-        socket_options::{TcpConnectionConfig, UdpSocketConfig},
+        socket_options::{configured_tcp_socket, TcpConnectionConfig, UdpSocketConfig},
         ReceiveOutcome,
     },
     Error,
@@ -37,8 +37,15 @@ impl AsyncNet for TokioNet {
         Ok(tokio::net::lookup_host(endpoint).await?.collect())
     }
 
-    async fn connect_tcp(address: SocketAddr) -> io::Result<TcpStream> {
-        TcpStream::connect(address).await
+    async fn connect_tcp(
+        address: SocketAddr,
+        options: TcpConnectionConfig,
+    ) -> io::Result<TcpStream> {
+        let socket = configured_tcp_socket(address, options)?;
+        socket.set_nonblocking(true)?;
+        tokio::net::TcpSocket::from_std_stream(socket.into())
+            .connect(address)
+            .await
     }
 
     async fn bind_udp(address: SocketAddr) -> io::Result<UdpSocket> {
@@ -49,6 +56,7 @@ impl AsyncNet for TokioNet {
         socket.connect(address).await
     }
 
+    #[cfg(test)]
     fn tcp_socket(stream: &TcpStream) -> socket2::SockRef<'_> {
         socket2::SockRef::from(stream)
     }

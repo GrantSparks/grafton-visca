@@ -7,6 +7,7 @@ pub(crate) struct PacketPattern {
     bytes: [u8; 8],
     mask: [u8; 8],
     len: usize,
+    selectors: Option<(usize, &'static [&'static [u8]])>,
 }
 
 impl PacketPattern {
@@ -23,6 +24,7 @@ impl PacketPattern {
             bytes: [0; 8],
             mask: [0; 8],
             len: bytes.len(),
+            selectors: None,
         };
         let mut index = 0;
         while index < bytes.len() {
@@ -65,10 +67,48 @@ impl PacketPattern {
         self
     }
 
+    /// Appends one finite, exact selector family. Unlike a nibble wildcard,
+    /// this cannot authorize a sibling action's selector.
+    pub(crate) const fn select(mut self, choices: &'static [&'static [u8]]) -> Self {
+        assert!(!choices.is_empty(), "a selector family is nonempty");
+        assert!(self.selectors.is_none(), "one selector family per packet");
+        let width = choices[0].len();
+        assert!(width > 0 && self.len + width <= 8, "invalid selector width");
+        let mut index = 0;
+        while index < choices.len() {
+            assert!(choices[index].len() == width, "selector widths differ");
+            index += 1;
+        }
+        self.selectors = Some((self.len, choices));
+        self.len += width;
+        self
+    }
+
+    #[cfg(test)]
+    fn variants(self) -> impl Iterator<Item = Self> {
+        let count = self.selectors.map_or(1, |(_, choices)| choices.len());
+        (0..count).map(move |index| {
+            let mut pattern = self;
+            if let Some((offset, choices)) = self.selectors {
+                for (byte, value) in choices[index].iter().enumerate() {
+                    pattern.bytes[offset + byte] = *value;
+                    pattern.mask[offset + byte] = 0xff;
+                }
+                pattern.selectors = None;
+            }
+            pattern
+        })
+    }
+
     pub(crate) fn matches_bytes(self, bytes: &[u8]) -> bool {
         bytes.len() >= self.len
             && (0..self.len).all(|index| {
                 bytes[index] & self.mask[index] == self.bytes[index] & self.mask[index]
+            })
+            && self.selectors.is_none_or(|(offset, choices)| {
+                choices
+                    .iter()
+                    .any(|selector| bytes.get(offset..offset + selector.len()) == Some(*selector))
             })
     }
 
@@ -87,12 +127,16 @@ impl PacketPattern {
     /// register. Expand that summary over the finite noun-row packet set.
     #[cfg(test)]
     fn covers_pattern(self, pattern: Self) -> bool {
-        self.len <= pattern.len
-            && (0..self.len).all(|index| {
-                self.mask[index] & pattern.mask[index] == self.mask[index]
-                    && self.bytes[index] & self.mask[index]
-                        == pattern.bytes[index] & self.mask[index]
+        pattern.variants().all(|actual| {
+            self.variants().any(|declared| {
+                declared.len <= actual.len
+                    && (0..declared.len).all(|index| {
+                        declared.mask[index] & actual.mask[index] == declared.mask[index]
+                            && declared.bytes[index] & declared.mask[index]
+                                == actual.bytes[index] & actual.mask[index]
+                    })
             })
+        })
     }
 }
 
@@ -101,6 +145,7 @@ impl PartialEq for PacketPattern {
         self.len == other.len
             && self.bytes[..self.len] == other.bytes[..other.len]
             && self.mask[..self.len] == other.mask[..other.len]
+            && self.selectors == other.selectors
     }
 }
 impl Eq for PacketPattern {}
@@ -108,15 +153,20 @@ impl Eq for PacketPattern {}
 #[cfg(test)]
 impl std::fmt::Display for PacketPattern {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for index in 0..self.len {
-            if index > 0 {
-                formatter.write_str(" ")?;
+        for (variant, pattern) in self.variants().enumerate() {
+            if variant > 0 {
+                formatter.write_str(";")?;
             }
-            for shift in [4, 0] {
-                if self.mask[index] & (0xf << shift) == 0 {
-                    formatter.write_str("p")?;
-                } else {
-                    write!(formatter, "{:X}", (self.bytes[index] >> shift) & 0xf)?;
+            for index in 0..pattern.len {
+                if index > 0 {
+                    formatter.write_str(" ")?;
+                }
+                for shift in [4, 0] {
+                    if pattern.mask[index] & (0xf << shift) == 0 {
+                        formatter.write_str("p")?;
+                    } else {
+                        write!(formatter, "{:X}", (pattern.bytes[index] >> shift) & 0xf)?;
+                    }
                 }
             }
         }
@@ -526,13 +576,9 @@ pub(crate) mod checked {
             if matches!(gate, RowGate::Typed(gates) | RowGate::DomainAndTyped(_, gates) if gates.contains(surface))
                 && source.covers_model(Some(model))
             {
-                let bytes = if matches!(kind, crate::command::InquiryKind::Power)
-                    && model == ProfileId::SonyBrcH900
-                {
-                    &crate::command::bytes::constants::power::BRC_H900_STATE_INQUIRY[..]
-                } else {
-                    bytes
-                };
+                let profile = model.spec().expect("built-in source facts");
+                let bytes =
+                    crate::command::inquiry_structs::body_for_profile(*kind, bytes, &profile);
                 push(PacketPattern::exact(bytes));
             }
         }
@@ -632,25 +678,24 @@ pub(crate) mod checked {
                 // The obsolete 0A-category prefix in this aggregate summary
                 // is not positive permission. Both actual sourced rows use
                 // the catalogue's 2A-category packet and remain checked.
-                let setter = command(C::UsbAudioOn)?;
                 let getter = inquiry("UsbAudioInquiry")?;
-                assert_eq!(
-                    setter, getter,
-                    "USB command and inquiry share their actual register"
-                );
-                let mut obsolete = setter.prefix_len(3);
+                let mut obsolete = getter.prefix_len(3);
                 obsolete.bytes[0] &= !0x20;
-                (S::UsbAudio, vec![obsolete, setter], vec![setter])
+                (
+                    S::UsbAudio,
+                    vec![obsolete, getter],
+                    vec![getter, command(C::UsbAudioOn)?, command(C::UsbAudioOff)?],
+                )
             }
             "r1-ptzopticsg2-ptzopticspresetrecallspeed-grant"
             | "r10-ptzopticsg3-ptzopticspresetrecallspeed-grant"
             | "r1-ptzoptics30x-ptzopticspresetrecallspeed-grant" => {
-                // The summary includes the fully wildcard speed argument;
-                // command patterns deliberately stop at the catalogue prefix.
+                // The summary omits the terminator that distinguishes this
+                // short packet from the shared pan/tilt drive register.
                 let setter = command(C::PresetRecallSpeed)?;
                 (
                     S::PresetRecallSpeed,
-                    vec![setter.then(&[0], &[0])],
+                    vec![setter.prefix_len(3).then(&[0], &[0])],
                     vec![setter],
                 )
             }
@@ -1183,6 +1228,45 @@ mod tests {
             PacketPattern::exact(&[1, 2, 3])
         );
     }
+    #[test]
+    fn stop_and_action_selectors_reject_sibling_frames() {
+        use crate::command::semantics::BuiltinCommand as B;
+        let stop = B::PanTiltStop.packet().expect("STOP source");
+        let drive = B::PanTiltDrive.packet().expect("drive source");
+        for pan in 1..=3 {
+            for tilt in 1..=3 {
+                let frame = [0x81, 1, 6, 1, 0x18, 0x14, pan, tilt, 0xff];
+                assert_eq!(
+                    stop.validate_frame(&frame, "STOP").is_ok(),
+                    pan == 3 && tilt == 3
+                );
+                assert_eq!(
+                    drive.validate_frame(&frame, "drive").is_ok(),
+                    pan != 3 || tilt != 3
+                );
+            }
+        }
+        for (row, body, accepted) in [
+            (B::PushAfPress, &[1, 0x7e, 4, 0x58][..], &[1][..]),
+            (B::PushAfRelease, &[1, 0x7e, 4, 0x58][..], &[0][..]),
+            (B::MenuDisplay, &[1, 6, 6][..], &[2, 3][..]),
+            (B::MenuSelect, &[1, 6, 6][..], &[5][..]),
+            (B::MenuCancel, &[1, 6, 6][..], &[4][..]),
+        ] {
+            for selector in 0..=u8::MAX {
+                let frame = [vec![0x81], body.to_vec(), vec![selector, 0xff]].concat();
+                assert_eq!(
+                    row.packet()
+                        .expect("selector pattern")
+                        .validate_frame(&frame, "action")
+                        .is_ok(),
+                    accepted.contains(&selector),
+                    "{row:?} selector {selector:02X}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn encoded_command_selector_must_match_the_source_row() {
         let source = crate::command::semantics::BuiltinCommand::PowerOn

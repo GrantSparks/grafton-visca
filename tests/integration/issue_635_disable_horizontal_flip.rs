@@ -55,7 +55,7 @@ mod blocking_surface {
         let (session, fake) =
             session(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile"));
         let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         camera.image().set_mirror(true).expect("mirror on");
@@ -72,7 +72,7 @@ mod blocking_surface {
         let (session, fake) =
             session(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile"));
         let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         // Only the combined opcode establishes both axes, so start from a
@@ -142,7 +142,7 @@ mod async_surface {
         let (session, fake) =
             open(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile")).await;
         let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
 
         camera.image().set_mirror(true).await.expect("mirror on");
@@ -173,7 +173,9 @@ mod runtime_profile_surface {
         let (session, fake) =
             open(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile")).await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
         let nouns = &camera;
 
@@ -191,7 +193,9 @@ mod runtime_profile_surface {
         let (session, fake) =
             open(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile")).await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
         let nouns = &camera;
 

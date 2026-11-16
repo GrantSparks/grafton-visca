@@ -28,7 +28,13 @@ use `from_fn` or `with_context`, and operation values expose `bytes()` and
 `affected_axes()`. All inquiry convenience constructors select the `Inquiry`
 timeout category. Inquiry policies store neither timeout nor command reply
 shape. Command and operation policies take `CommandTimeoutClass`, which has no
-`Inquiry` variant; all policies take `SubmissionClass`, which has no urgent lane.
+`Inquiry` variant. Inquiry policies and convenience constructors take
+`request::InquiryRetryClass::{Never, Inquiry}`: `Never` disables automatic replay,
+and `Inquiry` enables bounded lost-reply recovery. `Standard`, `Movement` and
+`Preset` are command families and cannot be constructed or deserialized into an
+inquiry policy. Preparation rejects those families on downstream inquiry
+`Request` implementations before encoding or I/O. All policies take
+`SubmissionClass`, which has no urgent lane.
 Policy construction is infallible, and raw request construction validates only
 wire bytes.
 
@@ -67,6 +73,19 @@ framing and decoder inventories construct the table's valid typed sample.
 Every operation row contains a non-empty `BuiltinAxisSelection`.  Preset
 recall is the one profile-dependent case: preparation must validate and carry
 the profile's exact preset axes.  It must not substitute all axes.
+
+## Color-temperature decoding
+
+`ColorTemperatureInquiry.decoder()` and the profile-independent color-temperature
+command use the declared PTZOptics step table. They describe that table's wire
+dialect. Use `decoder_for_profile(&profile)` and target-bound preparation for a
+custom table: the same wire index can select a different Kelvin value there.
+Every conversion indexes a table; no arithmetic Kelvin-to-step mapping is used.
+
+The profile-independent `InquiryData::ColorTemperature { temperature }` field
+always carries a wire-table index. A profile-bound typed decoder returns `Kelvin`
+directly and never stores physical temperature in that raw field. Derived raw
+inquiries retain the index under both decoder entry points (#974).
 
 ## Ledger decisions
 

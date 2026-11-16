@@ -191,7 +191,7 @@ impl Bench {
         let mut config = SessionConfig::new(profile());
         for target in self.targets.iter().skip(1) {
             config = config
-                .with_target(*target, profile())
+                .with_target((*target).try_into().expect("individual target"), profile())
                 .expect("second target");
         }
         config
@@ -285,7 +285,7 @@ facade_matrix! {
     fn stale_stream_inquiry_reply_never_binds_a_later_inquiry() {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         bench.start_fault();
         let power = wait!(camera.power().status());
@@ -309,7 +309,7 @@ facade_matrix! {
     fn stream_inquiry_reply_timeout_is_not_resent() {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
         assert!(wait!(camera.power().status()).expect("pre-fault inquiry").is_on());
 
         bench.start_fault();
@@ -349,10 +349,10 @@ facade_matrix! {
         );
         let session = open!(bench, bench.config()).expect("session");
         let first = session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera 1");
         let second = session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_2)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_2)
             .expect("camera 2");
 
         let power = wait!(first.power().status());
@@ -401,7 +401,7 @@ facade_matrix! {
     fn unanswered_stream_inquiry_latches_a_single_cameras_inquiries() {
         let bench = Bench::with_targets(SendSemantics::Stream, vec![CameraId::CAMERA_1], vec![1]);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         let power = wait!(camera.power().status());
         assert!(conclusive_timeout(&power), "{power:?}");
@@ -434,7 +434,7 @@ facade_matrix! {
     fn owed_reply_arriving_after_the_window_reopens_the_lane_with_correct_data() {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         bench.start_fault();
         let power = wait!(camera.power().status());
@@ -465,7 +465,7 @@ facade_matrix! {
     fn datagram_inquiry_reply_timeout_still_retries() {
         let bench = Bench::new(SendSemantics::Datagram);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         bench.start_fault();
         let power = wait!(camera.power().status());
@@ -482,7 +482,7 @@ facade_matrix! {
     fn stalled_stream_command_is_unconfirmed_without_replay() {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         bench.start_fault();
         let result = wait!(wait!(camera.pan_tilt().stop()).expect("admitted").applied());

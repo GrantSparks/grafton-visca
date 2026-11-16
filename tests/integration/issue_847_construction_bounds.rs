@@ -28,7 +28,7 @@ facade_matrix! {
         let config = SessionConfig::from_compile_time::<GenericVisca>().expect("profile")
             .with_admission_capacity(NonZeroUsize::new(1_048_576).expect("nonzero"));
         let session = open!(camera, config).expect("large representable capacity");
-        let view = session.camera::<GenericVisca>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let view = session.camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
         wait!(view.power().on()).expect("command");
         session.shutdown().expect("shutdown");
     }

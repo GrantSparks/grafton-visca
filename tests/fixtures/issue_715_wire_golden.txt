@@ -511,7 +511,6 @@ ImageFlipInquiry	81 09 04 66 FF
 IrisInquiry	81 09 04 4B FF
 LuminanceInquiry	81 09 04 A1 FF
 MenuOpenCloseInquiry	81 09 06 06 FF
-MotionSyncModeInquiry	81 09 04 56 FF
 NdFilterInquiry	81 09 7E 04 42 FF
 NdFilterPresetInquiry	81 09 7E 01 53 FF
 NoiseReduction2DInquiry	81 09 04 53 FF
@@ -560,3 +559,5 @@ BRC300[ABS,unequal-speeds,refused]	REJECT(InvalidParameter)
 Unsigned[ABS,zero,bias]	81 01 06 02 09 07 08 00 00 00 08 00 00 00 FF
 Unsigned[REL,zero,no-bias]	81 01 06 03 09 07 00 00 00 00 00 00 00 00 FF
 H900[PowerInquiry,target-aware]	81 09 7E 04 00 FF
+H900Clone[PowerInquiry,target-aware]	81 09 7E 04 00 FF
+CustomExtended[PowerInquiry,target-aware]	81 09 7E 04 00 FF

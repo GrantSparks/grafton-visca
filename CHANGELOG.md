@@ -68,6 +68,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#971): Session targets, camera registrations, camera views and
+  persisted camera configuration use `IndividualCameraId` (1–7). Broadcast
+  remains available on raw wire requests through `CameraId`; invalid target
+  addresses are rejected by the value type before configuration or I/O.
+
+- **BREAKING** Power-status packet selection is a required
+  `PowerCaps::status_query` fact. Exported BRC-H900 custom profiles retain their
+  extended query, and profile checks and probe reports expose the selected
+  dialect. Saved power facts must declare `standard` or `extended` (#966).
+
+- Profile validation rejects gain grants without a gain range, zoom endpoints
+  outside the checked position domain, and recall speeds outside the selected
+  encoding. Generic VISCA optical normalization uses its sourced `0x4000`
+  endpoint (#965).
+
+- Color-temperature conversion uses the profile step table on every path.
+  Profile-bound inquiry decoding returns Kelvin directly while raw response
+  fields retain wire-step units; the profile-free decoder uses the built-in
+  PTZOptics table (#974).
+
+- Source packet checks distinguish pan/tilt STOP from drive and validate exact
+  Push AF and menu selectors. The unsourced motion-sync readback is removed;
+  custom integrations provide an evidenced inquiry and decoder (#969).
+
+- Sony named ACKs now bind to the camera's socket after reuse, superseding
+  the other-socket fallback retained by #682 and #721. The displaced
+  predecessor retains sequence-based completion and its original deadline;
+  cancellation is refused instead of targeting its successor (#963).
+
+- Motion idle waits require a positive sampling interval before I/O and during
+  deserialization. `IdleWait` exposes private fields through getters and
+  `with_*` setters. All position-based observations accept replies delivered
+  by the owner at the deadline, even when the caller resumes later (#967).
+
+- Targeted operations prepare and cache position-polling inquiries only when
+  `settled()` needs them, retaining submission-time tuning across live updates.
+  Built-in `Response::parse_with_profile` uses constant registry framing without
+  reconstructing an owned profile (#975).
+
+- **BREAKING** (#970): Raw inquiry policies and constructors take
+  `request::InquiryRetryClass::{Never, Inquiry}`. Persisted policies and
+  downstream inquiries reject command-only retry families before I/O, preserving
+  explicit reply-loss retry behavior.
+
 - Built-in typed camera views reuse their validated profile identity and grants
   without allocating; custom profiles retain complete fact comparison (#958).
 
@@ -87,15 +131,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consistently with typed camera inquiries. The duplicate
   `InquiryKind::ExposureCompensationPosition` is removed.
 
-- Blocking and async facade documentation shares the same camera ownership,
-  request admission and operation-handle contracts (#943).
+- Blocking and async facades share generated camera and Session methods plus
+  camera ownership, request admission, tuning, teardown and operation-handle
+  documentation contracts (#943, #976).
 
 - Engine decisions append effects into retained owner buffers. After warm-up,
   standard command and frame turns reuse their effect storage without heap
   allocation; per-request observer storage remains lifecycle storage (#942).
 
-- **BREAKING** (#932): Blocking and async cameras expose the same 249 canonical
-  noun methods and 246 request types. Runtime profiles use the normal
+- **BREAKING** (#932): Blocking and async cameras expose the same 248 canonical
+  noun methods and 245 request types. Runtime profiles use the normal
   `Camera<AnyProfile>` surface with checks before I/O; the separate `dyn-api`
   feature, erased camera traits, and their CI feature legs are removed.
   Values, requests, operations, configurations, profiles, transports and wire
@@ -542,6 +587,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   helpers. Use `ManualClockExecutor::local` and its `run_until` driver instead.
 
 ### Fixed
+
+- Blocking reads retry signal interruptions within their original deadline,
+  including UDP receives. Serial startup treats zero-byte reads as immediate
+  EOF, and zero-byte timed serial writes report a timeout consistently with
+  stalled async writes (#973).
+
+- TCP sockets apply TTL, nodelay and keepalive before the handshake on blocking,
+  Tokio and smol sessions. A socket-option failure tries the next resolved
+  address within the same connection budget (#972).
+
+- Failed datagram writes retain the same certainty and correlation protection
+  inside and after the retry budget. Raw commands require reconciliation and
+  hold late replies away from successors; Sony commands preserve the transport
+  cause in `RequestUnconfirmed`, and raw inquiries retain their reply-skew hold
+  (#968).
+
+- Sony retry exhaustion, budget expiry and cancellation retain uncertainty from
+  an earlier lost ACK even after a later camera rejection. Terminal failures
+  preserve their exact cause in `RequestUnconfirmed` and require reconciliation;
+  cancelling during retry waiting never falsely confirms cancellation (#962).
+
+- Async command, inquiry and operation futures abandoned before admission never
+  write their queued request, including behind raw-release gates. Their permits
+  return and admission rejections are counted separately from dropped operation
+  observers; dropping after admission remains observation-only detachment (#964).
 
 - Raw stream disputes retire individual members of merged STOP debt runs, and
   socketless disputed ACKs retain executing-socket evidence, preventing later

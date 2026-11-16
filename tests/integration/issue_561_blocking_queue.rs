@@ -19,6 +19,7 @@ use fake_camera::{frames, Answer, FakeCamera, FOCUS_STOP, ZOOM_STOP};
 use grafton_visca::{
     blocking::Session,
     config::{OperationalTuning, SessionConfig},
+    error::{Certainty, FailureContext, FailureStage, Recovery},
     operation::AppliedOnly,
     profiles::{ProfileSpec, SonyFr7},
     Error,
@@ -49,7 +50,7 @@ fn two_socket_camera() -> FakeCamera {
 fn pan_tilt_stop() -> grafton_visca::command::pan_tilt::Stop {
     grafton_visca::command::pan_tilt::Stop::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -126,7 +127,7 @@ fn a_third_operation_queues_until_a_socket_frees() {
     let session =
         Session::open(fake.blocking_wire(), &sony_session_config()).expect("owner session");
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let mut first = camera
@@ -172,7 +173,7 @@ fn a_one_socket_target_queues_the_second_operation() {
     let fake = two_socket_camera();
     let session = Session::open(fake.blocking_wire(), &config).expect("owner session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let mut first = camera
@@ -187,8 +188,8 @@ fn a_one_socket_target_queues_the_second_operation() {
     session.shutdown().expect("owner shutdown");
 }
 
-/// A typed operation whose datagram send fails is still admitted; the exact
-/// transport error is its outcome (D24). The terminalized entry releases its
+/// A typed operation whose datagram send fails is still admitted; its raw
+/// outcome remains unconfirmed (D24, #968). The terminalized entry releases its
 /// shared permit, so a one-slot session can immediately admit and complete a
 /// later operation.
 #[test]
@@ -198,7 +199,7 @@ fn a_failed_operation_write_is_its_outcome_and_releases_the_permit() {
     let (fake, accepted) = first_write_failure_camera();
     let session = Session::open(fake.blocking_wire(), &config).expect("owner session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera
@@ -206,12 +207,18 @@ fn a_failed_operation_write_is_its_outcome_and_releases_the_permit() {
         .expect("submission succeeds at admission")
         .applied()
         .expect_err("the failed write is the operation's outcome");
-    match &error {
-        Error::TransportError { source: reason, .. } => {
-            assert!(reason.to_string().ends_with(FIRST_WRITE_ERROR))
-        }
-        other => panic!("expected the exact transport error, got {other:?}"),
-    }
+    assert!(
+        matches!(error, Error::UnsequencedCommandUnconfirmed),
+        "{error:?}"
+    );
+    assert_eq!(error.recovery(), Recovery::Reconcile);
+    assert_eq!(
+        error.failure_context(),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::Unconfirmed,
+        ))
+    );
     assert_eq!(fake.write_count(), 1, "the failed operation tried once");
     assert_eq!(
         accepted_count(&accepted),
@@ -261,7 +268,7 @@ fn typed_operations_respect_profile_pacing() {
     let session =
         Session::open(fake.blocking_wire(), &SessionConfig::new(profile)).expect("owner session");
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let mut first = camera

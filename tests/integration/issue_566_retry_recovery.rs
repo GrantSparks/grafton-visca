@@ -37,7 +37,7 @@ use grafton_visca::{
     operation::AppliedOnly,
     profiles::{ProfileSpec, ProfileTiming, SonyFr7},
     raw,
-    request::RetryClass,
+    request::InquiryRetryClass,
     types::ZoomPosition,
     Error,
 };
@@ -76,7 +76,7 @@ fn custom_zoom_inquiry() -> raw::InquiryRequest<Vec<u8>> {
     raw::InquiryRequest::from_fn(
         ZOOM_POSITION_INQUIRY,
         decode_custom_inquiry,
-        RetryClass::Inquiry,
+        InquiryRetryClass::Inquiry,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("valid custom inquiry")
@@ -117,12 +117,41 @@ fn zoom_position_reply() -> Vec<u8> {
 facade_matrix! {
     paused:
 
+    /// #970: the two inquiry retry families preserve their reply-loss
+    /// behavior through raw datagram owners on every facade.
+    fn inquiry_retry_family_controls_lost_reply_replay() {
+        for retry in [InquiryRetryClass::Never, InquiryRetryClass::Inquiry] {
+            let camera = scripted(vec![vec![], vec![zoom_position_reply()]], Vec::new());
+            let session = open!(camera, session_config()).expect("owner session");
+            let view = session
+                .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                .expect("camera view");
+            let inquiry = raw::InquiryRequest::from_fn(
+                ZOOM_POSITION_INQUIRY, decode_custom_inquiry, retry,
+                grafton_visca::request::SubmissionClass::Normal,
+            ).expect("raw inquiry");
+            let result = wait!(view.inquire(&inquiry));
+            match retry {
+                InquiryRetryClass::Never => {
+                    assert!(result.is_err(), "Never cannot replay the lost reply");
+                    assert_eq!(camera.write_count(), 1);
+                }
+                InquiryRetryClass::Inquiry => {
+                    assert_eq!(result.expect("Inquiry replays the lost reply"), vec![1, 2, 3, 4]);
+                    assert_eq!(camera.write_count(), 2);
+                }
+                _ => unreachable!("the test selects only the two declared families"),
+            }
+            session.shutdown().expect("owner shutdown");
+        }
+    }
+
     /// Issue #566: `0x41` is retried for a movement-class request.
     fn a_refused_movement_command_is_replayed_and_then_succeeds() {
         let camera = scripted(vec![vec![not_executable()], standard_reply()], standard_reply());
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(view.execute(&MovementCommand))
@@ -143,7 +172,7 @@ facade_matrix! {
         let camera = scripted(vec![vec![not_executable()], standard_reply()], standard_reply());
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
@@ -164,7 +193,7 @@ facade_matrix! {
         let camera = scripted(vec![vec![not_executable()]], standard_reply());
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let error = wait!(view.execute(&StandardCommand))
@@ -190,7 +219,7 @@ facade_matrix! {
         let camera = scripted(vec![vec![no_socket()], standard_reply()], standard_reply());
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(view.execute(&StandardCommand))
@@ -214,7 +243,7 @@ facade_matrix! {
         );
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let position = wait!(view.zoom().position())
@@ -233,7 +262,7 @@ facade_matrix! {
         );
         let session = open!(camera, session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let custom = custom_zoom_inquiry();
@@ -277,7 +306,7 @@ facade_matrix! {
         // the frame is reissued.
         let camera = scripted(vec![Vec::new(), standard_reply()], standard_reply());
         let session = open!(camera, sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
 
         wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
             .expect("submission")
@@ -293,6 +322,39 @@ facade_matrix! {
         session.shutdown().expect("owner shutdown");
     }
 
+    /// Issue #962: a rejection on a replay cannot prove the lost-ACK attempt
+    /// had no effect, even when that rejection exhausts the retry allowance.
+    fn a_sony_lost_ack_then_rejections_requires_reconciliation() {
+        let camera = scripted(vec![Vec::new()], vec![frames::buffer_full()]);
+        let session = open!(camera, sony_session_config()).expect("owner session");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
+        let mut operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("submission");
+        let error = wait!(operation.applied_with_timeout(Duration::from_secs(60)))
+            .expect_err("exhausted retries retain the first possible effect");
+        assert!(matches!(&error, Error::RequestUnconfirmed { source, .. } if matches!(source.as_ref(), Error::CommandBufferFull)));
+        assert_eq!(error.recovery(), Recovery::Reconcile);
+        assert_eq!(error.failure_context(), Some(FailureContext::new(FailureStage::Terminal, Certainty::Unconfirmed)));
+        assert!(camera.write_count() > 1);
+        session.shutdown().expect("owner shutdown");
+    }
+
+    /// Issue #962: local cancellation during Sony retry waiting is not proof
+    /// that the earlier written attempt stopped or never ran.
+    fn cancelling_a_sony_lost_ack_backoff_is_unconfirmed() {
+        let camera = FakeCamera::silent();
+        let session = open!(camera, sony_session_config()).expect("owner session");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
+        let mut operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("submission");
+        wait_for_writes!(camera, 1);
+        pause!(sony_fr7_timing().ack_timeout() + Duration::from_millis(1));
+        let error = wait!(operation.cancel_with_timeout(Duration::from_secs(5)))
+            .expect_err("a lost ACK cannot be conclusively cancelled locally");
+        assert!(matches!(error, Error::CancellationUnconfirmed), "{error:?}");
+        assert_eq!(error.recovery(), Recovery::Reconcile);
+        assert_eq!(camera.write_count(), 1, "local cancellation emits no replay or cancel frame");
+        session.shutdown().expect("owner shutdown");
+    }
+
     /// Issue #795: the ACK proved the camera accepted the command, and Sony
     /// same-sequence retransmission (docs/visca_reference.md §5.3) recovers a
     /// lost message, not an accepted one. A camera that ACKs and then goes
@@ -300,7 +362,7 @@ facade_matrix! {
     fn a_silent_camera_after_its_ack_is_never_rewritten() {
         let camera = scripted(vec![vec![frames::ack(1)], standard_reply()], standard_reply());
         let session = open!(camera, sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
 
         let started = now!();
         let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
@@ -340,7 +402,7 @@ facade_matrix! {
         // The camera never answers anything: neither the command nor the cancel.
         let camera = FakeCamera::silent();
         let session = open!(camera, sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
 
         let started = now!();
         let mut operation =

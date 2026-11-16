@@ -109,7 +109,7 @@ fn built_in_commands_end_with_the_exported_terminator() {
         grafton_visca::command::zoom::Wide,
         grafton_visca::command::zoom::TeleVariable::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
@@ -121,7 +121,7 @@ fn built_in_commands_end_with_the_exported_terminator() {
         .expect("profile-aware request"),
         grafton_visca::command::zoom::WideVariable::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<
                     grafton_visca::profiles::PtzOpticsG2,
                 >()

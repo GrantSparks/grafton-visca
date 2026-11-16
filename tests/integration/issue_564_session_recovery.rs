@@ -101,7 +101,7 @@ mod blocking_recovery {
             .expect("open the original session");
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
             .expect("camera view");
         camera
@@ -131,7 +131,7 @@ mod blocking_recovery {
         assert!(retained.requires_new_session());
         assert!(session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1
+                grafton_visca::types::IndividualCameraId::CAMERA_1
             )
             .expect("camera view")
             .inquire(&grafton_visca::command::zoom::PositionInquiry)
@@ -147,7 +147,7 @@ mod blocking_recovery {
             .expect("rebuild a fresh session");
         let rebuilt_camera = rebuilt
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
             .expect("camera view on the rebuilt session");
         let cache = rebuilt_camera.state_cache();
@@ -183,7 +183,7 @@ mod blocking_recovery {
         .expect("open a session");
         let closed = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
             .expect("camera view")
             .streaming()
@@ -205,7 +205,7 @@ mod blocking_recovery {
         .expect("open a session");
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
             .expect("camera view");
         camera
@@ -265,7 +265,7 @@ mod tokio_recovery {
         .expect("open the original session");
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
             .expect("camera view");
         camera
@@ -303,7 +303,7 @@ mod tokio_recovery {
         .expect("rebuild a fresh session");
         rebuilt
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
             .expect("camera view on the rebuilt session")
             .streaming()
@@ -324,7 +324,7 @@ mod tokio_recovery {
         .expect("open a session");
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
             .expect("camera view");
         camera

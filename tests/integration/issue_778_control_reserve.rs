@@ -58,7 +58,7 @@ facade_matrix! {
     fn stop_passes_a_saturated_session() {
         let fake = FakeCamera::silent();
         let session = open!(fake, saturated_config()).expect("owner session");
-        let camera = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("raw camera");
+        let camera = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("raw camera");
 
         // The running zoom holds the session's only ordinary slot. Its ACK is
         // answered after the owner writes it and read before the STOP is
@@ -113,7 +113,9 @@ async fn dyn_stop_passes_a_saturated_session<E: Executor>(executor: E) {
         .await
         .expect("owner session");
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic camera");
     let zoom = camera
         .submit(&grafton_visca::command::zoom::Tele)

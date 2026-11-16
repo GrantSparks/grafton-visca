@@ -101,7 +101,8 @@ mod lowering {
     /// Owner-private settlement proof returned by the sealed lowering.
     ///
     /// Each kind stores exactly its own plan: targeted operations retain their
-    /// prepared settlement plan; applied-only operations retain no plan.
+    /// settlement inputs and lazily cached polling templates; applied-only
+    /// operations retain no plan.
     #[doc(hidden)]
     #[derive(Debug)]
     pub struct SettlementPlan<K>
@@ -122,8 +123,9 @@ mod lowering {
             self.plan.inner.default_budget()
         }
 
-        /// The prepared settlement plan. Borrowed, so an abandoned wait can
-        /// restart on the same handle without reconstructing its plan (#777).
+        /// The immutable settlement selection and lazily cached query templates.
+        /// Borrowed, so an abandoned wait can restart on the same handle
+        /// without reconstructing its initialized plan (#777, #975).
         pub(crate) const fn plan(&self) -> &crate::prepared::SettlementPlan {
             &self.plan.inner
         }

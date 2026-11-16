@@ -195,6 +195,13 @@ pub(crate) enum Lifecycle {
         attempt: AttemptFacts,
         cancellation: ExecutingCancellation,
     },
+    /// Sony acceptance whose socket was subsequently reassigned by the camera.
+    /// Only its sequence retains response authority; no cancellation may be sent.
+    ExecutingDisplaced {
+        started_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
     AwaitingReply {
         sent_at: Instant,
         deadline: Instant,
@@ -220,6 +227,16 @@ impl Lifecycle {
             | Self::AwaitingCancellationResolution { socket, .. } => Some(socket),
             _ => None,
         }
+    }
+
+    /// Acceptance survives loss of a camera-reassigned socket.
+    pub(crate) const fn is_accepted(self) -> bool {
+        matches!(
+            self,
+            Self::Executing { .. }
+                | Self::ExecutingDisplaced { .. }
+                | Self::AwaitingCancellationResolution { .. }
+        )
     }
 
     /// A queued request owns no active wire attempt.
@@ -251,7 +268,9 @@ impl Lifecycle {
             } | Self::AwaitingReply { .. }
         )
     }
-    /// Command occupancy lasts through cancellation resolution.
+    /// Physical command occupancy lasts through cancellation resolution.
+    /// A Sony execution displaced by camera-proven socket reuse retains no
+    /// physical capacity, although its sequence and acceptance remain live.
     pub(crate) const fn is_command_on_wire(self) -> bool {
         matches!(
             self,
@@ -296,7 +315,8 @@ impl Lifecycle {
         match self {
             Self::AwaitingAck { deadline, .. }
             | Self::AwaitingCompletion { deadline, .. }
-            | Self::AwaitingReply { deadline, .. } => Some(deadline),
+            | Self::AwaitingReply { deadline, .. }
+            | Self::ExecutingDisplaced { deadline, .. } => Some(deadline),
             Self::Executing {
                 deadline,
                 cancellation,
@@ -340,6 +360,14 @@ impl Lifecycle {
                 started_at,
                 deadline: cancellation.response_deadline(deadline),
             },
+            Self::ExecutingDisplaced {
+                started_at,
+                deadline,
+                ..
+            } => Phase::ExecutingDisplaced {
+                started_at,
+                deadline,
+            },
             Self::AwaitingReply {
                 sent_at, deadline, ..
             } => Phase::AwaitingReply { sent_at, deadline },
@@ -365,6 +393,7 @@ impl Lifecycle {
             Self::AwaitingCompletion { .. } => SendingReply::CompletionOnly,
             Self::AwaitingAck { .. }
             | Self::Executing { .. }
+            | Self::ExecutingDisplaced { .. }
             | Self::AwaitingCancellationResolution { .. } => SendingReply::AckThenCompletion,
         })
     }
@@ -434,6 +463,10 @@ impl Lifecycle {
                     DueAction::Completion(action),
                 ))
             }
+            Self::ExecutingDisplaced { deadline, .. } => Some((
+                deadline,
+                DueAction::Completion(CompletionDeadline::Accepted),
+            )),
             Self::AwaitingReply {
                 deadline, attempt, ..
             } => Some((
@@ -500,6 +533,7 @@ impl Lifecycle {
             | Self::AwaitingAck { .. }
             | Self::AwaitingCompletion { .. }
             | Self::Executing { .. }
+            | Self::ExecutingDisplaced { .. }
             | Self::AwaitingCancellationResolution { .. } => BudgetRetirement::Command,
         }
     }
@@ -564,6 +598,7 @@ impl Lifecycle {
                 }
             },
             Self::Sending { .. }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
@@ -577,6 +612,7 @@ impl Lifecycle {
             Self::Sending { attempt, .. }
             | Self::AwaitingAck { attempt, .. }
             | Self::AwaitingCompletion { attempt, .. }
+            | Self::ExecutingDisplaced { attempt, .. }
             | Self::Executing { attempt, .. }
             | Self::AwaitingReply { attempt, .. }
             | Self::AwaitingCancellationResolution { attempt, .. } => Some(attempt),
@@ -637,6 +673,7 @@ impl Lifecycle {
                 ResolvingCancellation::ObservationFailed { .. } => false,
             },
             Self::Sending { .. }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
@@ -665,6 +702,7 @@ impl Lifecycle {
                 ResolvingCancellation::ObservationFailed { .. } => {}
             },
             Self::Sending { .. }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
@@ -696,6 +734,7 @@ impl Lifecycle {
                 cancellation: ResolvingCancellation::Requested(_),
                 ..
             }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
             | Self::AwaitingAck { .. }
@@ -730,6 +769,7 @@ impl Lifecycle {
                 }
             }),
             Self::Sending { .. }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
@@ -739,7 +779,9 @@ impl Lifecycle {
 
     pub(crate) const fn active_cancellation_ambiguity(self) -> Option<Instant> {
         match self {
-            Self::Executing { .. } | Self::AwaitingCancellationResolution { .. } => None,
+            Self::Executing { .. }
+            | Self::ExecutingDisplaced { .. }
+            | Self::AwaitingCancellationResolution { .. } => None,
             Self::Ready { .. }
             | Self::Sending { .. }
             | Self::AwaitingAck { .. }
@@ -762,9 +804,9 @@ impl Lifecycle {
     pub(crate) fn correlated_response_deadline(self, budget: Option<Instant>) -> Option<Instant> {
         let deadline = match self {
             Self::AwaitingAck { deadline, .. } => self.cancellation_ambiguity().or(Some(deadline)),
-            Self::AwaitingCompletion { deadline, .. } | Self::AwaitingReply { deadline, .. } => {
-                Some(deadline)
-            }
+            Self::AwaitingCompletion { deadline, .. }
+            | Self::AwaitingReply { deadline, .. }
+            | Self::ExecutingDisplaced { deadline, .. } => Some(deadline),
             Self::Executing {
                 deadline,
                 cancellation,
@@ -790,7 +832,8 @@ impl Lifecycle {
             Self::Sending { .. } | Self::AwaitingAck { .. } => Some(ambiguity),
             Self::Executing { deadline, .. } => Some(deadline.max(ambiguity)),
             Self::AwaitingCancellationResolution { deadline, .. } => Some(deadline.max(ambiguity)),
-            Self::Ready { .. }
+            Self::ExecutingDisplaced { .. }
+            | Self::Ready { .. }
             | Self::AwaitingCompletion { .. }
             | Self::AwaitingReply { .. }
             | Self::Backoff { .. } => None,
@@ -861,6 +904,9 @@ impl Lifecycle {
         match self {
             Self::Ready { .. } | Self::Backoff { .. } => CancellationDecision::Local,
             Self::AwaitingCompletion { .. } => refused(),
+            Self::ExecutingDisplaced { .. } => {
+                CancellationDecision::Refused(crate::Error::CancellationUnconfirmed)
+            }
             Self::AwaitingReply { .. } => {
                 CancellationDecision::Refused(crate::Error::InquiryNotCancellable)
             }
@@ -982,6 +1028,7 @@ impl Lifecycle {
                     | ResolvingCancellation::ObservationFailed { .. },
                 ..
             }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
             | Self::AwaitingAck { .. }
@@ -1033,6 +1080,7 @@ impl Lifecycle {
                     | ResolvingCancellation::ObservationFailed { .. },
                 ..
             }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
             | Self::AwaitingAck { .. }
@@ -1065,6 +1113,7 @@ impl Lifecycle {
                 ..
             }
             | Self::Executing { .. }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
             | Self::AwaitingAck { .. }
@@ -1268,6 +1317,7 @@ impl Lifecycle {
                     | ResolvingCancellation::ObservationFailed { .. },
                 ..
             }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::Sending { .. }
             | Self::AwaitingAck { .. }

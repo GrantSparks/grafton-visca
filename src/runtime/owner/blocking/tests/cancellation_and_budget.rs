@@ -17,7 +17,7 @@ fn completion_only_cancel_is_unsupported_without_ending_application() {
     let prepared = prepare_operation::<AppliedOnly, _>(
         &command,
         &crate::TargetRegistration::new(
-            (crate::target::TargetSlot::CAMERA_1).camera(),
+            (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             generic_profile().clone(),
         )
         .expect("valid target registration"),
@@ -68,7 +68,7 @@ fn prepared_retry_budget_covers_late_ack_and_completion_on_the_worker() {
         let prepared = prepare_operation::<AppliedOnly, _>(
             &command,
             &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
+                (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 profile.clone(),
             )
             .expect("valid target registration"),

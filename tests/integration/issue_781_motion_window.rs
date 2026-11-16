@@ -129,7 +129,7 @@ facade_matrix! {
         let zoom = ZoomCamera::new(true);
         let session = open!(zoom.camera, config()).expect("session");
         let moving = wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .motion()
             .is_moving(creeping_zoom_query(WINDOW)))
@@ -143,7 +143,7 @@ facade_matrix! {
         let zoom = ZoomCamera::new(false);
         let session = open!(zoom.camera, config()).expect("session");
         let moving = wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .motion()
             .is_moving(creeping_zoom_query(WINDOW)))
@@ -157,7 +157,7 @@ facade_matrix! {
         let zoom = ZoomCamera::new(true);
         let session = open!(zoom.camera, config()).expect("session");
         let result = wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .motion()
             .is_moving(creeping_zoom_query(Duration::ZERO)));
@@ -170,7 +170,7 @@ facade_matrix! {
         let zoom = ZoomCamera::new(true);
         let session = open!(zoom.camera, config()).expect("session");
         let moving = wait!(session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("dynamic camera")
             .motion()
             .is_moving(creeping_zoom_query(WINDOW)))

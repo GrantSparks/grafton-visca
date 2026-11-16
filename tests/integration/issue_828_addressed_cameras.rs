@@ -19,7 +19,6 @@ use grafton_visca::{
     config::SessionConfig,
     profiles::{GenericVisca, ProfileSpec},
     transport::{AddressedBus, AddressingMode, SendSemantics, TransportConfig},
-    types::CameraId,
     Error,
 };
 
@@ -86,12 +85,17 @@ impl Bus {
 
 fn targets(ids: &[u8]) -> SessionConfig {
     let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("profile");
-    let mut config =
-        SessionConfig::for_target(CameraId::new(ids[0]).expect("camera id"), profile.clone())
-            .expect("first target");
+    let mut config = SessionConfig::for_target(
+        grafton_visca::types::IndividualCameraId::new(ids[0]).expect("camera id"),
+        profile.clone(),
+    )
+    .expect("first target");
     for id in &ids[1..] {
         config = config
-            .with_target(CameraId::new(*id).expect("camera id"), profile.clone())
+            .with_target(
+                grafton_visca::types::IndividualCameraId::new(*id).expect("camera id"),
+                profile.clone(),
+            )
             .expect("further target");
     }
     config

@@ -29,7 +29,7 @@ use fake_camera::FakeCamera;
 use grafton_visca::{
     config::SessionConfig,
     profiles::{ProfileSpec, PtzOpticsG2, SonyFr7},
-    types::CameraId,
+    types::IndividualCameraId,
     Error,
 };
 
@@ -121,35 +121,40 @@ fn registry_bounds_duplicate_broadcast_and_sole_target_semantics() {
     let mut config = SessionConfig::default();
     assert_eq!(config.targets().count(), 0);
     assert!(config.sole_target().is_none());
-    assert!(config.profile(CameraId::CAMERA_1).is_none());
+    assert!(config
+        .profile(grafton_visca::types::IndividualCameraId::CAMERA_1)
+        .is_none());
 
     config = config
-        .with_target(CameraId::CAMERA_1, profile.clone())
+        .with_target(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            profile.clone(),
+        )
         .expect("camera 1");
     assert_eq!(config.targets().count(), 1);
-    assert_eq!(config.sole_target(), Some(CameraId::CAMERA_1));
-    assert!(config.profile(CameraId::CAMERA_1).is_some());
+    assert_eq!(config.sole_target(), Some(IndividualCameraId::CAMERA_1));
+    assert!(config
+        .profile(grafton_visca::types::IndividualCameraId::CAMERA_1)
+        .is_some());
 
-    let duplicate = config
-        .clone()
-        .with_target(CameraId::CAMERA_1, profile.clone());
+    let duplicate = config.clone().with_target(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        profile.clone(),
+    );
     assert!(matches!(duplicate, Err(Error::InvalidRequest { .. })));
-    let conflicting = config
-        .clone()
-        .with_target(CameraId::CAMERA_1, sony_profile());
+    let conflicting = config.clone().with_target(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        sony_profile(),
+    );
     assert!(matches!(conflicting, Err(Error::InvalidRequest { .. })));
-    let broadcast = config
-        .clone()
-        .with_target(CameraId::BROADCAST, profile.clone());
-    assert!(matches!(broadcast, Err(Error::InvalidRequest { .. })));
 
     for target in [
-        CameraId::CAMERA_2,
-        CameraId::CAMERA_3,
-        CameraId::CAMERA_4,
-        CameraId::CAMERA_5,
-        CameraId::CAMERA_6,
-        CameraId::CAMERA_7,
+        IndividualCameraId::CAMERA_2,
+        IndividualCameraId::CAMERA_3,
+        IndividualCameraId::CAMERA_4,
+        IndividualCameraId::CAMERA_5,
+        IndividualCameraId::CAMERA_6,
+        IndividualCameraId::CAMERA_7,
     ] {
         config = config
             .with_target(target, profile.clone())
@@ -160,13 +165,13 @@ fn registry_bounds_duplicate_broadcast_and_sole_target_semantics() {
     assert_eq!(
         config.targets().collect::<Vec<_>>(),
         vec![
-            CameraId::CAMERA_1,
-            CameraId::CAMERA_2,
-            CameraId::CAMERA_3,
-            CameraId::CAMERA_4,
-            CameraId::CAMERA_5,
-            CameraId::CAMERA_6,
-            CameraId::CAMERA_7,
+            IndividualCameraId::CAMERA_1,
+            IndividualCameraId::CAMERA_2,
+            IndividualCameraId::CAMERA_3,
+            IndividualCameraId::CAMERA_4,
+            IndividualCameraId::CAMERA_5,
+            IndividualCameraId::CAMERA_6,
+            IndividualCameraId::CAMERA_7,
         ]
     );
 }
@@ -243,7 +248,11 @@ mod async_registry {
         const RETRY_CLASS: RetryClass = RetryClass::Never;
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
-        fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
+        fn write_into(
+            &self,
+            target: grafton_visca::types::CameraId,
+            out: &mut [u8],
+        ) -> Result<usize, Error> {
             out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
             Ok(3)
         }
@@ -261,7 +270,11 @@ mod async_registry {
         const RETRY_CLASS: RetryClass = RetryClass::Never;
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
-        fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
+        fn write_into(
+            &self,
+            target: grafton_visca::types::CameraId,
+            out: &mut [u8],
+        ) -> Result<usize, Error> {
             out[..4].copy_from_slice(&[(0x80 | target.value()), 0x09, 0x04, 0xff]);
             Ok(4)
         }
@@ -278,7 +291,10 @@ mod async_registry {
 
     fn multi_config() -> SessionConfig {
         SessionConfig::new(raw_profile())
-            .with_target(CameraId::CAMERA_2, raw_profile())
+            .with_target(
+                grafton_visca::types::IndividualCameraId::CAMERA_2,
+                raw_profile(),
+            )
             .expect("multi-target config")
     }
 
@@ -299,35 +315,35 @@ mod async_registry {
 
         assert_eq!(
             session
-                .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("explicit registered target")
                 .target(),
-            CameraId::CAMERA_1
+            grafton_visca::types::IndividualCameraId::CAMERA_1
         );
         assert_eq!(
             session
-                .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .unwrap()
                 .target(),
-            CameraId::CAMERA_1
+            grafton_visca::types::IndividualCameraId::CAMERA_1
         );
         assert_eq!(
             session
-                .camera::<PtzOpticsG2>(CameraId::CAMERA_2)
+                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_2)
                 .unwrap()
                 .target(),
-            CameraId::CAMERA_2
+            grafton_visca::types::IndividualCameraId::CAMERA_2
         );
         assert!(matches!(
-            session.camera::<PtzOpticsG2>(CameraId::CAMERA_3),
+            session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_3),
             Err(Error::InvalidRequest { .. })
         ));
 
         let camera_one = session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera 1");
         let camera_two = session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_2)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_2)
             .expect("camera 2");
         let (one, two) = tokio::join!(camera_one.execute(&Ping), camera_two.execute(&Ping));
         one.expect("camera 1 command");
@@ -343,10 +359,10 @@ mod async_registry {
         session.shutdown().expect("shutdown");
         assert_eq!(fake.write_count(), 4);
         let writes = fake.writes();
-        assert_eq!(writes[0][0], (0x80 | CameraId::CAMERA_1.value()));
-        assert_eq!(writes[1][0], (0x80 | CameraId::CAMERA_2.value()));
-        assert_eq!(writes[2][0], (0x80 | CameraId::CAMERA_1.value()));
-        assert_eq!(writes[3][0], (0x80 | CameraId::CAMERA_2.value()));
+        assert_eq!(writes[0][0], (0x80 | IndividualCameraId::CAMERA_1.value()));
+        assert_eq!(writes[1][0], (0x80 | IndividualCameraId::CAMERA_2.value()));
+        assert_eq!(writes[2][0], (0x80 | IndividualCameraId::CAMERA_1.value()));
+        assert_eq!(writes[3][0], (0x80 | IndividualCameraId::CAMERA_2.value()));
     }
 
     #[cfg(feature = "runtime-smol")]
@@ -362,10 +378,10 @@ mod async_registry {
             .await
             .expect("session");
             let camera_one = session
-                .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("camera 1");
             let camera_two = session
-                .camera::<PtzOpticsG2>(CameraId::CAMERA_2)
+                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_2)
                 .expect("camera 2");
             let (one, two) =
                 futures_lite::future::zip(camera_one.execute(&Ping), camera_two.execute(&Ping))
@@ -467,7 +483,10 @@ mod async_registry {
         for (kind, addressing, profile) in cases {
             let (transport, fake) = spy(addressing, Some(kind));
             let config = SessionConfig::new(profile)
-                .with_target(CameraId::CAMERA_2, raw_profile())
+                .with_target(
+                    grafton_visca::types::IndividualCameraId::CAMERA_2,
+                    raw_profile(),
+                )
                 .expect("config");
             let error =
                 grafton_visca::r#async::Session::open(transport, &config, executor.clone()).await;
@@ -491,25 +510,37 @@ mod async_registry {
             (
                 spy(AddressingMode::Serial, None),
                 SessionConfig::new(raw_profile())
-                    .with_target(CameraId::CAMERA_2, sony_profile())
+                    .with_target(
+                        grafton_visca::types::IndividualCameraId::CAMERA_2,
+                        sony_profile(),
+                    )
                     .expect("mixed envelope config"),
             ),
             (
                 spy(AddressingMode::Ip, None),
                 SessionConfig::new(sony_profile())
-                    .with_target(CameraId::CAMERA_2, sony_profile())
+                    .with_target(
+                        grafton_visca::types::IndividualCameraId::CAMERA_2,
+                        sony_profile(),
+                    )
                     .expect("Sony multi-target config"),
             ),
             (
                 spy(AddressingMode::Ip, Some(TransportKind::Custom)),
                 SessionConfig::new(raw_profile())
-                    .with_target(CameraId::CAMERA_2, raw_profile())
+                    .with_target(
+                        grafton_visca::types::IndividualCameraId::CAMERA_2,
+                        raw_profile(),
+                    )
                     .expect("custom IP config"),
             ),
             (
                 spy(AddressingMode::Ip, None),
                 SessionConfig::new(raw_profile())
-                    .with_target(CameraId::CAMERA_2, raw_profile())
+                    .with_target(
+                        grafton_visca::types::IndividualCameraId::CAMERA_2,
+                        raw_profile(),
+                    )
                     .expect("unknown IP config"),
             ),
         ];
@@ -553,7 +584,7 @@ mod async_registry {
         let session = grafton_visca::r#async::Session::open(
             transport,
             &SessionConfig::new(base)
-                .with_target(CameraId::CAMERA_2, strict)
+                .with_target(grafton_visca::types::IndividualCameraId::CAMERA_2, strict)
                 .expect("strict multi-target config")
                 .with_tuning(
                     OperationalTuning::new().with_command_spacing(Duration::from_millis(120)),
@@ -563,14 +594,14 @@ mod async_registry {
         .await
         .expect("session");
         session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera 1")
             .execute(&Ping)
             .await
             .expect("first command");
         let started = std::time::Instant::now();
         session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_2)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_2)
             .expect("camera 2")
             .execute(&Ping)
             .await
@@ -641,7 +672,11 @@ mod blocking_registry {
         const CONTROL_CLASS: grafton_visca::request::ControlClass =
             grafton_visca::request::ControlClass::Normal;
 
-        fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
+        fn write_into(
+            &self,
+            target: grafton_visca::types::CameraId,
+            out: &mut [u8],
+        ) -> Result<usize, Error> {
             out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
             Ok(3)
         }
@@ -649,7 +684,10 @@ mod blocking_registry {
 
     fn multi_config() -> SessionConfig {
         SessionConfig::new(raw_profile())
-            .with_target(CameraId::CAMERA_2, raw_profile())
+            .with_target(
+                grafton_visca::types::IndividualCameraId::CAMERA_2,
+                raw_profile(),
+            )
             .expect("multi-target config")
     }
 
@@ -660,26 +698,26 @@ mod blocking_registry {
             grafton_visca::blocking::Session::open(transport, &multi_config()).expect("session");
         assert_eq!(
             session
-                .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("explicit registered target")
                 .target(),
-            CameraId::CAMERA_1
+            grafton_visca::types::IndividualCameraId::CAMERA_1
         );
         session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_2)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_2)
             .unwrap()
             .execute(&Ping)
             .unwrap();
         session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .unwrap()
             .execute(&Ping)
             .unwrap();
         session.shutdown().expect("shutdown");
         assert_eq!(fake.write_count(), 2);
         let writes = fake.writes();
-        assert_eq!(writes[0][0], (0x80 | CameraId::CAMERA_2.value()));
-        assert_eq!(writes[1][0], (0x80 | CameraId::CAMERA_1.value()));
+        assert_eq!(writes[0][0], (0x80 | IndividualCameraId::CAMERA_2.value()));
+        assert_eq!(writes[1][0], (0x80 | IndividualCameraId::CAMERA_1.value()));
     }
 
     #[test]
@@ -750,19 +788,28 @@ mod blocking_registry {
             (
                 spy(AddressingMode::Serial, None),
                 SessionConfig::new(raw_profile())
-                    .with_target(CameraId::CAMERA_2, sony_profile())
+                    .with_target(
+                        grafton_visca::types::IndividualCameraId::CAMERA_2,
+                        sony_profile(),
+                    )
                     .expect("mixed envelope config"),
             ),
             (
                 spy(AddressingMode::Ip, Some(TransportKind::Custom)),
                 SessionConfig::new(raw_profile())
-                    .with_target(CameraId::CAMERA_2, raw_profile())
+                    .with_target(
+                        grafton_visca::types::IndividualCameraId::CAMERA_2,
+                        raw_profile(),
+                    )
                     .expect("custom IP config"),
             ),
             (
                 spy(AddressingMode::Ip, None),
                 SessionConfig::new(raw_profile())
-                    .with_target(CameraId::CAMERA_2, raw_profile())
+                    .with_target(
+                        grafton_visca::types::IndividualCameraId::CAMERA_2,
+                        raw_profile(),
+                    )
                     .expect("unknown IP config"),
             ),
         ];
@@ -800,7 +847,7 @@ mod blocking_registry {
         let session = grafton_visca::blocking::Session::open(
             transport,
             &SessionConfig::new(base)
-                .with_target(CameraId::CAMERA_2, strict)
+                .with_target(grafton_visca::types::IndividualCameraId::CAMERA_2, strict)
                 .expect("strict multi-target config")
                 .with_tuning(
                     OperationalTuning::new().with_command_spacing(Duration::from_millis(120)),
@@ -808,13 +855,13 @@ mod blocking_registry {
         )
         .expect("session");
         session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera 1")
             .execute(&Ping)
             .expect("first command");
         let started = std::time::Instant::now();
         session
-            .camera::<PtzOpticsG2>(CameraId::CAMERA_2)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_2)
             .expect("camera 2")
             .execute(&Ping)
             .expect("second command");
@@ -846,7 +893,7 @@ mod coexistence {
         .expect("async session");
 
         blocking
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .unwrap()
             .zoom()
             .stop()
@@ -854,7 +901,7 @@ mod coexistence {
             .applied()
             .unwrap();
         async_session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .unwrap()
             .zoom()
             .stop()
@@ -865,7 +912,7 @@ mod coexistence {
             .unwrap();
         blocking.shutdown().expect("blocking shutdown");
         async_session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .unwrap()
             .zoom()
             .stop()

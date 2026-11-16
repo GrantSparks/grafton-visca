@@ -183,7 +183,7 @@ mod paused {
             let expected = script.len();
             let fake = scripted_camera(script);
             let session = open!(fake, SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config")).expect("FR7 session");
-            let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 camera");
+            let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("FR7 camera");
             let profile = view.profile();
             assert!(profile.supports_axes(AffectedAxes::IRIS), "relative iris is a physical axis");
             assert!(!profile.position_inquiries().is_some_and(|axes| axes.contains(AffectedAxes::IRIS)), "auto-iris state is not position feedback");
@@ -260,7 +260,7 @@ mod paused {
             let expected = script.len();
             let fake = scripted_camera(script);
             let session = open!(fake, SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config")).expect("FR7 session");
-            let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 camera");
+            let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("FR7 camera");
             let image = view.image();
             wait!(image.set_master_black(BlackLevel::MIN)).expect("master black");
             assert_eq!(wait!(image.master_black()).expect("master black readback"), BlackLevel::MIN);
@@ -305,7 +305,7 @@ mod paused {
             let expected = script.len();
             let fake = scripted_camera(script);
             let session = open!(fake, SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config")).expect("FR7 session");
-            let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 camera");
+            let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("FR7 camera");
             let zoom = view.zoom();
             let mut drive = wait!(zoom.tele_high_resolution(HighResolutionZoomSpeed::MAX)).expect("high-resolution tele admission");
             wait!(drive.applied()).expect("high-resolution drive application");
@@ -340,7 +340,7 @@ mod paused {
             let config = SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config")
                 .with_tuning(OperationalTuning::new().with_command_spacing(Duration::from_secs(1)));
             let session = open!(fake, config).expect("FR7 motion session");
-            let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 camera");
+            let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("FR7 camera");
             assert_applied_only(&grafton_visca::command::zoom::TeleHighResolution::new(HighResolutionZoomSpeed::MIN), AffectedAxes::ZOOM);
             let mut drive = wait!(view.zoom().tele_high_resolution(HighResolutionZoomSpeed::MIN)).expect("slow high-resolution drive");
             wait!(drive.applied()).expect("drive application");
@@ -370,7 +370,7 @@ mod paused {
         fn static_extension_requests_refuse_fr7_permissions_before_io() {
             let fake = FakeCamera::silent();
             let session = open!(fake, SessionConfig::from_compile_time::<PtzOpticsG2>().expect("G2 config")).expect("G2 session");
-            let view = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera");
+            let view = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera");
             rejected_before_io(wait!(view.execute(&grafton_visca::command::exposure::SetAutoGain::new(true))));
             rejected_before_io(wait!(view.execute(&grafton_visca::command::image::SetKneeMode::new(KneeMode::Manual))));
             rejected_before_io(wait!(view.inquire(&grafton_visca::command::exposure::AeLevelInquiry)));
@@ -407,7 +407,7 @@ mod async_runtime_profiles {
     ) {
         for profile in other_builtin_profiles() {
             let recall_target = grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.clone(),
             )
             .expect("recall target");
@@ -424,7 +424,7 @@ mod async_runtime_profiles {
             .expect("other built-in session");
             let view = session
                 .camera::<grafton_visca::profiles::AnyProfile>(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                 )
                 .expect("runtime profile view");
             rejected_before_io(view.exposure().set_auto_gain(true).await);
@@ -497,7 +497,9 @@ fn blocking_runtime_profile_requests_refuse_fr7_permissions_before_io() {
             )
             .expect("runtime-profile blocking session");
         let view = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("runtime profile view");
         rejected_before_io(view.execute(&grafton_visca::command::exposure::SetAutoGain::new(true)));
         rejected_before_io(

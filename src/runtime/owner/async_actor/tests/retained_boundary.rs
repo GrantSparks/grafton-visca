@@ -644,3 +644,52 @@ async fn release_set_growth_keeps_the_retained_boundary_and_its_queue() {
 
     owner.shutdown(actor_task).await;
 }
+
+/// A retained boundary is still pre-admission work. Losing its caller while
+/// the raw-release proof runs must be checked again when it is replayed.
+#[tokio::test]
+async fn abandoned_admission_retained_behind_raw_release_never_writes() {
+    for bounded in [false, true] {
+        let mut owner = RetainedRelease::new(2, 0).await;
+        let validity = bounded.then(|| {
+            crate::runtime::owner::boundary::AdmissionValidity::until(
+                Executor::now(&owner.runtime) + Duration::from_secs(1),
+            )
+        });
+        let (completion, admitted) = owner
+            .handle
+            .core
+            .enqueue_admission::<RuntimeOutcome>(inquiry(), validity)
+            .unwrap();
+        let actor_task = owner.start();
+        owner.parked_in_grace().await;
+        assert!(admitted.is_empty());
+        drop((completion, admitted));
+        owner.release();
+        // One control turn may precede a mature release timer. Observe the
+        // pending count reaching zero rather than treating a metrics reply as
+        // proof that the retained boundary has already been replayed.
+        let metrics = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let metrics = owner.handle.metrics().await.unwrap();
+                if metrics.pending == 0 {
+                    break metrics;
+                }
+            }
+        })
+        .await
+        .expect("the release must replay the abandoned boundary");
+        assert_eq!(metrics.admitted, 1, "only the predecessor was admitted");
+        assert_eq!(metrics.admission_rejected, 1);
+        assert_eq!(metrics.dropped_observer_events, 0);
+        assert_eq!(metrics.writes, 1);
+        assert_eq!(metrics.active, 0);
+        assert_eq!(metrics.pending, 0);
+        assert!(owner.harness.writes.try_recv().is_err());
+        assert_eq!(
+            owner.handle.core.permits.available(),
+            owner.handle.core.permits.capacity()
+        );
+        owner.shutdown(actor_task).await;
+    }
+}

@@ -20,7 +20,7 @@ macro_rules! shared_prelude {
         pub use $($facade)::+::*;
         pub use crate::profiles::*;
         pub use crate::config::{CameraConfig, SessionConfig, OperationalTuning, TransportOptions};
-        pub use crate::types::CameraId;
+        pub use crate::types::{CameraId, IndividualCameraId};
         crate::noun_table::noun_table!(collect_signature_imports);
         pub use crate::{Error, Result};
     };

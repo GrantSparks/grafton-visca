@@ -40,7 +40,7 @@ fn local_manual_clock_actor_reuses_four_timer_factories() {
         .await
         .expect("session on the runtime-free executor");
         let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         assert_eq!(timer_calls.load(Ordering::SeqCst), 4);
         assert_eq!(spawned.load(Ordering::SeqCst), 1);

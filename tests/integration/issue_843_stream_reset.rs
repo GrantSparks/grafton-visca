@@ -33,7 +33,7 @@ grafton_visca_test_support::facade_matrix! {
             answer.fault(Error::Io { source: Arc::new(ErrorKind::ConnectionReset.into()) });
         }));
         let session = open!(reset, session_config()).unwrap();
-        let camera = session.camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let camera = session.camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1).unwrap();
         let error = wait!(wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied())
             .expect_err("a connection reset remains session death outside the Windows UDP seam");
         assert!(error.requires_new_session(), "{error:?}");

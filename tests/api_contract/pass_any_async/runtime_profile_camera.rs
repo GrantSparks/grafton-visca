@@ -389,7 +389,6 @@ fn noun_surfaces(camera: &Camera<AnyProfile>) {
     future::<Operation<Targeted>>(camera.nd_filter().density_up());
     future::<Operation<Targeted>>(camera.nd_filter().density_down());
     future::<()>(camera.nd_filter().set_auto(true));
-    future::<bool>(camera.motion_sync().enabled());
     future::<()>(camera.motion_sync().set_enabled(true));
     future::<()>(camera.motion_sync().set_speed(MotionSyncSpeed::MIN));
     future::<bool>(camera.menu().visible());
@@ -440,8 +439,8 @@ where
 }
 
 fn assert_session_selectors(session: &Session) {
-    let _: Result<Camera<AnyProfile>, Error> = session.camera::<AnyProfile>(CameraId::CAMERA_1);
-    let _: Result<Camera<AnyProfile>, Error> = session.camera::<AnyProfile>(CameraId::CAMERA_2);
+    let _: Result<Camera<AnyProfile>, Error> = session.camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1);
+    let _: Result<Camera<AnyProfile>, Error> = session.camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_2);
 }
 
 /// Waits borrow the handle (#777): application then settlement on one handle,

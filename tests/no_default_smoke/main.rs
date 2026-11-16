@@ -38,7 +38,7 @@ fn no_default_pure_request_profile_smoke_and_facade_inventory() {
     request
         .validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.clone(),
             )
             .expect("target registration"),

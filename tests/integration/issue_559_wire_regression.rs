@@ -341,7 +341,7 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
         for zone in g2_family {
             let admitted = grafton_visca::command::focus::SetZone::new(zone).validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -358,7 +358,7 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
     let error = grafton_visca::command::focus::SetZone::new(FocusZone::Zone03)
         .validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g3.clone(),
             )
             .expect("target registration"),
@@ -427,7 +427,7 @@ fn color_temperature_inquiry_is_gated_to_profiles_with_a_sourced_reply_layout() 
         grafton_visca::command::white_balance::ColorTemperatureInquiry
             .validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -477,7 +477,7 @@ fn color_temperature_inquiry_is_gated_to_profiles_with_a_sourced_reply_layout() 
             matches!(
                 grafton_visca::command::white_balance::ColorTemperatureInquiry.validate_for_target(
                     &grafton_visca::config::TargetRegistration::new(
-                        grafton_visca::types::CameraId::CAMERA_1,
+                        grafton_visca::types::IndividualCameraId::CAMERA_1,
                         profile.clone()
                     )
                     .expect("target registration")
@@ -521,7 +521,7 @@ fn version_inquiry_is_gated_to_profiles_with_the_sony_reply_layout() {
             matches!(
                 grafton_visca::command::system::VersionInquiry.validate_for_target(
                     &grafton_visca::config::TargetRegistration::new(
-                        grafton_visca::types::CameraId::CAMERA_1,
+                        grafton_visca::types::IndividualCameraId::CAMERA_1,
                         profile.clone()
                     )
                     .expect("target registration")
@@ -562,7 +562,7 @@ fn version_inquiry_is_gated_to_profiles_with_the_sony_reply_layout() {
         grafton_visca::command::system::VersionInquiry
             .validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -770,8 +770,11 @@ fn noise_reduction_controls_match_the_documented_absolute_visca_frames() {
 #[test]
 fn noise_reduction_grants_admit_or_refuse_both_queries_and_settings() {
     let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
-    let supported = grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, source)
-        .expect("supported target");
+    let supported = grafton_visca::config::TargetRegistration::new(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        source,
+    )
+    .expect("supported target");
     for result in [
         grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(&supported),
         grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(&supported),
@@ -781,8 +784,11 @@ fn noise_reduction_grants_admit_or_refuse_both_queries_and_settings() {
         result.expect("a unified grant permits both read and write");
     }
     let profile = noise_reduction_profile_without_grants().expect("withheld NR grants");
-    let target = grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile)
-        .expect("withheld target");
+    let target = grafton_visca::config::TargetRegistration::new(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        profile,
+    )
+    .expect("withheld target");
     for result in [
         grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(&target),
         grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(&target),
@@ -799,7 +805,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     grafton_visca::command::focus::ZoneInquiry
         .validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g2.clone(),
             )
             .expect("target registration"),
@@ -808,7 +814,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     grafton_visca::command::streaming::UsbAudioInquiry
         .validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g2.clone(),
             )
             .expect("target registration"),
@@ -819,7 +825,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     assert!(matches!(
         grafton_visca::command::focus::ZoneInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g3.clone()
             )
             .expect("target registration")
@@ -829,7 +835,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     assert!(matches!(
         grafton_visca::command::streaming::UsbAudioInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g3.clone()
             )
             .expect("target registration")
@@ -841,7 +847,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     grafton_visca::command::focus::ZoneInquiry
         .validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
@@ -850,7 +856,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     grafton_visca::command::streaming::UsbAudioInquiry
         .validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
@@ -859,63 +865,63 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     for inquiry in [
         grafton_visca::command::image::NoiseReduction2dModeInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g2.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g2.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g2.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction2dModeInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g3.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g3.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 g3.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction2dModeInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 ptzoptics_30x.clone(),
             )
             .expect("target registration"),
@@ -932,7 +938,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
         grafton_visca::command::image::SetNoiseReduction2dMode::new(NoiseReduction2DMode::Manual)
             .validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -941,7 +947,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
         SetNoiseReduction2d::new(NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX))
             .validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -950,7 +956,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
         SetNoiseReduction3d::new(NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX))
             .validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     profile.clone(),
                 )
                 .expect("target registration"),
@@ -962,42 +968,42 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     for result in [
         grafton_visca::command::focus::ZoneInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 fr7.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::streaming::UsbAudioInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 fr7.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::PictureEffectInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 fr7.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction2dModeInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 fr7.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction2dInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 fr7.clone(),
             )
             .expect("target registration"),
         ),
         grafton_visca::command::image::NoiseReduction3dInquiry.validate_for_target(
             &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 fr7.clone(),
             )
             .expect("target registration"),
@@ -1010,7 +1016,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
         grafton_visca::command::image::SetNoiseReduction2dMode::new(NoiseReduction2DMode::Manual)
             .validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     fr7.clone(),
                 )
                 .expect("target registration"),
@@ -1018,7 +1024,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
         SetNoiseReduction2d::new(NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX))
             .validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     fr7.clone(),
                 )
                 .expect("target registration"),
@@ -1026,7 +1032,7 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
         SetNoiseReduction3d::new(NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX))
             .validate_for_target(
                 &grafton_visca::config::TargetRegistration::new(
-                    grafton_visca::types::CameraId::CAMERA_1,
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                     fr7.clone(),
                 )
                 .expect("target registration"),

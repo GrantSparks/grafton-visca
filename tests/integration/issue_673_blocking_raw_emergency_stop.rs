@@ -115,7 +115,7 @@ fn urgent_stop_reaches_the_wire_behind_a_live_raw_operation_handle() {
         vec![frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     // A continuous zoom drive is submitted and its handle held un-awaited: its
@@ -150,7 +150,7 @@ fn two_unawaited_operation_handles_both_reach_the_wire() {
         vec![frames::ack(2), frames::complete(1), frames::complete(2)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let first_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
@@ -179,7 +179,9 @@ fn completion_only_raw_operations_wait_for_an_idle_target() {
         ($kind:ty, $operation:expr, $label:literal) => {{
             let (session, probe) = session(vec![vec![frames::ack(1)]]);
             let camera = session
-                .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+                .camera::<NonDefaultCompileTimeProfile>(
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
+                )
                 .expect("camera view");
             let predecessor = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
             let mut predecessor = camera
@@ -230,7 +232,7 @@ fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
         vec![frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let drive = camera
@@ -262,7 +264,7 @@ fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
 fn ordinary_successor_waits_for_lost_ack_quarantine() {
     let (session, probe) = session(vec![vec![], vec![frames::ack(1), frames::complete(1)]]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let mut predecessor = camera
@@ -307,7 +309,7 @@ fn urgent_stop_bypasses_lost_ack_gate_and_ambiguous_ack_binds_to_neither() {
         vec![frames::ack(1), frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let mut predecessor = camera
@@ -356,10 +358,10 @@ fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
             .with_tuning(OperationalTuning::new().with_command_spacing(SPACING)),
     );
     let camera_one = session
-        .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera one view");
     let camera_two = session
-        .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_2)
         .expect("camera two view");
 
     let mut predecessor = camera_two
@@ -414,7 +416,7 @@ fn socket_capacity_contention_queues_until_a_socket_frees() {
         vec![frames::ack(1), frames::complete(1)],
     ]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let first_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);

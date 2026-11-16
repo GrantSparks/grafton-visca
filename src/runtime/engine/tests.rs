@@ -32,6 +32,7 @@ mod raw_stream_model;
 mod retry_history;
 mod session_end;
 mod socketless_ack_conflicts;
+mod sony_socket_reuse;
 mod write_outcomes;
 
 fn extend_fixture_hold(
@@ -65,7 +66,7 @@ pub(super) fn assert_occupancy_agrees<E: EngineMethods + ?Sized>(engine: &E, now
 }
 
 fn camera(value: u8) -> TargetSlot {
-    TargetSlot::try_from(crate::CameraId::new(value).unwrap()).unwrap()
+    TargetSlot::from(crate::IndividualCameraId::new(value).unwrap())
 }
 
 fn policy(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolPolicy {
@@ -4609,7 +4610,9 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
                 }
             }
         }
-        Phase::AwaitingCompletion { .. } => DecodedResponse::Completion { socket: None },
+        Phase::ExecutingDisplaced { .. } | Phase::AwaitingCompletion { .. } => {
+            DecodedResponse::Completion { socket: None }
+        }
         Phase::AwaitingReply { .. } => DecodedResponse::InquiryReply {
             payload: smallvec![action as u8],
         },
@@ -6298,8 +6301,8 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::TransportError { .. })),
-        } if *id == command_id
+            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::RequestUnconfirmed { source, .. })),
+        } if *id == command_id && matches!(source.as_ref(), Error::TransportError { .. })
     )));
     assert!(
         matches!(
@@ -6623,12 +6626,10 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     single.assert_invariants().unwrap();
 }
 
-/// A genuine two-live-owner collision reports sequenced Sony
-/// `SocketConflict`, and acceptance still forbids replay. Raw named ACKs have a different rule:
-/// their camera-provided socket is authoritative, so a locally stale owner or
-/// tombstone is reconciled before assignment (#721/#750).
+/// A socketless Sony ACK cannot invent capacity when both sockets remain
+/// held. Its sequence proves acceptance but names no owner to displace.
 #[test]
-fn sequenced_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
+fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     for (ticket, sequence, socket) in [(1, 0x1001, ViscaSocket::S1), (2, 0x1002, ViscaSocket::S2)] {
@@ -6682,7 +6683,7 @@ fn sequenced_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
         .unwrap();
     let mut sink = Vec::new();
     let mut decision = Decision::new(&mut sink);
-    engine.ack(third_id, Some(ViscaSocket::S1), start, &mut decision);
+    engine.ack(third_id, None, start, &mut decision);
     engine.finish_decision(start, decision);
     let effects = sink;
     assert_eq!(
@@ -8330,8 +8331,8 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         engine.assert_invariants().unwrap();
     }
 
-    // The late-result ordering applies equally to `Err`: it cannot replace a
-    // retry cause retained by a prior Sony attempt or schedule another retry.
+    // A failed write has its own certainty-bearing terminal even after the
+    // budget; its actual transport cause is retained and no retry is scheduled.
     {
         let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
         let admission = engine.handle(
@@ -8377,7 +8378,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         );
         assert!(matches!(
             terminal_failure(&late, id),
-            Some(Error::CommandBufferFull)
+            Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::TransportError { .. })
         ));
         assert!(!late.iter().any(|effect| matches!(
             effect,
@@ -8800,7 +8801,7 @@ fn retry_budget_expires_while_awaiting_sony_ack() {
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_failure(&expired, id),
-        Some(Error::CommandBufferFull)
+        Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::CommandBufferFull)
     ));
     assert_eq!(engine.state(), SessionState::Running);
     assert!(
@@ -8865,7 +8866,7 @@ fn retry_budget_expires_while_executing_sony_command() {
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_failure(&expired, id),
-        Some(Error::CommandBufferFull)
+        Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::CommandBufferFull)
     ));
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();

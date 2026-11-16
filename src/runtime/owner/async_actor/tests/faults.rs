@@ -836,7 +836,7 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
         !error.requires_new_session(),
         "a live session must never hand out a replacement-session verdict: {error:?}"
     );
-    assert!(matches!(error, Error::TransportError { .. }));
+    assert!(matches!(error, Error::UnsequencedCommandUnconfirmed));
     assert_eq!(
         handle.snapshot().await.unwrap().state,
         SessionState::Running,

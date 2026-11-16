@@ -56,12 +56,15 @@ impl WireEncode for PresetRecallSpeedCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if self.speed.value() > 24 {
+        // Profile-free encoding still checks this packet's domain. The range
+        // itself is shared with profile validation and preparation.
+        let range = crate::capabilities::PresetRecallSpeedEncoding::PtzOptics.speed_range();
+        if self.speed.value() < range.min() || self.speed.value() > range.max() {
             return Err(Error::parameter_out_of_range(
                 "preset_recall_speed",
                 i32::from(self.speed.value()),
-                1,
-                24,
+                i32::from(range.min()),
+                i32::from(range.max()),
             ));
         }
         FrameWriter::new(camera_id, buffer)

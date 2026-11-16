@@ -34,7 +34,7 @@ use crate::{
         },
         TransportIdentity,
     },
-    CameraId, Error,
+    Error,
 };
 
 use super::{FrameBatch, OwnerBuffers, OwnerPolicy};
@@ -943,8 +943,8 @@ fn classify_response_source(routing: RoutingState, source: u8) -> ResponseSource
                 return ResponseSource::Invalid;
             }
             let id = (source >> 4).saturating_sub(8);
-            CameraId::new(id)
-                .and_then(TargetSlot::try_from)
+            crate::IndividualCameraId::new(id)
+                .map(TargetSlot::from)
                 .map_or(ResponseSource::Invalid, ResponseSource::Target)
         }
         AddressingMode::Ip => {
@@ -1913,7 +1913,7 @@ impl ReceiveProbe {
         semantics: SendSemantics,
     ) -> Result<Self, Error> {
         let transport = ProbeConfig(config, semantics);
-        let target = TargetSlot::try_from(CameraId::CAMERA_1)?;
+        let target = TargetSlot::from(crate::IndividualCameraId::CAMERA_1);
         let (framing, policy) = AdapterFraming::for_targets(
             &transport,
             &[(target, profile)],

@@ -15,12 +15,15 @@ use grafton_visca::{
     config::SessionConfig,
     profiles::{ProfileSpec, PtzOpticsG2, SonyEviH100, SonyFr7},
     types::{
-        AffectedAxes, Degrees, IdleWait, ImageFlipMode, MotionQuery, MotionSyncSpeed, NdFilterMode,
+        AffectedAxes, Degrees, ImageFlipMode, MotionQuery, MotionSyncSpeed, NdFilterMode,
         NdiQuality, PanSpeed, PanTiltDirection, PanTiltLimitCorner, PanTiltSpeedMode, PresetSpeed,
         TiltSpeed, UnitInterval, ZoomDomain, ZoomPosition,
     },
     Error,
 };
+
+#[cfg(feature = "test-utils")]
+use grafton_visca::types::IdleWait;
 
 use fake_camera::{frames, FakeCamera};
 use profile_fixtures::{CombinedZoomTypedSupport, MotionSyncTypedSupport};
@@ -72,7 +75,7 @@ fn motion_sync_session() -> (Session, FakeCamera) {
 fn directional_pan_tilt_drive_encodes_each_direction() {
     let (session, fake) = ptz_session();
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let pan = PanSpeed::new(6).expect("pan speed");
     let tilt = TiltSpeed::new(5).expect("tilt speed");
@@ -107,7 +110,7 @@ fn normalized_zoom_maps_the_unit_interval_across_explicit_combined_domains() {
             .expect("combined zoom fixture"),
     );
     let camera = session
-        .camera::<CombinedZoomTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<CombinedZoomTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let optical_max = *camera
         .capabilities()
@@ -247,7 +250,7 @@ fn fr7_refuses_combined_zoom_and_uses_dedicated_clear_image_readback() {
     )
     .expect("session");
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     assert!(camera
         .capabilities()
@@ -281,7 +284,7 @@ fn fr7_refuses_combined_zoom_and_uses_dedicated_clear_image_readback() {
 fn menu_toggle_sends_the_vendor_open_close_control() {
     let (session, fake) = fr7_session();
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
 
     camera
@@ -313,7 +316,7 @@ fn menu_toggle_sends_the_vendor_open_close_control() {
 fn motion_sync_speed_helper_drives_its_explicit_preset() {
     let (session, fake) = motion_sync_session();
     let camera = session
-        .camera::<MotionSyncTypedSupport>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<MotionSyncTypedSupport>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("motion-sync camera");
 
     // `81 0A 11 14 pp FF`, pp = speed: the literal frame for speed 12.
@@ -350,7 +353,7 @@ fn motion_sync_speed_helper_drives_its_explicit_preset() {
 fn default_motion_query_samples_every_mechanical_movement_axis() {
     let (session, fake) = ptz_session();
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
 
     assert!(!camera
@@ -379,7 +382,7 @@ fn default_motion_query_samples_every_mechanical_movement_axis() {
 fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
     let (session, fake) = ptz_session();
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
 
     let polling_started = Instant::now();
@@ -405,16 +408,26 @@ fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
     session.shutdown().expect("shutdown");
 }
 
+#[cfg(feature = "test-utils")]
 #[test]
 fn named_idle_wait_presets_poll_only_their_own_axis() {
-    let (session, fake) = ptz_session();
+    let clock = grafton_visca::testing::testkit::ManualClock::new();
+    let participant = clock.enter();
+    let fake = recording_camera();
+    let session = clock
+        .open_blocking_session(
+            &participant,
+            fake.blocking_wire().on_clock(&clock),
+            SessionConfig::from_compile_time::<PtzOpticsG2>().expect("PTZOptics config"),
+        )
+        .expect("manual-clock session");
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
 
     camera
         .motion()
-        .wait_until_idle(IdleWait::for_zoom().with_interval(Duration::ZERO))
+        .wait_until_idle(IdleWait::for_zoom().with_interval(Duration::from_millis(25)))
         .expect("zoom idle wait");
     let frames = fake.take_payloads();
     assert!(!frames.is_empty());
@@ -427,7 +440,9 @@ fn named_idle_wait_presets_poll_only_their_own_axis() {
 
     camera
         .motion()
-        .wait_until_idle(IdleWait::from(Duration::from_secs(30)).with_interval(Duration::ZERO))
+        .wait_until_idle(
+            IdleWait::from(Duration::from_secs(30)).with_interval(Duration::from_millis(25)),
+        )
         .expect("duration idle wait");
     let frames = fake.take_payloads();
     assert!(frames
@@ -450,7 +465,7 @@ fn named_idle_wait_presets_poll_only_their_own_axis() {
 fn typed_cameras_expose_their_runtime_capability_inventory() {
     let (session, _fake) = ptz_session();
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let capabilities = camera.capabilities();
     assert_eq!(capabilities.model_name, "PtzOptics G2");
@@ -472,7 +487,7 @@ fn typed_cameras_expose_their_runtime_capability_inventory() {
 fn typed_cache_getters_decode_the_combined_flip_pair() {
     let (session, _fake) = ptz_session();
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 
@@ -502,7 +517,7 @@ fn typed_cache_getters_decode_the_combined_flip_pair() {
 fn typed_cache_getters_decode_pan_tilt_limit_updates() {
     let (session, fake) = ptz_session();
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 
@@ -605,7 +620,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
 fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
     let (session, fake) = fr7_session();
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 
@@ -640,7 +655,7 @@ fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
 fn direct_vendor_tally_mode_rejection_does_not_mutate_cache() {
     let (session, fake) = fr7_session();
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 
@@ -677,7 +692,7 @@ fn direct_vendor_tally_mode_rejection_does_not_mutate_cache() {
 fn typed_cache_getters_decode_the_focus_lock_mode() {
     let (session, _fake) = ptz_session();
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 
@@ -698,7 +713,7 @@ fn typed_cache_getters_decode_the_focus_lock_mode() {
 fn typed_cache_getters_decode_the_remaining_write_only_keys() {
     let (session, _fake) = fr7_session();
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 
@@ -738,7 +753,7 @@ fn typed_cache_getters_decode_the_remaining_write_only_keys() {
 fn typed_cache_getters_decode_the_sony_write_only_toggles() {
     let (session, _fake) = fr7_session();
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 
@@ -755,7 +770,7 @@ fn typed_cache_getters_decode_the_sony_write_only_toggles() {
 
     let (session, _fake) = evi_h100_session();
     let camera = session
-        .camera::<SonyEviH100>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyEviH100>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 
@@ -779,7 +794,7 @@ fn typed_cache_getters_decode_the_sony_write_only_toggles() {
 fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
     let (session, fake) = ptz_session();
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 
@@ -836,7 +851,7 @@ fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
 fn typed_cache_getters_decode_the_nd_filter_keys() {
     let (session, _fake) = fr7_session();
     let camera = session
-        .camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let cache = camera.state_cache();
 

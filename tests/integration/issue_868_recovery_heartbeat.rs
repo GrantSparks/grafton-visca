@@ -37,7 +37,7 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
         )
         .expect("session");
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
     let mut unanswered = 0;
     for attempt in 0..2 {
@@ -97,7 +97,7 @@ fn a_closed_heartbeat_preserves_terminal_metrics_for_the_reopen_decision() {
         .expect("session");
     let before = session.metrics().expect("running metrics");
     let probe = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera")
         .power()
         .status();

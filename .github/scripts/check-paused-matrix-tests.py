@@ -16,6 +16,7 @@ import shlex
 
 SUITES = {
     "fr7_pan_tilt": "",
+    "issue_553_owner_motion": "paused",
     "issue_565_transport_faults": "",
     "issue_566_retry_recovery": "",
     "issue_631_runtime_tuning": "paused",
@@ -30,6 +31,7 @@ SUITES = {
     "issue_870_relative_offsets": "facades",
     "issue_894_fr7_families": "paused",
     "issue_892_payload_shape": "",
+    "issue_975_lazy_settlement": "",
 }
 
 

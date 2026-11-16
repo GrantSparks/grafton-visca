@@ -30,7 +30,7 @@ not another connection.
 | `image()` | `ImageAccessor` | 54 |
 | `tally()` | `TallyAccessor` | 6 |
 | `nd_filter()` | `NdFilterAccessor` | 7 |
-| `motion_sync()` | `MotionSyncAccessor` | 3 |
+| `motion_sync()` | `MotionSyncAccessor` | 2 |
 | `menu()` | `MenuAccessor` | 7 |
 | `streaming()` | `StreamingAccessor` | 4 |
 | `motion()` | `MotionAccessor` | 3 |
@@ -199,7 +199,12 @@ facts. `camera::<AnyProfile>(target)` retains runtime validation instead of
 making compile-time capability claims.
 Profile validation and settlement preparation share one axis-to-inquiry
 declaration and its canonical noun gates; a declared IRIS position inquiry or
-preset recall axis requires the `Iris` grant (#937).
+preset recall axis requires the `Iris` grant (#937). Targeted preparation proves
+axis and inquiry availability eagerly, but retains only immutable polling inputs.
+The first `settled()` wait that needs position evidence prepares the selected
+query templates and caches them for later waits. The captured registration and
+validated tuning remain those from submission, including after live retuning;
+`applied()` and handle detachment do not prepare unused inquiries (#975).
 
 Multi-target registration is rejected before socket creation on any
 IP-addressed transport, which is every standard TCP and UDP configuration and
@@ -370,9 +375,13 @@ as unconfirmed; an inert `Socket(S1|S2)` hold is downgraded. In both cases the
 original ambiguity deadline remains as an unkeyed `PreAck` hold, while the
 uniquely identified successor owns the named socket for its completion and any
 cancellation packet.
-A socketless ACK still selects the first free registered socket. The bounded
-#620/#682 other-free-socket fallback remains only for sequence-correlated Sony
-traffic, whose later terminals have an independent request identity.
+A socketless ACK still selects the first free registered socket. A named Sony
+ACK follows the same authoritative assignment rule: its predecessor enters
+`ExecutingDisplaced`, which retains its exact sequence and original completion
+deadline but no socket claim or physical capacity. Its late terminal still
+resolves by sequence; a cancellation fails with `CancellationUnconfirmed`
+because its former socket now belongs to another command. An open cancellation
+observation receives that same failure when displacement occurs (#963).
 
 For a raw socketless error, the evidence rule is equally strict: route the
 unique unacknowledged command only when no inquiry owner is live; otherwise
@@ -1032,6 +1041,7 @@ resource bound above applies independently to each raw target.
 | `AwaitingAck` | Send time, ACK deadline and attempt facts. | None or requested. |
 | `AwaitingCompletion` | Send time, completion deadline and attempt facts. No socket. | None; cancellation is refused with `CancellationNotSupported` (#835). |
 | `Executing` | Socket, start time, original completion deadline and attempt facts. | `ExecutingCancellation`: none, requested, sending, or observation-failed. |
+| `ExecutingDisplaced` | Sony start time, original completion deadline and attempt facts; exact sequence retained, no socket or physical occupancy. | None; cancellation is refused with `CancellationUnconfirmed` (#963). |
 | `AwaitingReply` | Send order, send time, inquiry deadline and attempt facts. | None; inquiries are not cancellable. |
 | `Backoff` | Ready-at time and the previous written attempt retained for exact Sony acceptance. | None. |
 | `AwaitingCancellationResolution` | Socket, original deadline and attempt facts. | `ResolvingCancellation`: requested, sending, awaiting-terminal, or observation-failed; never none. |
@@ -1068,7 +1078,7 @@ substates repeats the socket: only the enclosing socketed lifecycle owns it.
 Whether cancellation was attempted is derived from the substate, rather than a
 separate latch (#836).
 
-These types admit 15 flattened `(phase, cancellation)` combinations. The
+These types admit 16 flattened `(phase, cancellation)` combinations. The
 transition/property tests independently check that table. The closed state
 representation replaces the former phase-local latch and cancellation checks.
 Only command requests carry `ReplyShape`; inquiry contexts carry none. Active
@@ -1077,10 +1087,11 @@ consult the immutable request when selecting the next lifecycle. `EntryTable`
 owns live entries, eager ready queues, Sony sequence indexes, and a two-slot
 socket table indexed by `ViscaSocket`. Only admission, closed transitions, and
 removal mutate those indexes; there is no mutable entry or index view. A
-camera-proven socket displacement has a closed placement carrying its one
-socketed lifecycle until same-frame cleanup, so removing the predecessor cannot
-release a successor's socket. Capacity, raw holds, and stream-ledger safety
-remain audited, and both halt entry points run the debug invariant hook on every
+camera-proven raw socket displacement has a closed placement carrying its one
+socketed lifecycle until same-frame cleanup. Sony displacement instead enters
+`ExecutingDisplaced` so the original request remains live by sequence. Neither
+predecessor can release a successor's socket. Capacity, raw holds, and
+stream-ledger safety remain audited, and both halt entry points run the debug invariant hook on every
 return path (#836, #856, #859, #860).
 
 Write receipts name the request and match its active sending transmission.
@@ -1115,7 +1126,7 @@ terminal verdict. Delivery moves the result into that slot (#903).
 | Successful command send (`NoReply`, plain raw only) | Finish the plain `execute()` after the local write succeeds; this is not protocol application and cannot create an operation handle. Retain the bounded broad `AllResponses` hold before same-target raw response-bearing command or inquiry work may start; a STOP is never held by it (#795). Another `NoReply` may write and extend that key. |
 | Successful inquiry send | Record any Sony sequence and transition to `AwaitingReply`. Raw ownership derives from entries and decoder-declared payload legality: one staged/live inquiry per overlapping class, with disjoint inquiries and socket-owned commands allowed to coexist. |
 | Write refused before I/O (`NotSent`) | Fail only this logical request with its preparation cause in `TransmissionNotSent`. Certainty is `NotAccepted` unless an earlier attempt may have taken effect, when it remains `Unconfirmed`; retain that attempt's owed answers and holds. No write-failure counter increments and the stream remains usable. |
-| Failed command send, datagram transport | Terminally fail that one request. OS send failures retain their typed cause under `TransportError`; an explicit write timeout keeps its timeout context. Every other entry keeps running (#869). |
+| Failed request send, datagram transport (`Failed`) | Bytes may have reached the camera, regardless of whether the result arrives inside or after the retry budget. Raw commands finish `UnsequencedCommandUnconfirmed` with a `PreAck`/`AllResponses` hold (or poison under `strict_unconfirmed_poison`); raw inquiries retain their reply-skew hold and fail conclusively. Sony commands retain the exact transport cause in `RequestUnconfirmed` (`Terminal`/`Unconfirmed`, `Reconcile`). Other requests remain live (#968). |
 | Cancellation write refused before I/O | Drop its unwritten ledger entry and fail the cancellation observation. Keep the acknowledged operation, socket and original deadline live; a later completion still applies it (#869). |
 | Failed inquiry terminal | Wrap the exact source in `InquiryFailed` with `Terminal` / `FailedConclusively`; the source still determines whether the session must be reopened. This covers arbitrary custom transport verdicts without reporting an uncertain inquiry effect (#868). |
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
@@ -1135,7 +1146,7 @@ terminal verdict. Delivery moves the result into that slot (#903).
 | Ordinary command or inquiry dispatch while its lane owes an answer inside its window | Queue; an `Urgent` ACK-bearing STOP may still write when no command is unacknowledged (#795). |
 | Ledger debt unpaid when the due pass reaches its window end | Latch only overlapping inquiry declarations, or the command lane: fail affected queued `Ready`/`Backoff` work and reject matching new work, unwritten, with `InquiryCorrelationLost` (overlapping inquiries, `CompletionOnly`) or `CommandCorrelationLost` (ordinary ACK-bearing, `CompletionOnly`, `NoReply`), `Terminal`/`NotAccepted`. The latch neither expires nor wakes the owner; STOPs, other targets, and the session are unaffected; the debt's answer, or a later first answer that settles it, reopens the lane (#795). |
 | Disputed raw stream frame (a socketless error behind a `CompletionOnly` entry that may still be rejected or a `NoReply` command's owed entry, or any frame behind a disputed waiting request, with another candidate behind it) | Bind to neither; keep the union of the debts either explanation leaves: the `CompletionOnly` command owes only its completion, the other candidate keeps owing and is disputed (never crossed; settled by its own answer or by write order) (#795). |
-| Sequenced Sony ACK naming a busy socket | Use the target's other free socket when available for #620/#682 compatibility; otherwise report `Ignored(SocketConflict)` and finish `CommandFailedAfterAck`. The exact sequence proved acceptance even when local ownership cannot safely track its socket, so replay is forbidden (#858). |
+| Sequenced Sony ACK naming a busy socket | Bind the new request to the named socket. Retain the predecessor as socket-free `ExecutingDisplaced`, routable by its request sequence until its original completion deadline; refuse its cancellation with `CancellationUnconfirmed`. A socketless ACK with both physical sockets occupied reports `Ignored(SocketConflict)` and finishes `CommandFailedAfterAck` (#963). |
 | Unrelated input or due work while a request is `Sending` | Forbidden by the immediate-write contract. Both owners apply the identified result first; the input-boundary auditor rejects a violation in debug and test builds (#860). |
 | Completion in `Executing`, including after cancellation ambiguity elapsed | `finish` with `CommandOutcome::Applied`; exact socket ownership keeps it attributable through the completion deadline, and a retained cancellation observer maps this to `Completed` (#724). |
 | Exact completion in `AwaitingCancellationResolution` before its phase deadline | `finish` with `CommandOutcome::Applied`; the request is still open while its owned socket is retained. |
@@ -1147,18 +1158,19 @@ terminal verdict. Delivery moves the result into that slot (#903).
 | Retryable conclusive rejection before ACK (buffer-full `0x03`/`0x05`, movement `0x41` for a non-STOP movement request), no cancel intent | Increment the bounded attempt and enter `Backoff`. A typed STOP refused with `0x41` is terminal with `Error::CommandNotExecutable`: the refusal has a standing cause (a focus STOP under auto-focus) and the caller needs the verdict at once. |
 | Camera error after ACK (`Executing` or `AwaitingCancellationResolution`), either envelope | Never retried: `finish` with `Error::CommandFailedAfterAck` wrapping the camera's exact error (`Terminal`/`Unconfirmed`, not retryable). The acknowledged command may already have moved (#795). |
 | Completion deadline in `Executing`, Sony envelope, no cancel intent | `finish` with `Timeout` (`Terminal`/`Unconfirmed`); never resend. The same-sequence retransmission in docs/visca_reference.md §5.3 recovers a lost message, and an ACK already proved acceptance (#795). |
-| Retryable rejection with cancel intent | Suppress retry and `finish` with `Cancelled`, because no executing attempt exists. |
+| Retryable rejection with cancel intent | Suppress retry. Finish `Cancelled` only when no earlier attempt may have applied; otherwise finish `CancellationUnconfirmed` (#962). |
 | `0x04` command-cancelled terminal | `finish` with `Cancelled`. |
 | ACK timeout, Sony envelope, retryable | Retry within policy on ACK-capped backoff, replaying the exact sequence. |
-| Transient receive fault while a Sony command is `AwaitingAck` | Retry each eligible command independently using uncapped backoff and its retained sequence. Commands whose retry count or budget is exhausted fail with the exact receive error, without an added `FailureContext`; unrelated requests and the session remain live (`receive_fault_fails_only_unretryable_work_and_never_the_session`). |
+| Transient receive fault while a Sony command is `AwaitingAck` | Retry each eligible command independently using uncapped backoff and its retained sequence. Commands whose retry count or budget is exhausted retain the exact receive error as the source of `RequestUnconfirmed` (`Terminal`/`Unconfirmed`, `Reconcile`); unrelated requests and the session remain live (`receive_fault_fails_only_unretryable_work_and_never_the_session`). |
 | Transient raw receive fault in `AwaitingAck` with no recorded cancel intent | Default: leave the unacknowledged command in `AwaitingAck`; it is neither replayed nor failed on the fault, and a later ACK may still assign its socket. If its ACK deadline subsequently expires without an ACK, apply the raw unconfirmed-recovery row below. A command with recorded cancel intent instead remains live through its cancellation-resolution bound. |
 | Raw ACK deadline expiry without an ACK, completion loss, a completion-only command's completion deadline in `AwaitingCompletion` (issue #700), or retry-budget expiry in an active raw phase | Default: immediately `finish` with `Error::UnsequencedCommandUnconfirmed`, remove the request, and install a keyed `PreAck`, `Socket`, or `AllResponses` hold through the ambiguity interval. Late frames covered by that hold are inert (#671/#723/#724). On a raw byte stream the ledger owes a pre-ACK answer instead of a `PreAck` hold, and a `Socket` hold lasts until evidence releases it (#795). |
 | Keyed raw hold expiry | Release only the target/scope key whose deadline elapsed and reconsider queued work. No terminal event occurs here because the request was already resolved; independent simultaneous holds remain in force. The one exception is an exact inquiry-shape hold retained for its owed raw stream reply, which latches with its ledger debt instead of releasing. |
 | Cancellation-resolution deadline expiry | Finish with `UnsequencedCommandUnconfirmed` for raw or `CancellationUnconfirmed` for Sony. Socketed raw terminals retain `Socket`; pre-ACK cancellation expiry retains `PreAck` on a datagram or a ledger debt on a stream. A datagram hold lasts until `max(now, phase deadline, cancellation ambiguity deadline) + ambiguity`, so it is never created already expired; a raw stream retains exact socket evidence until its answer releases it (#835; `cancellation_holds::unconfirmed_cancel_write_failure_and_resolution_expiry_retain_future_socket_hold`). |
 | A transient raw receive fault in `AwaitingAck` with no recorded cancel intent, or any raw unconfirmed-recovery trigger above, under the `strict_unconfirmed_poison` opt-in | Poison the session and report `Error::StreamPoisoned`, restoring the pre-#671 behavior. A recorded cancel instead follows its live cancellation-resolution path and poisons only if that deadline remains unconfirmed. |
+| Sony retry exhaustion or budget expiry after a lost ACK and later rejection | Preserve the exact rejection as the source of `RequestUnconfirmed` (`Terminal`/`Unconfirmed`, `Reconcile`). Pure-rejection histories retain the bare rejection and its recovery (#962). |
 | Retry becomes eligible (`Backoff` → ready) | Return to `Ready` and dispatch through the ordinary capacity and pacing gates. |
 | Owner halt fence over a `Ready` or `Backoff` request, a retry decision for a fenced request, or admission of a fenced submission | `finish` (or reject admission) with `Error::MotionSuperseded`. Its context is `PreAdmission`/`NotAccepted` for a rejected submission; otherwise `Terminal`, with `NotAccepted` when no written attempt can have taken effect (never written, or every written attempt rejected before ACK) and `Unconfirmed` when an earlier attempt lost its ACK, completion, or receive path (#795). |
-| Cancel in `Ready` or `Backoff` | Remove without I/O; emit `CancellationRecorded`, then `finish` with `Cancelled`. |
+| Cancel in `Ready` or `Backoff` | Remove without I/O; emit `CancellationRecorded`. Finish `Cancelled` only when every earlier attempt is conclusively rejected or unwritten; otherwise finish `CancellationUnconfirmed` and fail its observation (#962). |
 | Cancellation decision for a `Sending` command | Refuse with `CancellationNotSupported`; this state cannot record intent. A public cancellation arriving during a transport write is processed only after its result, under the resulting lifecycle (#860). |
 | Cancel in `AwaitingAck` (supported target) | Record requested intent, suppress retries, and wait for socket assignment or the later of the ACK and cancellation ambiguity deadlines (#835). |
 | Cancel in `AwaitingCompletion` | Refuse the cancellation observation with `CancellationNotSupported`, record no intent, and preserve the completion-only command's original completion deadline. Its own completion can still apply it; an unconfirmed raw datagram expiry retains `AllResponses` (#835; `cancellation_holds::completion_only_cancel_preserves_window_and_late_completion_cannot_apply_successor`). |
@@ -1174,8 +1186,8 @@ terminal verdict. Delivery moves the result into that slot (#903).
 | Observer detach or timeout | No engine input and no protocol transition. The expired wait reports `ObservationTimeout` (#783). |
 | Close / shutdown / poison | Resolve every active entry once, in admission order, with the distinct terminal error; clear every index and transmission; reject or drain boundary admissions deliberately. |
 
-Non-retryable camera and transport errors stay exact even when cancel intent
-exists. `Cancelled` is never used merely because a caller stopped waiting or the
+Camera and transport errors retain their exact source even when cancel intent
+exists; a possible earlier effect gives terminal failures `Unconfirmed` certainty. `Cancelled` is never used merely because a caller stopped waiting or the
 engine lost certainty. When one input emits both a cancellation acknowledgement
 and an immediate terminal result, `CancellationRecorded` precedes `Terminal`.
 
@@ -1423,8 +1435,8 @@ an idle no-data receive (it consumed nothing), which makes the advertised knob
 live on the async surface rather than inert. Every write is raced against
 `write_timeout`; if it elapses the write is abandoned as a failure — a stream
 write that can no longer be confirmed poisons the session, a datagram write
-fails only its own request — so a stalled peer can never park the actor and
-block `close()`. The blocking owner cannot preempt arbitrary synchronous code,
+fails only its own request with unconfirmed effect and retained correlation
+protection. A stalled peer can never park the actor and block `close()`. The blocking owner cannot preempt arbitrary synchronous code,
 so `BlockingTransport` exposes only deadline-bearing reads and writes and
 requires implementations to return within the supplied bound. Built-in TCP,
 UDP, and serial transports install that bound at the OS/device layer, and
@@ -1494,7 +1506,12 @@ The owner's cancellation intent is a closed requested/recorded state. A
 refusal is returned synchronously by the same engine cancellation input, rather
 than extracted from a later unrelated turn. Admission claims likewise use
 unbounded/pending/claimed states, so a claim cannot be both missing and pending
-(#854).
+(#854). Before initial admission or replay of a retained admission, the owner
+also rejects a boundary whose admission-reply receiver has disconnected. The
+boundary's permit and observer are dropped without engine input or transport
+I/O, and one admission rejection is recorded; an earlier caller-side deadline
+rejection is not counted again. Losing the future after the owner's synchronous
+admission turn is ordinary observer detachment (#964).
 
 Cancellation is one intent per handle. The first `cancel` creates the
 cancellation slot and ships it with the request; a later `cancel` — after a
@@ -1507,6 +1524,12 @@ failure is that error), whichever order the owner emitted the two slots in;
 only without an on-time terminal does an on-time cancellation-slot error answer.
 Delivery timestamps use the injected owner clock, not inferred wire arrival.
 The owner passes each delivery instant explicitly; owner state holds no current instant.
+Position samples use this same inclusive delivery deadline: `settled()`,
+`wait_until_idle` and `is_moving` accept a reply delivered exactly at their
+deadline even if their caller resumes later. Admission of another inquiry
+still requires time strictly before the deadline. Idle sampling intervals must
+be positive; a zero interval is refused before I/O and when deserializing an
+`IdleWait` policy.
 Late outcomes remain cached for a subsequent borrowing wait. A `cancel` after the
 owner stopped still answers from an outcome delivered before it stopped.
 

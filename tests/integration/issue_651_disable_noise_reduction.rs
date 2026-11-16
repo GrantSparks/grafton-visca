@@ -97,7 +97,7 @@ mod blocking_surface {
         )
         .expect("session");
         let camera = session
-            .camera::<P>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<P>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("matching camera profile");
         let value =
             NoiseReduction3D::from_wire(level).expect("level or Off is in the register domain");
@@ -124,7 +124,7 @@ mod blocking_surface {
         )
         .expect("session");
         let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("G2 camera");
 
         camera
@@ -241,7 +241,7 @@ mod async_surface {
         )
         .await;
         let camera = session
-            .camera::<P>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<P>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("matching camera profile");
         let value =
             NoiseReduction3D::from_wire(level).expect("level or Off is in the register domain");
@@ -273,7 +273,7 @@ mod async_surface {
         let fake = noise_reduction_camera(5);
         let session = open(&fake).await;
         let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("G2 camera");
 
         camera
@@ -409,7 +409,9 @@ mod runtime_profile_surface {
         let fake = noise_reduction_camera(5);
         let session = open(&fake).await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
         let nouns = &camera;
 
@@ -458,7 +460,9 @@ mod runtime_profile_surface {
         let fake = noise_reduction_camera(5);
         let session = open_with_profile(&fake, profile).await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
         let image = camera.image();
         for result in [
@@ -513,7 +517,9 @@ mod runtime_profile_surface {
         let fake = noise_reduction_camera(0x08);
         let session = open_with_profile(&fake, paired_noise_reduction_runtime_profile()).await;
         let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic camera");
         let nouns = &camera;
 

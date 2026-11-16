@@ -50,7 +50,24 @@ impl From<TransportConfig> for UdpSocketConfig {
     }
 }
 
-/// Apply the configured TCP options to a connected stream.
+/// Create a TCP socket with every option applied before its first packet.
+///
+/// All connectors use this before initiating a handshake. Setup errors belong
+/// to this address attempt, just like an error from `connect` itself.
+pub(crate) fn configured_tcp_socket(
+    address: std::net::SocketAddr,
+    config: TcpConnectionConfig,
+) -> std::io::Result<socket2::Socket> {
+    let socket = socket2::Socket::new(
+        socket2::Domain::for_address(address),
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )?;
+    apply_tcp_socket_options(socket2::SockRef::from(&socket), address, config)?;
+    Ok(socket)
+}
+
+/// Apply the configured TCP options before connecting a stream.
 pub(crate) fn apply_tcp_socket_options(
     socket: socket2::SockRef<'_>,
     address: std::net::SocketAddr,
@@ -122,6 +139,31 @@ mod tests {
         net::{TcpListener, TcpStream},
         thread,
     };
+
+    #[test]
+    fn tcp_options_are_set_while_the_socket_is_still_unconnected() {
+        for address in ["127.0.0.1:1259", "[::1]:1259"] {
+            let address = address.parse::<std::net::SocketAddr>().expect("address");
+            if address.is_ipv6() && TcpListener::bind("[::1]:0").is_err() {
+                continue;
+            }
+            let socket =
+                configured_tcp_socket(address, TransportConfig::for_tcp().with_ttl(Some(2)).into())
+                    .expect("configure unconnected TCP socket");
+            assert!(socket.peer_addr().is_err(), "no handshake has started");
+            assert!(socket.tcp_nodelay().expect("nodelay"));
+            assert!(socket.keepalive().expect("keepalive"));
+            assert_eq!(
+                if address.is_ipv6() {
+                    socket.unicast_hops_v6().expect("hop limit")
+                } else {
+                    socket.ttl_v4().expect("TTL")
+                },
+                2,
+                "the SYN will use the configured hop limit",
+            );
+        }
+    }
 
     #[test]
     fn the_tcp_defaults_enable_nodelay_and_keepalive() {

@@ -34,12 +34,16 @@ fn targets() -> Vec<TargetRegistration> {
     let mut targets = profiles
         .into_iter()
         .map(|profile| {
-            TargetRegistration::new(CameraId::CAMERA_1, profile.expect("profile")).expect("target")
+            TargetRegistration::new(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+                profile.expect("profile"),
+            )
+            .expect("target")
         })
         .collect::<Vec<_>>();
     targets.push(
         TargetRegistration::new(
-            CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
         )
         .expect("FR7 target")
@@ -266,7 +270,7 @@ mod facades {
         fn g2_out_of_absolute_range_relative_move_reaches_the_registered_target() {
             let fake = camera();
             let session = open!(fake, SessionConfig::from_compile_time::<PtzOpticsG2>().expect("G2 config")).expect("session");
-            let view = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 view");
+            let view = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 view");
             let error = wait!(view.pan_tilt().absolute(grafton_visca::types::PanTiltPosition { pan: Degrees::new(0.0).expect("valid degrees"), tilt: Degrees::new(-45.0).expect("valid degrees") }, SpeedLevel::Slowest)).expect_err("absolute refusal");
             assert!(matches!(error, Error::InvalidParameter { .. }));
             assert_eq!(fake.write_count(), 0);
@@ -293,7 +297,9 @@ mod facades {
         .await
         .expect("session");
         let view = session
-            .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
             .expect("dynamic view");
         let error = view
             .pan_tilt()

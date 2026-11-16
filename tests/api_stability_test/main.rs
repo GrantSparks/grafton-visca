@@ -118,7 +118,7 @@ fn runtime_profile_default_selects_the_registered_individual_target() {
     use grafton_visca::{
         config::SessionConfig,
         profiles::{ProfileSpec, PtzOpticsG2},
-        types::{CameraId, IndividualCameraId},
+        types::IndividualCameraId,
     };
 
     let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2");
@@ -140,12 +140,24 @@ fn runtime_profile_default_selects_the_registered_individual_target() {
     .expect("runtime profile with camera 2 default");
 
     let config = SessionConfig::new(profile.clone());
-    assert_eq!(config.sole_target(), Some(CameraId::CAMERA_2));
-    assert_eq!(config.profile(CameraId::CAMERA_2), Some(&profile));
-    assert!(config.profile(CameraId::CAMERA_1).is_none());
+    assert_eq!(
+        config.sole_target(),
+        Some(grafton_visca::types::IndividualCameraId::CAMERA_2)
+    );
+    assert_eq!(
+        config.profile(grafton_visca::types::IndividualCameraId::CAMERA_2),
+        Some(&profile)
+    );
+    assert!(config
+        .profile(grafton_visca::types::IndividualCameraId::CAMERA_1)
+        .is_none());
     let explicit =
-        SessionConfig::for_target(CameraId::CAMERA_1, profile).expect("explicit individual target");
-    assert_eq!(explicit.sole_target(), Some(CameraId::CAMERA_1));
+        SessionConfig::for_target(grafton_visca::types::IndividualCameraId::CAMERA_1, profile)
+            .expect("explicit individual target");
+    assert_eq!(
+        explicit.sole_target(),
+        Some(grafton_visca::types::IndividualCameraId::CAMERA_1)
+    );
 }
 
 #[test]

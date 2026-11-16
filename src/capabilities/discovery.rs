@@ -170,6 +170,7 @@ impl Capabilities {
             ),
             S::ExposureMode => Dedicated(exposure.is_some_and(|domain| !domain.modes.is_empty())),
             S::Iris => Dedicated(exposure.is_some_and(|domain| domain.iris_range.is_some())),
+            S::Gain => Dedicated(exposure.is_some_and(|domain| domain.gain_range.is_some())),
             S::BacklightCompensation => {
                 Dedicated(exposure.is_some_and(|domain| domain.backlight_compensation))
             }
@@ -245,7 +246,6 @@ impl Capabilities {
             | S::IrisSteps
             | S::AutoIris
             | S::Shutter
-            | S::Gain
             | S::GainLimit => ParentDomain(exposure.is_some()),
             S::AutoWhiteBalanceSensitivity
             | S::PresetWhite
@@ -429,6 +429,70 @@ mod tests {
             .expect("valid built-in profile")
             .capabilities()
             .clone()
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn power_query_fact_has_pinned_names_and_is_required_on_load() {
+        use crate::capabilities::PowerStatusQuery;
+        for (id, expected) in [
+            (crate::profiles::ProfileId::PtzOpticsG2, "standard"),
+            (crate::profiles::ProfileId::SonyBrcH900, "extended"),
+        ] {
+            let profile = id.spec().expect("profile");
+            let mut document = serde_json::to_value(&profile).expect("export profile");
+            assert_eq!(document["capabilities"]["power"]["status_query"], expected);
+            document["capabilities"]["profile_id"] = serde_json::Value::Null;
+            let loaded: crate::ProfileSpec =
+                serde_json::from_value(document.clone()).expect("custom clone");
+            assert_eq!(loaded.capabilities().power, profile.capabilities().power);
+            let expected_body: &[u8] = if expected == "extended" {
+                &[0x09, 0x7E, 0x04, 0x00]
+            } else {
+                &[0x09, 0x04, 0x00]
+            };
+            assert_eq!(
+                crate::command::inquiry_structs::body_for_profile(
+                    crate::command::InquiryKind::Power,
+                    &crate::command::bytes::constants::power::STATE_INQUIRY,
+                    &loaded,
+                ),
+                expected_body
+            );
+            document["capabilities"]["power"]
+                .as_object_mut()
+                .expect("power object")
+                .remove("status_query");
+            let error = serde_json::from_value::<crate::ProfileSpec>(document)
+                .expect_err("dialect is explicit");
+            assert!(error.to_string().contains("status_query"), "{error}");
+        }
+        assert_eq!(
+            serde_json::to_value(PowerStatusQuery::Standard).expect("standard"),
+            "standard"
+        );
+        assert_eq!(
+            serde_json::to_value(PowerStatusQuery::Extended).expect("extended"),
+            "extended"
+        );
+        assert!(serde_json::from_str::<PowerStatusQuery>("\"model_specific\"").is_err());
+    }
+
+    #[test]
+    fn shared_gain_metadata_requires_its_value_range() {
+        let mut caps = profile_capabilities::<PtzOpticsG2>();
+        assert_eq!(
+            caps.surface_metadata(TypedSupportSurface::Gain),
+            SurfaceMetadata::Dedicated(true)
+        );
+        caps.exposure.as_mut().expect("exposure").gain_range = None;
+        assert_eq!(
+            caps.surface_metadata(TypedSupportSurface::Gain),
+            SurfaceMetadata::Dedicated(false)
+        );
+        assert!(caps
+            .surface_metadata(TypedSupportSurface::GainLimit)
+            .permits());
     }
 
     #[test]
@@ -1384,6 +1448,7 @@ mod ts_contract_tests {
         persisted::<crate::capabilities::ImageCaps>();
         persisted::<crate::capabilities::PresetCaps>();
         persisted::<crate::capabilities::PowerCaps>();
+        persisted::<crate::capabilities::PowerStatusQuery>();
         persisted::<crate::capabilities::MenuCaps>();
         persisted::<crate::capabilities::CapabilityRange<i32>>();
         persisted::<crate::capabilities::CapabilityDomain<u16>>();
@@ -1430,6 +1495,41 @@ mod ts_contract_tests {
         let support = <TypedSupportSet as ts_rs::TS>::decl(&ts_rs::Config::default());
         assert!(support.contains("Array<TypedSupportSurface>"), "{support}");
         assert!(!support.contains("bigint"), "{support}");
+    }
+
+    #[test]
+    fn power_query_schema_and_bindings_pin_both_dialects() {
+        use crate::capabilities::{PowerCaps, PowerStatusQuery};
+        let schema = schemars::schema_for!(PowerStatusQuery);
+        let variants = schema.get("enum").cloned().or_else(|| {
+            schema
+                .get("oneOf")
+                .and_then(serde_json::Value::as_array)
+                .map(|variants| {
+                    serde_json::Value::Array(
+                        variants
+                            .iter()
+                            .filter_map(|variant| variant.get("const").cloned())
+                            .collect(),
+                    )
+                })
+        });
+        assert_eq!(variants, Some(serde_json::json!(["standard", "extended"])));
+        let declaration = <PowerStatusQuery as ts_rs::TS>::decl(&ts_rs::Config::default());
+        assert!(declaration.contains("\"standard\""), "{declaration}");
+        assert!(declaration.contains("\"extended\""), "{declaration}");
+        let schema = schemars::schema_for!(PowerCaps);
+        assert!(schema
+            .get("required")
+            .and_then(serde_json::Value::as_array)
+            .expect("required fields")
+            .iter()
+            .any(|field| field == "status_query"));
+        let declaration = <PowerCaps as ts_rs::TS>::decl(&ts_rs::Config::default());
+        assert!(
+            declaration.contains("status_query: PowerStatusQuery"),
+            "{declaration}"
+        );
     }
 
     #[test]

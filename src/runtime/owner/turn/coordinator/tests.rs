@@ -9,15 +9,14 @@
 use std::time::{Duration, Instant};
 
 use super::*;
-use crate::CameraId;
 
 fn set(targets: &[u8]) -> RawCorrelationReleaseSet {
     targets
         .iter()
         .fold(RawCorrelationReleaseSet::default(), |set, target| {
-            set.with_terminal_for_test(
-                crate::target::TargetSlot::try_from(CameraId::new(*target).unwrap()).unwrap(),
-            )
+            set.with_terminal_for_test(crate::target::TargetSlot::from(
+                crate::IndividualCameraId::new(*target).unwrap(),
+            ))
         })
 }
 

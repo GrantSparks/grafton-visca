@@ -34,7 +34,7 @@ fn main() {
     let inquiry = raw::InquiryRequest::new(
         [0x81, 0x09, 0x04, 0xff],
         ResponseDecoder::from_fn(decode),
-        grafton_visca::request::RetryClass::Inquiry,
+        grafton_visca::request::InquiryRetryClass::Inquiry,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("inquiry");

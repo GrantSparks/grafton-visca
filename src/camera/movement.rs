@@ -133,29 +133,93 @@ impl From<AffectedAxes> for MotionQuery {
 ///
 /// The type is `#[non_exhaustive]`: build it with [`crate::types::IdleWait::new`], the
 /// `for_*` presets, [`Default`] or [`From<Duration>`], then the `with_*`
-/// methods.
+/// methods. The sampling interval must be positive; zero is refused before
+/// I/O and when deserializing a policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!try_from))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "serde", serde(try_from = "IdleWaitData"))]
 #[non_exhaustive]
 pub struct IdleWait {
     /// Axes to sample. Unselected axes are never queried.
-    pub axes: AffectedAxes,
+    axes: AffectedAxes,
     /// Absolute observation budget. It bounds every sample, the first
     /// included: a wait whose budget elapses before its first inquiry is
     /// admitted sends nothing and fails with the same observation timeout.
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
-    pub timeout: Duration,
+    timeout: Duration,
     /// Maximum stable delta for each selected axis.
-    pub tolerance: MovementTolerance,
+    tolerance: MovementTolerance,
     /// Minimum interval between complete snapshots.
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
-    pub interval: Duration,
+    interval: Duration,
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IdleWaitData {
+    axes: AffectedAxes,
+    timeout: Duration,
+    tolerance: MovementTolerance,
+    interval: Duration,
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<IdleWaitData> for IdleWait {
+    type Error = crate::Error;
+
+    fn try_from(data: IdleWaitData) -> crate::Result<Self> {
+        let wait = Self {
+            axes: data.axes,
+            timeout: data.timeout,
+            tolerance: data.tolerance,
+            interval: data.interval,
+        };
+        wait.validate()?;
+        Ok(wait)
+    }
 }
 
 impl IdleWait {
+    /// The selected axes; unselected axes are never queried.
+    #[must_use]
+    pub const fn axes(&self) -> AffectedAxes {
+        self.axes
+    }
+
+    /// The absolute observation budget, including the first sample.
+    #[must_use]
+    pub const fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    /// The maximum stable delta for each selected axis.
+    #[must_use]
+    pub const fn tolerance(&self) -> MovementTolerance {
+        self.tolerance
+    }
+
+    /// The minimum interval between complete snapshots.
+    #[must_use]
+    pub const fn interval(&self) -> Duration {
+        self.interval
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async", feature = "serde", test))]
+    pub(crate) fn validate(&self) -> crate::Result<()> {
+        if self.interval.is_zero() {
+            return Err(crate::Error::InvalidParameter {
+                parameter: "idle sampling interval",
+                value: "0ns".into(),
+                reason: "position snapshots require a positive sampling interval".into(),
+            });
+        }
+        Ok(())
+    }
+
     /// Creates an idle wait with default tolerance and a 100ms interval.
     #[must_use]
     pub const fn new(axes: AffectedAxes, timeout: Duration) -> Self {
@@ -181,6 +245,11 @@ impl IdleWait {
     }
 
     /// Replaces the interval between snapshots.
+    ///
+    /// A zero interval is rejected with [`crate::Error::InvalidParameter`]
+    /// before any inquiry is sent. Two back-to-back snapshots cannot establish
+    /// idle evidence over a positive duration. Deserialization enforces the
+    /// same rule.
     #[must_use]
     pub const fn with_interval(mut self, interval: Duration) -> Self {
         self.interval = interval;
@@ -382,6 +451,39 @@ mod tests {
         assert_eq!(wait.axes, AffectedAxes::ZOOM);
         assert_eq!(wait.timeout, Duration::from_secs(3));
         assert_eq!(wait.interval, Duration::from_millis(25));
+    }
+
+    #[test]
+    fn idle_wait_requires_a_positive_sampling_interval() {
+        let wait = IdleWait::for_zoom().with_interval(Duration::ZERO);
+        assert_eq!(wait.axes(), AffectedAxes::ZOOM);
+        assert_eq!(wait.timeout(), Duration::from_secs(15));
+        assert_eq!(wait.tolerance(), MovementTolerance::default());
+        assert_eq!(wait.interval(), Duration::ZERO);
+        assert!(matches!(
+            wait.validate(),
+            Err(crate::Error::InvalidParameter {
+                parameter: "idle sampling interval",
+                ..
+            })
+        ));
+        assert!(wait
+            .with_interval(Duration::from_nanos(1))
+            .validate()
+            .is_ok());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn idle_wait_deserialization_uses_the_same_interval_validation() -> serde_json::Result<()> {
+        let wait = IdleWait::for_zoom().with_interval(Duration::from_millis(25));
+        let mut json = serde_json::to_value(wait)?;
+        assert_eq!(serde_json::from_value::<IdleWait>(json.clone())?, wait);
+        json["interval"] = serde_json::json!({"secs": 0, "nanos": 0});
+        assert!(serde_json::from_value::<IdleWait>(json)
+            .err()
+            .is_some_and(|error| error.to_string().contains("idle sampling interval")));
+        Ok(())
     }
 
     #[test]

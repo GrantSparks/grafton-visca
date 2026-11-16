@@ -10,7 +10,7 @@ use grafton_visca::{
 fn main() {
     let speed = FocusSpeed::new(3).unwrap();
     let target = TargetRegistration::new(
-        CameraId::CAMERA_1,
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
         ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("source profile"),
     )
     .expect("target registration");

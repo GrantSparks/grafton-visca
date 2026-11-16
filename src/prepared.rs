@@ -2,7 +2,7 @@
 
 use std::{
     marker::PhantomData,
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -90,11 +90,46 @@ pub(crate) enum SettlementPlan {
     CompletionIsSettled { default_budget: Duration },
     /// Settlement must poll the exact affected axes.
     Poll {
-        queries: PositionQueryPlan,
+        queries: LazyPositionQueryPlan,
         tolerance: MovementTolerance,
         interval: Duration,
         default_budget: Duration,
     },
+}
+
+/// A submission's immutable polling inputs. The registration shares its profile
+/// allocation; capturing it does not clone the owned profile facts. Lowering
+/// keeps tuning from submission rather than consulting later owner updates.
+#[derive(Debug, Clone)]
+pub(crate) struct LazyPositionQueryPlan {
+    registration: crate::TargetRegistration,
+    tuning: ValidatedTuning,
+    axes: AffectedAxes,
+    prepared: OnceLock<Result<PositionQueryPlan>>,
+}
+
+impl LazyPositionQueryPlan {
+    fn new(
+        registration: &crate::TargetRegistration,
+        tuning: ValidatedTuning,
+        axes: AffectedAxes,
+    ) -> Self {
+        Self {
+            registration: registration.clone(),
+            tuning,
+            axes,
+            prepared: OnceLock::new(),
+        }
+    }
+
+    /// Materializes each axis's shared template once, even when a wait is
+    /// abandoned or times out and subsequently starts a fresh sampling proof.
+    pub(crate) fn get(&self) -> Result<&PositionQueryPlan> {
+        self.prepared
+            .get_or_init(|| PositionQueryPlan::prepare(&self.registration, self.tuning, self.axes))
+            .as_ref()
+            .map_err(Clone::clone)
+    }
 }
 
 /// Wire bytes are owned during ordinary preparation. A polling template shares
@@ -273,7 +308,13 @@ pub(crate) fn prepare_position_queries(
     tuning: ValidatedTuning,
     axes: AffectedAxes,
 ) -> Result<PositionQueryPlan> {
-    let profile = registration.profile();
+    validate_position_axes(registration.profile(), axes)?;
+    PositionQueryPlan::prepare(registration, tuning, axes)
+}
+
+/// Shared eager admissibility check for independently requested position
+/// observation and deferred targeted settlement. No inquiry is prepared here.
+fn validate_position_axes(profile: &ProfileSpec, axes: AffectedAxes) -> Result<()> {
     if !profile.supports_axes(axes) {
         return Err(Error::FeatureNotSupported {
             feature: "selected motion axes are not supported by the profile",
@@ -287,7 +328,7 @@ pub(crate) fn prepare_position_queries(
             feature: "position inquiries required for the selected motion axes",
         });
     }
-    PositionQueryPlan::prepare(registration, tuning, axes)
+    Ok(())
 }
 
 /// Temporal contract for one `is_moving` observation, shared by every facade
@@ -463,24 +504,17 @@ pub(crate) fn lower_targeted_settlement(
     default_budget: Duration,
 ) -> Result<SettlementPlan> {
     let profile = registration.profile();
-    if !profile.supports_axes(axes) {
-        return Err(Error::FeatureNotSupported {
-            feature: "affected operation axes are not supported by the profile",
-        });
-    }
     if profile.supports_operation_complete() {
+        if !profile.supports_axes(axes) {
+            return Err(Error::FeatureNotSupported {
+                feature: "affected operation axes are not supported by the profile",
+            });
+        }
         return Ok(SettlementPlan::CompletionIsSettled { default_budget });
     }
-    if !profile
-        .position_inquiries()
-        .is_some_and(|available| available.contains(axes))
-    {
-        return Err(Error::FeatureNotSupported {
-            feature: "position inquiries required to settle the affected axes",
-        });
-    }
+    validate_position_axes(profile, axes)?;
     Ok(SettlementPlan::Poll {
-        queries: prepare_position_queries(registration, tuning, axes)?,
+        queries: LazyPositionQueryPlan::new(registration, tuning, axes),
         tolerance: MovementTolerance::default(),
         interval: tuning
             .get()
@@ -588,6 +622,11 @@ where
                 .into() });
     }
     validate_timeout_class(inquiry.timeout_class(), true)?;
+    if crate::request::InquiryRetryClass::of(inquiry.retry_class()).is_none() {
+        return Err(Error::InvalidRequest {
+            reason: "inquiry retry class must be RetryClass::Never or RetryClass::Inquiry".into(),
+        });
+    }
     if matches!(
         profile.capabilities().inquiry_support,
         crate::capabilities::InquirySupport::None
@@ -1029,6 +1068,13 @@ impl<R> PreparedInquiry<R> {
     }
 }
 
+#[cfg(feature = "test-utils")]
+impl PreparedOperation<completion::Targeted> {
+    pub(crate) const fn settlement_plan(&self) -> &SettlementPlan {
+        self.settlement.plan()
+    }
+}
+
 impl<K> PreparedOperation<K>
 where
     K: completion::Kind,
@@ -1201,8 +1247,9 @@ mod tests {
         }
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("valid built-in profile");
-        let registration = crate::TargetRegistration::new(CameraId::CAMERA_1, profile)
-            .expect("valid target registration");
+        let registration =
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+                .expect("valid target registration");
         prepare_command(
             &crate::command::PowerOn,
             &registration,
@@ -1283,7 +1330,8 @@ mod tests {
         let profile =
             ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
         let registration =
-            crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile).expect("target");
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+                .expect("target");
         let prepared = prepare_inquiry(
             &query,
             &registration,
@@ -1323,7 +1371,7 @@ mod tests {
     fn fr7_extended_pan_tilt_speeds_carry_a_dispatch_prerequisite() {
         use crate::request::builtin::PanTiltDrive;
         let registration = crate::TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7"),
         )
         .expect("target");
@@ -1383,7 +1431,7 @@ mod tests {
             );
         }
         let normal = crate::TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2"),
         )
         .expect("target");
@@ -1757,8 +1805,11 @@ mod tests {
                     frame: FRAME,
                     reported_length: None,
                 },
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -1771,8 +1822,11 @@ mod tests {
                     frame: FRAME,
                     reported_length: None,
                 },
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -1791,8 +1845,11 @@ mod tests {
         ] {
             let error = prepare_command(
                 &request,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -1806,8 +1863,11 @@ mod tests {
                 frame: &[0x81],
                 reported_length: None,
             },
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1913,7 +1973,7 @@ mod tests {
         ] {
             let error = prepare_command(
                 &DownstreamPlain { frame },
-                &crate::TargetRegistration::new((target).camera(), profile.clone())
+                &crate::TargetRegistration::new((target).individual_camera(), profile.clone())
                     .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
@@ -1931,7 +1991,7 @@ mod tests {
             &DownstreamPlain {
                 frame: &[0x81, 0x2a, 0x02, 0xa0, 0x04, 0x02, VISCA_TERMINATOR],
             },
-            &crate::TargetRegistration::new((target).camera(), profile.clone())
+            &crate::TargetRegistration::new((target).individual_camera(), profile.clone())
                 .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
@@ -1961,8 +2021,11 @@ mod tests {
         let no_inquiry = runtime_profile(&baseline, no_inquiry, true, None, AffectedAxes::PAN_TILT);
         assert!(prepare_inquiry(
             &CountingInquiry,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), no_inquiry.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                no_inquiry.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1983,7 +2046,7 @@ mod tests {
         assert!(prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
             &crate::TargetRegistration::new(
-                (TargetSlot::CAMERA_1).camera(),
+                (TargetSlot::CAMERA_1).individual_camera(),
                 missing_custom_zoom.clone()
             )
             .expect("valid target registration"),
@@ -2001,8 +2064,11 @@ mod tests {
         reset_write_count();
         let error = prepare_operation::<completion::AppliedOnly, _>(
             &CountingAppliedOnly,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2021,8 +2087,11 @@ mod tests {
 
         let error = prepare_inquiry(
             &FocusNearLimitInquiry,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2039,8 +2108,11 @@ mod tests {
             crate::command::inquiry_structs::reset_generated_inquiry_write_count();
             match prepare_inquiry(
                 inquiry,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             ) {
@@ -2081,14 +2153,17 @@ mod tests {
         let auto_iris = crate::raw::InquiryRequest::from_fn(
             [0x81, 0x09, 0x05, 0x34, VISCA_TERMINATOR],
             decode_raw,
-            RetryClass::Inquiry,
+            crate::request::InquiryRetryClass::Inquiry,
             crate::SubmissionClass::Normal,
         )
         .expect("valid raw FR7 auto-iris inquiry");
         let prepared_inquiry = prepare_inquiry(
             &auto_iris,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), fr7.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2117,8 +2192,11 @@ mod tests {
         .expect("valid raw FR7 iris-step command");
         let prepared_command = prepare_command(
             &iris_step,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), fr7.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2184,8 +2262,11 @@ mod tests {
         {
             prepare_inquiry(
                 query,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -2216,6 +2297,7 @@ mod tests {
         // gate tracks each noun's base marker independently.
         let power_only = minimal_profile(|capabilities| {
             capabilities.power = Some(crate::capabilities::PowerCaps {
+                status_query: crate::capabilities::PowerStatusQuery::Standard,
                 on_time: Duration::from_millis(750),
                 standby: None,
                 wake_on_lan: false,
@@ -2243,12 +2325,16 @@ mod tests {
         );
         let tuning = OperationalTuning::new()
             .with_inquiry_spacing(Duration::from_millis(40))
+            .with_inquiry_timeout(Duration::from_secs(17))
             .with_movement_timeout(Duration::from_secs(31))
             .with_settlement_timeout(Duration::from_secs(62));
         let prepared = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_2).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             tuning,
             ClassSelection::Request,
         )
@@ -2276,11 +2362,25 @@ mod tests {
             Duration::from_secs(62),
             "the settlement observer also covers this movement operation's retry budget"
         );
+        assert!(
+            queries.prepared.get().is_none(),
+            "submission does not prepare polling templates"
+        );
+        let first = queries.get().expect("lazy polling queries");
+        assert!(std::ptr::eq(
+            first,
+            queries.get().expect("cached polling queries")
+        ));
+        let queries = first.clone();
         assert!(queries.pan_tilt.is_none());
         assert!(queries.focus.is_none());
         let zoom = queries.zoom.expect("selected zoom query").instantiate();
         assert_eq!(zoom.context.target.camera(), CameraId::CAMERA_2);
-        assert_eq!(zoom.context.timeout.inquiry.get(), Duration::from_secs(1));
+        assert_eq!(zoom.context.timeout.inquiry.get(), Duration::from_secs(17));
+        assert_eq!(
+            zoom.context.control.minimum_spacing,
+            Duration::from_millis(40)
+        );
         assert_eq!(
             zoom.wire.as_bytes(),
             &[
@@ -2303,7 +2403,8 @@ mod tests {
         let profile =
             ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
         let registration =
-            crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("registration");
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+                .expect("registration");
         let template = prepare_inquiry(
             &ZoomPositionInquiry,
             &registration,
@@ -2562,7 +2663,8 @@ mod tests {
         let profile =
             ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
         let registration =
-            crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("registration");
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+                .expect("registration");
         let mut plan =
             prepare_position_queries(&registration, OperationalTuning::new(), AffectedAxes::ZOOM)
                 .expect("selected zoom plan");
@@ -2626,8 +2728,11 @@ mod tests {
         let fr7 =
             ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("Sony FR7 profile");
         let error = prepare_position_queries(
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_2).individual_camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::IRIS,
         )
@@ -2635,8 +2740,11 @@ mod tests {
         assert!(matches!(error, Error::FeatureNotSupported { .. }));
 
         let error = prepare_position_queries(
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_2).individual_camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::IRIS.union(AffectedAxes::ND_FILTER),
         )
@@ -2644,8 +2752,11 @@ mod tests {
         assert!(matches!(error, Error::FeatureNotSupported { .. }));
 
         let plan = prepare_position_queries(
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_2).individual_camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::ND_FILTER,
         )
@@ -2679,8 +2790,11 @@ mod tests {
         reset_request_write_count();
         let error = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_2).individual_camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect_err("FR7 does not support shared typed iris operations");
@@ -2689,8 +2803,11 @@ mod tests {
 
         let nd = prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterStepUp,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_2).individual_camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("FR7 ND operation");
@@ -2698,6 +2815,7 @@ mod tests {
             panic!("FR7 must poll ND position without operation-complete support");
         };
         assert_eq!(nd.affected_axes, AffectedAxes::ND_FILTER);
+        let queries = queries.get().expect("lazy polling queries").clone();
         assert!(queries.pan_tilt.is_none());
         assert!(queries.zoom.is_none());
         assert!(queries.focus.is_none());
@@ -2708,8 +2826,11 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("PTZ profile");
         let completed = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), ptz.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_2).individual_camera(),
+                ptz.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("PTZ iris operation");
@@ -2726,8 +2847,11 @@ mod tests {
         let level = IrisLevel::new(0x14).expect("BRC-H900 iris level");
         let prepared = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisDirect::new(level),
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), h900.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_2).individual_camera(),
+                h900.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("BRC-H900 high iris operation");
@@ -2740,6 +2864,7 @@ mod tests {
         };
         assert_eq!(prepared.context.target.camera(), CameraId::CAMERA_2);
         assert_eq!(prepared.affected_axes, AffectedAxes::IRIS);
+        let queries = queries.get().expect("lazy polling queries").clone();
         assert!(queries.pan_tilt.is_none());
         assert!(queries.zoom.is_none());
         assert!(queries.focus.is_none());
@@ -2772,8 +2897,11 @@ mod tests {
         let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("generic profile");
         let error = prepare_position_queries(
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), generic.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                generic.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::ND_FILTER,
         )
@@ -2818,12 +2946,66 @@ mod tests {
             .expect("built-in profile");
         assert!(prepare_command(
             &WrongAddress,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_2).individual_camera(),
+                profile.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
         .is_err());
+    }
+
+    /// Downstream Request implementations cannot bypass raw policy's typed
+    /// inquiry-only retry subset by declaring a command family (#970).
+    #[test]
+    fn inquiry_command_retry_families_fail_before_encoding() {
+        struct CommandRetryInquiry(RetryClass);
+        impl Request for CommandRetryInquiry {
+            type Class = crate::request::InquiryClass;
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
+            const RETRY_CLASS: RetryClass = RetryClass::Movement;
+            const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+            fn retry_class(&self) -> RetryClass {
+                self.0
+            }
+
+            fn write_into(&self, _target: CameraId, _buffer: &mut [u8]) -> Result<usize> {
+                panic!("invalid inquiry retry families must fail before encoding")
+            }
+        }
+        impl Inquiry for CommandRetryInquiry {
+            type Response = u8;
+            fn decoder(&self) -> ResponseDecoder<u8> {
+                ResponseDecoder::from_fn(|_: &[u8]| Ok(0))
+            }
+        }
+
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("built-in profile");
+        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+            .expect("target");
+        for retry in [
+            RetryClass::Standard,
+            RetryClass::Movement,
+            RetryClass::Preset,
+        ] {
+            let error = prepare_inquiry(
+                &CommandRetryInquiry(retry),
+                &target,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect_err("command retry family is not an inquiry policy");
+            assert!(
+                matches!(error, Error::InvalidRequest { reason }
+                if reason.contains("inquiry retry class")),
+                "{retry:?}"
+            );
+        }
     }
 
     #[test]
@@ -2832,8 +3014,11 @@ mod tests {
             .expect("built-in profile");
         let custom = prepare_inquiry(
             &DownstreamDerivedInquiry,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2843,8 +3028,11 @@ mod tests {
 
         let builtin = prepare_inquiry(
             &PowerInquiry,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2854,8 +3042,11 @@ mod tests {
 
         let settlement_builtin = prepare_inquiry(
             &PowerInquiry,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2879,7 +3070,7 @@ mod tests {
                 prepare_command(
                     &QuickTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -2897,7 +3088,7 @@ mod tests {
                 prepare_command(
                     &MovementTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -2915,7 +3106,7 @@ mod tests {
                 prepare_command(
                     &PresetTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -2933,7 +3124,7 @@ mod tests {
                 prepare_command(
                     &LongRunningTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -2951,7 +3142,7 @@ mod tests {
                 prepare_command(
                     &NetworkTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -2973,8 +3164,11 @@ mod tests {
         let profile_default = OperationalTuning::new();
         let quick = prepare_command(
             &QuickTimeoutCommand,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             profile_default,
             ClassSelection::Request,
         )
@@ -2994,8 +3188,11 @@ mod tests {
             .with_inquiry_timeout(Duration::from_secs(17));
         let prepared = prepare_inquiry(
             &CountingInquiry,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             tuning,
             ClassSelection::Request,
         )
@@ -3013,8 +3210,11 @@ mod tests {
                 .expect("built-in profile");
             let mut prepared = prepare_inquiry(
                 &CountingInquiry,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -3051,7 +3251,7 @@ mod tests {
                 prepare_command(
                     &QuickTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -3066,7 +3266,7 @@ mod tests {
                 prepare_command(
                     &MovementTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -3081,7 +3281,7 @@ mod tests {
                 prepare_command(
                     &PresetTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -3096,7 +3296,7 @@ mod tests {
                 prepare_command(
                     &LongRunningTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -3111,7 +3311,7 @@ mod tests {
                 prepare_command(
                     &NetworkTimeoutCommand,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -3133,8 +3333,11 @@ mod tests {
         // receipt constructor. Pin that seam separately from plain commands.
         let operation = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3165,8 +3368,11 @@ mod tests {
 
         let applied_only = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &ZoomStop,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("applied-only operation preparation");
@@ -3198,8 +3404,11 @@ mod tests {
         // 30 s, so a later replay could move the camera after Timeout.
         let movement = prepare_command(
             &RetryingMovementCommand,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new().with_movement_timeout(Duration::from_secs(30)),
             ClassSelection::Request,
         )
@@ -3222,8 +3431,11 @@ mod tests {
         // for that whole window, not merely the first completion deadline.
         let busy = prepare_command(
             &RetryingQuickCommand,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new()
                 .with_initial_retry_backoff(Duration::from_millis(50))
                 .with_maximum_retry_backoff(Duration::from_millis(500))
@@ -3256,8 +3468,11 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("Sony FR7 profile");
         let sony_operation = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                sony.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new().with_movement_timeout(Duration::from_secs(30)),
             ClassSelection::Request,
         )
@@ -3284,8 +3499,11 @@ mod tests {
             .expect("built-in profile");
         assert!(prepare_inquiry(
             &ClassifiedInquiry,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3302,8 +3520,11 @@ mod tests {
         ] {
             let error = prepare_inquiry(
                 &NonDefaultReplyShapeInquiry(reply_shape),
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -3405,7 +3626,7 @@ mod tests {
                         let prepared = prepare_command(
                             &command,
                             &crate::TargetRegistration::new(
-                                (TargetSlot::CAMERA_1).camera(),
+                                (TargetSlot::CAMERA_1).individual_camera(),
                                 profile.clone(),
                             )
                             .expect("valid target registration"),
@@ -3444,7 +3665,7 @@ mod tests {
             let inquiry = crate::raw::InquiryRequest::from_fn(
                 [0x81, 0x09, 0x04, 0x00, 0xff],
                 |_payload: &[u8]| Ok(0_u8),
-                RetryClass::Inquiry,
+                crate::request::InquiryRetryClass::Inquiry,
                 crate::SubmissionClass::Normal,
             )
             .expect("raw inquiry");
@@ -3458,7 +3679,7 @@ mod tests {
                 let prepared = prepare_inquiry(
                     &inquiry,
                     &crate::TargetRegistration::new(
-                        (TargetSlot::CAMERA_1).camera(),
+                        (TargetSlot::CAMERA_1).individual_camera(),
                         profile.clone(),
                     )
                     .expect("valid target registration"),
@@ -3566,7 +3787,7 @@ mod tests {
             let command = crate::raw::PlainRequest::new([0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
                 crate::CommandTimeoutClass::Quick, RetryClass::Standard, crate::SubmissionClass::Normal).expect("command");
             let prepared = prepare_command(&command,
-        &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone()).expect("valid target registration"),
+        &crate::TargetRegistration::new((TargetSlot::CAMERA_1).individual_camera(), profile.clone()).expect("valid target registration"),
                 tuning, ClassSelection::Request).expect("valid tuning");
             let attempt = prepared.context.timeout.ack.get() + prepared.context.timeout.completion.get();
             let budget = prepared.context.retry.total_budget.expect("prepared budget").get();
@@ -3762,7 +3983,8 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7"),
         ] {
             let target =
-                crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+                crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+                    .expect("target");
             reset_request_validation_count();
             let request = crate::command::presets::SetRecallSpeed::selected_for_target(
                 &target,
@@ -3835,15 +4057,21 @@ mod tests {
         let stop_policies = [
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &FocusStop,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("focus stop"),
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &ZoomStop,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("zoom stop"),
@@ -3855,8 +4083,11 @@ mod tests {
         }
         let drive = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &ZoomDrive::Tele,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("zoom drive");
@@ -3872,8 +4103,11 @@ mod tests {
             .expect("built-in profile");
         let prepared = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &crate::request::builtin::ZoomStop,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("preparation");
@@ -3950,7 +4184,7 @@ mod tests {
             Degrees::new(15.0).expect("finite degrees"),
             pan_speed,
             sony_tilt_speed,
-            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, sony.clone())
                 .expect("target registration"),
         )
         .expect("Sony BRC-300 absolute");
@@ -3959,7 +4193,7 @@ mod tests {
             Degrees::new(15.0).expect("finite degrees"),
             pan_speed,
             sony_tilt_speed,
-            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, sony.clone())
                 .expect("target registration"),
         )
         .expect("Sony BRC-300 relative");
@@ -3967,28 +4201,37 @@ mod tests {
             PanTiltLimitCorner::UpRight,
             Degrees::new(45.0).expect("finite degrees"),
             Degrees::new(15.0).expect("finite degrees"),
-            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, sony.clone())
                 .expect("target registration"),
         )
         .expect("Sony BRC-300 limit");
         let prepared_sony_absolute = prepare_builtin_operation::<completion::Targeted, _>(
             &sony_absolute,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                sony.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared Sony BRC-300 absolute");
         let prepared_sony_relative = prepare_builtin_operation::<completion::Targeted, _>(
             &sony_relative,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                sony.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared Sony BRC-300 relative");
         let prepared_sony_limit = prepare_builtin_command(
             &sony_limit,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                sony.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared Sony BRC-300 limit");
@@ -4015,8 +4258,11 @@ mod tests {
         );
         let sony_inquiry = prepare_inquiry(
             &PanTiltPositionInquiry,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                sony.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4040,12 +4286,18 @@ mod tests {
                     Degrees::new(15.0).expect("finite degrees"),
                     pan_speed,
                     sony_tilt_speed,
-                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
-                        .expect("target registration"),
+                    &crate::TargetRegistration::new(
+                        crate::IndividualCameraId::CAMERA_1,
+                        profile.clone(),
+                    )
+                    .expect("target registration"),
                 )
                 .expect("Nearus absolute"),
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("prepared Nearus absolute");
@@ -4055,12 +4307,18 @@ mod tests {
                     Degrees::new(15.0).expect("finite degrees"),
                     pan_speed,
                     sony_tilt_speed,
-                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
-                        .expect("target registration"),
+                    &crate::TargetRegistration::new(
+                        crate::IndividualCameraId::CAMERA_1,
+                        profile.clone(),
+                    )
+                    .expect("target registration"),
                 )
                 .expect("Nearus relative"),
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("prepared Nearus relative");
@@ -4069,12 +4327,18 @@ mod tests {
                     PanTiltLimitCorner::UpRight,
                     Degrees::new(45.0).expect("finite degrees"),
                     Degrees::new(15.0).expect("finite degrees"),
-                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
-                        .expect("target registration"),
+                    &crate::TargetRegistration::new(
+                        crate::IndividualCameraId::CAMERA_1,
+                        profile.clone(),
+                    )
+                    .expect("target registration"),
                 )
                 .expect("Nearus limit"),
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("prepared Nearus limit");
@@ -4096,15 +4360,21 @@ mod tests {
                     Degrees::new(15.0).expect("finite degrees"),
                     pan_speed,
                     tilt_speed,
-                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
-                        .expect("target registration"),
+                    &crate::TargetRegistration::new(
+                        crate::IndividualCameraId::CAMERA_1,
+                        profile.clone()
+                    )
+                    .expect("target registration"),
                 ),
                 Err(Error::InvalidRequest { .. })
             ));
             let inquiry = prepare_inquiry(
                 &PanTiltPositionInquiry,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -4122,8 +4392,11 @@ mod tests {
             .expect("Sony BRC-300 limit clear");
         let prepared_clear = prepare_command(
             &clear,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                sony.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4145,14 +4418,17 @@ mod tests {
             Degrees::new(-15.0).expect("finite degrees"),
             pan_speed,
             tilt_speed,
-            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, signed.clone())
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, signed.clone())
                 .expect("target registration"),
         )
         .expect("signed absolute");
         let prepared = prepare_builtin_operation::<completion::Targeted, _>(
             &absolute,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), signed.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                signed.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared signed absolute");
@@ -4167,8 +4443,11 @@ mod tests {
         );
         let inquiry = prepare_inquiry(
             &PanTiltPositionInquiry,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), signed.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                signed.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4201,15 +4480,18 @@ mod tests {
             Degrees::new(0.0).expect("finite degrees"),
             PanSpeed::new(18).expect("conservative range"),
             TiltSpeed::new(17).expect("conservative range"),
-            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, generic.clone())
+            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, generic.clone())
                 .expect("target registration"),
         )
         .expect("valid for the source profile");
         reset_request_write_count();
         assert!(prepare_operation::<completion::Targeted, _>(
             &pan_tilt,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), nearus.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                nearus.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4231,8 +4513,11 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_operation::<completion::Targeted, _>(
             &zoom,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), no_direct.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                no_direct.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4260,8 +4545,11 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &outside_zoom,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), bounded_zoom.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                bounded_zoom.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
@@ -4270,8 +4558,11 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_operation::<completion::AppliedOnly, _>(
             &FocusTrigger::Snap,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), no_direct.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                no_direct.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4282,8 +4573,11 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_command(
             &preset,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), nearus.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                nearus.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4348,8 +4642,11 @@ mod tests {
         fn submission_class(class: ClassSelection) -> EngineControlClass {
             prepare_command(
                 &BackgroundPlain,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile().clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -4362,8 +4659,11 @@ mod tests {
         fn inquiry_class(class: ClassSelection) -> EngineControlClass {
             prepare_inquiry(
                 &CountingInquiry,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile().clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -4378,8 +4678,11 @@ mod tests {
         ) -> Result<PreparedOperation<completion::AppliedOnly>> {
             prepare_operation::<completion::AppliedOnly, _>(
                 &DownstreamUrgentStop,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile().clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -4388,8 +4691,11 @@ mod tests {
         fn builtin_stop_class(class: ClassSelection) -> EngineControlClass {
             prepare_operation::<completion::AppliedOnly, _>(
                 &ZoomStop,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile().clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -4523,8 +4829,11 @@ mod tests {
                 .expect("plain");
         let undeclared = prepare_command(
             &command,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4532,8 +4841,11 @@ mod tests {
         assert!(undeclared.context.motion.is_none());
         let declared = prepare_command(
             &command.with_motion_axes(AffectedAxes::ZOOM),
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4591,7 +4903,8 @@ mod tests {
 
         let profile =
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("profile");
-        let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+            .expect("target");
         let tuning = OperationalTuning::new();
         let validated = ValidatedTuning::validate(tuning, [target.profile()]).expect("tuning");
         let wire = [0x81, 1, 2, VISCA_TERMINATOR];
@@ -4698,6 +5011,9 @@ mod tests {
                         );
                     }
                 }
+                let Some(inquiry_retry) = crate::request::InquiryRetryClass::of(retry) else {
+                    continue;
+                };
                 let reference = ReferencePolicy {
                     timeout: TimeoutClass::Inquiry,
                     retry,
@@ -4715,7 +5031,7 @@ mod tests {
                 let inquiry = crate::raw::InquiryRequest::with_policy(
                     wire,
                     ResponseDecoder::from_fn(|_: &[u8]| Ok(0_u8)),
-                    InquiryPolicy::new(retry, class),
+                    InquiryPolicy::new(inquiry_retry, class),
                 )
                 .expect("inquiry");
                 assert_eq!(
@@ -4753,8 +5069,11 @@ mod tests {
                 .expect("plain");
             let prepared = prepare_command(
                 &command,
-                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::new(
+                    (TargetSlot::CAMERA_1).individual_camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -4773,8 +5092,11 @@ mod tests {
         .expect("plain");
         let prepared = prepare_command(
             &default_command,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4788,8 +5110,11 @@ mod tests {
             .expect("built-in profile");
         let error = prepare_operation::<completion::AppliedOnly, _>(
             &NoReplyAppliedOnly,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).individual_camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )

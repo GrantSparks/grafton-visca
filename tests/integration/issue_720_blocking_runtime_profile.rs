@@ -19,6 +19,7 @@ fn runtime_power_profile() -> ProfileSpec {
     let mut capabilities =
         Capabilities::runtime_baseline("Issue 720 runtime camera", 1).expect("baseline");
     capabilities.power = Some(grafton_visca::capabilities::PowerCaps {
+        status_query: grafton_visca::capabilities::PowerStatusQuery::Standard,
         on_time: Duration::from_secs(1),
         standby: None,
         wake_on_lan: false,
@@ -61,7 +62,9 @@ fn blocking_dynamic_view_drives_a_runtime_only_profile() {
     .expect("runtime-profile session");
 
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic blocking camera");
     assert_eq!(
         camera.profile().capabilities().model_name,

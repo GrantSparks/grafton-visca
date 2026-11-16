@@ -21,20 +21,38 @@ use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 
 use std::{
     collections::VecDeque,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
     time::{Duration, Instant},
 };
 
 use grafton_visca::{
     config::SessionConfig,
-    error::{Certainty, FailureContext, FailureStage},
     operation::HaltOutcome,
     profiles::{ProfileSpec, PtzOpticsG2},
-    types::{AffectedAxes, IdleWait, MotionQuery},
+    types::{AffectedAxes, IdleWait},
     Error,
+};
+
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
+use grafton_visca::{
+    error::{Certainty, FailureContext, FailureStage},
+    types::MotionQuery,
+};
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
 use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP};
@@ -43,13 +61,34 @@ use profile_fixtures::MotionOwnerCompileTimeProfile;
 /// An idle-wait budget no settling wait reaches: the wait returns as soon as
 /// two samples agree, so the budget bounds only a failure and the outcome
 /// never depends on scheduling.
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
 const SETTLE_BUDGET: Duration = Duration::from_secs(30);
 
 /// The failure context of an idle wait that ran out of time (D20).
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
 const OBSERVATION_TIMEOUT: FailureContext =
     FailureContext::new(FailureStage::Observation, Certainty::NotAccepted);
 
 /// The zoom position inquiry, camera address 1.
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
 const ZOOM_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xff];
 
 /// The positions the camera reports, one per inquiry, per axis. An exhausted
@@ -62,6 +101,13 @@ struct PositionScript {
 }
 
 impl PositionScript {
+    #[cfg(any(
+        feature = "runtime-tokio",
+        all(
+            feature = "test-utils",
+            any(feature = "blocking", feature = "runtime-smol")
+        )
+    ))]
     fn zoom(positions: impl IntoIterator<Item = u16>) -> Self {
         Self {
             zoom: positions.into_iter().collect(),
@@ -96,6 +142,13 @@ fn motion_camera(mut script: PositionScript, fail_first_pan_stop: bool) -> FakeC
 /// A camera whose zoom position alternates beyond tolerance at every inquiry
 /// until `stopped` is set, then holds still. Every other command is
 /// acknowledged and completed.
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
 fn moving_zoom_camera(stopped: Arc<AtomicBool>) -> FakeCamera {
     let mut position: u16 = 0;
     FakeCamera::visca(move |payload, answer| {
@@ -132,132 +185,158 @@ fn motion_config() -> SessionConfig {
     )
 }
 
-facade_matrix! {
-    /// A settled zoom answers the motion query and the idle wait from zoom
-    /// position inquiries alone.
-    fn owner_motion_zoom_query_and_idle_wait_poll_only_zoom() {
-        let fake = motion_camera(PositionScript::zoom([10, 10, 10, 10]), false);
-        let session = open!(fake, motion_config()).expect("session");
-        let camera = session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
-            .expect("camera");
-        assert!(!wait!(camera
-            .motion()
-            .is_moving(MotionQuery::new(AffectedAxes::ZOOM)))
-        .expect("zoom motion query"));
-        wait!(camera.motion().wait_until_idle(
-            IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::ZERO),
-        ))
-        .expect("zoom idle wait");
-        let writes = fake.writes();
-        assert_eq!(writes.len(), 4);
-        assert!(writes.iter().all(|bytes| bytes == ZOOM_POSITION_INQUIRY));
-        session.shutdown().expect("shutdown");
-    }
-
-    /// An axis the profile cannot observe is refused before any wire I/O.
-    fn owner_motion_unsupported_axis_is_refused_before_the_wire() {
-        let fake = motion_camera(PositionScript::default(), false);
-        let session = open!(fake, motion_config()).expect("unsupported-axis session");
-        let camera = session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
-            .expect("camera");
-        assert!(matches!(
-            wait!(camera
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
+mod paused {
+    use super::*;
+    facade_matrix! {
+        paused:
+        /// A settled zoom answers the motion query and the idle wait from zoom
+        /// position inquiries alone.
+        fn owner_motion_zoom_query_and_idle_wait_poll_only_zoom() {
+            let fake = motion_camera(PositionScript::zoom([10, 10, 10, 10]), false);
+            let session = open!(fake, motion_config()).expect("session");
+            let camera = session
+                .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                .expect("camera");
+            assert!(!wait!(camera
                 .motion()
-                .is_moving(MotionQuery::new(AffectedAxes::ND_FILTER))),
-            Err(Error::FeatureNotSupported { .. })
-        ));
-        assert!(matches!(
-            wait!(camera.motion().wait_until_idle(IdleWait::new(
-                AffectedAxes::ND_FILTER,
-                Duration::from_secs(1),
-            ))),
-            Err(Error::FeatureNotSupported { .. })
-        ));
-        assert!(fake.writes().is_empty());
-        session.shutdown().expect("shutdown");
-    }
-
-    /// An idle wait keeps polling while the position changes and returns once
-    /// it settles.
-    fn owner_motion_idle_wait_settles_after_motion() {
-        let fake = motion_camera(PositionScript::zoom([0, 100, 100]), false);
-        let session = open!(fake, motion_config()).expect("moving session");
-        wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
-            .expect("camera")
-            .motion()
-            .wait_until_idle(
-                IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET)
-                    .with_interval(Duration::ZERO),
+                .is_moving(MotionQuery::new(AffectedAxes::ZOOM)))
+            .expect("zoom motion query"));
+            wait!(camera.motion().wait_until_idle(
+                IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::from_millis(25)),
             ))
-        .expect("moving then settled");
-        assert_eq!(fake.write_count(), 3);
-        session.shutdown().expect("shutdown");
-    }
+            .expect("zoom idle wait");
+            let writes = fake.writes();
+            assert_eq!(writes.len(), 4);
+            assert!(writes.iter().all(|bytes| bytes == ZOOM_POSITION_INQUIRY));
+            session.shutdown().expect("shutdown");
+        }
 
-    /// An idle wait is a read-only query: its deadline is an
-    /// `Observation`/`NotAccepted` timeout (D20), and repeating the wait
-    /// answers again. The deadline bounds the whole wait, first sample
-    /// included, so a wait whose deadline has already passed samples nothing.
-    fn owner_motion_idle_wait_deadline_is_a_repeatable_observation() {
-        let fake = motion_camera(PositionScript::zoom([0, 0]), false);
-        let session = open!(fake, motion_config()).expect("deadline session");
-        let camera = session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
-            .expect("camera");
-        let expired = IdleWait::new(AffectedAxes::ZOOM, Duration::ZERO)
-            .with_interval(Duration::ZERO);
-        for _ in 0..2 {
+        /// An axis the profile cannot observe is refused before any wire I/O.
+        fn owner_motion_unsupported_axis_is_refused_before_the_wire() {
+            let fake = motion_camera(PositionScript::default(), false);
+            let session = open!(fake, motion_config()).expect("unsupported-axis session");
+            let camera = session
+                .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                .expect("camera");
+            assert!(matches!(
+                wait!(camera
+                    .motion()
+                    .is_moving(MotionQuery::new(AffectedAxes::ND_FILTER))),
+                Err(Error::FeatureNotSupported { .. })
+            ));
+            assert!(matches!(
+                wait!(camera.motion().wait_until_idle(IdleWait::new(
+                    AffectedAxes::ND_FILTER,
+                    Duration::from_secs(1),
+                ))),
+                Err(Error::FeatureNotSupported { .. })
+            ));
+            assert!(fake.writes().is_empty());
+            session.shutdown().expect("shutdown");
+        }
+
+        /// An idle wait keeps polling while the position changes and returns once
+        /// it settles.
+        fn owner_motion_idle_wait_settles_after_motion() {
+            let fake = motion_camera(PositionScript::zoom([0, 100, 100]), false);
+            let session = open!(fake, motion_config()).expect("moving session");
+            wait!(session
+                .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                .expect("camera")
+                .motion()
+                .wait_until_idle(
+                    IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET)
+                        .with_interval(Duration::from_millis(25)),
+                ))
+            .expect("moving then settled");
+            assert_eq!(fake.write_count(), 3);
+            session.shutdown().expect("shutdown");
+        }
+
+        /// An idle wait is a read-only query: its deadline is an
+        /// `Observation`/`NotAccepted` timeout (D20), and repeating the wait
+        /// answers again. The deadline bounds the whole wait, first sample
+        /// included, so a wait whose deadline has already passed samples nothing.
+        fn owner_motion_idle_wait_deadline_is_a_repeatable_observation() {
+            let fake = motion_camera(PositionScript::zoom([0, 0]), false);
+            let session = open!(fake, motion_config()).expect("deadline session");
+            let camera = session
+                .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                .expect("camera");
+            let expired = IdleWait::new(AffectedAxes::ZOOM, Duration::ZERO);
+            for _ in 0..2 {
+                assert_eq!(
+                    wait!(camera.motion().wait_until_idle(expired))
+                        .expect_err("the deadline has passed")
+                        .failure_context(),
+                    Some(OBSERVATION_TIMEOUT)
+                );
+            }
+            assert_eq!(fake.write_count(), 0);
+            wait!(camera.motion().wait_until_idle(
+                IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::from_millis(25)),
+            ))
+            .expect("the repeated wait answers");
+            let writes = fake.writes();
+            assert_eq!(writes.len(), 2);
+            assert!(writes.iter().all(|bytes| bytes == ZOOM_POSITION_INQUIRY));
+            session.shutdown().expect("shutdown");
+        }
+
+        /// A deadline that passes while the axis keeps moving ends the wait with
+        /// the same `Observation`/`NotAccepted` timeout wherever it lands: before
+        /// an inquiry is admitted, while a reply is awaited, or in a pause. The
+        /// wait writes only position inquiries, and a repeated wait settles once
+        /// the axis stops.
+        fn owner_motion_idle_wait_deadline_while_moving_is_an_observation() {
+            let stopped = Arc::new(AtomicBool::new(false));
+            let fake = moving_zoom_camera(Arc::clone(&stopped));
+            let session = open!(fake, motion_config()).expect("moving session");
+            let camera = session
+                .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                .expect("camera");
             assert_eq!(
-                wait!(camera.motion().wait_until_idle(expired))
-                    .expect_err("the deadline has passed")
-                    .failure_context(),
+                wait!(camera.motion().wait_until_idle(
+                    IdleWait::new(AffectedAxes::ZOOM, Duration::from_millis(50))
+                        .with_interval(Duration::from_millis(25)),
+                ))
+                .expect_err("the camera keeps moving")
+                .failure_context(),
                 Some(OBSERVATION_TIMEOUT)
             );
-        }
-        assert_eq!(fake.write_count(), 0);
-        wait!(camera.motion().wait_until_idle(
-            IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::ZERO),
-        ))
-        .expect("the repeated wait answers");
-        let writes = fake.writes();
-        assert_eq!(writes.len(), 2);
-        assert!(writes.iter().all(|bytes| bytes == ZOOM_POSITION_INQUIRY));
-        session.shutdown().expect("shutdown");
-    }
-
-    /// A deadline that passes while the axis keeps moving ends the wait with
-    /// the same `Observation`/`NotAccepted` timeout wherever it lands: before
-    /// an inquiry is admitted, while a reply is awaited, or in a pause. The
-    /// wait writes only position inquiries, and a repeated wait settles once
-    /// the axis stops.
-    fn owner_motion_idle_wait_deadline_while_moving_is_an_observation() {
-        let stopped = Arc::new(AtomicBool::new(false));
-        let fake = moving_zoom_camera(Arc::clone(&stopped));
-        let session = open!(fake, motion_config()).expect("moving session");
-        let camera = session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
-            .expect("camera");
-        assert_eq!(
+            stopped.store(true, Ordering::SeqCst);
             wait!(camera.motion().wait_until_idle(
-                IdleWait::new(AffectedAxes::ZOOM, Duration::from_millis(50))
-                    .with_interval(Duration::ZERO),
+                IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::from_millis(25)),
             ))
-            .expect_err("the camera keeps moving")
-            .failure_context(),
-            Some(OBSERVATION_TIMEOUT)
-        );
-        stopped.store(true, Ordering::SeqCst);
-        wait!(camera.motion().wait_until_idle(
-            IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::ZERO),
-        ))
-        .expect("the stopped axis settles");
-        assert!(fake
-            .writes()
-            .iter()
-            .all(|bytes| bytes == ZOOM_POSITION_INQUIRY));
+            .expect("the stopped axis settles");
+            assert!(fake
+                .writes()
+                .iter()
+                .all(|bytes| bytes == ZOOM_POSITION_INQUIRY));
+            session.shutdown().expect("shutdown");
+        }
+
+    }
+}
+
+facade_matrix! {
+    /// Zero intervals are invalid observation evidence and never reach I/O.
+    fn owner_motion_zero_idle_interval_is_refused_before_io() {
+        let fake = motion_camera(PositionScript::default(), false);
+        let session = open!(fake, motion_config()).expect("session");
+        let camera = session.camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
+        assert!(matches!(
+            wait!(camera.motion().wait_until_idle(IdleWait::new(AffectedAxes::ZOOM, Duration::from_secs(1)).with_interval(Duration::ZERO))),
+            Err(Error::InvalidParameter { parameter: "idle sampling interval", .. })
+        ));
+        assert_eq!(fake.write_count(), 0);
         session.shutdown().expect("shutdown");
     }
 
@@ -267,7 +346,7 @@ facade_matrix! {
         let fake = motion_camera(PositionScript::default(), true);
         let session = open!(fake, motion_config()).expect("stop session");
         let report = wait!(session
-            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<MotionOwnerCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .motion()
             .stop_all())
@@ -298,7 +377,7 @@ facade_matrix! {
             )
         )
         .expect("raw session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
 
         let polling_started = Instant::now();
         for _ in 0..6 {

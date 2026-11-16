@@ -1,10 +1,10 @@
-use grafton_visca::{raw, request::RetryClass};
+use grafton_visca::{raw, request::InquiryRetryClass};
 
 fn main() {
     let inquiry = raw::InquiryRequest::from_fn(
         [0x81, 0x09, 0x04, 0x00, 0xff],
         |_: &[u8]| Ok::<_, grafton_visca::Error>(true),
-        RetryClass::Inquiry,
+        InquiryRetryClass::Inquiry,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .unwrap();

@@ -89,7 +89,13 @@ fn perform_startup(
             Action::Write { frame, timeout } => {
                 let written = Deadline::after(Instant::now(), timeout, "write_timeout").and_then(
                     |deadline| {
-                        write_all_bounded(port, set_device_timeout, frame, deadline, timeout)
+                        write_all_bounded(
+                            port,
+                            set_device_timeout,
+                            frame,
+                            deadline,
+                            TimedIo::SerialDevice,
+                        )
                     },
                 );
                 startup.wrote(written);
@@ -100,7 +106,7 @@ fn perform_startup(
                     set_device_timeout,
                     &mut buffer,
                     timeout,
-                    TimedIo::Bounded,
+                    TimedIo::SerialDevice,
                 );
                 startup.read(read.map(|read| &buffer[..read]));
             }
@@ -133,7 +139,7 @@ impl BlockingTransport for SerialTransport {
             set_device_timeout,
             bytes,
             deadline,
-            timeout,
+            TimedIo::SerialDevice,
         )?;
         trace!("Queued {} serial bytes: {:02X?}", bytes.len(), bytes);
         Ok(())
@@ -149,7 +155,7 @@ impl BlockingTransport for SerialTransport {
             set_device_timeout,
             dst,
             timeout,
-            TimedIo::Bounded,
+            TimedIo::SerialDevice,
         )?;
         trace!("Read {read} bytes from serial port");
         stream_read(read, SERIAL_PORT_CLOSED).map(ReceiveOutcome::complete)
@@ -223,8 +229,8 @@ mod tests {
         flush_calls: Arc<AtomicUsize>,
         /// Scripted write outcomes, used by partial-write deadline tests.
         write_steps: RefCell<VecDeque<WriteStep>>,
-        /// Fail once when this timeout is requested.
-        fail_next_timeout_set_to: RefCell<Option<Duration>>,
+        /// Fail the next attempt to arm a device timeout.
+        fail_next_timeout_set: RefCell<bool>,
         /// Number of input-buffer discards.
         input_clears: RefCell<usize>,
     }
@@ -245,7 +251,7 @@ mod tests {
                 writes: RefCell::new(Vec::new()),
                 flush_calls: Arc::new(AtomicUsize::new(0)),
                 write_steps: RefCell::new(VecDeque::new()),
-                fail_next_timeout_set_to: RefCell::new(None),
+                fail_next_timeout_set: RefCell::new(false),
                 input_clears: RefCell::new(0),
             }
         }
@@ -270,8 +276,8 @@ mod tests {
             self
         }
 
-        fn with_next_timeout_set_failure(self, timeout: Duration) -> Self {
-            *self.fail_next_timeout_set_to.borrow_mut() = Some(timeout);
+        fn with_next_timeout_set_failure(self) -> Self {
+            *self.fail_next_timeout_set.borrow_mut() = true;
             self
         }
     }
@@ -308,6 +314,9 @@ mod tests {
             }
 
             let mut data = self.read_data.borrow_mut();
+            if data.is_empty() {
+                return Err(ErrorKind::TimedOut.into());
+            }
             let n = std::cmp::min(buf.len(), data.len());
             if n > 0 {
                 buf[..n].copy_from_slice(&data[..n]);
@@ -379,12 +388,7 @@ mod tests {
         }
 
         fn set_timeout(&mut self, timeout: Duration) -> serialport::Result<()> {
-            let should_fail = self
-                .fail_next_timeout_set_to
-                .borrow()
-                .is_some_and(|expected| expected == timeout);
-            if should_fail {
-                *self.fail_next_timeout_set_to.borrow_mut() = None;
+            if self.fail_next_timeout_set.replace(false) {
                 return Err(serialport::Error::new(
                     serialport::ErrorKind::Unknown,
                     "simulated timeout setting error",
@@ -617,6 +621,44 @@ mod tests {
         assert_eq!(port.write_calls.load(Ordering::SeqCst), 2);
     }
 
+    #[test]
+    fn address_set_retries_an_interrupted_read_without_rebroadcasting() {
+        let mut port = TestSerialPort::new(Duration::from_millis(50)).with_read_steps([
+            ReadStep::Error(ErrorKind::Interrupted),
+            ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR]),
+        ]);
+        perform_startup(
+            &mut port,
+            &address_set(Duration::from_millis(50), Duration::from_millis(50)),
+            timing(Duration::from_secs(1)),
+        )
+        .expect("the reply follows the signal interruption");
+        assert_eq!(port.write_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(port.read_timeouts.borrow().len(), 2);
+        assert!(port.read_steps.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_zero_byte_timed_serial_write_has_async_timeout_recovery() {
+        let port =
+            TestSerialPort::new(Duration::from_secs(5)).with_write_steps([WriteStep::Partial {
+                bytes: 0,
+                delay: Duration::ZERO,
+            }]);
+        let writes = Arc::clone(&port.write_calls);
+        let mut transport = create_test_transport(port);
+        let error = transport
+            .send_with_timeout(b"VISCA", Duration::from_millis(100))
+            .expect_err("the device write timeout returned zero bytes");
+        assert!(matches!(error, Error::Timeout { .. }));
+        assert_eq!(error.recovery(), crate::Recovery::Reconcile);
+        assert_eq!(
+            error.failure_context(),
+            Error::io_timeout().failure_context()
+        );
+        assert_eq!(writes.load(Ordering::SeqCst), 1);
+    }
+
     /// #797: an expired partial write leaves an unknowable bus position, so it
     /// ends startup instead of starting another attempt.
     #[test]
@@ -751,8 +793,7 @@ mod tests {
     #[test]
     fn failing_to_arm_a_device_timeout_is_an_io_error() {
         let read_timeout = Duration::from_millis(100);
-        let port =
-            TestSerialPort::new(Duration::from_secs(5)).with_next_timeout_set_failure(read_timeout);
+        let port = TestSerialPort::new(Duration::from_secs(5)).with_next_timeout_set_failure();
         let mut transport = create_test_transport(port);
 
         let mut buf = [0u8; 16];
@@ -763,7 +804,9 @@ mod tests {
     /// #798/#800: a zero-byte read is end of stream on every stream transport.
     #[test]
     fn a_zero_byte_read_is_a_closed_serial_port() {
-        let mut transport = create_test_transport(TestSerialPort::new(Duration::from_secs(5)));
+        let port = TestSerialPort::new(Duration::from_secs(5))
+            .with_read_steps([ReadStep::Bytes(Vec::new())]);
+        let mut transport = create_test_transport(port);
         let mut buf = [0u8; 16];
         assert!(matches!(
             transport.recv_into_with_timeout(&mut buf, Duration::from_millis(10)),
@@ -808,6 +851,7 @@ mod tests {
             let reads = scenario.reads.iter().map(|read| match read {
                 ScriptRead::Bytes(bytes) => ReadStep::Bytes(bytes.clone()),
                 ScriptRead::Idle => ReadStep::Error(ErrorKind::TimedOut),
+                ScriptRead::Eof => ReadStep::Bytes(Vec::new()),
                 ScriptRead::Fails(kind) => ReadStep::Error(*kind),
             });
             let writes = scenario.writes.iter().map(|write| match write {
@@ -824,6 +868,13 @@ mod tests {
             let result = perform_startup(&mut port, &scenario.config, scenarios::TIMING);
 
             scenarios::check(&scenario, &result);
+            if matches!(scenario.outcome, scenarios::Outcome::Closed) {
+                assert_eq!(
+                    port.read_steps.borrow().len(),
+                    1,
+                    "EOF stops before the next read"
+                );
+            }
             assert_eq!(
                 port.writes.borrow().as_slice(),
                 scenario.expect_writes.as_slice(),
@@ -870,7 +921,7 @@ mod tests {
             });
 
             let config = CameraConfig::<PtzOpticsG2>::serial(path.clone(), 9_600)
-                .with_camera_id(camera)
+                .with_camera_id(camera.try_into().expect("individual camera"))
                 .with_serial_startup(Startup::default().with_address_set(true));
             let result = crate::blocking::CameraSession::connect(&config);
             let _master = bus.join().expect("bus thread");

@@ -11,8 +11,8 @@ use crate::{
         address::resolve_blocking,
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
         builder::TransportConfig,
-        connect::{connect_deadline, preflight, socket_setup, AttemptFailure, TcpAttempts},
-        socket_options::{apply_tcp_socket_options, TcpConnectionConfig},
+        connect::{connect_deadline, preflight, AttemptFailure, TcpAttempts},
+        socket_options::{configured_tcp_socket, TcpConnectionConfig},
         stream_read, BlockingTransport, HasTransportConfig, ReceiveOutcome,
     },
     Error,
@@ -60,7 +60,7 @@ impl Tcp {
             options,
             resolve_blocking(&endpoint, deadline)?,
             deadline,
-            TcpStream::connect_timeout,
+            connect_one,
             Instant::now,
         )?;
         Ok(Self { stream, config })
@@ -73,23 +73,33 @@ fn connect_resolved(
     options: TcpConnectionConfig,
     addresses: Vec<SocketAddr>,
     deadline: Deadline,
-    mut connect: impl FnMut(&SocketAddr, Duration) -> std::io::Result<TcpStream>,
+    mut connect: impl FnMut(&SocketAddr, Duration, TcpConnectionConfig) -> std::io::Result<TcpStream>,
     mut now: impl FnMut() -> Instant,
 ) -> Result<TcpStream, Error> {
     let mut attempts = TcpAttempts::new(addresses, deadline);
     while let Some((address, remaining)) = attempts.next_attempt(now()) {
-        match connect(&address, remaining) {
-            Ok(stream) => {
-                socket_setup(
-                    endpoint,
-                    apply_tcp_socket_options(socket2::SockRef::from(&stream), address, options),
-                )?;
-                return Ok(stream);
-            }
+        match connect(&address, remaining, options) {
+            Ok(stream) => return Ok(stream),
             Err(error) => attempts.failed(AttemptFailure::from_socket(error)),
         }
     }
     Err(attempts.into_error(endpoint, now()))
+}
+
+/// Configure an unconnected socket before the blocking handshake.
+fn connect_one(
+    address: &SocketAddr,
+    remaining: Duration,
+    options: TcpConnectionConfig,
+) -> std::io::Result<TcpStream> {
+    let started = Instant::now();
+    let socket = configured_tcp_socket(*address, options)?;
+    let remaining = remaining.saturating_sub(started.elapsed());
+    if remaining.is_zero() {
+        return Err(std::io::ErrorKind::TimedOut.into());
+    }
+    socket.connect_timeout(&(*address).into(), remaining)?;
+    Ok(socket.into())
 }
 
 impl HasTransportConfig for Tcp {
@@ -105,7 +115,13 @@ impl HasTransportConfig for Tcp {
 impl BlockingTransport for Tcp {
     fn send_with_timeout(&mut self, data: &[u8], timeout: Duration) -> Result<(), Error> {
         let deadline = Deadline::after(Instant::now(), timeout, "write_timeout")?;
-        write_all_bounded(&mut self.stream, arm_write, data, deadline, timeout)
+        write_all_bounded(
+            &mut self.stream,
+            arm_write,
+            data,
+            deadline,
+            TimedIo::Bounded,
+        )
     }
 
     fn recv_into_with_timeout(
@@ -210,7 +226,7 @@ mod tests {
             options,
             addresses.to_vec(),
             deadline,
-            |address, budget| {
+            |address, budget, _options| {
                 tried.push((*address, budget));
                 Err(if *address == addresses[0] {
                     clock.set(clock.get() + budget);
@@ -254,7 +270,7 @@ mod tests {
                 options,
                 addresses.to_vec(),
                 deadline,
-                |address, budget| {
+                |address, budget, _options| {
                     tried.push(*address);
                     if spend_shares {
                         clock.set(clock.get() + budget);
@@ -267,6 +283,43 @@ mod tests {
             assert_eq!(tried, addresses);
             assert!(matches!(error, Error::Timeout { .. }), "{error:?}");
         }
+    }
+
+    #[test]
+    fn a_socket_option_failure_tries_the_next_address_before_connecting() {
+        let first = TcpListener::bind("127.0.0.1:0").expect("first listener");
+        first.set_nonblocking(true).expect("nonblocking listener");
+        let second = TcpListener::bind("127.0.0.1:0").expect("second listener");
+        let addresses = [
+            first.local_addr().expect("first"),
+            second.local_addr().expect("second"),
+        ];
+        let options = TcpConnectionConfig::from(TransportConfig::for_tcp().with_ttl(Some(2)));
+        let deadline = connect_deadline(Instant::now(), options.connect_timeout).expect("budget");
+        let mut tried = Vec::new();
+        let stream = connect_resolved(
+            "camera.test:1259",
+            options,
+            addresses.to_vec(),
+            deadline,
+            |address, remaining, mut options| {
+                tried.push(*address);
+                if *address == addresses[0] {
+                    // Bypass preflight to exercise an actual setsockopt error.
+                    options.ttl = Some(300);
+                }
+                connect_one(address, remaining, options)
+            },
+            Instant::now,
+        )
+        .expect("second address connects");
+        assert_eq!(tried, addresses);
+        assert_eq!(stream.peer_addr().expect("peer"), addresses[1]);
+        assert_eq!(stream.ttl().expect("TTL"), 2);
+        assert_eq!(
+            first.accept().expect_err("no SYN to failed setup").kind(),
+            ErrorKind::WouldBlock
+        );
     }
 
     #[test]

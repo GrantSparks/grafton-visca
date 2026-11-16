@@ -55,7 +55,7 @@ facade_matrix! {
     fn refused_cancel_leaves_the_handle_observing() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         // A continuous zoom: the axis keeps moving until something stops it.
         let mut moving = wait!(camera.zoom().tele()).expect("continuous zoom admitted");
@@ -113,7 +113,7 @@ facade_matrix! {
     fn refused_cancel_leaves_the_handle_observing_and_stop_available() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         // A continuous zoom: the axis keeps moving until something stops it.
         let mut moving = wait!(camera.zoom().tele()).expect("continuous zoom admitted");
@@ -165,7 +165,7 @@ facade_matrix! {
     fn handle_can_be_detached_after_a_refused_cancel() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         let mut moving = wait!(camera.zoom().tele()).expect("continuous zoom admitted");
         wait_for_writes!(fake, 1);
@@ -198,7 +198,7 @@ facade_matrix! {
     fn queued_cancel_concludes_cancelled_on_every_profile() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config()).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         // Occupy both G2 command sockets so the third submission is
         // unambiguously still queued when it is cancelled.
@@ -246,7 +246,9 @@ async fn runtime_profile_refused_cancel_leaves_the_handle_observing<
             .await
             .expect("owner session");
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic G2 camera");
 
     let mut moving = camera

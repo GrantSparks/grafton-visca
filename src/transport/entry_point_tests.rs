@@ -262,7 +262,7 @@ mod blocking {
         )
         .expect("session");
         session
-            .camera::<GenericVisca>(crate::types::CameraId::CAMERA_1)
+            .camera::<GenericVisca>(crate::IndividualCameraId::CAMERA_1)
             .expect("camera")
             .power()
             .on()

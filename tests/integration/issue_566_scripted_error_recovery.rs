@@ -81,7 +81,7 @@ fn tuned_open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
 fn a_busy_camera_is_replayed_once_and_then_succeeds() {
     let (session, probe) = open(helpers::buffer_full_then_success(1));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -97,7 +97,7 @@ fn a_busy_camera_is_replayed_once_and_then_succeeds() {
 fn a_repeatedly_busy_camera_stays_inside_its_retry_budget() {
     let (session, probe) = open(helpers::buffer_full_sequence_then_success(1, 3));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -113,7 +113,7 @@ fn a_repeatedly_busy_camera_stays_inside_its_retry_budget() {
 fn a_refused_movement_command_is_replayed_once_and_then_succeeds() {
     let (session, probe) = open(helpers::not_executable_then_success(0));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -130,7 +130,7 @@ fn a_refused_movement_command_is_replayed_once_and_then_succeeds() {
 fn a_refused_typed_stop_is_terminal() {
     let (session, probe) = open(helpers::not_executable_then_success(0));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera
@@ -155,7 +155,7 @@ fn a_refused_typed_stop_is_terminal() {
 fn a_repeatedly_refused_movement_command_stays_inside_its_budget() {
     let (session, probe) = open(helpers::not_executable_sequence_then_success(0, 3));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -172,7 +172,7 @@ fn a_repeatedly_refused_movement_command_stays_inside_its_budget() {
 fn a_refused_standard_command_is_terminal() {
     let (session, probe) = open(helpers::not_executable_sequence_then_success(0, 1));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let error = camera
@@ -192,7 +192,7 @@ fn a_refused_standard_command_is_terminal() {
 fn a_camera_with_no_free_socket_is_replayed() {
     let (session, probe) = open(vec![errors::no_socket(), helpers::auto_respond_step()]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     camera
@@ -214,7 +214,7 @@ fn a_builtin_facade_inquiry_syntax_error_is_replayed_once() {
         vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xff],
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let position = camera
@@ -239,7 +239,7 @@ fn a_healthy_inquiry_is_answered_on_the_first_write() {
         vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xff],
     )]);
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     let position = camera
@@ -261,7 +261,7 @@ fn a_busy_camera_exhausts_exactly_the_configured_retry_budget() {
         TUNED_QUICK_WRITES - 1,
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
     camera
         .execute(&StandardCommand)
@@ -276,7 +276,7 @@ fn a_busy_camera_exhausts_exactly_the_configured_retry_budget() {
         TUNED_QUICK_WRITES,
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
     let error = camera
         .execute(&StandardCommand)
@@ -298,7 +298,7 @@ fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
         TUNED_QUICK_WRITES - 1,
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
     camera
         .execute(&MovementCommand)
@@ -311,7 +311,7 @@ fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
         TUNED_QUICK_WRITES,
     ));
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
     let error = camera
         .execute(&MovementCommand)

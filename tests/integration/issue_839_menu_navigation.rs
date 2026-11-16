@@ -50,7 +50,7 @@ facade_matrix! {
     fn navigation_has_an_applied_handle_and_needs_an_explicit_stop() {
         let fake = FakeCamera::acking(1);
         let session = open!(fake, config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
         let mut navigation = wait!(camera.menu().navigate(MenuDirection::Up))
             .expect("navigation admitted");
         wait!(navigation.applied()).expect("navigation applied");
@@ -75,7 +75,7 @@ facade_matrix! {
             }
         }));
         let session = open!(fake, config()).expect("session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
         let _first = wait!(camera.zoom().tele()).expect("first command admitted");
         wait_for_writes!(fake.0, 1);
         pause!(Duration::from_millis(50));

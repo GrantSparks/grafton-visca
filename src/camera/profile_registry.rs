@@ -258,6 +258,35 @@ macro_rules! __pan_tilt_facts {
         })
     };
 }
+// Project the same registry coordinates without constructing heap-owning facts.
+macro_rules! __pan_tilt_coordinates {
+    (None) => {
+        None
+    };
+    ({
+        pan_range: $pan_range:expr,
+        tilt_ranges: $tilt_ranges:expr,
+        pan_speed: $pan_speed:expr,
+        tilt_speed: $tilt_speed:expr,
+        coordinates: {
+            coordinate_system: $system:expr,
+            wire_codec: $codec:expr,
+            pan_degrees_to_units: $pan_scale:expr,
+            tilt_degrees_to_units: $tilt_scale:expr,
+        },
+        $($rest:tt)*
+    }) => {
+        Some(
+            $crate::profiles::PanTiltCoordinateConversion::from_registry(
+                $system,
+                $codec,
+                $pan_scale,
+                $tilt_scale,
+            ),
+        )
+    };
+}
+
 macro_rules! __white_balance_facts {
     (None) => {
         None
@@ -556,6 +585,11 @@ macro_rules! __define_builtin_profiles {
             /// Registry grants without constructing owned profile facts.
             pub(crate) const fn typed_support(self) -> $crate::capabilities::TypedSupportSet {
                 match self { $(Self::$profile => <$profile as $crate::profiles::CompileTimeProfile>::TYPED_SUPPORT,)* }
+            }
+
+            /// Registry framing without constructing owned profile facts.
+            pub(crate) const fn pan_tilt_coordinates(self) -> Option<$crate::profiles::PanTiltCoordinateConversion> {
+                match self { $(Self::$profile => __pan_tilt_coordinates!($pan_tilt_facts),)* }
             }
 
             /// Returns the pinned snake_case identifier used in configurations.
@@ -1640,6 +1674,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -1828,6 +1863,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -2016,6 +2052,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -2201,6 +2238,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(15),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: true,
@@ -2378,6 +2416,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Extended,
                                 on_time: std::time::Duration::from_secs(12),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -2528,6 +2567,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(8),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -2709,6 +2749,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: None,
                                 wake_on_lan: false,
@@ -2877,6 +2918,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: None,
                                 wake_on_lan: false,
@@ -2983,7 +3025,7 @@ macro_rules! builtin_profile_registry {
                                 motion_sync_speed_range: None,
                             },
                             zoom: {
-                                optical_max: 0xFFFF,
+                                optical_max: 0x4000,
                                 digital_max: None,
                                 speed: range!(u8, 0, 7),
                                 direct: false,
@@ -3032,6 +3074,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(30),
                                 standby: None,
                                 wake_on_lan: false,
@@ -3087,7 +3130,7 @@ macro_rules! builtin_profile_registry {
                         ("focus_near_limit", "R12 and R21 list no `04 28` focus near-limit command or `09 04 28` inquiry, so the Sony-standard family does not include it."),
                         ("version_inquiry", "The generic profile models the Sony VISCA baseline, whose `CAM_VersionInq` reply is the 7-byte vendor/model/ROM/socket layout documented in R12; cameras that reply in another layout fail decode with an invalid-length error rather than a mislabelled value."),
                         ("one_push_focus", "Generic VISCA grants only the Sony-standard families that every Sony model source in the register documents identically (EVI-H100 R8, BRC-300 R12, and the Nearus BRC-300 list R21): `CAM_Focus` One Push Trigger `8x 01 04 18 01 FF`."),
-                        ("direct_zoom", "Generic profile keeps absolute zoom positioning unavailable despite baseline zoom movement."),
+                        ("direct_zoom", "R8, R12 and R21 all place the optical zoom endpoint at `4000`; Generic VISCA uses that shared readback range while keeping absolute zoom positioning unavailable."),
                         ("digital_zoom", "R8, R12 and R21 all document `CAM_DZoom` `04 06`, but their digital position tables differ (R8 `4000`..`7AC0`, R12/R21 `4000`..`7F00`) and Generic VISCA has no direct zoom, so it keeps digital zoom unavailable."),
                         ],
                 }

@@ -264,7 +264,6 @@ where
     let _ = camera.tally().green();
     let _ = camera.nd_filter().density();
     let _ = camera.nd_filter().preset();
-    let _ = camera.motion_sync().enabled();
 }
 
 fn sony_optional(camera: &Camera<SonyFr7>) {

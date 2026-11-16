@@ -12,7 +12,7 @@ use crate::{
     config::OperationalTuning,
     profiles::{CompileTimeProfile, ProfileSelection, ProfileSpec},
     target::{PerTarget, TargetSlot},
-    CameraId, Error, Result,
+    Error, IndividualCameraId, Result,
 };
 
 /// Operational overrides checked against every profile in one session.
@@ -231,8 +231,8 @@ impl SessionConfig {
     }
 
     /// Creates a single-target configuration for an explicit camera.
-    pub fn for_target(target: CameraId, profile: ProfileSpec) -> Result<Self> {
-        Ok(Self::with_profile(TargetSlot::try_from(target)?, profile))
+    pub fn for_target(target: IndividualCameraId, profile: ProfileSpec) -> Result<Self> {
+        Ok(Self::with_profile(TargetSlot::from(target), profile))
     }
 
     /// Creates a configuration using the compile-time profile's default target.
@@ -244,13 +244,13 @@ impl SessionConfig {
     }
 
     /// Adds one individual target using a built-in ID or a custom specification.
-    /// Duplicate and broadcast IDs are rejected before registration changes.
+    /// Duplicate IDs are rejected before registration changes.
     pub fn with_target(
         mut self,
-        target: CameraId,
+        target: IndividualCameraId,
         profile: impl Into<ProfileSelection>,
     ) -> Result<Self> {
-        let slot = TargetSlot::try_from(target)?;
+        let slot = TargetSlot::from(target);
         if self.targets[slot].is_some() {
             return Err(Error::InvalidRequest {
                 reason: "session target is already registered".into(),
@@ -265,10 +265,9 @@ impl SessionConfig {
 
     /// Returns the registered profile for one individual target.
     #[must_use]
-    pub fn profile(&self, target: CameraId) -> Option<&ProfileSpec> {
-        TargetSlot::try_from(target)
-            .ok()
-            .and_then(|slot| self.targets[slot].as_deref())
+    pub fn profile(&self, target: IndividualCameraId) -> Option<&ProfileSpec> {
+        self.targets[TargetSlot::from(target)]
+            .as_deref()
             .map(crate::TargetRegistration::profile)
     }
 
@@ -276,8 +275,12 @@ impl SessionConfig {
     ///
     /// The canonical profile remains unchanged. Profiles without source-backed
     /// mount-dependent limits refuse this setting before the config changes.
-    pub fn with_mount(mut self, target: CameraId, mount: crate::MountPosition) -> Result<Self> {
-        let slot = TargetSlot::try_from(target)?;
+    pub fn with_mount(
+        mut self,
+        target: IndividualCameraId,
+        mount: crate::MountPosition,
+    ) -> Result<Self> {
+        let slot = TargetSlot::from(target);
         let registration = self.targets[slot]
             .as_deref()
             .ok_or_else(|| Error::InvalidRequest {
@@ -290,20 +293,18 @@ impl SessionConfig {
 
     /// Returns the target's profile and installation facts.
     #[must_use]
-    pub fn registration(&self, target: CameraId) -> Option<&crate::TargetRegistration> {
-        TargetSlot::try_from(target)
-            .ok()
-            .and_then(|slot| self.targets[slot].as_deref())
+    pub fn registration(&self, target: IndividualCameraId) -> Option<&crate::TargetRegistration> {
+        self.targets[TargetSlot::from(target)].as_deref()
     }
 
     /// Returns registered target IDs in camera-number order without allocating.
-    pub fn targets(&self) -> impl Iterator<Item = CameraId> + '_ {
-        self.targets
-            .iter()
-            .filter_map(|(target, registration)| registration.as_ref().map(|_| target.camera()))
+    pub fn targets(&self) -> impl Iterator<Item = IndividualCameraId> + '_ {
+        self.targets.iter().filter_map(|(target, registration)| {
+            registration.as_ref().map(|_| target.individual_camera())
+        })
     }
     /// Returns the only target, or `None` when there are zero or several.
-    pub fn sole_target(&self) -> Option<CameraId> {
+    pub fn sole_target(&self) -> Option<IndividualCameraId> {
         let mut targets = self.targets();
         let first = targets.next()?;
         targets.next().is_none().then_some(first)
@@ -562,7 +563,7 @@ impl SessionConfig {
 )]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 struct SessionTargetData {
-    camera_id: CameraId,
+    camera_id: IndividualCameraId,
     profile: ProfileSelection,
     mount: Option<crate::MountPosition>,
 }
@@ -785,7 +786,10 @@ mod tests {
         ] {
             let config = SessionConfig::from_compile_time::<GenericVisca>()
                 .unwrap()
-                .with_target(CameraId::CAMERA_2, crate::profiles::ProfileId::GenericVisca)
+                .with_target(
+                    IndividualCameraId::CAMERA_2,
+                    crate::profiles::ProfileId::GenericVisca,
+                )
                 .unwrap()
                 .with_transport(transport);
             assert!(matches!(
@@ -802,7 +806,10 @@ mod tests {
         use crate::transport::{AddressingMode, SendSemantics, TransportIdentity};
         let config = SessionConfig::from_compile_time::<GenericVisca>()
             .unwrap()
-            .with_target(CameraId::CAMERA_2, crate::profiles::ProfileId::GenericVisca)
+            .with_target(
+                IndividualCameraId::CAMERA_2,
+                crate::profiles::ProfileId::GenericVisca,
+            )
             .unwrap()
             .validated()
             .unwrap();
@@ -851,19 +858,16 @@ mod config_value_tests {
     #[test]
     fn consuming_target_updates_keep_individual_ids_sorted_and_reject_duplicates() -> Result<()> {
         let config = SessionConfig::default()
-            .with_target(CameraId::CAMERA_2, ProfileId::PtzOpticsG2)?
-            .with_target(CameraId::CAMERA_1, ProfileId::GenericVisca)?;
+            .with_target(IndividualCameraId::CAMERA_2, ProfileId::PtzOpticsG2)?
+            .with_target(IndividualCameraId::CAMERA_1, ProfileId::GenericVisca)?;
         assert_eq!(
             config.targets().collect::<Vec<_>>(),
-            [CameraId::CAMERA_1, CameraId::CAMERA_2]
+            [IndividualCameraId::CAMERA_1, IndividualCameraId::CAMERA_2]
         );
         assert_eq!(config.sole_target(), None);
         assert!(config
             .clone()
-            .with_target(CameraId::CAMERA_2, ProfileId::PtzOpticsG2)
-            .is_err());
-        assert!(config
-            .with_target(CameraId::BROADCAST, ProfileId::PtzOpticsG2)
+            .with_target(IndividualCameraId::CAMERA_2, ProfileId::PtzOpticsG2)
             .is_err());
         Ok(())
     }
@@ -872,18 +876,21 @@ mod config_value_tests {
     #[test]
     fn session_config_round_trips_transport_targets_mount_and_closed_policy() -> Result<()> {
         let config = SessionConfig::default()
-            .with_target(CameraId::CAMERA_2, ProfileId::SonyFr7)?
-            .with_mount(CameraId::CAMERA_2, crate::MountPosition::Ceiling)?
+            .with_target(IndividualCameraId::CAMERA_2, ProfileId::SonyFr7)?
+            .with_mount(IndividualCameraId::CAMERA_2, crate::MountPosition::Ceiling)?
             .with_transport(crate::camera::config::TransportOptions::udp("camera.local"))
             .with_strict_unconfirmed_poison(true);
         let json = serde_json::to_value(&config).expect("session config serialization");
         assert_eq!(json["targets"][0]["profile"], "sony_fr7");
         let restored: SessionConfig =
             serde_json::from_value(json.clone()).expect("session config round trip");
-        assert_eq!(restored.targets().collect::<Vec<_>>(), [CameraId::CAMERA_2]);
+        assert_eq!(
+            restored.targets().collect::<Vec<_>>(),
+            [IndividualCameraId::CAMERA_2]
+        );
         assert_eq!(
             restored
-                .registration(CameraId::CAMERA_2)
+                .registration(IndividualCameraId::CAMERA_2)
                 .expect("target")
                 .mount(),
             Some(crate::MountPosition::Ceiling)
@@ -904,6 +911,11 @@ mod config_value_tests {
             .expect("targets array")
             .push(row);
         assert!(serde_json::from_value::<SessionConfig>(duplicate).is_err());
+        let mut broadcast = json.clone();
+        broadcast["targets"][0]["camera_id"] = 8.into();
+        let error = serde_json::from_value::<SessionConfig>(broadcast)
+            .expect_err("broadcast is not an individual target");
+        assert!(error.to_string().contains("7"), "{error}");
         let mut unknown_target = json;
         unknown_target["targets"][0]["unexpected"] = true.into();
         assert!(serde_json::from_value::<SessionConfig>(unknown_target).is_err());

@@ -174,7 +174,6 @@ inquiry_cases! {
     IrisInquiry,
     LuminanceInquiry,
     MenuOpenCloseInquiry,
-    MotionSyncModeInquiry,
     NdFilterInquiry,
     NdFilterPresetInquiry,
     NoiseReduction2DInquiry,
@@ -266,6 +265,7 @@ wire_cases! {
 struct WireInventory {
     lines: Vec<String>,
     commands: HashSet<BuiltinCommand>,
+    command_frames: Vec<(BuiltinCommand, Vec<u8>)>,
     selector_arms: HashSet<(TypeId, BuiltinCommand)>,
     selector_requirements: HashMap<TypeId, (&'static str, &'static [BuiltinCommand])>,
 }
@@ -289,6 +289,7 @@ impl WireInventory {
                 let pattern = match identity {
                     GoldenCaseIdentity::Command { row, request_type } => {
                         self.commands.insert(row);
+                        self.command_frames.push((row, frame[1..].to_vec()));
                         if let Some((request_type, name, rows)) = request_type {
                             self.selector_arms.insert((request_type, row));
                             self.selector_requirements
@@ -365,6 +366,93 @@ fn assert_selector_arm_coverage(inventory: &WireInventory) {
             );
         }
     }
+}
+
+/// Check the live ledger against independent encoder witnesses, including
+/// every sibling selector in a shared register. Menu navigation deliberately
+/// reuses a physical pan/tilt drive, so those two rows are a true wire alias.
+fn assert_shared_register_selectors(inventory: &WireInventory) {
+    let mut collisions = std::collections::BTreeSet::new();
+    for (owner, frame) in &inventory.command_frames {
+        for sibling in BuiltinCommand::ALL {
+            if owner == sibling
+                || matches!(
+                    (owner, sibling),
+                    (BuiltinCommand::PanTiltDrive, BuiltinCommand::MenuNavigate)
+                        | (BuiltinCommand::MenuNavigate, BuiltinCommand::PanTiltDrive)
+                )
+            {
+                continue;
+            }
+            // Only compare actual shared registers, not unrelated short
+            // protocol-control prefixes such as socket cancellation.
+            if !inventory.command_frames.iter().any(|(row, other)| {
+                row == sibling && frame.get(..3).is_some() && frame.get(..3) == other.get(..3)
+            }) {
+                continue;
+            }
+            let pair = (*owner, *sibling);
+            let alias = [
+                (BuiltinCommand::RedGainDirect, BuiltinCommand::RedTuning),
+                (BuiltinCommand::BlueGainDirect, BuiltinCommand::BlueTuning),
+                (
+                    BuiltinCommand::ExposureCompensationUp,
+                    BuiltinCommand::Fr7AeLevelUp,
+                ),
+                (
+                    BuiltinCommand::ExposureCompensationDown,
+                    BuiltinCommand::Fr7AeLevelDown,
+                ),
+                (
+                    BuiltinCommand::Fr7WhiteBalanceSet,
+                    BuiltinCommand::OnePushWhiteBalanceTrigger,
+                ),
+                (
+                    BuiltinCommand::ImageFlipBoth,
+                    BuiltinCommand::ImageFlipCombined,
+                ),
+            ]
+            .contains(&pair)
+                || [
+                    (BuiltinCommand::RedTuning, BuiltinCommand::RedGainDirect),
+                    (BuiltinCommand::BlueTuning, BuiltinCommand::BlueGainDirect),
+                    (
+                        BuiltinCommand::Fr7AeLevelUp,
+                        BuiltinCommand::ExposureCompensationUp,
+                    ),
+                    (
+                        BuiltinCommand::Fr7AeLevelDown,
+                        BuiltinCommand::ExposureCompensationDown,
+                    ),
+                    (
+                        BuiltinCommand::OnePushWhiteBalanceTrigger,
+                        BuiltinCommand::Fr7WhiteBalanceSet,
+                    ),
+                    (
+                        BuiltinCommand::ImageFlipCombined,
+                        BuiltinCommand::ImageFlipBoth,
+                    ),
+                ]
+                .contains(&pair);
+            if alias {
+                continue;
+            }
+            let Some(pattern) = sibling.packet() else {
+                continue;
+            };
+            if pattern.matches_bytes(frame) {
+                collisions.insert(format!(
+                    "{owner:?} frame {} matches {sibling:?}",
+                    hex(frame)
+                ));
+            }
+        }
+    }
+    assert!(
+        collisions.is_empty(),
+        "shared-register selectors overlap:\n{}",
+        collisions.into_iter().collect::<Vec<_>>().join("\n")
+    );
 }
 
 #[allow(
@@ -1348,7 +1436,6 @@ pub(crate) fn rows() -> Vec<String> {
         IrisInquiry,
         LuminanceInquiry,
         MenuOpenCloseInquiry,
-        MotionSyncModeInquiry,
         NdFilterInquiry,
         NdFilterPresetInquiry,
         NoiseReduction2DInquiry,
@@ -1379,6 +1466,7 @@ pub(crate) fn rows() -> Vec<String> {
         "every semantic-ledger command must be tied to the literal wire inventory",
     );
     assert_selector_arm_coverage(&o);
+    assert_shared_register_selectors(&o);
     assert_inquiry_coverage(&o.lines);
     o.lines
 }
@@ -1788,7 +1876,7 @@ fn prepared_query<Q: crate::Inquiry + GeneratedInquiry>(
 #[allow(clippy::expect_used)]
 fn registered_target<P: crate::CompileTimeProfile>() -> crate::TargetRegistration {
     crate::TargetRegistration::new(
-        CameraId::CAMERA_1,
+        IndividualCameraId::CAMERA_1,
         crate::ProfileSpec::from_compile_time::<P>().expect("source-backed profile"),
     )
     .expect("individual target")
@@ -1824,7 +1912,7 @@ fn unsigned_target() -> crate::TargetRegistration {
         builder = builder.encoding(selection);
     }
     let profile = builder.build().expect("validated custom profile");
-    crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("unsigned target")
+    crate::TargetRegistration::new(IndividualCameraId::CAMERA_1, profile).expect("unsigned target")
 }
 
 #[allow(clippy::expect_used)]
@@ -1840,7 +1928,7 @@ fn registered_profile_rows() -> Vec<String> {
     let unsigned = unsigned_target();
     let mut output = Vec::new();
     macro_rules! case {
-        ($label:literal, $bytes:expr) => {{
+        ($label:expr, $bytes:expr) => {{
             let result: Result<Vec<u8>, Error> = (|| $bytes)();
             output.push(match result {
                 Ok(bytes) => format!("{}\t{}", $label, hex(&bytes)),
@@ -2088,6 +2176,29 @@ fn registered_profile_rows() -> Vec<String> {
             &registered_target::<crate::profiles::SonyBrcH900>(),
         )
     );
+    for (label, id) in [
+        (
+            "H900Clone[PowerInquiry,target-aware]",
+            crate::profiles::ProfileId::SonyBrcH900,
+        ),
+        (
+            "CustomExtended[PowerInquiry,target-aware]",
+            crate::profiles::ProfileId::PtzOpticsG2,
+        ),
+    ] {
+        let mut facts = id.raw_facts();
+        facts.capabilities.profile_id = None;
+        facts
+            .capabilities
+            .power
+            .as_mut()
+            .expect("power")
+            .status_query = crate::capabilities::PowerStatusQuery::Extended;
+        let profile = crate::ProfileSpec::from_facts(facts).expect("custom power query");
+        let target = crate::TargetRegistration::new(IndividualCameraId::CAMERA_1, profile)
+            .expect("custom target");
+        case!(label, prepared_query(&PowerInquiry, &target));
+    }
     output
 }
 
@@ -2125,6 +2236,8 @@ fn registered_profile_rows_match_reviewed_literals() {
         "Unsigned[ABS,zero,bias]\t81 01 06 02 09 07 08 00 00 00 08 00 00 00 FF",
         "Unsigned[REL,zero,no-bias]\t81 01 06 03 09 07 00 00 00 00 00 00 00 00 FF",
         "H900[PowerInquiry,target-aware]\t81 09 7E 04 00 FF",
+        "H900Clone[PowerInquiry,target-aware]\t81 09 7E 04 00 FF",
+        "CustomExtended[PowerInquiry,target-aware]\t81 09 7E 04 00 FF",
     ];
     let actual = registered_profile_rows();
     assert_eq!(actual, expected);

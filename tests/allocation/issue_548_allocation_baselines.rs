@@ -29,7 +29,7 @@ macro_rules! assert_generated_inquiry_inventory {
         #[test]
         fn all_queryable_generated_inquiries_encode_without_heap_allocation() {
             const QUERYABLE_GENERATED_INQUIRY_COUNT: usize = [$(stringify!($inquiry)),+].len();
-            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 73);
+            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 72);
             $(
                 let inquiry = $inquiry;
                 assert_request_encoding_does_not_allocate($label, &inquiry);
@@ -291,10 +291,6 @@ assert_generated_inquiry_inventory!(
         "nd_filter.preset",
         grafton_visca::command::nd_filter::PresetInquiry
     ),
-    (
-        "motion_sync.enabled",
-        grafton_visca::command::motion_sync::EnabledInquiry
-    ),
     ("menu.visible", grafton_visca::command::menu::VisibleInquiry),
     (
         "streaming.usb_audio",
@@ -304,7 +300,7 @@ assert_generated_inquiry_inventory!(
         "zoom.normalized",
         grafton_visca::command::zoom::NormalizedInquiry::for_target(
             &grafton_visca::config::TargetRegistration::new(
-                CameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
                 grafton_visca::profiles::ProfileSpec::from_compile_time::<
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
@@ -337,7 +333,7 @@ fn zoom_speed() -> ZoomSpeed {
 fn representative_typed_requests_encode_without_heap_allocation() {
     let drive = grafton_visca::command::pan_tilt::Drive::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -353,7 +349,7 @@ fn representative_typed_requests_encode_without_heap_allocation() {
     .expect("drive");
     let zoom = grafton_visca::command::zoom::TeleVariable::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -367,7 +363,7 @@ fn representative_typed_requests_encode_without_heap_allocation() {
     let reset = grafton_visca::command::presets::Clear::new(PresetNumber::new(1).expect("preset"));
     let pan_stop = grafton_visca::command::pan_tilt::Stop::for_target(
         &grafton_visca::config::TargetRegistration::new(
-            grafton_visca::types::CameraId::CAMERA_1,
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
             grafton_visca::profiles::ProfileSpec::from_compile_time::<
                 grafton_visca::profiles::PtzOpticsG2,
             >()
@@ -500,8 +496,11 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
         testing::preparation,
     };
     let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
-    let target = grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile)
-        .expect("target registration");
+    let target = grafton_visca::config::TargetRegistration::new(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        profile,
+    )
+    .expect("target registration");
     let tuning = OperationalTuning::new();
     let raw = grafton_visca::raw::PlainRequest::new(
         [0x81, 1, 4, 0, 2, 0xff],
@@ -540,8 +539,11 @@ fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
         ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
     ];
     let targets = profiles.map(|profile| {
-        grafton_visca::config::TargetRegistration::new(CameraId::CAMERA_1, profile)
-            .expect("target registration")
+        grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            profile,
+        )
+        .expect("target registration")
     });
     for target in &targets {
         let allocations = allocations_during(|| {
@@ -852,10 +854,11 @@ fn blocking_builtin_camera_and_into_typed_views_do_not_allocate() {
     .unwrap();
     assert_builtin_views_do_not_allocate(|| {
         drop(std::hint::black_box(
-            g2.camera::<PtzOpticsG2>(CameraId::CAMERA_1).unwrap(),
+            g2.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                .unwrap(),
         ));
         drop(std::hint::black_box(
-            brc.camera::<AnyProfile>(CameraId::CAMERA_1)
+            brc.camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .unwrap()
                 .into_typed::<SonyBrc300>()
                 .unwrap(),
@@ -895,10 +898,11 @@ fn async_builtin_camera_and_into_typed_views_do_not_allocate() {
         .unwrap();
         assert_builtin_views_do_not_allocate(|| {
             drop(std::hint::black_box(
-                g2.camera::<PtzOpticsG2>(CameraId::CAMERA_1).unwrap(),
+                g2.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+                    .unwrap(),
             ));
             drop(std::hint::black_box(
-                brc.camera::<AnyProfile>(CameraId::CAMERA_1)
+                brc.camera::<AnyProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                     .unwrap()
                     .into_typed::<SonyBrc300>()
                     .unwrap(),
@@ -934,4 +938,78 @@ fn warmed_raw_and_sony_retries_reuse_owner_buffers() {
             }
         }
     }
+}
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn targeted_operation_preparation_does_not_build_unused_polling_queries() {
+    use grafton_visca::{
+        command::pan_tilt::Home,
+        config::{OperationalTuning, TargetRegistration},
+        operation::Targeted,
+        profiles::{ProfileSpec, SonyBrc300, SonyFr7},
+        testing::preparation,
+    };
+    for profile in [
+        ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
+        ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300"),
+    ] {
+        let target =
+            TargetRegistration::new(grafton_visca::types::IndividualCameraId::CAMERA_1, profile)
+                .expect("target");
+        preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
+            .expect("warm operation preparation");
+        let allocations = allocations_during(|| {
+            preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
+                .expect("operation preparation");
+        });
+        assert_eq!(allocations, 0, "targeted operation preparation allocated");
+        let prepared =
+            preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
+                .expect("retained operation preparation");
+        let first =
+            allocations_during(|| prepared.check_settlement().expect("first settlement plan"));
+        assert_eq!(
+            first, 1,
+            "one pan/tilt inquiry template is allocated lazily"
+        );
+        let repeated = allocations_during(|| {
+            for _ in 0..10 {
+                prepared.check_settlement().expect("cached settlement plan");
+            }
+        });
+        assert_eq!(repeated, 0, "repeated settlement waits reuse the plan");
+    }
+}
+
+#[test]
+fn built_in_profile_response_parsing_does_not_reconstruct_profile_facts() {
+    use grafton_visca::{
+        __macro_support::InquiryKind,
+        profiles::{PtzOpticsG2, SonyBrc300, SonyFr7},
+        wire::Response,
+    };
+    let standard = [0x90, 0x50, 0xF, 0xB, 2, 0xE, 1, 6, 2, 0xE, 0xFF];
+    let fr7 = [0x90, 0x50, 0xF, 6, 3, 0xC, 0, 0, 0xB, 3, 0xB, 0, 0xFF];
+    let brc = [0x90, 0x50, 0xF, 6, 3, 0xC, 0, 0xF, 0xC, 1, 8, 0xFF];
+    let allocations = allocations_during(|| {
+        for _ in 0..100 {
+            std::hint::black_box(
+                Response::parse_with_profile::<PtzOpticsG2>(
+                    &standard,
+                    &InquiryKind::PanTiltPosition,
+                )
+                .expect("4/4 position"),
+            );
+            std::hint::black_box(
+                Response::parse_with_profile::<SonyFr7>(&fr7, &InquiryKind::PanTiltPosition)
+                    .expect("5/5 position"),
+            );
+            std::hint::black_box(
+                Response::parse_with_profile::<SonyBrc300>(&brc, &InquiryKind::PanTiltPosition)
+                    .expect("5/4 position"),
+            );
+        }
+    });
+    assert_eq!(allocations, 0, "built-in profile parsing allocated");
 }

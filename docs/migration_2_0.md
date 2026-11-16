@@ -4,6 +4,17 @@
 supported destination for applications migrating from pre-2.0 vocabulary; the
 historical names are not part of the 2.0 contract.
 
+## Individual session targets (#971)
+
+Session and camera configuration addresses use `types::IndividualCameraId`,
+which permits camera addresses 1–7. Use `IndividualCameraId::CAMERA_1` (through
+`CAMERA_7`) with `SessionConfig::with_target`, `Session::camera` and
+`CameraConfig::with_camera_id`. Camera and registration `target()` getters keep
+that type. Persisted session target and `camera_id` values reject 8 when loaded.
+Raw broadcast frames, including address assignment and interface clear, retain
+`types::CameraId::BROADCAST`; convert an individual address with `.into()` when
+encoding a raw frame.
+
 ## Canonical modules and checked values (#932)
 
 Import each item from its topical module. The crate root retains `Error`,
@@ -162,8 +173,8 @@ inquiry derive. Renamed dependencies remain supported. See
 | Generic mode/transport/executor camera parameters | `blocking::Camera<P>` or `r#async::Camera<P>`; transport and executor types are private owner details. |
 | Caller-owned transport | `Session::open(transport, &session_config)` or `CameraSession::open(transport, &camera_config)`; async forms take an executor last. |
 | Multi-target serial construction | `Session::connect(&config)` with `SessionConfig::with_transport(TransportOptions::serial(port, baud))`; async construction takes a runtime last. |
-| Implicit sole-target session selector / `camera_for` | `Session::camera::<P>(target)` always names the registered `types::CameraId`. `CameraSession<P>::camera()` returns its single bound view. |
-| Raw camera-ID setter / `try_camera_id` | `CameraId::new(raw)?` then `CameraConfig::with_camera_id(id)`; multi-target configuration uses `SessionConfig::for_target` and `with_target`. |
+| Implicit sole-target session selector / `camera_for` | `Session::camera::<P>(target)` always names the registered `types::IndividualCameraId`. `CameraSession<P>::camera()` returns its single bound view. |
+| Raw camera-ID setter / `try_camera_id` | `IndividualCameraId::new(raw)?` then `CameraConfig::with_camera_id(id)`; multi-target configuration uses `SessionConfig::for_target` and `with_target`. |
 | `RuntimeHandle` and private runtime modules | `runtime::{Executor, TokioRuntime, SmolRuntime}`. Executors supply coherent timers, spawn and clock behavior; owners reset their timers across turns. |
 | `Transport` / `NetTransportBuilder` | Use an inherent facade constructor, or implement `transport::BlockingTransport` / `AsyncTransport` for a caller-owned adapter and attach it with `Session::open`. |
 
@@ -229,7 +240,7 @@ deprecated and maps to the corresponding `r#async` types.
 | Root control-trait calls that duplicate noun views | `camera.power()`, `zoom()`, `system()`, `pan_tilt()`, `focus()`, `exposure()`, `white_balance()`, `image()`, `presets()`, `tally()`, `nd_filter()`, `motion_sync()`, `menu()`, and `streaming()`. |
 | 1.x `is_moving` / `stop_all_motion`, and the movement waits `await_idle` / `await_pan_tilt_idle` / `await_zoom_idle` / `await_focus_idle` / `await_axes_idle` (each taking a `Duration`) | `camera.motion().is_moving(MotionQuery)` (`MotionQuery::default()` samples `AffectedAxes::MOVEMENT`; `MotionQuery::new(axes)` selects an explicit axis set), `wait_until_idle(IdleWait)`, and `stop_all()` returning a per-axis `HaltReport`. Inspect the report or explicitly collapse it with `into_result()`. There was **no** 1.x `wait_until_idle`; that name is 2.0's. |
 | 1.x `is_moving` verdict from two back-to-back position snapshots (`is_moving_axes_with_deadline` with a `MovementTolerance`) | `MotionQuery::new(axes)`, optionally `.with_tolerance(..)` and `.with_window(..)`. The second snapshot starts at least `window` (default 100 ms) after the first, so each call takes at least that long, and `false` means no movement was detected over the window. A zero window returns `Error::InvalidParameter`, and a window that cannot fit the deadline returns `Error::Timeout`. Raise the window to detect slower creep. `MotionQuery` and `IdleWait` are `#[non_exhaustive]`: build them with their constructors, presets and `with_*` methods, not struct literals. |
-| 1.x `AwaitConfig` and `await_with_config(&AwaitConfig)` (`for_pan_tilt`/`for_zoom`/`for_focus`/`for_preset_recall`, `poll_interval`, `tolerance`, `debug`) | `types::IdleWait` (same `for_*` presets plus `with_interval`/`with_tolerance`/`with_timeout`) passed to `wait_until_idle`, or `types::MotionQuery` for `is_moving`. The `debug` field has no counterpart — use `tracing`. |
+| 1.x `AwaitConfig` and `await_with_config(&AwaitConfig)` (`for_pan_tilt`/`for_zoom`/`for_focus`/`for_preset_recall`, `poll_interval`, `tolerance`, `debug`) | `types::IdleWait` (same `for_*` presets plus `with_interval`/`with_tolerance`/`with_timeout`) passed to `wait_until_idle`, or `types::MotionQuery` for `is_moving`. The `debug` field has no counterpart — use `tracing`. `IdleWait` has private fields with getters; its interval must be positive, with zero refused before I/O and during deserialization. |
 | Noun-specific idle/wait aliases | The separate `motion()` safety/observation view. |
 | 1.x `Axes::ALL` as "everything that moves" | `AffectedAxes::MOVEMENT`. The 1.x `Axes` type is renamed `AffectedAxes` **and** `ALL` changed meaning — see [`Axes` → `AffectedAxes`: rename and `ALL` meaning change](#axes--affectedaxes-rename-and-all-meaning-change) below. |
 | `DynCameraControl` | `Camera<profiles::AnyProfile>` with inherent noun accessors. |
@@ -538,7 +549,11 @@ When porting raw frames, use `raw::CommandPolicy` with `raw::PlainRequest`,
 `raw::InquiryPolicy` with `raw::InquiryRequest<R>`. Command and operation policies
 take `CommandTimeoutClass` (`Quick`, `Movement`, `Preset`, `LongRunning`, or
 `Network`), which cannot select the inquiry timeout. Inquiry policy stores
-neither a timeout category nor a command reply shape. Plain commands select
+neither a timeout category nor a command reply shape; its retry argument is
+`request::InquiryRetryClass::Never` or `InquiryRetryClass::Inquiry`, including
+`InquiryRequest` convenience constructors. When porting a custom 1.x inquiry,
+choose `Inquiry` for bounded reply-loss recovery or `Never` to disable replay;
+command retry families are refused before I/O. Plain commands select
 `raw::RawReplyShape`; operations select `raw::OperationReplyShape`, whose
 `AckThenCompletion` and `CompletionOnly` variants require camera evidence and
 exclude `NoReply`. All three policies take `SubmissionClass`, which cannot
@@ -1000,7 +1015,7 @@ Retained public protocol values also changed shape:
 | `command::FocusSpeed` (a second focus-speed type) | `types::FocusSpeed`, the concrete speed accepted by `focus().far_variable(..)` and `focus().near_variable(..)`. Out-of-range values now report `ParameterOutOfRange`. |
 | `Coarse` (`grafton_visca::Coarse`, `types::Coarse`), a second name for `SpeedLevel`, and `PanSpeed::from_coarse`, `TiltSpeed::from_coarse`, `ZoomSpeed::from_coarse`, `FocusSpeed::from_coarse` | `SpeedLevel` or `Speed<ZoomSpeed>` for profile-aware lowering, for example `zoom().tele_variable(SpeedLevel::Fast)`. Concrete wire speeds no longer implement a profile-independent conversion from `SpeedLevel`. |
 | `command::Version`, `command::TallyStatus`, `command::NightDayMode`, `command::IrisControl` | `types::VersionInfo`, returned by the version accessor and carried by `InquiryData::Version { info }`. The unsourced tally-status inquiry and its value types, plus the unused `NightDayMode`/`IrisControl` enums, are removed. |
-| Numeric motion-sync presets and preset-derived speed helpers | `motion_sync().set_speed(MotionSyncSpeed)` takes the checked `1..=24` speed directly. There is no separate preset value type or unsourced preset inquiry. |
+| Numeric motion-sync presets and preset-derived speed helpers | `motion_sync().set_speed(MotionSyncSpeed)` takes the checked `1..=24` speed directly. There is no separate preset value type or unsourced preset inquiry. Motion-sync enable readback also requires a custom inquiry and decoder; the built-in `09 04 56` register has no positive source evidence (#969). |
 | Shutter codes derived from a universal exposure-time table | `capabilities.shutter_speed_for(ExposureTime::new(n, d)?)?` looks up the selected profile's table. `ShutterSpeed::new(code)?` validates the byte-valued union domain; preparation separately checks that the profile lists the code. |
 | Rational shutter-time literals and unchecked construction | `ExposureTime::new(n, d)?` returns a reduced rational value or an error for a zero denominator. Read it with `numerator()`/`denominator()`; its text and serde form is `"1/60"`. |
 | Shutter metadata split between labels, codes and lookup traits | `capabilities::ShutterSpeedEntry { exposure: ExposureTime, value }` is stored in `ExposureCaps::shutter_speeds`. Look codes up through the validated profile facts; there is no universal nearest-code guess. |
@@ -1337,6 +1352,13 @@ retry class.
 
 ## Recovery changes
 
+Sony socket reuse replaces the 1.x other-free-socket fallback. When an ACK
+names a locally occupied socket, 2.0 binds the new command to that named socket
+and retains the predecessor only by its Sony sequence. A late predecessor
+completion still applies it, while its original completion deadline still ends
+it unconfirmed. Cancelling that displaced operation returns
+`CancellationUnconfirmed` and sends no packet to the successor's socket (#963).
+
 | 1.x API | 2.0 replacement |
 | --- | --- |
 | `Error::is_retryable()` and `suggested_retry_delay()` | Both are removed. Match `error.recovery()`: `Resubmit { after }`, `WaitAgain`, `Reconcile`, `ReopenSession`, or `Abandon`. Only `Resubmit` permits an automatic new submission; the other variants keep live work, unknown effects, dead sessions and deliberate failures distinct. `kind()` and `failure_context()` remain facts, not another recovery recipe. |
@@ -1372,7 +1394,7 @@ outcomes most likely to cause an incorrect reconnect or retry loop:
 | A typed STOP finds its camera's control reserve and ordinary admission both full | `ControlReserveExhausted` (`Recovery::Resubmit { .. }`) | `false` | Back off briefly; earlier stops for that camera are still pending. Ordinary saturation alone no longer rejects a STOP (D26). |
 | Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`Recovery::WaitAgain`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
 | An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `Recovery::Resubmit { .. }`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
-| A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
+| A possibly sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (failed write, ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
 | Raw-VISCA over a stream: a camera's earlier inquiry timed out after it was written and its owed reply has not arrived within the profile's ambiguity window | `InquiryCorrelationLost { camera }` (`Recovery::Abandon`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live and other cameras work. That camera's inquiries reopen when the owed reply arrives or the camera answers a later command (proving the reply will never come); close and reopen the session to recover them sooner. |
 | Raw-VISCA over a stream: a camera's earlier command ended unconfirmed before its ACK and its owed answer has not arrived within that command's ambiguity window | `CommandCorrelationLost { camera }` (`Recovery::Abandon`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live; STOPs and inquiries to that camera still work. Ordinary and `NoReply` commands resume when the owed answer arrives or the camera answers a later inquiry or STOP; close and reopen the session to recover them sooner. A `CompletionOnly` command also fails this way behind a `NoReply` command the camera has answered nothing since, past that command's window (#795). |
 | The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
@@ -1412,8 +1434,10 @@ async read or write could block indefinitely. The async owner now bounds each
 one: a read that outlasts `read_timeout` is treated as an idle no-data receive
 (nothing consumed, no request penalized), and a write that outlasts
 `write_timeout` is abandoned as a send failure — a stream write poisons, a
-datagram write fails only its own request — so a stalled peer can no longer hang
-`close()`. The defaults are unchanged (5 s each). If your async application set
+datagram write fails only its own request. A failed datagram command may have
+reached the camera: reconcile its state before resubmitting. Raw commands
+retain a correlation hold and Sony commands retain the exact transport cause
+under `RequestUnconfirmed`. A stalled peer can no longer hang `close()`. The defaults are unchanged (5 s each). If your async application set
 either knob expecting it to matter, it now does; if it relied on async
 reads/writes never timing out, set the value you want explicitly. A custom
 `AsyncTransport` should be cancellation-safe (a timed-out read/write future is

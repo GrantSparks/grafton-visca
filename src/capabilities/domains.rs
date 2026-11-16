@@ -341,7 +341,14 @@ pub struct WhiteBalanceCaps {
 impl WhiteBalanceCaps {
     /// Lowers a supported physical temperature through this profile's step table.
     pub fn color_temperature_wire(&self, temperature: crate::types::Kelvin) -> crate::Result<u16> {
-        self.color_temperature_steps
+        Self::temperature_step(&self.color_temperature_steps, temperature)
+    }
+
+    pub(crate) fn temperature_step(
+        steps: &[u16],
+        temperature: crate::types::Kelvin,
+    ) -> crate::Result<u16> {
+        steps
             .iter()
             .position(|value| *value == temperature.value())
             .and_then(|index| u16::try_from(index).ok())
@@ -356,17 +363,20 @@ impl WhiteBalanceCaps {
 
     /// Decodes a documented wire step to its physical temperature.
     pub fn color_temperature_from_wire(&self, code: u16) -> crate::Result<crate::types::Kelvin> {
-        let temperature = self
-            .color_temperature_steps
-            .get(usize::from(code))
-            .copied()
-            .ok_or_else(|| {
-                crate::Error::invalid_parameter(
-                    "color_temperature_wire",
-                    code.to_string(),
-                    "unknown profile temperature step",
-                )
-            })?;
+        Self::temperature_from_step(&self.color_temperature_steps, code)
+    }
+
+    pub(crate) fn temperature_from_step(
+        steps: &[u16],
+        code: u16,
+    ) -> crate::Result<crate::types::Kelvin> {
+        let temperature = steps.get(usize::from(code)).copied().ok_or_else(|| {
+            crate::Error::invalid_parameter(
+                "color_temperature_wire",
+                code.to_string(),
+                "unknown profile temperature step",
+            )
+        })?;
         crate::types::Kelvin::new(temperature)
     }
 }
@@ -470,7 +480,45 @@ pub struct PresetCaps {
     pub names: Option<NonZeroUsize>,
 }
 
-/// Power sequencing facts for a camera with power control.
+/// Packet category used by a camera's power-status inquiry.
+///
+/// This is a profile fact: an exported custom profile keeps the same query
+/// packet after its built-in identity is removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum PowerStatusQuery {
+    /// Standard VISCA `09 04 00` power-status query.
+    #[cfg_attr(feature = "serde", serde(rename = "standard"))]
+    Standard,
+    /// Extended-category `09 7E 04 00` power-status query.
+    #[cfg_attr(feature = "serde", serde(rename = "extended"))]
+    Extended,
+}
+
+impl PowerStatusQuery {
+    pub(crate) const fn body(self) -> &'static [u8] {
+        use crate::command::bytes::constants::power;
+        match self {
+            Self::Standard => &power::STATE_INQUIRY,
+            Self::Extended => &power::BRC_H900_STATE_INQUIRY,
+        }
+    }
+
+    /// Allocation bound derived from this family's declared packet bodies.
+    pub(crate) const fn maximum_body() -> &'static [u8] {
+        let standard = Self::Standard.body();
+        let extended = Self::Extended.body();
+        if standard.len() > extended.len() {
+            standard
+        } else {
+            extended
+        }
+    }
+}
+
+/// Power-query dialect and sequencing facts for a camera with power control.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(
     feature = "serde",
@@ -480,6 +528,8 @@ pub struct PresetCaps {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PowerCaps {
+    /// Source-backed packet category for the power-status inquiry.
+    pub status_query: PowerStatusQuery,
     /// Documented nonzero power-on duration.
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
     pub on_time: Duration,
@@ -640,6 +690,16 @@ impl super::Capabilities {
             }
         }
         if let Some(zoom) = &self.zoom {
+            domain(
+                "capabilities.zoom.optical_max",
+                [zoom.optical_max; 2],
+                |value| crate::types::ZoomPosition::new(value).is_ok(),
+            )?;
+            if let Some(maximum) = zoom.digital_max {
+                domain("capabilities.zoom.digital_max", [maximum; 2], |value| {
+                    crate::types::ZoomPosition::new(value).is_ok()
+                })?;
+            }
             if zoom.optical_max == 0
                 || zoom
                     .digital_max

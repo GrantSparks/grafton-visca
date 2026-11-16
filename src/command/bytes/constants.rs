@@ -598,8 +598,6 @@ pub mod motion_sync {
 
     /// Motion sync speed prefix, followed by the speed byte.
     pub const SPEED: [u8; 3] = [0x0A, 0x11, 0x14];
-    /// Legacy mode inquiry body; no built-in model has a source grant.
-    pub const MODE_INQUIRY: [u8; 3] = [super::INQUIRY, 0x04, 0x56];
 }
 
 /// Sony FR7 pan/tilt speed-step range command.

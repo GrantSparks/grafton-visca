@@ -35,10 +35,10 @@ use super::response::{BoolConvention, Nibbles, Payload, Response};
 use super::white_balance_wire::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
 use crate::command::bytes::constants::{
     color, exposure as exposure_wire, flip, focus as focus_wire, gain, image as image_wire,
-    menu as menu_wire, motion_sync as motion_sync_wire, nd_filter as nd_filter_wire,
-    pan_tilt as pan_tilt_wire, power as power_wire, sony_fr7_exposure, sony_fr7_image,
-    sony_fr7_presets, sony_fr7_white_balance, streaming as streaming_wire, system as system_wire,
-    tally as tally_wire, white_balance as white_balance_wire, zoom as zoom_wire,
+    menu as menu_wire, nd_filter as nd_filter_wire, pan_tilt as pan_tilt_wire, power as power_wire,
+    sony_fr7_exposure, sony_fr7_image, sony_fr7_presets, sony_fr7_white_balance,
+    streaming as streaming_wire, system as system_wire, tally as tally_wire,
+    white_balance as white_balance_wire, zoom as zoom_wire,
 };
 use crate::command::bytes::FrameWriter;
 use crate::command::surface::{inquiry_kind_gate, RowGate};
@@ -196,7 +196,7 @@ where
                         decoded: decoder.decode(payload).map(|value| format!("{value:?}")),
                     })
                 },
-                crate::RetryClass::Never,
+                crate::request::InquiryRetryClass::Never,
                 crate::SubmissionClass::Normal,
             )?
             .with_payload_shape(command.payload_shape_for_profile(target.profile()));
@@ -333,18 +333,12 @@ macro_rules! builtin_inquiry_lift {
     };
 }
 
-/// A profile-bound temperature response already contains physical Kelvin.
-/// The ordinary response parser retains the profile-less PTZOptics decoder.
+/// The typed profile-bound temperature decoder returns Kelvin directly; the
+/// profile-independent InquiryData field always remains a wire-table index.
 macro_rules! builtin_profile_lift {
     (ColorTemperatureInquiry) => {
-        fn lift_for_profile(response: Response) -> Result<Self::Response, Error> {
-            match response {
-                Response::Inquiry(InquiryData::ColorTemperature { temperature }) => {
-                    crate::types::Kelvin::new(temperature)
-                }
-                Response::Error(error) => Err(error),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+        fn bound_decoder(profile: &crate::ProfileSpec) -> crate::ResponseDecoder<Self::Response> {
+            crate::ResponseDecoder::for_color_temperature(profile, Ok)
         }
     };
     ($struct:ident) => {};
@@ -430,9 +424,17 @@ pub(crate) trait GeneratedInquiry: crate::Inquiry {
     /// Lifts the decoded response into the typed response.
     fn lift(response: Response) -> Result<Self::Response, Error>;
 
-    /// Lifts a response after the bound profile has converted its wire values.
-    fn lift_for_profile(response: Response) -> Result<Self::Response, Error> {
-        Self::lift(response)
+    /// Selects the typed decoder without rewriting profile-independent fields.
+    fn bound_decoder(profile: &crate::ProfileSpec) -> crate::ResponseDecoder<Self::Response>
+    where
+        Self::Response: 'static,
+        Self: Sized,
+    {
+        if Self::KIND == InquiryKind::PanTiltPosition {
+            crate::ResponseDecoder::for_builtin_profile(Self::KIND, profile, Self::lift)
+        } else {
+            crate::ResponseDecoder::from_fn(decode_payload::<Self>)
+        }
     }
 }
 
@@ -452,15 +454,7 @@ where
     C: GeneratedInquiry,
     C::Response: 'static,
 {
-    match C::KIND {
-        InquiryKind::PanTiltPosition => {
-            crate::ResponseDecoder::for_builtin_profile(C::KIND, profile, C::lift_for_profile)
-        }
-        InquiryKind::ColorTemperature => {
-            crate::ResponseDecoder::for_color_temperature(profile, C::lift_for_profile)
-        }
-        _ => crate::ResponseDecoder::from_fn(decode_payload::<C>),
-    }
+    C::bound_decoder(profile)
 }
 
 /// Decodes an inquiry response, using `framing` for the pan/tilt position
@@ -796,8 +790,7 @@ macro_rules! define_builtin_inquiries {
             impl crate::Request for $struct {
                 type Class = crate::request::InquiryClass;
 
-                const MAX_SIZE: usize = crate::command::bytes::frame_len(Self::BODY)
-                    + if matches!(Self::KIND, InquiryKind::Power) { 1 } else { 0 }
+                const MAX_SIZE: usize = crate::command::bytes::frame_len(maximum_body(Self::KIND, Self::BODY))
                     + builtin_inquiry_argument_len!($($argument)?);
                 const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
                 const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Inquiry;
@@ -814,7 +807,7 @@ macro_rules! define_builtin_inquiries {
                 fn write_for_target(&self, target: &crate::TargetRegistration, buffer: &mut [u8], _authority: crate::requests::RequestContractAuthority) -> crate::Result<usize> {
                     #[cfg(test)]
                     increment_generated_inquiry_write_count();
-                    write_query_frame(target.target(), body_for_profile(Self::KIND, Self::BODY, target.profile()), <Self as GeneratedInquiry>::query_argument(self), buffer)
+                    write_query_frame(target.target().into(), body_for_profile(Self::KIND, Self::BODY, target.profile()), <Self as GeneratedInquiry>::query_argument(self), buffer)
                 }
 
                 fn validate_for_target(&self, target: &crate::TargetRegistration) -> crate::Result<()> {
@@ -1219,7 +1212,10 @@ define_builtin_inquiries! {
         });
         shape: crate::PayloadShape::Bytes(1);
         commands [
-            /// Inquiry command to get the current color temperature value.
+            /// Reads color temperature as physical Kelvin.
+            ///
+            /// `decoder()` uses the built-in PTZOptics step table;
+            /// `decoder_for_profile()` uses the selected profile's table.
             ColorTemperatureInquiry {
                 bytes: color::TEMPERATURE_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperature-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-colortemperature-query"), (R1, [PtzOptics30x], "r1-ptzoptics30x-colortemperature-query")]),
@@ -1825,27 +1821,6 @@ define_builtin_inquiries! {
         ]
 
 
-
-        /// The motion sync mode setting.
-        MotionSyncMode {
-            /// Current motion sync mode setting.
-            mode: bool,
-        } => |payload| Ok(InquiryData::MotionSyncMode {
-            mode: payload.parse_bool("motion sync mode", crate::command::motion_sync_wire::SetMotionSyncMode::CONVENTION)?,
-        });
-        shape: crate::PayloadShape::Bytes(1);
-        commands [
-            /// Inquiry command to get the motion sync mode setting.
-            MotionSyncModeInquiry {
-                bytes: motion_sync_wire::MODE_INQUIRY,
-                source: Source::Unsourced,
-                boolean: None,
-                typed: (bool, { mode } => Ok(mode)),
-                query: BuiltinInquiryQuery::Queryable,
-                vendor_specific: true,
-                rationale: None,
-            }
-        ]
 
         /// The uSB audio state.
         UsbAudio {
@@ -2507,23 +2482,24 @@ fn require_len(payload: &Payload<'_>, expected: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// The BRC-H900 places power status in its extended category. Keeping this
-/// selection beside the generated inquiry preserves canonical public decoding
-/// while custom requests continue to encode their declared opcode unchanged.
+/// Bound target-selected queries by the longest body their fact can select.
+const fn maximum_body(kind: InquiryKind, standard: &'static [u8]) -> &'static [u8] {
+    match kind {
+        InquiryKind::Power => crate::capabilities::PowerStatusQuery::maximum_body(),
+        _ => standard,
+    }
+}
+
+/// Selects profile-owned packet dialects without consulting built-in identity.
+/// Custom requests continue to encode their declared opcode unchanged.
 pub(crate) fn body_for_profile(
     kind: InquiryKind,
     standard: &'static [u8],
     profile: &crate::ProfileSpec,
 ) -> &'static [u8] {
-    if matches!(kind, InquiryKind::Power)
-        && matches!(
-            profile.capabilities().profile_id,
-            Some(crate::profiles::ProfileId::SonyBrcH900)
-        )
-    {
-        &power_wire::BRC_H900_STATE_INQUIRY
-    } else {
-        standard
+    match (kind, profile.capabilities().power) {
+        (InquiryKind::Power, Some(power)) => power.status_query.body(),
+        _ => standard,
     }
 }
 
@@ -2668,6 +2644,61 @@ mod generated_invariant_tests {
         );
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn power_query_dialect_survives_export_and_accepts_custom_selection() {
+        use crate::capabilities::PowerStatusQuery;
+        const _: () = assert!(
+            <PowerInquiry as crate::Request>::MAX_SIZE
+                >= crate::command::bytes::frame_len(PowerStatusQuery::maximum_body())
+        );
+        for id in crate::profiles::ProfileId::all() {
+            let mut facts = id.raw_facts();
+            let selected = facts
+                .capabilities
+                .power
+                .as_ref()
+                .expect("power facts")
+                .status_query;
+            assert_eq!(
+                selected,
+                if *id == crate::profiles::ProfileId::SonyBrcH900 {
+                    PowerStatusQuery::Extended
+                } else {
+                    PowerStatusQuery::Standard
+                }
+            );
+            facts.capabilities.profile_id = None;
+            for query in [selected, PowerStatusQuery::Extended] {
+                facts
+                    .capabilities
+                    .power
+                    .as_mut()
+                    .expect("power facts")
+                    .status_query = query;
+                let profile =
+                    crate::ProfileSpec::from_facts(facts.clone()).expect("custom power dialect");
+                let target = crate::TargetRegistration::from_profile(
+                    crate::target::TargetSlot::CAMERA_1,
+                    profile,
+                );
+                let mut buffer = [0; <PowerInquiry as crate::Request>::MAX_SIZE];
+                let written = <PowerInquiry as crate::Request>::write_for_target(
+                    &PowerInquiry,
+                    &target,
+                    &mut buffer,
+                    crate::requests::RequestContractAuthority::new(),
+                )
+                .expect("target-selected power query");
+                let expected: &[u8] = match query {
+                    PowerStatusQuery::Standard => &[0x81, 0x09, 0x04, 0x00, 0xFF],
+                    PowerStatusQuery::Extended => &[0x81, 0x09, 0x7E, 0x04, 0x00, 0xFF],
+                };
+                assert_eq!(&buffer[..written], expected, "{id:?}");
+            }
+        }
+    }
+
     #[test]
     fn fr7_variable_nd_query_uses_the_sourced_register_and_payload() {
         use crate::{Inquiry, Request};
@@ -2750,7 +2781,7 @@ mod generated_invariant_tests {
         for camera_num in 1..=8 {
             let camera_id = CameraId::new(camera_num).expect("valid camera id");
             let frames = encode_each_generated_inquiry(camera_id);
-            assert_eq!(frames.len(), 72);
+            assert_eq!(frames.len(), 71);
             for (name, body, frame) in frames {
                 let frame = frame.unwrap_or_else(|error| panic!("{name} must encode: {error:?}"));
                 let mut expected = vec![camera_id.to_address_byte()];
@@ -2772,8 +2803,8 @@ mod generated_invariant_tests {
             .map(core::mem::discriminant)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(distinct.len(), FUZZ_INQUIRY_KINDS.len());
-        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 72);
-        assert_eq!(BUILTIN_INQUIRIES.len(), 72);
+        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 71);
+        assert_eq!(BUILTIN_INQUIRIES.len(), 71);
         for meta in BUILTIN_INQUIRIES {
             assert!(
                 FUZZ_INQUIRY_KINDS.contains(&meta.kind),
@@ -3149,7 +3180,6 @@ mod wire_decoder_regression_tests {
             InquiryKind::FocusMode,
             InquiryKind::MenuOpenClose,
             InquiryKind::AutoWhiteBalanceSensitivity,
-            InquiryKind::MotionSyncMode,
             InquiryKind::UsbAudio,
             InquiryKind::TallyRed,
             InquiryKind::TallyGreen,

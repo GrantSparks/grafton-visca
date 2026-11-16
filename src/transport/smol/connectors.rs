@@ -16,6 +16,7 @@ use crate::{
         async_tcp::NetStream,
         async_udp::NetDatagram,
         datagram::recv_datagram,
+        socket_options::{configured_tcp_socket, TcpConnectionConfig},
         ReceiveOutcome,
     },
     Error,
@@ -35,8 +36,23 @@ impl AsyncNet for SmolNet {
         smol::net::resolve(endpoint).await
     }
 
-    async fn connect_tcp(address: SocketAddr) -> io::Result<TcpStream> {
-        TcpStream::connect(address).await
+    async fn connect_tcp(
+        address: SocketAddr,
+        options: TcpConnectionConfig,
+    ) -> io::Result<TcpStream> {
+        let socket = configured_tcp_socket(address, options)?;
+        socket.set_nonblocking(true)?;
+        match socket.connect(&address.into()) {
+            Ok(()) => {}
+            Err(error) if connect_in_progress(&error) => {}
+            Err(error) => return Err(error),
+        }
+        let stream = async_io::Async::new_nonblocking(std::net::TcpStream::from(socket))?;
+        stream.writable().await?;
+        if let Some(error) = stream.get_ref().take_error()? {
+            return Err(error);
+        }
+        Ok(stream.into())
     }
 
     async fn bind_udp(address: SocketAddr) -> io::Result<UdpSocket> {
@@ -47,6 +63,7 @@ impl AsyncNet for SmolNet {
         socket.connect(address).await
     }
 
+    #[cfg(test)]
     fn tcp_socket(stream: &TcpStream) -> socket2::SockRef<'_> {
         socket2::SockRef::from(stream)
     }
@@ -58,6 +75,19 @@ impl AsyncNet for SmolNet {
     async fn sleep(duration: Duration) {
         async_io::Timer::after(duration).await;
     }
+}
+
+/// Nonblocking connect reports an in-progress operation differently on Unix
+/// and Windows. The stable standard library does not yet name Unix's kind.
+fn connect_in_progress(error: &io::Error) -> bool {
+    if error.kind() == io::ErrorKind::WouldBlock {
+        return true;
+    }
+    #[cfg(unix)]
+    if error.raw_os_error() == Some(libc::EINPROGRESS) {
+        return true;
+    }
+    false
 }
 
 /// smol TCP stream; its halves are clones of the same socket.

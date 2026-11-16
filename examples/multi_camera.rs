@@ -14,7 +14,7 @@ use std::{collections::VecDeque, time::Duration};
 use grafton_visca::{
     blocking::Session, config::SessionConfig, profiles::GenericVisca, profiles::ProfileSpec,
     transport::BlockingTransport, transport::HasTransportConfig, transport::ReceiveOutcome,
-    transport::TransportConfig, types::CameraId, Error,
+    transport::TransportConfig, Error,
 };
 
 /// A minimal in-memory transport that reports SERIAL addressing, so multi-target
@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // profiles cannot be multi-targeted.
     let config = SessionConfig::new(ProfileSpec::from_compile_time::<GenericVisca>()?)
         .with_target(
-            CameraId::CAMERA_2,
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
             ProfileSpec::from_compile_time::<GenericVisca>()?,
         )?;
 
@@ -94,8 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn drive_both(session: &Session) -> Result<(), Error> {
     // Every target is explicit. Selecting a compile-time view also checks that
     // the complete registered profile matches the requested type.
-    let cam1 = session.camera::<GenericVisca>(CameraId::CAMERA_1)?;
-    let cam2 = session.camera::<GenericVisca>(CameraId::CAMERA_2)?;
+    let cam1 =
+        session.camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1)?;
+    let cam2 =
+        session.camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_2)?;
     println!("camera 1 target = {:?}", cam1.target());
     println!("camera 2 target = {:?}", cam2.target());
 

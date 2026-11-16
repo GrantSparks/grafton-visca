@@ -808,8 +808,11 @@ fn harness() -> Harness {
 fn prepared_focus(profile: &crate::ProfileSpec) -> crate::prepared::PreparedCommand {
     crate::prepared::test_support::prepare_command(
         &crate::request::builtin::FocusModeCommand::Manual,
-        &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-            .expect("valid target registration"),
+        &crate::TargetRegistration::new(
+            (TargetSlot::CAMERA_1).individual_camera(),
+            profile.clone(),
+        )
+        .expect("valid target registration"),
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
     )
@@ -821,8 +824,11 @@ fn prepared_zoom(
 ) -> crate::prepared::PreparedOperation<completion::Targeted> {
     crate::prepared::test_support::prepare_operation::<completion::Targeted, _>(
         &crate::request::builtin::ZoomTarget::new(crate::types::ZoomPosition::new(0x0100).unwrap()),
-        &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-            .expect("valid target registration"),
+        &crate::TargetRegistration::new(
+            (TargetSlot::CAMERA_1).individual_camera(),
+            profile.clone(),
+        )
+        .expect("valid target registration"),
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
     )
@@ -2625,10 +2631,11 @@ async fn assert_stalled_write_never_parks_close<R>(
         .expect("actor terminated");
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
-        matches!(receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Command(CommandOutcome::Failed(Error::Timeout { context }))
-            if context == crate::FailureContext::new(crate::FailureStage::Session, crate::Certainty::Unconfirmed)),
-        "a timed-out send retains its session-stage write uncertainty"
+        matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Command(CommandOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
+        ),
+        "a timed-out raw send retains unconfirmed effect and correlation protection"
     );
 }
 

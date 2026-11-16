@@ -58,7 +58,7 @@ fn a_split_reply_followed_by_a_full_read_keeps_the_stream_running() {
     )
     .expect("owner session");
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera view");
 
     camera

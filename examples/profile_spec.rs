@@ -106,6 +106,12 @@ fn summary(spec: &ProfileSpec, output: &mut impl Write) -> Result<(), String> {
         writeln!(output, "  {surface}: {encoding}")
             .map_err(|error| format!("cannot write profile encoding: {error}"))?;
     }
+    if let Some(power) = spec.capabilities().power {
+        let query = serde_json::to_string(&power.status_query)
+            .map_err(|error| format!("cannot render power query: {error}"))?;
+        writeln!(output, "Power status query: {query}")
+            .map_err(|error| format!("cannot write power query: {error}"))?;
+    }
     writeln!(output, "Allowed transports:")
         .map_err(|error| format!("cannot write profile transports: {error}"))?;
     let transports = spec.transports();
@@ -210,6 +216,10 @@ mod tests {
             let encodings = serde_json::to_value(loaded.encodings()).expect("encoding object");
             for (surface, value) in encodings.as_object().expect("map") {
                 assert!(output.contains(&format!("{surface}: {value}")));
+            }
+            if let Some(power) = loaded.capabilities().power {
+                let query = serde_json::to_string(&power.status_query).expect("query spelling");
+                assert!(output.contains(&format!("Power status query: {query}")));
             }
             assert_eq!(
                 output.contains("  tcp ("),

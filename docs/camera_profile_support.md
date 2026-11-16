@@ -356,7 +356,7 @@ full public impact is visible in the documentation diff.
 | Menu | `HasDirectMenu` | `menu().direct`, `menu().toggle_visible` |
 | ND filter | `HasNdFilter` | `nd_filter().density`, `nd_filter().preset`, `nd_filter().set_mode`, `nd_filter().set_density`, `nd_filter().density_up`, `nd_filter().density_down`, `nd_filter().set_auto` |
 | Variable speed | `HasPanTiltSpeedMode` | `pan_tilt().set_speed_mode` |
-| Motion Sync | `HasMotionSync` | `motion_sync().enabled`, `motion_sync().set_enabled`, `motion_sync().set_speed` |
+| Motion Sync | `HasMotionSync` | `motion_sync().set_enabled`, `motion_sync().set_speed` |
 | Focus | `HasFocusZoneInquiry` | `focus().zone` |
 | Streaming | `HasUsbAudio` | `streaming().usb_audio`, `streaming().set_usb_audio` |
 | Exposure | `HasAntiFlicker` | `exposure().set_anti_flicker`, `exposure().anti_flicker` |
@@ -639,7 +639,6 @@ full public impact is visible in the documentation diff.
 | `nd_filter().density_up` | `HasNdFilter` | `Operation<Targeted>` | `SonyFr7` |
 | `nd_filter().density_down` | `HasNdFilter` | `Operation<Targeted>` | `SonyFr7` |
 | `nd_filter().set_auto` | `HasNdFilter` | `()` | `SonyFr7` |
-| `motion_sync().enabled` | `HasMotionSync` | `bool` | No built-in profile |
 | `motion_sync().set_enabled` | `HasMotionSync` | `()` | No built-in profile |
 | `motion_sync().set_speed` | `HasMotionSync` | `()` | No built-in profile |
 | `menu().visible` | `HasMenu`, `HasMenuDisplayInquiry` | `bool` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900` |
@@ -719,6 +718,18 @@ escape hatch for simulators and downstream integrations.
 | `NearusBrc300` | n/a | n/a | yes | `RawVisca` |
 | `GenericVisca` | 5678 | 1259 | yes | `RawVisca` |
 <!-- END GENERATED PROFILE TRANSPORTS -->
+
+`capabilities.power.status_query` selects `standard` (`09 04 00`) or `extended`
+(`09 7E 04 00`) power readback. BRC-H900 declares `extended`; exporting it and
+clearing `profile_id` preserves that fact and its packet. A custom model can
+select either dialect. Exported JSON, `profile_spec check` and probe reports
+show the selection explicitly; existing built-in packet bytes are unchanged.
+
+Generic VISCA uses the optical zoom interval `0x0000..=0x4000` shared by its
+EVI-H100, BRC-300 and Nearus sources. Profile validation checks optical and
+digital maxima against `ZoomPosition`, gain grants against their declared gain
+range, and preset recall-speed ranges against the selected packet encoding.
+Exported custom profiles obey these same checks before any request is prepared.
 
 ## Built-In Profile Marker Matrix
 

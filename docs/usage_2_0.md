@@ -90,7 +90,7 @@ runtime)` returns the same single-camera `CameraSession<P>` shape.
 ## Reusable configuration and target selection
 
 `config::CameraConfig<P>` is reusable single-camera configuration. Its
-`with_*` methods select the address, checked `CameraId`, operational tuning,
+`with_*` methods select the address, checked `IndividualCameraId`, operational tuning,
 and transport buffer/keepalive settings. Open it with
 `blocking::CameraSession::connect(&config)` or
 `r#async::CameraSession::connect(&config, runtime).await`.
@@ -107,7 +107,7 @@ use grafton_visca::profiles::ProfileId;
 let g2 = ProfileId::PtzOpticsG2.spec()?;
 let generic = ProfileId::GenericVisca.spec()?;
 let config = SessionConfig::new(g2)
-    .with_target(grafton_visca::types::CameraId::new(2)?, generic)?;
+    .with_target(grafton_visca::types::IndividualCameraId::new(2)?, generic)?;
 
 // Apply one session-wide tuning value before opening. Tuning may only be
 // more conservative than the profile floor, which is 150 ms here; opening the
@@ -134,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         blocking::CameraSession,
         capabilities::Capabilities,
-        capabilities::PowerCaps,
+        capabilities::{PowerCaps, PowerStatusQuery},
         command::power,
         profiles::AnyProfile,
         profiles::ProfileEnvelope,
@@ -147,6 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
     capabilities.power = Some(PowerCaps {
+        status_query: PowerStatusQuery::Standard,
         on_time: Duration::from_secs(1),
         standby: None,
         wake_on_lan: false,
@@ -322,8 +323,10 @@ pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
 executor must provide coherent spawn, sleep, timeout, and clock behavior from
 one runtime. `raw::InquiryRequest::new` selects its fixed inquiry timeout class and
 accepts no timeout argument; `from_fn`, `with_context`, and explicit inquiry
-policies validate that class. Raw commands and operations reject the inquiry
-class at construction (#854).
+policies select that class. Raw inquiry constructors take
+`request::InquiryRetryClass::Never` or `InquiryRetryClass::Inquiry`; the latter
+preserves bounded lost-reply recovery. Raw commands and operations reject the
+inquiry timeout class at construction (#854, #970).
 
 ### Sharing a blocking session
 
@@ -341,7 +344,7 @@ use grafton_visca::{
 };
 
 fn share(session: &blocking::Session) -> grafton_visca::Result<()> {
-    let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)?;
+    let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?;
     std::thread::scope(|scope| {
         let worker = scope.spawn(move || camera.power().on());
         worker.join().expect("camera worker")
@@ -391,6 +394,14 @@ rejected with `Error::InvalidParameter` before any inquiry, and a window that
 cannot elapse within the observation deadline returns `Error::Timeout`, never
 `false`.
 
+`IdleWait` uses private fields with `axes()`, `timeout()`, `tolerance()` and
+`interval()` getters and the corresponding `with_*` methods. Its sampling
+interval must be positive: a zero interval returns `Error::InvalidParameter`
+before any inquiry and is refused when deserializing a policy. `settled()`,
+`wait_until_idle` and `is_moving` accept a position reply delivered by the
+owner exactly at the observation deadline. A caller that resumes later still
+uses that timely evidence; replies delivered after the deadline time out.
+
 Async noun futures borrow the temporary accessor. A direct call such as
 `camera.motion().stop_all().await` is fine; bind each accessor before a
 macro retains several futures:
@@ -433,6 +444,14 @@ fire-and-forget choice. Dropping a handle is exactly `detach` and never stops
 hardware, so an error path leaves movement running until something else ends
 it; see the scoped stop-on-exit guard in
 [`migration_2_0.md`](migration_2_0.md#drop-never-stops-hardware).
+
+On the async facade, dropping an `execute`, `inquire`, or `submit` future before
+its owner admission prevents the request from being written, including work
+queued behind another write or a raw-correlation release gate. The owner drops
+the abandoned boundary and restores its admission capacity. Admission and the
+reply happen in one synchronous owner turn: dropping after admission detaches
+observation, even if the caller has not yet received the handle. It does not
+cancel admitted hardware work.
 
 ## Optional ecosystem surfaces
 

@@ -54,7 +54,7 @@ macro_rules! runtime_matrix {
 ///     fn applied_stop_completes() {
 ///         let camera = FakeCamera::acking(1);
 ///         let session = open!(camera, config()).expect("session");
-///         let view = session.camera::<P>(grafton_visca::types::CameraId::CAMERA_1).expect("view");
+///         let view = session.camera::<P>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("view");
 ///         wait!(view.zoom().stop()).expect("applied");
 ///     }
 /// }

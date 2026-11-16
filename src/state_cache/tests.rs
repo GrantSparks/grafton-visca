@@ -81,7 +81,7 @@ fn noun_views_keep_their_target_and_outlive_the_temporary_cache() {
     use crate::types;
     let registry = Arc::new(PerTarget::<Mutex<crate::runtime::owner::TargetStateCache>>::default());
     let cache = StateCache::from_registry(Arc::clone(&registry), TargetSlot::CAMERA_1);
-    assert_eq!(cache.target(), CameraId::CAMERA_1);
+    assert_eq!(cache.target(), crate::IndividualCameraId::CAMERA_1);
 
     let _: Option<PanTiltLimitUpdate> = cache.pan_tilt().limit();
     let _: Option<types::PanTiltSpeedMode> = cache.pan_tilt().speed_mode();
@@ -103,8 +103,8 @@ fn noun_views_keep_their_target_and_outlive_the_temporary_cache() {
     let tally = StateCache::from_registry(Arc::clone(&registry), TargetSlot::CAMERA_2).tally();
     let cloned = tally.clone();
     drop(cache);
-    assert_eq!(tally.cache.target(), CameraId::CAMERA_2);
-    assert_eq!(cloned.cache.target(), CameraId::CAMERA_2);
+    assert_eq!(tally.cache.target(), crate::IndividualCameraId::CAMERA_2);
+    assert_eq!(cloned.cache.target(), crate::IndividualCameraId::CAMERA_2);
     assert_eq!(tally.mode(), None);
     assert_eq!(cloned.brightness(), None);
 }

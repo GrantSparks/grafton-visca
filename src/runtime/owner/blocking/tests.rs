@@ -46,6 +46,7 @@ use crate::{
 };
 
 mod cancellation_and_budget;
+mod position_sampling;
 mod reentry;
 
 const ACK: &[u8] = &[0x90, 0x41, 0xff];
@@ -329,7 +330,7 @@ fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &FocusModeCommand::Manual,
         &crate::TargetRegistration::new(
-            (crate::target::TargetSlot::CAMERA_1).camera(),
+            (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             profile.clone(),
         )
         .expect("valid target registration"),
@@ -344,7 +345,7 @@ fn limit_clear_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &PanTiltLimitClear::for_profile(PanTiltLimitCorner::DownLeft, profile).unwrap(),
         &crate::TargetRegistration::new(
-            (crate::target::TargetSlot::CAMERA_1).camera(),
+            (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             profile.clone(),
         )
         .expect("valid target registration"),
@@ -386,7 +387,7 @@ fn zoom_stop() -> crate::prepared::PreparedOperation<AppliedOnly> {
     prepare_operation::<AppliedOnly, _>(
         &ZoomStop,
         &crate::TargetRegistration::new(
-            (crate::target::TargetSlot::CAMERA_1).camera(),
+            (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             generic_profile().clone(),
         )
         .expect("valid target registration"),
@@ -436,7 +437,10 @@ fn submission_succeeds_at_admission_and_a_failed_write_is_the_outcome() {
     let receipt = owner
         .submit_command(focus_manual())
         .expect("admission does not wait for the write");
-    assert!(matches!(receipt.wait(), Err(Error::TransportError { .. })));
+    assert!(matches!(
+        receipt.wait(),
+        Err(Error::UnsequencedCommandUnconfirmed)
+    ));
     owner.close().unwrap();
 }
 

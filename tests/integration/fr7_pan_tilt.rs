@@ -14,9 +14,7 @@ use std::time::Duration;
 use grafton_visca::{
     config::{MountPosition, SessionConfig},
     profiles::SonyFr7,
-    types::{
-        AffectedAxes, CameraId, Degrees, IdleWait, MotionQuery, PanTiltLimitCorner, SpeedLevel,
-    },
+    types::{AffectedAxes, Degrees, IdleWait, MotionQuery, PanTiltLimitCorner, SpeedLevel},
 };
 use grafton_visca_test_support::{
     facade_matrix,
@@ -44,7 +42,7 @@ facade_matrix! {
         let fake = camera();
         let config = SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config");
         let session = open!(fake, config).expect("FR7 session");
-        let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 view");
+        let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("FR7 view");
         let mut operation = wait!(camera.pan_tilt().absolute(grafton_visca::types::PanTiltPosition { pan: Degrees::new(-170.0).expect("valid degrees"), tilt: Degrees::new(195.0).expect("valid degrees") }, SpeedLevel::Slowest)).expect("FR7 absolute");
         wait!(operation.settled()).expect("settles using ten position nibbles");
         let position = wait!(camera.pan_tilt().position()).expect("FR7 position");
@@ -56,7 +54,7 @@ facade_matrix! {
         ).decode(&POSITION[2..12]).expect("R7 raw position words");
         assert_eq!((raw.pan, raw.tilt), (40103, 46000));
         assert!(!wait!(camera.motion().is_moving(MotionQuery::new(AffectedAxes::PAN_TILT))).expect("FR7 motion observation"));
-        wait!(camera.motion().wait_until_idle(IdleWait::new(AffectedAxes::PAN_TILT, Duration::from_secs(5)).with_interval(Duration::ZERO))).expect("FR7 idle polling");
+        wait!(camera.motion().wait_until_idle(IdleWait::new(AffectedAxes::PAN_TILT, Duration::from_secs(5)).with_interval(Duration::from_millis(25)))).expect("FR7 idle polling");
         wait!(camera.pan_tilt().set_limit(PanTiltLimitCorner::UpRight, grafton_visca::types::PanTiltPosition { pan: Degrees::new(-170.0).expect("valid degrees"), tilt: Degrees::new(195.0).expect("valid degrees") })).expect("FR7 limit set");
         wait!(camera.pan_tilt().clear_limit(PanTiltLimitCorner::UpRight)).expect("FR7 limit clear");
         let mut operation = wait!(camera.pan_tilt().relative(grafton_visca::types::PanTiltPosition { pan: Degrees::new(200.0).expect("valid degrees"), tilt: Degrees::new(-35.0).expect("valid degrees") }, SpeedLevel::Slowest)).expect("full-span relative move");
@@ -72,9 +70,9 @@ facade_matrix! {
     fn fr7_ceiling_registration_controls_noun_preparation_before_io() {
         let fake = camera();
         let mut config = SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config");
-        config = config.with_mount(CameraId::CAMERA_1, MountPosition::Ceiling).expect("ceiling config");
+        config = config.with_mount(grafton_visca::types::IndividualCameraId::CAMERA_1, MountPosition::Ceiling).expect("ceiling config");
         let session = open!(fake, config).expect("ceiling session");
-        let camera = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("FR7 view");
+        let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("FR7 view");
         assert!(wait!(camera.pan_tilt().absolute(grafton_visca::types::PanTiltPosition { pan: Degrees::new(0.0).expect("valid degrees"), tilt: Degrees::new(80.0).expect("valid degrees") }, SpeedLevel::Slowest)).is_err());
         assert_eq!(fake.write_count(), 0);
         let mut operation = wait!(camera.pan_tilt().absolute(grafton_visca::types::PanTiltPosition { pan: Degrees::new(0.0).expect("valid degrees"), tilt: Degrees::new(-210.0).expect("valid degrees") }, SpeedLevel::Slowest)).expect("ceiling lower endpoint");
@@ -100,7 +98,9 @@ async fn dynamic_fr7_noun_uses_the_same_mount_and_frame() {
     .await
     .expect("session");
     let camera = session
-        .camera::<grafton_visca::profiles::AnyProfile>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<grafton_visca::profiles::AnyProfile>(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+        )
         .expect("dynamic FR7");
     let mut operation = camera
         .pan_tilt()

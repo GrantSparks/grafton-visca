@@ -448,6 +448,14 @@ fn cases() -> Vec<Case> {
             Reconcile
         ),
         case!(
+            RequestUnconfirmed,
+            "later rejection after a lost ACK",
+            Error::request_unconfirmed(Error::CommandBufferFull),
+            Unconfirmed,
+            context(Terminal, Unconfirmed),
+            Reconcile
+        ),
+        case!(
             RuntimeIdentityExhausted,
             "",
             Error::RuntimeIdentityExhausted,

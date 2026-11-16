@@ -1,12 +1,9 @@
-//! Synchronized-motion settings and readback.
+//! Synchronized-motion settings.
+//!
+//! Readback requires a custom inquiry with a sourced register and decoder.
 
-use crate::command::nouns::{forward_inquiry, forward_request};
+use crate::command::nouns::forward_request;
 use crate::types::MotionSyncSpeed;
-
-/// Reads whether synchronized motion is enabled.
-#[derive(Debug, Clone, Copy)]
-pub struct EnabledInquiry;
-forward_inquiry!(EnabledInquiry, crate::command::MotionSyncModeInquiry; crate::command::MotionSyncModeInquiry);
 
 /// Enables or disables synchronized motion.
 #[derive(Debug, Clone, Copy)]

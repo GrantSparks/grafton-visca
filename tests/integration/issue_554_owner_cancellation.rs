@@ -65,7 +65,7 @@ macro_rules! sent_cancel_is_not_supported {
         let fake = completing_after_first();
         let session = open!(fake, g2_config(Some(1))).expect("owner session");
         let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("G2 camera view");
 
         let mut original = wait!(camera.zoom().stop()).expect("transmitted operation");
@@ -115,7 +115,7 @@ facade_matrix! {
     fn queued_cancel_is_local() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config(None)).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         // G2 has two command sockets. Keep both occupied before admitting the
         // third typed operation so its cancellation is unambiguously pre-wire.
@@ -157,7 +157,7 @@ facade_matrix! {
     fn terminal_race_reports_completed() {
         let fake = FakeCamera::silent();
         let session = open!(fake, g2_config(Some(1))).expect("owner session");
-        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 camera view");
+        let camera = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 camera view");
 
         let mut original = wait!(camera.zoom().stop()).expect("transmitted operation");
         wait_for_writes!(fake, 1);

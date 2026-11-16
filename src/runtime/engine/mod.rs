@@ -240,6 +240,21 @@ impl Entry {
         self.prior.as_ref().map(|prior| &prior.cause)
     }
 
+    /// A later cause cannot erase an earlier possible camera effect.
+    fn terminal_error(&self, cause: Error, evidence: AttemptEvidence) -> Error {
+        if self.certainty(evidence) == Certainty::Unconfirmed
+            && cause.failure_context()
+                != Some(FailureContext::new(
+                    FailureStage::Terminal,
+                    Certainty::Unconfirmed,
+                ))
+        {
+            Error::request_unconfirmed(cause)
+        } else {
+            cause
+        }
+    }
+
     /// The request's successful Sony sequence is already authoritative in
     /// the bounded correlation history. Every retry replays that sequence,
     /// and cancellation has at most one separate record, so it cannot evict
@@ -273,10 +288,9 @@ impl Entry {
             return Certainty::FailedConclusively;
         }
         let current_possible = match evidence {
-            AttemptEvidence::Unwritten | AttemptEvidence::Rejected => matches!(
-                self.lifecycle(),
-                Lifecycle::Executing { .. } | Lifecycle::AwaitingCancellationResolution { .. }
-            ),
+            AttemptEvidence::Unwritten | AttemptEvidence::Rejected => {
+                self.lifecycle().is_accepted()
+            }
             AttemptEvidence::Written => true,
             AttemptEvidence::Lifecycle => self.lifecycle().attempt().is_some(),
         };
@@ -2091,18 +2105,11 @@ trait EngineMethods: EngineAccess {
         };
         match result {
             WriteOutcome::NotSent(error) => self.transmission_not_sent(owner, error, now, effects),
-            // A failed stream send has an unknowable parser position even if
-            // its result outlives this request's total budget.
-            WriteOutcome::Failed(error) if self.policy.transport == TransportKind::Stream => {
-                self.failed_transmission(owner, error, now, effects);
-            }
-            WriteOutcome::Failed(error) => {
-                if !self.write_result_after_total_budget(owner, false, now, effects) {
-                    self.failed_transmission(owner, error, now, effects);
-                }
-            }
+            // Failure means bytes may have left. Its certainty and correlation
+            // treatment cannot depend on when the write result is delivered.
+            WriteOutcome::Failed(error) => self.failed_transmission(owner, error, now, effects),
             WriteOutcome::Sent(meta) => {
-                if !self.write_result_after_total_budget(owner, true, now, effects) {
+                if !self.write_result_after_total_budget(owner, now, effects) {
                     self.successful_transmission(owner, meta, now, effects);
                 }
             }
@@ -2145,11 +2152,11 @@ trait EngineMethods: EngineAccess {
     ///
     /// An input sampled exactly at the deadline remains input-first, but a
     /// result sampled strictly later is outside the request's total budget.
-    /// This ordering covers `Ok` and datagram `Err`: once the result is late, a
-    /// raw command write can no longer prove whether the camera observed the
-    /// frame, while a Sony write must not register a sequence. A compatible stream `Err` is handled first by
-    /// [`Self::failed_transmission`], because no per-request boundary can make
-    /// an unknowable stream position safe. Cancellation writes deliberately
+    /// Once a successful result is late, a raw command write can no longer
+    /// prove whether the camera observed the frame, while a Sony write must
+    /// not register a sequence. Failed writes always use the same evidence-led
+    /// [`Self::failed_transmission`] path, independent of this budget.
+    /// Cancellation writes deliberately
     /// bypass this guard because their ambiguity window, rather than the
     /// request retry budget, owns the active cancellation lifecycle.
     ///
@@ -2159,11 +2166,10 @@ trait EngineMethods: EngineAccess {
     fn write_result_after_total_budget(
         &mut self,
         owner: TransmissionOwner,
-        written: bool,
         now: Instant,
         effects: &mut Decision,
     ) -> bool {
-        let Some((deadline, raw_active_command, error)) =
+        let Some((deadline, raw_active_command)) =
             self.entries.get(&owner.request).and_then(|entry| {
                 entry.retry_budget_deadline().map(|deadline| {
                     (
@@ -2171,10 +2177,6 @@ trait EngineMethods: EngineAccess {
                         self.mode().is_raw()
                             && entry.reply_family() != SendingReply::Inquiry
                             && entry.lifecycle().is_sending(),
-                        entry
-                            .retry_cause()
-                            .cloned()
-                            .unwrap_or_else(|| terminal_timeout(entry)),
                     )
                 })
             })
@@ -2184,9 +2186,17 @@ trait EngineMethods: EngineAccess {
         if owner.write.kind() != CorrelationKind::Request || deadline >= now {
             return false;
         }
-        if written {
-            self.mark_stream_answer_written(owner.request, false);
-        }
+        let Some(entry) = self.entries.get(&owner.request) else {
+            return false;
+        };
+        let error = entry.terminal_error(
+            entry
+                .retry_cause()
+                .cloned()
+                .unwrap_or_else(|| terminal_timeout(entry)),
+            AttemptEvidence::Written,
+        );
+        self.mark_stream_answer_written(owner.request, false);
 
         if raw_active_command {
             // Remove the active transmission and retain raw correlation through its ambiguity window (or poisons in strict
@@ -2204,10 +2214,10 @@ trait EngineMethods: EngineAccess {
             // cannot bind to an overlapping successor. A successful stream
             // write proves the bytes entered the stream, so there the reply
             // is owed instead (`retire_stream_answers`).
-            if !(written && self.mode().is_stream()) {
+            if !self.mode().is_stream() {
                 self.quarantine_raw_inquiry_correlation(owner.request, now);
             }
-            // A late Sony result — including a late transport error — cannot
+            // A late successful Sony result cannot
             // extend the budget or mutate correlation. Preserve the prior
             // retry cause when there is one, matching ordinary budget expiry.
             self.finish_observed(owner.request, error, AttemptEvidence::Written, now, effects);
@@ -2333,9 +2343,11 @@ trait EngineMethods: EngineAccess {
 
     /// Applies one failed transport write.
     ///
-    /// **Datagram**: exactly one request fails, with its own transport error,
-    /// and the session keeps running. A datagram is framed by its own boundary,
-    /// so a failed write cannot corrupt any other transmission.
+    /// **Datagram**: exactly one request fails and the session keeps running.
+    /// The write may have reached the camera. Raw commands therefore retain
+    /// an inert correlation hold and finish unconfirmed (or poison under the
+    /// strict opt-in); raw inquiries retain their reply-skew hold. Sony command
+    /// errors retain their transport cause under an unconfirmed terminal.
     ///
     /// **Stream**: the session is poisoned. This is a deliberate, explicit
     /// policy rather than an accident. Public transport sends return
@@ -2372,7 +2384,28 @@ trait EngineMethods: EngineAccess {
         }
         match owner.write {
             ActiveWrite::Request { .. } => {
-                self.finish_observed(owner.request, error, AttemptEvidence::Written, now, effects);
+                let raw_command = self.mode().is_raw()
+                    && self
+                        .entries
+                        .get(&owner.request)
+                        .is_some_and(|entry| entry.reply_family() != SendingReply::Inquiry);
+                if raw_command {
+                    self.terminate_unconfirmed_raw(
+                        owner.request,
+                        UnconfirmedScope::Lifecycle,
+                        now,
+                        effects,
+                    );
+                } else {
+                    self.quarantine_raw_inquiry_correlation(owner.request, now);
+                    self.finish_terminal_error(
+                        owner.request,
+                        error,
+                        AttemptEvidence::Written,
+                        now,
+                        effects,
+                    );
+                }
             }
             ActiveWrite::Cancellation(write) => {
                 self.failed_cancellation_transmission(owner.request, write, error, now, effects);
@@ -2976,19 +3009,10 @@ trait EngineMethods: EngineAccess {
                 .is_none_or(|owner| owner == id)
     }
 
-    /// Chooses an uncontested socket for an ACK.
-    ///
-    /// A named raw ACK is reconciled against stale local ownership by
-    /// [`Self::assign_ack_socket`] before reaching this helper. Sequenced Sony
-    /// ACKs may fall back to the other socket (#620/#682) when the named one
-    /// is contested: their request and later terminal frames carry an
-    /// independent sequence identity, so the assignment cannot be confused
-    /// with another request's. A socketless ACK binds to the first free
-    /// physical socket available to that dispatched attempt, because the frame
-    /// names no socket and the first free socket is the one the camera assigns
-    /// next. Stream callers first exclude retained completions and inert holds
-    /// that make the camera's physical occupancy unknowable. `None` means no
-    /// safe assignment exists.
+    /// Chooses the camera's named socket, or the first free physical socket
+    /// for an ACK that does not name one. Named ownership is reconciled by
+    /// `assign_ack_socket` before this helper; inventing a different socket
+    /// would send cancellation to the wrong command.
     fn assign_socket(
         &self,
         target: TargetSlot,
@@ -2999,13 +3023,6 @@ trait EngineMethods: EngineAccess {
         if let Some(socket) = requested {
             if self.socket_available(target, socket, id) {
                 return Some(socket);
-            }
-            if self.mode().is_raw() {
-                return None;
-            }
-            let other = other_socket(socket);
-            if assignment_socket_count > 1 && self.socket_available(target, other, id) {
-                return Some(other);
             }
             return None;
         }
@@ -3033,15 +3050,10 @@ trait EngineMethods: EngineAccess {
                 .all(|socket| self.socket_owner(target, socket).is_some())
     }
 
-    /// Applies a camera's authoritative raw socket assignment.
+    /// Applies the camera's authoritative named socket assignment.
     ///
-    /// If a named raw socket is still indexed to another request, the camera
-    /// has proved that local claim stale: the older completion was lost while
-    /// the camera released and reused the socket. Move that older request to an
-    /// inert unkeyed ambiguity quarantine, then bind the new uniquely resolved
-    /// ACK to the socket it actually names (#721). Inventing the other socket
-    /// would make cancellation bytes and every later socket-keyed terminal
-    /// disagree with the camera.
+    /// Raw predecessors become ambiguity holds. Sony predecessors lose their
+    /// socket claim but retain their exact-sequence terminal and deadline.
     fn assign_ack_socket(
         &mut self,
         target: TargetSlot,
@@ -3050,12 +3062,12 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) -> Option<ViscaSocket> {
-        if self.mode().is_raw() {
-            if let Some(socket) = requested {
-                if let Some(stale) = self
-                    .socket_owner(target, socket)
-                    .filter(|owner| *owner != id)
-                {
+        if let Some(socket) = requested {
+            if let Some(stale) = self
+                .socket_owner(target, socket)
+                .filter(|owner| *owner != id)
+            {
+                if self.mode().is_raw() {
                     self.terminate_unconfirmed_raw(
                         stale,
                         UnconfirmedScope::Displaced,
@@ -3065,18 +3077,55 @@ trait EngineMethods: EngineAccess {
                     if !matches!(self.session, EngineSession::Running) {
                         return None;
                     }
+                } else {
+                    self.displace_sony_socket(stale, now, effects);
                 }
-                let (core, mode) = self.split();
-                match mode {
-                    CorrelationState::RawDatagram(holds) => DatagramContext { core, holds }
-                        .quarantine_displaced_socket_hold(target, socket),
-                    CorrelationState::RawStream(stream) => StreamContext { core, stream }
-                        .quarantine_displaced_socket_hold(target, socket),
-                    CorrelationState::Sequenced => {}
+            }
+            let (core, mode) = self.split();
+            match mode {
+                CorrelationState::RawDatagram(holds) => {
+                    DatagramContext { core, holds }.quarantine_displaced_socket_hold(target, socket)
                 }
+                CorrelationState::RawStream(stream) => {
+                    StreamContext { core, stream }.quarantine_displaced_socket_hold(target, socket)
+                }
+                CorrelationState::Sequenced => {}
             }
         }
         self.assign_socket(target, requested, id)
+    }
+
+    fn displace_sony_socket(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let next = match entry.lifecycle() {
+            Lifecycle::Executing {
+                started_at,
+                deadline,
+                attempt,
+                ..
+            } => Lifecycle::ExecutingDisplaced {
+                started_at,
+                deadline,
+                attempt,
+            },
+            Lifecycle::AwaitingCancellationResolution {
+                deadline, attempt, ..
+            } => Lifecycle::ExecutingDisplaced {
+                started_at: now,
+                deadline,
+                attempt,
+            },
+            _ => return,
+        };
+        if entry.cancellation_observation_open() {
+            effects.push(Effect::CancellationObservation {
+                id,
+                observation: CancellationObservation::Failed(Error::CancellationUnconfirmed),
+            });
+        }
+        self.transition(id, next, now, effects);
     }
 
     fn ack(
@@ -3182,7 +3231,7 @@ trait EngineMethods: EngineAccess {
             {
                 true
             }
-            Lifecycle::AwaitingCompletion { .. } => true,
+            Lifecycle::AwaitingCompletion { .. } | Lifecycle::ExecutingDisplaced { .. } => true,
             Lifecycle::Sending { .. }
             | Lifecycle::Ready { .. }
             | Lifecycle::Backoff { .. }
@@ -3552,7 +3601,7 @@ trait EngineMethods: EngineAccess {
         // independent cancellation correlation, so a merely recorded,
         // socketless cancel intent instead leaves `0x05` as the original
         // request's retryable rejection below.
-        let acknowledged = entry.lifecycle().socket().is_some();
+        let acknowledged = entry.lifecycle().is_accepted();
         if acknowledged {
             let cancellation_answered =
                 self.mode().is_raw() && code == 0x05 && raw_cancellation_no_socket_response(entry);
@@ -3575,12 +3624,15 @@ trait EngineMethods: EngineAccess {
         } else {
             AttemptEvidence::Lifecycle
         };
+        let possibly_applied = entry.certainty(evidence) == Certainty::Unconfirmed;
         // A raw inquiry error can race a late data reply. Retain the bounded
         // inquiry-only skew before a retry or terminal failure exposes another
         // inquiry to that stale frame class (#712).
         self.quarantine_raw_inquiry_correlation(id, now);
         if let Some(retry) = retry {
-            if cancellation_active {
+            if cancellation_active && possibly_applied {
+                self.finish_observed(id, Error::CancellationUnconfirmed, evidence, now, effects);
+            } else if cancellation_active {
                 self.finish_observed(
                     id,
                     CommandOutcome::Cancelled,
@@ -3599,7 +3651,7 @@ trait EngineMethods: EngineAccess {
                 );
             }
         } else {
-            self.finish_observed(id, error, evidence, now, effects);
+            self.finish_terminal_error(id, error, evidence, now, effects);
         }
     }
 
@@ -3676,11 +3728,21 @@ trait EngineMethods: EngineAccess {
         match decision {
             CancellationDecision::Local => {
                 effects.push(Effect::CancellationRecorded { id });
-                effects.push(Effect::CancellationObservation {
-                    id,
-                    observation: CancellationObservation::Cancelled,
-                });
-                self.finish(id, CommandOutcome::Cancelled, now, effects);
+                if entry.certainty(AttemptEvidence::Unwritten) == Certainty::Unconfirmed {
+                    effects.push(Effect::CancellationObservation {
+                        id,
+                        observation: CancellationObservation::Failed(
+                            Error::CancellationUnconfirmed,
+                        ),
+                    });
+                    self.finish(id, Error::CancellationUnconfirmed, now, effects);
+                } else {
+                    effects.push(Effect::CancellationObservation {
+                        id,
+                        observation: CancellationObservation::Cancelled,
+                    });
+                    self.finish(id, CommandOutcome::Cancelled, now, effects);
+                }
             }
             CancellationDecision::Refused(error) => {
                 effects.push(Effect::CancellationObservation {
@@ -3803,7 +3865,7 @@ trait EngineMethods: EngineAccess {
             return;
         };
         if cancellation {
-            self.finish_observed(id, error, evidence, now, effects);
+            self.finish_terminal_error(id, error, evidence, now, effects);
             return;
         }
         // Releasing a raw inquiry for a retry could let a delayed attempt-N
@@ -3819,7 +3881,7 @@ trait EngineMethods: EngineAccess {
             .total_budget
             .is_none_or(|budget| elapsed < budget.get());
         if next_retry_count > policy.max_retries || !within_duration {
-            self.finish_observed(id, error, evidence, now, effects);
+            self.finish_terminal_error(id, error, evidence, now, effects);
             return;
         }
         let delay = retry_delay(
@@ -3833,7 +3895,7 @@ trait EngineMethods: EngineAccess {
             .total_budget
             .is_some_and(|budget| ready_at >= add_duration(submitted_at, budget.get()))
         {
-            self.finish_observed(id, error, evidence, now, effects);
+            self.finish_terminal_error(id, error, evidence, now, effects);
             return;
         }
         self.retire_answers(id, now, effects);
@@ -4105,10 +4167,13 @@ trait EngineMethods: EngineAccess {
                 retirement,
                 certainty,
             } => {
-                let error = entry
-                    .retry_cause()
-                    .cloned()
-                    .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
+                let error = entry.terminal_error(
+                    entry
+                        .retry_cause()
+                        .cloned()
+                        .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty)),
+                    AttemptEvidence::Lifecycle,
+                );
                 match retirement {
                     BudgetRetirement::Command if self.mode().is_raw() => self
                         .terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects),
@@ -4300,10 +4365,13 @@ trait EngineMethods: EngineAccess {
                 certainty,
             } => {
                 if budget_at.is_some_and(|at| at <= now) {
-                    let error = entry
-                        .retry_cause()
-                        .cloned()
-                        .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
+                    let error = entry.terminal_error(
+                        entry
+                            .retry_cause()
+                            .cloned()
+                            .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty)),
+                        AttemptEvidence::Lifecycle,
+                    );
                     self.finish(id, error, now, effects);
                 } else {
                     self.promote_retry(id, previous_attempt, now, effects);
@@ -4381,7 +4449,9 @@ trait EngineMethods: EngineAccess {
                 Lifecycle::Sending { .. }
                 | Lifecycle::AwaitingAck { .. }
                 | Lifecycle::AwaitingCompletion { .. } => release.release_pre_ack_unkeyed(),
-                Lifecycle::Ready { .. } | Lifecycle::Backoff { .. } => {}
+                Lifecycle::Ready { .. }
+                | Lifecycle::Backoff { .. }
+                | Lifecycle::ExecutingDisplaced { .. } => {}
             }
         }
         releases
@@ -4591,6 +4661,21 @@ trait EngineMethods: EngineAccess {
         self.finish_with_evidence(id, outcome, true, evidence, now, effects);
     }
 
+    fn finish_terminal_error(
+        &mut self,
+        id: RequestId,
+        cause: Error,
+        evidence: AttemptEvidence,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let error = entry.terminal_error(cause, evidence);
+        self.finish_observed(id, error, evidence, now, effects);
+    }
+
     fn finish_with_evidence(
         &mut self,
         id: RequestId,
@@ -4773,6 +4858,11 @@ trait EngineMethods: EngineAccess {
             return Err("a non-urgent entry holds a control-reserve slot".into());
         }
         for entry in self.entries.values() {
+            if matches!(entry.lifecycle(), Lifecycle::ExecutingDisplaced { .. })
+                && (self.mode().is_raw() || entry.current_sequence().is_none())
+            {
+                return Err("displaced execution requires a Sony request sequence".into());
+            }
             if matches!(
                 entry.lifecycle(),
                 Lifecycle::Ready { .. } | Lifecycle::Backoff { .. }
@@ -5155,6 +5245,7 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
                 | Lifecycle::AwaitingAck { .. }
                 | Lifecycle::AwaitingCompletion { .. }
                 | Lifecycle::Executing { .. }
+                | Lifecycle::ExecutingDisplaced { .. }
                 | Lifecycle::AwaitingCancellationResolution { .. }
         ),
         CorrelationKind::Cancellation => entry.lifecycle().awaiting_cancellation_answer(),
@@ -5174,14 +5265,6 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
 /// command's retryable `0x05` classification.
 fn raw_cancellation_no_socket_response(entry: &Entry) -> bool {
     entry.lifecycle().awaiting_cancellation_answer()
-}
-
-/// The other of a target's two command sockets.
-const fn other_socket(socket: ViscaSocket) -> ViscaSocket {
-    match socket {
-        ViscaSocket::S1 => ViscaSocket::S2,
-        ViscaSocket::S2 => ViscaSocket::S1,
-    }
 }
 
 #[cfg(test)]

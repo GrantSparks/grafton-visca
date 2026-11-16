@@ -24,7 +24,8 @@ pub use discovery::Capabilities;
 pub(crate) use discovery::SurfaceMetadata;
 pub use domains::{
     EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, MenuCaps, PanTiltCaps,
-    PowerCaps, PresetCaps, RgbGainRanges, RgbTuningRanges, TiltRanges, WhiteBalanceCaps, ZoomCaps,
+    PowerCaps, PowerStatusQuery, PresetCaps, RgbGainRanges, RgbTuningRanges, TiltRanges,
+    WhiteBalanceCaps, ZoomCaps,
 };
 pub(crate) use encodings::encoding_selection;
 pub use encodings::*;

@@ -99,6 +99,48 @@ pub enum RetryClass {
     Preset,
 }
 
+/// Retry families meaningful for an inquiry's reply-only lifecycle.
+///
+/// Raw inquiry policies accept only these families. Downstream inquiry
+/// implementations of [`Request`] still declare [`RetryClass`], and preparation
+/// rejects a command-only family before encoding or transport I/O.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
+pub enum InquiryRetryClass {
+    /// Never replay an inquiry automatically.
+    Never,
+    /// Retry transient inquiry failures, including bounded reply loss.
+    Inquiry,
+}
+
+impl InquiryRetryClass {
+    pub(crate) const fn retry_class(self) -> RetryClass {
+        match self {
+            Self::Never => RetryClass::Never,
+            Self::Inquiry => RetryClass::Inquiry,
+        }
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const fn of(class: RetryClass) -> Option<Self> {
+        match class {
+            RetryClass::Never => Some(Self::Never),
+            RetryClass::Inquiry => Some(Self::Inquiry),
+            RetryClass::Standard | RetryClass::Movement | RetryClass::Preset => None,
+        }
+    }
+}
+
+impl From<InquiryRetryClass> for RetryClass {
+    fn from(class: InquiryRetryClass) -> Self {
+        class.retry_class()
+    }
+}
+
 /// Intrinsic scheduling class of one request.
 ///
 /// Every request classifies itself through [`crate::request::Request::control_class`]. The
@@ -503,9 +545,11 @@ enum DecoderInner<R> {
     Builtin {
         kind: crate::command::InquiryKind,
         framing: Option<crate::command::pan_tilt_wire::PanTiltFraming>,
-        physical_color_temperature: bool,
-        color_temperature_steps: Option<Arc<[u16]>>,
         lift: fn(crate::command::Response) -> Result<R>,
+    },
+    ColorTemperature {
+        steps: Option<Arc<[u16]>>,
+        lift: fn(crate::types::Kelvin) -> Result<R>,
     },
     Shared(Arc<SharedDecoder<R>>),
 }
@@ -550,24 +594,19 @@ impl<R> ResponseDecoder<R> {
                 framing: profile
                     .pan_tilt_coordinates()
                     .map(crate::command::pan_tilt_wire::PanTiltFraming::for_conversion),
-                physical_color_temperature: false,
-                color_temperature_steps: None,
                 lift,
             },
         }
     }
 
-    /// Shares the profile's existing table for the typed Kelvin readback.
+    /// Shares the profile's existing table and returns typed Kelvin directly.
     pub(crate) fn for_color_temperature(
         profile: &crate::ProfileSpec,
-        lift: fn(crate::command::Response) -> Result<R>,
+        lift: fn(crate::types::Kelvin) -> Result<R>,
     ) -> Self {
         Self {
-            inner: DecoderInner::Builtin {
-                kind: crate::command::InquiryKind::ColorTemperature,
-                framing: None,
-                physical_color_temperature: true,
-                color_temperature_steps: profile
+            inner: DecoderInner::ColorTemperature {
+                steps: profile
                     .capabilities()
                     .white_balance
                     .as_ref()
@@ -598,13 +637,10 @@ impl<R> ResponseDecoder<R> {
             DecoderInner::Builtin {
                 kind,
                 framing,
-                physical_color_temperature,
-                color_temperature_steps,
                 lift,
             } => {
                 use crate::command::{
-                    inquiry_structs, pan_tilt_wire::PanTiltFraming, InquiryData, InquiryKind,
-                    Payload, Response,
+                    inquiry_structs, pan_tilt_wire::PanTiltFraming, InquiryKind, Payload,
                 };
                 let framing = match (kind, framing) {
                     (InquiryKind::PanTiltPosition, None) => {
@@ -616,34 +652,31 @@ impl<R> ResponseDecoder<R> {
                     _ => PanTiltFraming::STANDARD,
                 };
                 inquiry_structs::dispatch_with_framing(*kind, Payload::new(payload), framing)
-                    .and_then(|response| match response {
-                        Response::Inquiry(InquiryData::ColorTemperature { temperature })
-                            if *physical_color_temperature =>
-                        {
-                            let steps = color_temperature_steps.as_ref().ok_or(
-                                Error::FeatureNotSupported {
-                                    feature: "color-temperature conversion",
-                                },
-                            )?;
-                            let temperature = steps
-                                .get(usize::from(temperature))
-                                .copied()
-                                .ok_or_else(|| {
-                                    Error::invalid_response(
-                                        format!(
-                                            "unknown profile color-temperature step {temperature}"
-                                        ),
-                                        payload.to_vec(),
-                                    )
-                                })?;
-                            Ok(Response::Inquiry(InquiryData::ColorTemperature {
-                                temperature,
-                            }))
-                        }
-                        response => Ok(response),
-                    })
                     .and_then(lift)
                     .map_err(|error| inquiry_structs::reply_value_error(error, payload))
+            }
+            DecoderInner::ColorTemperature { steps, lift } => {
+                let steps = steps.as_ref().ok_or(Error::FeatureNotSupported {
+                    feature: "color-temperature conversion",
+                })?;
+                let response = crate::command::inquiry_structs::dispatch(
+                    crate::command::InquiryKind::ColorTemperature,
+                    crate::command::Payload::new(payload),
+                );
+                response
+                    .and_then(|response| match response {
+                        crate::command::Response::Inquiry(
+                            crate::command::InquiryData::ColorTemperature { temperature },
+                        ) => crate::capabilities::WhiteBalanceCaps::temperature_from_step(
+                            steps,
+                            temperature,
+                        )
+                        .and_then(lift),
+                        _ => Err(Error::UnexpectedResponseType),
+                    })
+                    .map_err(|error| {
+                        crate::command::inquiry_structs::reply_value_error(error, payload)
+                    })
             }
             DecoderInner::Shared(decode) => decode(payload),
         }
@@ -661,14 +694,14 @@ impl<R> Clone for ResponseDecoder<R> {
             DecoderInner::Builtin {
                 kind,
                 framing,
-                physical_color_temperature,
-                color_temperature_steps,
                 lift,
             } => DecoderInner::Builtin {
                 kind: *kind,
                 framing: *framing,
-                physical_color_temperature: *physical_color_temperature,
-                color_temperature_steps: color_temperature_steps.as_ref().map(Arc::clone),
+                lift: *lift,
+            },
+            DecoderInner::ColorTemperature { steps, lift } => DecoderInner::ColorTemperature {
+                steps: steps.as_ref().map(Arc::clone),
                 lift: *lift,
             },
             DecoderInner::Shared(decode) => DecoderInner::Shared(Arc::clone(decode)),
@@ -682,7 +715,9 @@ impl<R> fmt::Debug for ResponseDecoder<R> {
         let storage = match self.inner {
             DecoderInner::Function(_) => "function",
             DecoderInner::Inline { .. } => "inline-context",
-            DecoderInner::Builtin { .. } => "inline-builtin",
+            DecoderInner::Builtin { .. } | DecoderInner::ColorTemperature { .. } => {
+                "inline-builtin"
+            }
             DecoderInner::Shared(_) => "shared-context",
         };
         formatter
@@ -738,8 +773,8 @@ mod bound_temperature_decoder_tests {
     fn shares_steps(decoder: &ResponseDecoder<Kelvin>, steps: &Arc<[u16]>) -> bool {
         matches!(
             &decoder.inner,
-            DecoderInner::Builtin {
-                color_temperature_steps: Some(stored),
+            DecoderInner::ColorTemperature {
+                steps: Some(stored),
                 ..
             } if Arc::ptr_eq(stored, steps)
         )
@@ -777,6 +812,27 @@ mod bound_temperature_decoder_tests {
         drop(profile);
         drop(steps);
         assert_eq!(cloned.decode(&[2])?.value(), 6300);
+        Ok(())
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn custom_temperature_table_encodes_and_decodes_the_same_steps() -> Result<()> {
+        let profile = custom_profile(Arc::from([3100, 4200, 6300]))?;
+        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile);
+        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)?;
+        for (kelvin, wire) in [(3100, 0), (4200, 1), (6300, 2)] {
+            let temperature = Kelvin::new(kelvin)?;
+            let command = crate::command::white_balance::SetColorTemperature::for_target(
+                &target,
+                temperature,
+            )?;
+            crate::Request::validate_for_target(&command, &target)?;
+            let mut buffer = [0; 7];
+            let length = super::write_for_target(&command, &target, &mut buffer)?;
+            assert_eq!(&buffer[..length], &[0x81, 1, 4, 0x20, 0, wire, 0xff]);
+            assert_eq!(decoder.decode(&[wire])?, temperature);
+        }
         Ok(())
     }
 
@@ -824,6 +880,10 @@ pub trait Request: Send + Sync {
     /// Deadline family for this request.
     const TIMEOUT_CLASS: TimeoutClass;
     /// Retry family for this request.
+    ///
+    /// An [`Inquiry`] accepts only [`RetryClass::Never`] or
+    /// [`RetryClass::Inquiry`]; preparation rejects command families before
+    /// encoding or owner admission.
     const RETRY_CLASS: RetryClass;
     /// Scheduling class for this request.
     ///
@@ -946,7 +1006,7 @@ pub trait Request: Send + Sync {
         buffer: &mut [u8],
         _authority: RequestContractAuthority,
     ) -> Result<usize> {
-        self.write_into(target.target(), buffer)
+        self.write_into(target.target().into(), buffer)
     }
 
     /// Validates target-specific capability, range and installation facts before encoding.
@@ -1329,6 +1389,32 @@ mod payload_shape_tests {
             UndeclaredInquiry.payload_shape_for_profile(&profile),
             PayloadShape::Unknown
         );
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod inquiry_retry_tests {
+    use super::InquiryRetryClass;
+
+    #[test]
+    fn inquiry_retry_names_refuse_command_families() -> Result<(), serde_json::Error> {
+        for (class, name) in [
+            (InquiryRetryClass::Never, "never"),
+            (InquiryRetryClass::Inquiry, "inquiry"),
+        ] {
+            assert_eq!(serde_json::to_value(class)?, name);
+            assert_eq!(
+                serde_json::from_value::<InquiryRetryClass>(name.into())?,
+                class
+            );
+        }
+        for name in ["standard", "movement", "preset", "Never", "Inquiry"] {
+            assert!(
+                serde_json::from_value::<InquiryRetryClass>(name.into()).is_err(),
+                "{name}"
+            );
+        }
         Ok(())
     }
 }

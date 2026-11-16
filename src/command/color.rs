@@ -131,32 +131,27 @@ step_command_encoder! {
     }
 }
 
-/// Lowers physical Kelvin through the existing PTZOptics 100 K register table.
+/// Lowers physical Kelvin through the declared PTZOptics register table.
 pub(crate) fn ptzoptics_color_temperature_wire(
     temperature: crate::types::Kelvin,
 ) -> crate::Result<u16> {
-    let kelvin = temperature.value();
-    if !(2500..=8000).contains(&kelvin) || !(kelvin - 2500).is_multiple_of(100) {
-        return Err(crate::Error::invalid_parameter(
-            "color_temperature",
-            kelvin.to_string(),
-            "this encoding requires 2500 through 8000 Kelvin in exact 100 Kelvin steps",
-        ));
-    }
-    Ok((kelvin - 2500) / 100)
+    crate::capabilities::WhiteBalanceCaps::temperature_step(
+        crate::camera::profiles::profile_constants::PTZ_COLOR_TEMPERATURE_STEPS,
+        temperature,
+    )
 }
 
 /// Decodes a PTZOptics temperature-table index into physical Kelvin.
 pub(crate) fn decode_color_temperature(value: u16) -> crate::Result<crate::types::Kelvin> {
-    if value > 55 {
-        return Err(crate::Error::parameter_out_of_range(
+    let steps = crate::camera::profiles::profile_constants::PTZ_COLOR_TEMPERATURE_STEPS;
+    crate::capabilities::WhiteBalanceCaps::temperature_from_step(steps, value).map_err(|_| {
+        crate::Error::parameter_out_of_range(
             "color_temperature_wire",
             i32::from(value),
             0,
-            55,
-        ));
-    }
-    crate::types::Kelvin::new(2500 + value * 100)
+            i32::try_from(steps.len().saturating_sub(1)).unwrap_or(i32::MAX),
+        )
+    })
 }
 
 /// Red Channel Direct command (different from tuning).
@@ -354,9 +349,16 @@ mod tests {
         );
 
         // Test Direct with valid values
-        let test_values = vec![0x00, 0x10, 0x20, 0x37];
-        for temp in test_values {
-            let color_temp = crate::types::Kelvin::new(2500 + temp * 100).unwrap();
+        for (temp, &kelvin) in
+            crate::camera::profiles::profile_constants::PTZ_COLOR_TEMPERATURE_STEPS
+                .iter()
+                .enumerate()
+        {
+            let color_temp = crate::types::Kelvin::new(kelvin).unwrap();
+            assert_eq!(
+                decode_color_temperature(u16::try_from(temp).unwrap()).unwrap(),
+                color_temp
+            );
             let cmd = ColorTemperature::SetTemperature(color_temp);
             let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
@@ -368,9 +370,14 @@ mod tests {
         }
 
         // Test Direct with invalid value - can't create invalid ColorTemperature
-        assert!(
-            ptzoptics_color_temperature_wire(crate::types::Kelvin::new(8100).unwrap()).is_err()
-        );
+        for kelvin in [2400, 2550, 8100] {
+            assert!(
+                ptzoptics_color_temperature_wire(crate::types::Kelvin::new(kelvin).unwrap())
+                    .is_err()
+            );
+        }
+        let count = crate::camera::profiles::profile_constants::PTZ_COLOR_TEMPERATURE_STEPS.len();
+        assert!(decode_color_temperature(u16::try_from(count).unwrap()).is_err());
     }
 
     #[test]
@@ -553,8 +560,7 @@ mod tests {
                 .is_ok()
         );
 
-        let temp_max =
-            ColorTemperature::SetTemperature(crate::types::Kelvin::new(2500 + 0x37 * 100).unwrap());
+        let temp_max = ColorTemperature::SetTemperature(crate::types::Kelvin::new(8000).unwrap());
         assert!(
             crate::command::test_wire_bytes(&temp_max, crate::camera_id::CameraId::CAMERA_1)
                 .is_ok()
@@ -564,8 +570,7 @@ mod tests {
     #[test]
     fn test_nibble_encoding() {
         // Test that Direct commands properly encode values as nibbles
-        let cmd =
-            ColorTemperature::SetTemperature(crate::types::Kelvin::new(2500 + 0x25 * 100).unwrap());
+        let cmd = ColorTemperature::SetTemperature(crate::types::Kelvin::new(6200).unwrap());
         let bytes =
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap();
         assert_eq!(bytes[4], 0x02);

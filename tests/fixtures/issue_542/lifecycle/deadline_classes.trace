@@ -35,8 +35,8 @@
 41 effect state id=3 from=ready to=sending
 41 effect transmit tx=3 id=3 kind=request target=3 wire=8101040700ff
 41 driver-input transmission-finished tx=3 result=Timeout
-41 effect terminal id=3 outcome=Error::Timeout source=transport state=removed permit=released
-41 outcome operation id=3 Error::Timeout source=transport
+41 effect terminal id=3 outcome=Error::UnsequencedCommandUnconfirmed source=transport state=removed permit=released
+41 outcome operation id=3 Error::UnsequencedCommandUnconfirmed source=transport
 100 input wake
 100 effect terminal id=1 outcome=Error::InquiryFailed(Timeout) source=scheduler state=removed permit=released
 100 effect delivery-discarded id=1 observer=detached

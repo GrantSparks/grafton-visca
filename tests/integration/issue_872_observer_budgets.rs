@@ -60,7 +60,7 @@ mod inquiry_budget {
             )
             .expect("virtual blocking session");
         let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         let start = clock.now();
         assert!(!camera
@@ -92,7 +92,7 @@ mod inquiry_budget {
             .await
             .expect("Tokio session");
         let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera");
         let start = runtime.now();
         assert!(!camera
@@ -140,7 +140,7 @@ mod settlement_budget {
                     .with_settlement_timeout(Duration::from_secs(90))
                     .with_inquiry_spacing(Duration::from_secs(5)));
             let session = open!(fake, config).expect("session");
-            let camera = session.camera::<Raw>(grafton_visca::types::CameraId::CAMERA_1).expect("camera");
+            let camera = session.camera::<Raw>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
             let mut operation = wait!(camera.submit::<Targeted, _>(&grafton_visca::command::pan_tilt::Home)).expect("move");
             let started = now!();
             let error = wait!(operation.settled()).expect_err("changing positions never settle");

@@ -60,6 +60,7 @@
 //! | `InquiryCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
 //! | `CommandCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
 //! | `CommandFailedAfterAck` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
+//! | `RequestUnconfirmed / later rejection after a lost ACK` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
 //! | `RuntimeIdentityExhausted` | `Other` | — | `Abandon` |
 //! | `RuntimeQueueFull` | `BufferFull` | — | `Resubmit after 200ms` |
 //! | `StreamPoisoned` | `IoClosed` | — | `ReopenSession` |
@@ -585,8 +586,8 @@ pub enum Error {
     #[error("Cancellation could not be confirmed")]
     CancellationUnconfirmed,
 
-    /// An unsequenced command on a raw-VISCA envelope was successfully sent,
-    /// but its ACK or completion outcome became unknowable — a lost
+    /// An unsequenced command on a raw-VISCA envelope may have been sent,
+    /// but its ACK or completion outcome became unknowable — a failed write, a lost
     /// ACK/completion datagram, an expired cancellation-ambiguity window, or a
     /// spent retry budget while an attempt was in `Sending`, `AwaitingAck`,
     /// `AwaitingCompletion`, or `Executing`.
@@ -707,6 +708,19 @@ pub enum Error {
     #[non_exhaustive]
     CommandFailedAfterAck {
         /// The camera's error, exactly as it would be reported before an ACK.
+        #[source]
+        source: Box<Error>,
+    },
+
+    /// A request failed after a written attempt may already have taken effect.
+    ///
+    /// A later rejection or transport failure cannot erase that possibility.
+    /// The exact terminal cause is retained as `source`, but recovery always
+    /// requires reconciling camera state before resubmission (#962).
+    #[error("Request outcome could not be confirmed: {source}")]
+    #[non_exhaustive]
+    RequestUnconfirmed {
+        /// The exact camera or transport error that ended the request.
         #[source]
         source: Box<Error>,
     },
@@ -1170,6 +1184,14 @@ impl Error {
         }
     }
 
+    /// Reports a terminal cause after an attempt may have taken effect.
+    #[must_use]
+    pub fn request_unconfirmed(source: impl Into<Box<Error>>) -> Self {
+        Self::RequestUnconfirmed {
+            source: source.into(),
+        }
+    }
+
     /// Reports exhausted ordinary admission capacity.
     #[must_use]
     pub const fn runtime_queue_full(capacity: usize) -> Self {
@@ -1288,7 +1310,8 @@ impl Error {
             // Unconfirmed: one transmitted operation has an unknowable result
             Self::CancellationUnconfirmed
             | Self::UnsequencedCommandUnconfirmed
-            | Self::CommandFailedAfterAck { .. } => ErrorKind::Unconfirmed,
+            | Self::CommandFailedAfterAck { .. }
+            | Self::RequestUnconfirmed { .. } => ErrorKind::Unconfirmed,
 
             // IoRefused: connection attempt rejected
             Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
@@ -1473,6 +1496,7 @@ impl Error {
             | Self::InquiryCorrelationLost { .. }
             | Self::CommandCorrelationLost { .. }
             | Self::CommandFailedAfterAck { .. }
+            | Self::RequestUnconfirmed { .. }
             | Self::RuntimeIdentityExhausted
             | Self::DiagnosticSubscriberLimit { .. }
             | Self::RuntimeQueueFull { .. }
@@ -1550,7 +1574,8 @@ impl Error {
             Self::CommandPending | Self::ObservationTimeout { .. } => Recovery::WaitAgain,
             Self::CancellationUnconfirmed
             | Self::UnsequencedCommandUnconfirmed
-            | Self::CommandFailedAfterAck { .. } => Recovery::Reconcile,
+            | Self::CommandFailedAfterAck { .. }
+            | Self::RequestUnconfirmed { .. } => Recovery::Reconcile,
             Self::Timeout { context } => match context.certainty {
                 Certainty::StillLive => Recovery::WaitAgain,
                 Certainty::Unconfirmed => Recovery::Reconcile,
@@ -1682,10 +1707,9 @@ impl Error {
             Self::InquiryCorrelationLost { .. } | Self::CommandCorrelationLost { .. } => Some(
                 FailureContext::new(FailureStage::Terminal, Certainty::NotAccepted),
             ),
-            Self::CommandFailedAfterAck { .. } => Some(FailureContext::new(
-                FailureStage::Terminal,
-                Certainty::Unconfirmed,
-            )),
+            Self::CommandFailedAfterAck { .. } | Self::RequestUnconfirmed { .. } => Some(
+                FailureContext::new(FailureStage::Terminal, Certainty::Unconfirmed),
+            ),
             Self::CancellationObservationFailed { .. } => Some(FailureContext::new(
                 FailureStage::CancellationAttempt,
                 Certainty::StillLive,

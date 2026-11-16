@@ -543,7 +543,6 @@ mod tests {
             AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
             TransportConfig, TransportIdentity,
         },
-        types::CameraId,
     };
     use std::{
         collections::VecDeque,
@@ -642,7 +641,7 @@ mod tests {
         let session = Session::open(transport, &SessionConfig::new(settings.profile.clone()))
             .expect("session");
         let camera = session
-            .camera::<AnyProfile>(CameraId::CAMERA_1)
+            .camera::<AnyProfile>(crate::IndividualCameraId::CAMERA_1)
             .expect("camera");
         let inventory = [
             metadata(InquiryKind::Power),
@@ -699,6 +698,10 @@ mod tests {
         assert_eq!(serialized["schema_version"], 1);
         assert_eq!(serialized["transport"]["kind"], "tcp");
         assert_eq!(
+            serialized["profile"]["capabilities"]["power"]["status_query"],
+            "standard"
+        );
+        assert_eq!(
             serde_json::from_value::<ProbeReport>(serialized).expect("schema round trip"),
             report
         );
@@ -708,9 +711,8 @@ mod tests {
     fn generated_probe_inventory_is_read_only_for_every_builtin_profile() {
         for id in ProfileId::all() {
             let profile = id.spec().expect("built-in profile");
-            let target =
-                TargetRegistration::new(profile.capabilities().default_camera_id.into(), profile)
-                    .expect("target");
+            let target = TargetRegistration::new(profile.capabilities().default_camera_id, profile)
+                .expect("target");
             let mut prepared = 0;
             for entry in BUILTIN_INQUIRIES {
                 let queries = (entry.prepare_probe)(&target)
@@ -720,13 +722,15 @@ mod tests {
                     fn requires_inquiry<Q: crate::Inquiry>(_: &Q) {}
                     requires_inquiry(&query.inquiry);
                     let mut expected = vec![0; query.request.len()];
-                    let frame =
-                        crate::command::bytes::FrameWriter::new(target.target(), &mut expected)
-                            .bytes(crate::command::inquiry_structs::body_for_profile(
-                                entry.kind,
-                                entry.bytes,
-                                target.profile(),
-                            ));
+                    let frame = crate::command::bytes::FrameWriter::new(
+                        target.target().into(),
+                        &mut expected,
+                    )
+                    .bytes(crate::command::inquiry_structs::body_for_profile(
+                        entry.kind,
+                        entry.bytes,
+                        target.profile(),
+                    ));
                     let written = match query.argument {
                         Some(argument) => frame.byte(argument),
                         None => frame,
@@ -748,9 +752,8 @@ mod tests {
     fn argument_samples_use_profile_bounds_and_all_closed_selectors() {
         for id in ProfileId::all() {
             let profile = id.spec().expect("profile");
-            let target =
-                TargetRegistration::new(profile.capabilities().default_camera_id.into(), profile)
-                    .expect("target");
+            let target = TargetRegistration::new(profile.capabilities().default_camera_id, profile)
+                .expect("target");
             let presets = target
                 .profile()
                 .capabilities()
@@ -778,7 +781,7 @@ mod tests {
     #[test]
     fn sourced_vendor_inquiries_keep_their_read_only_frame() {
         let target = TargetRegistration::new(
-            CameraId::CAMERA_1,
+            crate::IndividualCameraId::CAMERA_1,
             ProfileId::PtzOpticsG2.spec().expect("profile"),
         )
         .expect("target");
@@ -790,8 +793,11 @@ mod tests {
     #[test]
     fn probe_uses_the_profile_selected_canonical_pan_tilt_decoder() {
         for (id, payload_len) in [(ProfileId::GenericVisca, 8), (ProfileId::SonyBrc300, 9)] {
-            let target = TargetRegistration::new(CameraId::CAMERA_1, id.spec().expect("profile"))
-                .expect("target");
+            let target = TargetRegistration::new(
+                crate::IndividualCameraId::CAMERA_1,
+                id.spec().expect("profile"),
+            )
+            .expect("target");
             let queries = (metadata(InquiryKind::PanTiltPosition).prepare_probe)(&target)
                 .expect("generated position query");
             let decoder = crate::Inquiry::decoder(&queries[0].inquiry);
@@ -820,8 +826,11 @@ mod tests {
             None,
         )
         .expect("settings");
-        let target =
-            TargetRegistration::new(CameraId::CAMERA_1, settings.profile.clone()).expect("target");
+        let target = TargetRegistration::new(
+            crate::IndividualCameraId::CAMERA_1,
+            settings.profile.clone(),
+        )
+        .expect("target");
         let report = collect_report(&settings, &target, [metadata(InquiryKind::Power)], |_| {
             Err(Error::RuntimeShutdown)
         });

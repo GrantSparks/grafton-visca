@@ -91,7 +91,7 @@ facade_matrix! {
         let session = open!(faulting_camera(), config).expect("owner session");
         {
             let camera = session
-                .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+                .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("camera view");
             let error = wait!(
                 wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))

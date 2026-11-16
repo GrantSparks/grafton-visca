@@ -195,7 +195,7 @@ async fn session_inquiries_observe_applied_simulator_state() {
     .await
     .unwrap();
     let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .unwrap();
     let mut movement = camera
         .pan_tilt()

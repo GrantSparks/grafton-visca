@@ -79,7 +79,7 @@ async = [
 
 # Runtime features imply the canonical async facade.
 runtime-tokio = ["async", "dep:tokio"]
-runtime-smol = ["async", "dep:smol", "dep:async-executor", "dep:async-io"]
+runtime-smol = ["async", "dep:smol", "dep:async-executor", "dep:async-io", "dep:libc"]
 
 # Transport features
 transport-serial = ["blocking", "dep:serialport"]
@@ -136,6 +136,11 @@ futures-lite = { version = "2.6", optional = true }
 smol = { version = "2.0", optional = true }
 async-lock = { version = "3.4", optional = true }
 async-io = { version = "2.6", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+# Nonblocking smol TCP setup needs the platform's EINPROGRESS value until
+# std::io::ErrorKind::InProgress is stable.
+libc = { version = "0.2", optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 # OS socket option support for TCP keepalive, TTL, and TCP_NODELAY.

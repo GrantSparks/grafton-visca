@@ -40,8 +40,14 @@
 //!   how much of the broadcast reached the bus is unknowable, and resending
 //!   after a partial frame would put a malformed concatenation on the daisy
 //!   chain. Startup fails with the write's error.
-//! - **Read errors** other than an idle read (timeout, `WouldBlock`,
-//!   `Interrupted`) end startup with the read's own error, unchanged.
+//! - **Reads** retry `Interrupted` within the same read deadline. An idle
+//!   timeout or `WouldBlock` keeps the Address Set attempt; other errors end
+//!   startup with the read's own error. A successful zero-byte read is EOF:
+//!   startup immediately reports [`Error::ConnectionClosed`] with the same
+//!   `serial port closed` reason as session reads.
+//! - **Timed serial writes** returning zero bytes report a timeout, including
+//!   during startup. They may have partially sent an earlier chunk and must
+//!   not be resubmitted automatically.
 //! - **I/F Clear** writes its broadcast and then waits a 100 ms settle delay,
 //!   both within one 2-second budget.
 //!

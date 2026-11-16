@@ -11,7 +11,7 @@ without granting control over the protocol engine.
 | Field | Meaning |
 | --- | --- |
 | `admitted` | Requests admitted into authoritative engine state. |
-| `admission_rejected` | Requests rejected before admission. |
+| `admission_rejected` | Requests rejected before admission, including abandoned async submissions (`Cancelled` admission diagnostics); those never produce dropped-observer events. |
 | `control_reserve_admitted` | Urgent typed STOPs admitted into their camera's control reserve rather than an ordinary slot. |
 | `control_reserve_rejected` | Urgent typed STOPs rejected because their camera's control reserve and ordinary admission were both full (also counted in `admission_rejected`). |
 | `writes` | Transport writes attempted. |
@@ -344,6 +344,7 @@ additional rows for context-dependent outcomes.
 | `InquiryCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
 | `CommandCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
 | `CommandFailedAfterAck` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
+| `RequestUnconfirmed / later rejection after a lost ACK` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
 | `RuntimeIdentityExhausted` | `Other` | — | `Abandon` |
 | `RuntimeQueueFull` | `BufferFull` | — | `Resubmit after 200ms` |
 | `StreamPoisoned` | `IoClosed` | — | `ReopenSession` |
@@ -467,10 +468,12 @@ datagram is one bad datagram: nothing else was consumed and the next datagram
 frames independently, so it is discarded while the session keeps running.
 
 Writes are classified by transport too. A failed datagram write fails exactly
-one request, with its own transport error, and the session continues; because
-the session survives, an error value that claims a replacement session is
-required is normalized to a plain per-request transport error, and the receive
-side stays the authority on session death. A failed stream write poisons the
+one request and the session continues. Bytes may have reached the camera:
+raw commands report `UnsequencedCommandUnconfirmed` and retain an inert
+correlation hold, while Sony commands report `RequestUnconfirmed` with the
+exact transport cause. Both require reconciliation; the strict raw policy
+poisons instead. Raw inquiries fail conclusively and retain their reply-skew
+hold. These rules are independent of the retry budget. A failed stream write poisons the
 session: no transport trait in this crate reports how many bytes of a frame
 reached the wire, so a partial write must be assumed and the byte-stream
 position treated as unknowable. The exact transport cause is carried in the
@@ -583,7 +586,7 @@ application idle timeout there are two application-side levers:
    ```rust,ignore
    // Application-owned idle heartbeat; the library starts no timer of its own.
    let before = session.metrics()?.received_frames;
-   let result = session.camera::<PtzOpticsG2>(CameraId::CAMERA_1)?.power().status();
+   let result = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?.power().status();
    if result.as_ref().is_err_and(|error| error.recovery() == Recovery::ReopenSession) {
        rebuild(&config)?;
    } else if session.metrics()?.received_frames > before {

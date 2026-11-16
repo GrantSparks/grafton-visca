@@ -6,6 +6,34 @@
 //! handwritten camera constructors are inserted in the shared impl so public
 //! API listings retain their existing inherent-impl grouping.
 
+// Shared contracts expand to literals so both handwritten methods retain
+// the same documentation while their mode-specific release details stay local.
+macro_rules! session_contract {
+    (close) => {
+        r#"Requests owner shutdown and consumes this session, waiting for teardown.
+
+Unlike [`Self::shutdown`], this is a deterministic transport teardown barrier:
+it completes only after the owner has dropped its transport, so reopening the
+same endpoint after `close` is safe. If shutdown was accepted, the terminal
+owner result is returned after teardown: explicit shutdown returns `Ok(())`,
+while a transport close or stream poison that won the race is returned
+unchanged. If sending this call's shutdown signal fails immediately, that error
+is preserved. An owner that panicked is reported as [`crate::Error::OwnerTerminated`]."#
+    };
+    (diagnostics) => {
+        r#"Subscribes to the owner's bounded, best-effort diagnostic stream.
+
+`capacity` must be in `1..=128`; at most four live subscriptions are retained
+by one owner. A slow subscriber never stalls command or transport processing;
+its dropped events are visible in [`Self::metrics`].
+
+Delivery is not ordered against receipt resolution: a wait on an operation can
+complete before that operation's terminal event is queued here. Once
+[`Self::close`] completes, every retained event the owner published is queued."#
+    };
+}
+pub(crate) use session_contract;
+
 macro_rules! camera_facade {
     (
         core: $core:ident,
@@ -41,6 +69,102 @@ macro_rules! camera_facade {
                     .debug_struct("Session")
                     .field("targets", &self.config.target_count())
                     .finish_non_exhaustive()
+            }
+        }
+
+        impl Session {
+            /// Returns a camera view for the registered target.
+            ///
+            /// Typed profiles require exact equality with their validated profile facts;
+            /// [`crate::profiles::AnyProfile`] accepts the registered runtime profile.
+            pub fn camera<P: CameraProfile>(
+                &self,
+                target: crate::IndividualCameraId,
+            ) -> Result<Camera<P> $($error)*> {
+                let target = TargetSlot::from(target);
+                let registration = self.config.registered_target(target)?;
+                P::validate_spec(registration.profile())?;
+                Ok(Camera::from_core(self.core(registration)))
+            }
+
+            /// The erased view of `target`, registered with `profile`.
+            fn core(&self, registration: Arc<crate::TargetRegistration>) -> $core {
+                $core {
+                    owner: self.owner.clone(),
+                    registration,
+                    class: ClassSelection::Request,
+                }
+            }
+
+            /// Returns the operational tuning this session is currently preparing
+            /// requests under.
+            ///
+            /// This is the live value, not the one the session was opened with: it
+            /// reflects the most recent successful [`set_tuning`](Self::set_tuning),
+            /// including one made through another clone of this session.
+            #[must_use]
+            pub fn tuning(&self) -> OperationalTuning {
+                self.owner.tuning()
+            }
+
+            /// Replaces this session's operational tuning at runtime.
+            ///
+            /// # Scope
+            ///
+            /// **Every request prepared after this update completes uses the new values**
+            /// — its acknowledgement, completion, settlement, and inquiry deadlines,
+            /// its retry budget, and its pacing floor. The owner's session-wide pacing
+            /// and per-target command-socket capacity are re-derived immediately, so
+            /// work still queued behind pacing is released under the new values too.
+            ///
+            /// **Requests already in flight keep the deadlines they were admitted
+            /// with.** 2.0 stamps a request's deadlines once, at preparation, and the
+            /// engine derives its absolute phase deadlines from that stamp; nothing is
+            /// re-timed underneath an [`Operation`] a caller is already holding. This
+            /// is deliberate: a deadline that moved after submission would change the
+            /// contract of work a caller has already observed, so tuning applies only
+            /// to requests prepared after the update.
+            ///
+            /// The update is not a merge: a field left unset returns to its profile
+            /// default rather than keeping the value a previous call installed.
+            /// Construction-only recovery policy lives on [`crate::config::SessionConfig`], outside
+            /// `OperationalTuning`, and is therefore unaffected by this call.
+            ///
+            /// The update travels through the owner's control boundary and the owner is
+            /// its only writer, so two session clones reconfiguring concurrently
+            /// resolve last-writer-wins in the order the owner accepted them; no reader
+            /// ever observes a mixture of the two.
+            ///
+            /// # Errors
+            ///
+            /// Rejects tuning that construction would reject for a registered profile:
+            /// values that weaken pacing minima, raise a socket limit, undercut a
+            /// deadline, or specify incoherent retry timing, leaving the session's
+            /// current tuning untouched. Returns the session's terminal error if the
+            /// owner has shut down; a retained terminal error takes precedence over
+            /// validation of the proposed update.
+            pub $($async)* fn set_tuning(&self, tuning: OperationalTuning) -> Result<() $($error)*> {
+                let validated_tuning = self.config.validate_tuning(tuning);
+                self.owner.reconfigure(validated_tuning) $($await)*
+            }
+
+            /// Requests owner shutdown.
+            ///
+            /// This is an idempotent shutdown request. It returns once the request is
+            /// accepted by the owner's bounded shutdown boundary; it does not wait for
+            /// transport teardown. After this call,
+            /// new request admission is rejected with [`crate::Error::RuntimeShutdown`]. All
+            /// [`Session`] clones share this one shutdown boundary.
+            pub fn shutdown(&self) -> Result<() $($error)*> {
+                self.owner.shutdown()
+            }
+
+            /// Returns a scalar snapshot of the owner without cloning diagnostics.
+            ///
+            /// After normal conclusion, returns the retained terminal snapshot. An
+            /// owner that unwinds before conclusion reports `OwnerTerminated`.
+            pub $($async)* fn metrics(&self) -> Result<MetricsSnapshot $($error)*> {
+                self.owner.metrics() $($await)*
             }
         }
 
@@ -148,6 +272,12 @@ macro_rules! camera_facade {
 
             /// Submits a typed operation and returns its owner-backed handle once the
             /// owner has admitted it.
+            ///
+            /// On the async facade, dropping a submission future before the
+            /// owner admits its request prevents that request from being written.
+            /// Admission and its reply happen in one synchronous owner turn;
+            /// dropping after that admission is observation-only detachment,
+            /// even if the caller has not yet received the returned handle.
             pub $($async)* fn submit<K, O>(&self, operation: &O) -> Result<Operation<K> $($error)*>
             where
                 K: completion::Kind,
@@ -256,7 +386,7 @@ macro_rules! camera_facade {
 
             /// Returns this session's sole camera target.
             #[must_use]
-            pub fn target(&self) -> CameraId {
+            pub fn target(&self) -> crate::IndividualCameraId {
                 self.camera.target()
             }
 

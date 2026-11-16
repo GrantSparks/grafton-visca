@@ -182,7 +182,7 @@ facade_matrix! {
         for latched in [false, true] {
             let wire = Rig::missing_mode();
             let session = open!(wire, config()).expect("raw stream session");
-            let view = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 view");
+            let view = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 view");
             inquiry_timeout(wait!(view.inquire(&grafton_visca::command::focus::ModeInquiry)).expect_err("mode reply skipped"));
             if latched {
                 pause!(profile().timing().ambiguity_timeout() + profile().timing().inquiry_spacing());
@@ -208,7 +208,7 @@ facade_matrix! {
                 OperationalTuning::new().with_retry_limit(0).with_inquiry_timeout(Duration::from_secs(2))
             );
             let session = open!(wire, config).expect("raw stream session");
-            let view = session.camera::<Polled>(grafton_visca::types::CameraId::CAMERA_1).expect("polled zoom view");
+            let view = session.camera::<Polled>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("polled zoom view");
             // Finish the command first: its ACK must not retire the mode debt
             // before this test asks settlement to cross it with a data reply.
             let mut operation = wait!(view.zoom().set_position(zoom())).expect("zoom operation");
@@ -231,7 +231,7 @@ facade_matrix! {
         let wire = Rig::stale_datagram();
         let session = open!(wire, config()).expect("raw datagram session");
         let diagnostics = wait!(session.subscribe_diagnostics(64)).expect("diagnostics");
-        let view = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 view");
+        let view = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 view");
         inquiry_timeout(wait!(view.inquire(&grafton_visca::command::focus::ModeInquiry)).expect_err("old inquiry times out"));
         pause!(profile().timing().inquiry_spacing() + Duration::from_millis(20));
         assert_eq!(wait!(view.inquire(&grafton_visca::command::zoom::PositionInquiry)).expect("own four-nibble reply"), zoom());
@@ -243,7 +243,7 @@ facade_matrix! {
         let wire = Rig::undocumented_datagram();
         let session = open!(wire, config()).expect("raw datagram session");
         let diagnostics = wait!(session.subscribe_diagnostics(64)).expect("diagnostics");
-        let view = session.camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1).expect("G2 view");
+        let view = session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("G2 view");
         inquiry_timeout(wait!(view.inquire(&grafton_visca::command::zoom::PositionInquiry)).expect_err("no structurally legal answer"));
         one_mismatch(wait!(session.metrics()).expect("metrics"), || diagnostics.try_recv());
         assert_eq!(wait!(view.inquire(&grafton_visca::command::focus::ModeInquiry)).expect("disjoint inquiry remains usable"), FocusMode::Manual);
@@ -269,7 +269,7 @@ fn blocking_disjoint_live_queries_receive_their_own_values_in_both_orders() {
                 )
                 .expect("virtual raw session");
             let mode_view = session
-                .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("G2 view");
             let zoom_view = mode_view.clone();
             let mode =
@@ -310,7 +310,7 @@ async fn tokio_disjoint_live_queries_receive_their_own_values_in_both_orders() {
                 .await
                 .expect("virtual raw session");
             let view = session
-                .camera::<PtzOpticsG2>(grafton_visca::types::CameraId::CAMERA_1)
+                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("G2 view");
             let (mode, position) = tokio::join!(
                 view.inquire(&grafton_visca::command::focus::ModeInquiry),

@@ -8,6 +8,7 @@ enum History {
     ConclusivelyRejected,
     NotExecutable,
     Unconfirmed,
+    UnconfirmedThenRejected,
 }
 
 fn fixture(history: History) -> (ProtocolEngine, RequestId, Instant) {
@@ -67,11 +68,29 @@ fn fixture_with_retry(
                     now,
                 );
             }
-            History::Unconfirmed => {
+            History::Unconfirmed | History::UnconfirmedThenRejected => {
                 engine.advance(now + Duration::from_millis(20));
             }
             History::NeverWritten => unreachable!(),
         }
+    }
+    if matches!(history, History::UnconfirmedThenRejected) {
+        let Phase::Backoff { ready_at: at, .. } = phase_of(&engine, id).unwrap() else {
+            unreachable!();
+        };
+        let retry = dispatch(&mut engine, id, now);
+        send_ok(&mut engine, &retry, Some(0x1001), at);
+        engine.handle(
+            frame(
+                1,
+                Some((0x1001, SequenceWidth::Full32)),
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x03,
+                },
+            ),
+            at,
+        );
     }
     engine.assert_invariants().unwrap();
     (engine, id, now)
@@ -82,7 +101,7 @@ fn expected(history: History) -> Certainty {
         History::NeverWritten | History::ConclusivelyRejected | History::NotExecutable => {
             Certainty::NotAccepted
         }
-        History::Unconfirmed => Certainty::Unconfirmed,
+        History::Unconfirmed | History::UnconfirmedThenRejected => Certainty::Unconfirmed,
     }
 }
 
@@ -107,8 +126,9 @@ fn terminal_paths_and_cache_agree_for_every_reachable_prior_history() {
         History::ConclusivelyRejected,
         History::NotExecutable,
         History::Unconfirmed,
+        History::UnconfirmedThenRejected,
     ] {
-        for boundary in 0..4 {
+        for boundary in 0..6 {
             let (mut engine, id, now) = fixture(history);
             let certainty = expected(history);
             let entry = engine.entry(id).unwrap();
@@ -165,27 +185,68 @@ fn terminal_paths_and_cache_agree_for_every_reachable_prior_history() {
                         )
                         .unwrap()
                 }
-                _ => engine.advance(now + Duration::from_millis(200)),
+                3 => engine.advance(now + Duration::from_millis(200)),
+                4 => engine.handle(Input::Cancel { id }, now + Duration::from_millis(50)),
+                _ => {
+                    let mut at = now;
+                    loop {
+                        if let Phase::Backoff { ready_at, .. } = phase_of(&engine, id).unwrap() {
+                            at = ready_at;
+                        }
+                        let write = dispatch(&mut engine, id, at);
+                        send_ok(&mut engine, &write, Some(0x1001), at);
+                        let effects = engine.handle(
+                            frame(
+                                1,
+                                Some((0x1001, SequenceWidth::Full32)),
+                                DecodedResponse::Error {
+                                    socket: None,
+                                    code: 0x03,
+                                },
+                            ),
+                            at,
+                        );
+                        if terminal_failure(&effects, id).is_some() {
+                            break effects;
+                        }
+                    }
+                }
             };
-            let error = terminal_failure(&effects, id).unwrap();
-            // A budget terminal deliberately retains the exact prior camera
-            // error when one exists. Its certainty is already pinned above.
-            if boundary != 3
-                || !matches!(
-                    history,
-                    History::ConclusivelyRejected | History::NotExecutable
-                )
-            {
+            if boundary == 4 && certainty == Certainty::NotAccepted {
+                assert!(matches!(
+                    terminal_outcome(&effects, id),
+                    Some(RuntimeOutcome::Command(CommandOutcome::Cancelled))
+                ));
+                assert!(effects.iter().any(|effect| matches!(
+                    effect,
+                    Effect::CancellationObservation {
+                        observation: CancellationObservation::Cancelled,
+                        ..
+                    }
+                )));
+            } else {
+                let error = terminal_failure(&effects, id).unwrap();
                 assert_eq!(
-                    error.failure_context().unwrap().certainty,
+                    error
+                        .failure_context()
+                        .map_or(Certainty::NotAccepted, |context| context.certainty),
                     certainty,
                     "{history:?}, boundary {boundary}"
                 );
-            } else {
-                assert!(matches!(
-                    error,
-                    Error::CommandBufferFull | Error::CommandNotExecutable
-                ));
+                if certainty == Certainty::Unconfirmed {
+                    assert_eq!(error.recovery(), crate::Recovery::Reconcile);
+                    if boundary == 4 {
+                        assert!(effects.iter().any(|effect| matches!(
+                            effect,
+                            Effect::CancellationObservation {
+                                observation: CancellationObservation::Failed(
+                                    Error::CancellationUnconfirmed
+                                ),
+                                ..
+                            }
+                        )));
+                    }
+                }
             }
             assert_eq!(
                 invalidates(&effects, id),
@@ -234,10 +295,12 @@ fn physical_write_evidence_invalidates_without_mutating_retry_history() {
                 Certainty::Unconfirmed
             );
         } else {
-            assert!(matches!(
-                terminal_failure(&effects, id),
-                Some(Error::CommandBufferFull)
-            ));
+            assert!(matches!(terminal_failure(&effects, id),
+                Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::CommandBufferFull)));
+            assert_eq!(
+                terminal_failure(&effects, id).unwrap().recovery(),
+                crate::Recovery::Reconcile
+            );
         }
         engine.assert_invariants().unwrap();
     }
@@ -468,4 +531,32 @@ fn the_bounded_history_keeps_the_request_sequence_across_retries_and_cancellatio
         assert_eq!(entry.sequence_history.len(), 2);
         engine.assert_invariants().unwrap();
     }
+}
+
+#[test]
+fn rejection_during_cancellation_cannot_erase_the_prior_lost_ack() {
+    let (mut engine, id, now) = fixture(History::Unconfirmed);
+    let Phase::Backoff { ready_at: at, .. } = phase_of(&engine, id).unwrap() else {
+        unreachable!();
+    };
+    let write = dispatch(&mut engine, id, now);
+    send_ok(&mut engine, &write, Some(0x1001), at);
+    engine.handle(Input::Cancel { id }, at);
+    let effects = engine.handle(
+        frame(
+            1,
+            Some((0x1001, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            },
+        ),
+        at,
+    );
+    assert!(matches!(
+        terminal_failure(&effects, id),
+        Some(Error::CancellationUnconfirmed)
+    ));
+    assert!(invalidates(&effects, id));
+    engine.assert_invariants().unwrap();
 }

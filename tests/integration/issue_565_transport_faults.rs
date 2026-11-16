@@ -12,7 +12,8 @@
 //!   poisons the session and names its transport cause;
 //! * socketless ACK and completion frames complete a command;
 //! * a malformed datagram is discarded and a later valid reply still applies;
-//! * an ACK naming an occupied socket falls back to the other free socket;
+//! * an ACK reusing an occupied socket preserves sequence completion and targets
+//!   cancellation at that named socket;
 //! * replies answered from inside the write are matched on the first read pump.
 //!
 //! Every scenario runs on the blocking facade and on the async facade under
@@ -40,7 +41,6 @@ use grafton_visca::{
     operation::{AppliedOnly, CancellationOutcome},
     profiles::SonyFr7,
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    types::CameraId,
     Error,
 };
 
@@ -140,7 +140,7 @@ facade_matrix! {
         let camera = receive_fault_on_first_write();
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let error = wait!(
@@ -185,7 +185,7 @@ facade_matrix! {
         )
         .expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let error = wait!(
@@ -211,7 +211,7 @@ facade_matrix! {
     fn sony_transient_receive_fault_retries_same_sequence_and_keeps_session() {
         let camera = receive_fault_on_first_write();
         let session = open!(Rig::datagram(&camera), sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
 
         wait!(
             wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
@@ -244,8 +244,8 @@ facade_matrix! {
     }
 
     /// A failed datagram write fails exactly one command and the session keeps
-    /// running: a datagram is framed by its own boundary, so the owner reports
-    /// an operation-scoped transport failure with the original OS cause.
+    /// running. Sony retains the original transport cause while reporting that
+    /// the attempted write may have reached the camera (#968).
     fn datagram_write_failure_fails_one_command_and_keeps_the_session() {
         let mut writes = 0usize;
         let camera = FakeCamera::visca(move |_, answer| {
@@ -256,16 +256,19 @@ facade_matrix! {
                 answer.reply(frames::ack(1)).reply(frames::complete(1));
             }
         });
-        let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
+        let session = open!(Rig::datagram(&camera), sony_session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         let mut failing = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop))
             .expect("the submission is admitted before its write");
         let error = wait!(failing.applied()).expect_err("the first write fails on the wire");
-        let Error::TransportError { source, .. } = &error else {
-            panic!("the failed datagram write is operation-scoped, got {error:?}");
+        let Error::RequestUnconfirmed { source: terminal_cause, .. } = &error else {
+            panic!("the failed datagram write retains physical uncertainty, got {error:?}");
+        };
+        let Error::TransportError { source, .. } = terminal_cause.as_ref() else {
+            panic!("the original transport cause is retained, got {terminal_cause:?}");
         };
         let Error::Io { source: cause } = source.as_ref() else {
             panic!("the transport wrapper must preserve the original OS error, got {source:?}");
@@ -273,19 +276,23 @@ facade_matrix! {
         assert_eq!(cause.kind(), std::io::ErrorKind::ConnectionRefused);
         let original = std::error::Error::source(&error)
             .and_then(std::error::Error::source)
+            .and_then(std::error::Error::source)
             .and_then(|cause| cause.downcast_ref::<Arc<std::io::Error>>())
             .expect("the public source chain retains the OS error");
         assert!(Arc::ptr_eq(original, cause), "the original shared cause is retained");
         assert_eq!(original.kind(), std::io::ErrorKind::ConnectionRefused);
-        assert_eq!(error.kind(), ErrorKind::Transport);
+        assert_eq!(error.kind(), ErrorKind::Unconfirmed);
         assert_eq!(
             error.failure_context(),
-            None,
-            "normalizing an OS error must not invent request uncertainty"
+            Some(grafton_visca::error::FailureContext::new(
+                grafton_visca::error::FailureStage::Terminal,
+                grafton_visca::error::Certainty::Unconfirmed,
+            )),
+            "a failed write may have reached the camera"
         );
         assert_eq!(
             error.recovery(),
-            Recovery::Resubmit { after: Duration::from_millis(50) }
+            Recovery::Reconcile
         );
         assert!(
             !error.requires_new_session(),
@@ -306,6 +313,27 @@ facade_matrix! {
 
         session.shutdown().expect("owner shutdown");
     }
+
+    /// Issue #968: a failed raw datagram has no sequence with which to safely
+    /// distinguish a delayed reply from the next request's response.
+    fn a_failed_raw_datagram_requires_reconciliation_and_the_session_survives() {
+        let mut writes = 0;
+        let camera = FakeCamera::visca(move |_, answer| {
+            writes += 1;
+            if writes == 1 { answer.fail_send(connection_refused()); }
+            else { answer.reply(frames::ack(1)).reply(frames::complete(1)); }
+        });
+        let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
+        let view = session.camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
+        let mut operation = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("admission");
+        let error = wait!(operation.applied()).expect_err("a failed write may have applied");
+        assert!(matches!(error, Error::UnsequencedCommandUnconfirmed), "{error:?}");
+        assert_eq!(error.recovery(), Recovery::Reconcile);
+        wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)).expect("subsequent admission").applied()).expect("session remains live");
+        assert_eq!(camera.take_payloads(), vec![ZOOM_STOP.to_vec(), FOCUS_STOP.to_vec()]);
+        session.shutdown().expect("shutdown");
+    }
+
 
     /// A failed *stream* write is a session verdict on purpose: the byte-stream
     /// position becomes unknowable, so every affected caller must learn that a
@@ -333,10 +361,10 @@ facade_matrix! {
         let session = open!(Rig::serial_stream(&camera), two_camera_session_config())
             .expect("owner session");
         let first_camera = session
-            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera one view");
         let second_camera = session
-            .camera::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_2)
             .expect("camera two view");
 
         let mut held =
@@ -376,7 +404,7 @@ facade_matrix! {
         });
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(
@@ -407,7 +435,7 @@ facade_matrix! {
         });
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(
@@ -425,12 +453,10 @@ facade_matrix! {
         session.shutdown().expect("owner shutdown");
     }
 
-    /// A sequence-correlated Sony camera may name a socket another request
-    /// still owns. Because the second command is already uniquely identified by
-    /// its sequence, the owner falls back to the target's other free socket
-    /// instead of dropping the ACK. The cancellation wire below proves that the
-    /// fallback assigned S2 while the first command still owns S1.
-    fn ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket() {
+    /// A Sony ACK reusing a locally occupied socket displaces the stale owner.
+    /// Its late completion still applies by sequence, while cancellation of the
+    /// successor targets the socket the camera actually named (#963).
+    fn ack_reusing_a_socket_preserves_late_completion_and_targets_its_cancel() {
         let mut writes = 0usize;
         let mut previous_sequence = None;
         let camera = FakeCamera::new(move |write, answer| {
@@ -440,11 +466,10 @@ facade_matrix! {
                 1 => {
                     answer.reply(frames::sony_reply(sequence, &frames::ack(1)));
                 }
-                // The camera answers the second command with occupied S1. The
-                // uniquely identified request must fall back to free S2. The
-                // previous-sequence completion then settles only the first
-                // command; leave the second live so its cancel wire exposes the
-                // assignment.
+                // The second command owns camera-named S1. Its ACK displaces
+                // the first command's local socket claim, but the first's late
+                // completion still applies by its sequence. Keep the second
+                // live so its cancel wire proves that S1 was retained.
                 2 => {
                     let previous: u32 =
                         previous_sequence.expect("the first write carried a sequence");
@@ -453,22 +478,26 @@ facade_matrix! {
                         .reply(frames::sony_reply(previous, &frames::complete(1)));
                 }
                 _ => {
-                    answer.reply(frames::sony_reply(sequence, &frames::canceled(2)));
+                    answer.reply(frames::sony_reply(sequence, &frames::canceled(1)));
                 }
             }
             previous_sequence = Some(sequence);
         });
         let session = open!(Rig::datagram(&camera), sony_session_config()).expect("owner session");
-        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).expect("camera view");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera view");
 
         let mut first = wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).expect("first submission");
         let mut second =
             wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::focus::Stop)).expect("second submission");
 
-        wait!(first.applied()).expect("first operation applied");
+        wait!(first.applied()).expect("the displaced operation completes by sequence");
+        assert_eq!(
+            wait!(first.cancel()).expect("late completion stays cached"),
+            CancellationOutcome::Completed
+        );
         assert_eq!(
             wait!(second.cancel_with_timeout(Duration::from_secs(1)))
-                .expect("the fallback-assigned socket must accept cancellation"),
+                .expect("the camera-named socket must accept cancellation"),
             CancellationOutcome::Cancelled
         );
 
@@ -476,8 +505,8 @@ facade_matrix! {
         assert_eq!(writes.len(), 3, "two commands and one socket cancellation");
         assert_eq!(
             &writes[2][8..],
-            &[0x81, 0x22, 0xff],
-            "an occupied S1 ACK must assign the second command to free S2"
+            &[0x81, 0x21, 0xff],
+            "a reused S1 ACK must bind the second command to camera-named S1"
         );
 
         session.shutdown().expect("owner shutdown");
@@ -500,7 +529,7 @@ facade_matrix! {
         let camera = FakeCamera::acking(1);
         let session = open!(Rig::datagram(&camera), session_config()).expect("owner session");
         let view = session
-            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+            .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
             .expect("camera view");
 
         wait!(

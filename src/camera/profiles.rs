@@ -5,7 +5,7 @@
 //! groups, evidence notes, and invariant tests are emitted from
 //! `profile_registry`.
 
-mod profile_constants {
+pub(crate) mod profile_constants {
     use crate::{
         capabilities::ShutterSpeedEntry,
         command::{exposure_wire::ExposureMode, FocusZone},

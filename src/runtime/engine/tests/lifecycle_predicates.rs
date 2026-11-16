@@ -1,4 +1,4 @@
-//! Literal occupancy expectations for the fifteen legal phase/cancel pairs.
+//! Literal occupancy expectations for the legal phase/cancel pairs.
 use super::*;
 
 const OFF: u16 = 1 << 0;
@@ -33,7 +33,7 @@ fn mask(lifecycle: Lifecycle) -> u16 {
 }
 
 #[test]
-fn predicates_cover_all_fifteen_phase_cancellation_pairs_and_sending_families() {
+fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
     let now = Instant::now();
     let deadline = now + Duration::from_millis(5);
     let ambiguity = now + Duration::from_millis(13);
@@ -129,6 +129,16 @@ fn predicates_cover_all_fifteen_phase_cancellation_pairs_and_sending_families() 
             Some(deadline),
         ),
         (
+            "executing displaced",
+            Lifecycle::ExecutingDisplaced {
+                started_at: now,
+                deadline,
+                attempt,
+            },
+            0,
+            Some(deadline),
+        ),
+        (
             "executing/cancel requested",
             executing(ExecutingCancellation::Requested(requested)),
             COMMAND,
@@ -201,7 +211,7 @@ fn predicates_cover_all_fifteen_phase_cancellation_pairs_and_sending_families() 
             Some(ambiguity),
         ),
     ];
-    assert_eq!(rows.len(), 15);
+    assert_eq!(rows.len(), 16);
     for (name, lifecycle, expected, window) in rows {
         assert_eq!(mask(lifecycle), expected, "{name}: {lifecycle:?}");
         assert_eq!(lifecycle.response_window_end(), window, "{name}");

@@ -31,7 +31,7 @@ macro_rules! camera_core {
 
         impl $core {
             /// Returns this view's fixed individual target.
-            pub(crate) fn target(&self) -> crate::CameraId {
+            pub(crate) fn target(&self) -> crate::IndividualCameraId {
                 self.registration.target()
             }
 
@@ -134,8 +134,9 @@ macro_rules! camera_core {
             /// Observes exactly the selected axes under one absolute deadline
             /// covering inquiry admission, replies and polling intervals.
             pub(crate) $($async)* fn wait_until_idle(&self, wait: crate::camera::IdleWait) -> crate::Result<()> {
+                wait.validate()?;
                 let queries = crate::prepared::prepare_position_queries(
-                    self.registration.as_ref(), self.tuning(), wait.axes,
+                    self.registration.as_ref(), self.tuning(), wait.axes(),
                 )?;
                 self.owner.wait_until_idle(wait, &queries) $($await)*
             }

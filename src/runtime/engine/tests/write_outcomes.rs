@@ -409,3 +409,188 @@ fn a_result_with_another_requests_identity_cannot_consume_the_active_write() {
     ));
     engine.assert_invariants().unwrap();
 }
+
+/// The same failed physical write must have the same terminal certainty,
+/// cache projection and relative hold on both sides of the retry budget.
+#[test]
+fn failed_datagrams_have_one_evidence_rule_inside_and_after_the_budget() {
+    for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
+        for kind in 0..4 {
+            let mut early = None;
+            for late in [false, true] {
+                let now = Instant::now();
+                let mut engine = engine(envelope, TransportKind::Datagram);
+                let mut request = if kind == 3 {
+                    inquiry(1)
+                } else {
+                    projected_command()
+                };
+                if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
+                    *reply_shape = match kind {
+                        0 => ReplyShape::AckThenCompletion,
+                        1 => ReplyShape::CompletionOnly,
+                        _ => ReplyShape::NoReply,
+                    };
+                }
+                request.context_mut().retry.total_budget =
+                    Some(NonZeroDuration::new(Duration::from_millis(100)).unwrap());
+                let (write, id) = admit(&mut engine, 1, request, now);
+                let at = if late {
+                    now + Duration::from_millis(101)
+                } else {
+                    now
+                };
+                let effects = result(
+                    &mut engine,
+                    &write,
+                    WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
+                        "ambiguous datagram write",
+                    ))),
+                    at,
+                );
+                let error = terminal_failure(&effects, id).unwrap();
+                let certainty = if kind == 3 {
+                    Certainty::FailedConclusively
+                } else {
+                    Certainty::Unconfirmed
+                };
+                assert_eq!(
+                    error.failure_context(),
+                    Some(FailureContext::new(FailureStage::Terminal, certainty))
+                );
+                if kind != 3 {
+                    assert_eq!(error.recovery(), Recovery::Reconcile);
+                    assert_invalidated_before_terminal(&effects, id);
+                    if envelope == EnvelopeKind::Raw {
+                        assert!(matches!(error, Error::UnsequencedCommandUnconfirmed));
+                    } else {
+                        assert!(
+                            matches!(&error, Error::RequestUnconfirmed { source, .. } if matches!(source.as_ref(), Error::TransportError { .. }))
+                        );
+                    }
+                } else {
+                    assert!(invalidations(&effects).is_empty());
+                    assert!(
+                        matches!(&error, Error::InquiryFailed { source } if matches!(source.as_ref(), Error::TransportError { .. }))
+                    );
+                }
+                let hold = if envelope == EnvelopeKind::Raw {
+                    let scope = match kind {
+                        0 => RawHoldScope::PreAck,
+                        1 | 2 => RawHoldScope::AllResponses,
+                        _ => RawHoldScope::Inquiry(PayloadShape::Unknown),
+                    };
+                    let hold = engine
+                        .raw_hold(camera(1), scope)
+                        .expect("uncertain raw write keeps correlation");
+                    assert_eq!(hold.owner, Some(id));
+                    Some(hold.until.duration_since(at))
+                } else {
+                    assert!(engine.correlation.holds().is_empty());
+                    None
+                };
+                let summary = (
+                    error.to_string(),
+                    error.failure_context(),
+                    error.recovery(),
+                    hold,
+                    invalidations(&effects).len(),
+                );
+                if let Some(early) = &early {
+                    assert_eq!(&summary, early, "{envelope:?}, kind {kind}");
+                } else {
+                    early = Some(summary);
+                }
+                assert_eq!(engine.state(), SessionState::Running);
+                engine.assert_invariants().unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn failed_raw_datagram_holds_late_answers_away_from_a_successor() {
+    for is_inquiry in [false, true] {
+        let now = Instant::now();
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let request = || {
+            if is_inquiry {
+                inquiry(1)
+            } else {
+                projected_command()
+            }
+        };
+        let (write, first) = admit(&mut engine, 1, request(), now);
+        result(
+            &mut engine,
+            &write,
+            WriteOutcome::Failed(Error::io_timeout()),
+            now,
+        );
+        let queued = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(2),
+                request: request(),
+                slot: AdmissionSlot::Ordinary,
+            },
+            now,
+        );
+        let successor = admitted(&queued);
+        assert!(!queued
+            .iter()
+            .any(|effect| matches!(effect, Effect::Transmit { .. })));
+        let replies = if is_inquiry {
+            vec![DecodedResponse::InquiryReply {
+                payload: smallvec::smallvec![0x01],
+            }]
+        } else {
+            vec![
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+                DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ]
+        };
+        for response in replies {
+            let effects = engine.handle(frame(1, None, response), now);
+            assert!(terminal_outcome(&effects, successor).is_none());
+            assert!(!effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Transmit { .. })));
+            assert!(matches!(phase_of(&engine, successor), Some(Phase::Ready)));
+        }
+        assert!(engine.entry(first).is_none());
+        engine.assert_invariants().unwrap();
+    }
+}
+
+#[test]
+fn failed_raw_datagrams_use_strict_poison_on_either_side_of_the_budget() {
+    for late in [false, true] {
+        let now = Instant::now();
+        let mut engine = strict_poison_engine();
+        let mut request = projected_command();
+        request.context_mut().retry.total_budget =
+            Some(NonZeroDuration::new(Duration::from_millis(100)).unwrap());
+        let (write, id) = admit(&mut engine, 1, request, now);
+        let at = if late {
+            now + Duration::from_millis(101)
+        } else {
+            now
+        };
+        let effects = result(
+            &mut engine,
+            &write,
+            WriteOutcome::Failed(Error::io_timeout()),
+            at,
+        );
+        assert!(matches!(
+            terminal_failure(&effects, id),
+            Some(Error::StreamPoisoned { .. })
+        ));
+        assert_eq!(engine.state(), SessionState::Poisoned);
+        engine.assert_invariants().unwrap();
+    }
+}

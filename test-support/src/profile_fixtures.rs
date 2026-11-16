@@ -19,7 +19,7 @@ use grafton_visca::{
         CommandTimeouts, CompileTimeProfile, PanTiltCoordinateConversion, ProfileEnvelope,
         ProfileId, ProfileSpec, ProfileTiming, TransportCompatibility,
     },
-    types::{AffectedAxes, CameraId, ExposureMode, FocusZone, WhiteBalanceMode},
+    types::{AffectedAxes, ExposureMode, FocusZone, WhiteBalanceMode},
 };
 
 fn synthetic_spec(
@@ -152,6 +152,7 @@ fn synthetic_spec(
         names: None,
     });
     caps.power = Some(PowerCaps {
+        status_query: grafton_visca::capabilities::PowerStatusQuery::Standard,
         on_time: Duration::from_secs(5),
         standby: typed_support
             .contains(S::PowerStandby)
@@ -443,7 +444,7 @@ pub fn session_config() -> SessionConfig {
 pub fn two_camera_session_config() -> SessionConfig {
     session_config()
         .with_target(
-            CameraId::CAMERA_2,
+            grafton_visca::types::IndividualCameraId::CAMERA_2,
             ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
                 .expect("two-socket raw profile"),
         )
@@ -535,14 +536,17 @@ mod tests {
         let config = two_camera_session_config();
         assert_eq!(
             config.targets().collect::<Vec<_>>(),
-            [CameraId::CAMERA_1, CameraId::CAMERA_2]
+            [
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_2
+            ]
         );
         assert_eq!(
             config
-                .profile(CameraId::CAMERA_1)
+                .profile(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("first registration"),
             config
-                .profile(CameraId::CAMERA_2)
+                .profile(grafton_visca::types::IndividualCameraId::CAMERA_2)
                 .expect("second registration")
         );
         assert_eq!(config.sole_target(), None);

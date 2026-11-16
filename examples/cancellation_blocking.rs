@@ -12,8 +12,7 @@ use std::{collections::VecDeque, time::Duration};
 use grafton_visca::{
     blocking::Session, config::SessionConfig, operation::CancellationOutcome,
     profiles::ProfileSpec, profiles::SonyFr7, transport::BlockingTransport,
-    transport::HasTransportConfig, transport::ReceiveOutcome, transport::TransportConfig,
-    types::CameraId, Error,
+    transport::HasTransportConfig, transport::ReceiveOutcome, transport::TransportConfig, Error,
 };
 
 #[derive(Debug)]
@@ -90,7 +89,7 @@ impl BlockingTransport for CancelCamera {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>()?);
     let session = Session::open(CancelCamera::new(), &config)?;
-    let camera = session.camera::<SonyFr7>(CameraId::CAMERA_1)?;
+    let camera = session.camera::<SonyFr7>(grafton_visca::types::IndividualCameraId::CAMERA_1)?;
 
     let mut drive = camera.zoom().tele()?;
     let outcome = drive.cancel_with_timeout(Duration::from_secs(1))?;

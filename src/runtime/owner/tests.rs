@@ -108,7 +108,7 @@ impl<T: TerminalLane> StagedAdmission<T> {
 
 #[test]
 fn an_individual_target_rejects_broadcast_without_panicking() {
-    assert!(TargetSlot::try_from(CameraId::BROADCAST).is_err());
+    assert!(crate::IndividualCameraId::try_from(CameraId::BROADCAST).is_err());
 }
 
 #[test]
@@ -373,7 +373,7 @@ mod control_reserve {
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
-            target: TargetSlot::try_from(CameraId::new(target).unwrap()).unwrap(),
+            target: TargetSlot::from(crate::IndividualCameraId::new(target).unwrap()),
             timeout: TimeoutPolicy {
                 ack: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(10))
                     .unwrap(),
@@ -803,7 +803,7 @@ mod metrics {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let prepared = prepare_command(
             &FocusModeCommand::Manual,
-            &TargetRegistration::new(target, profile).unwrap(),
+            &TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile).unwrap(),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1868,7 +1868,7 @@ mod lifecycle_trace {
             RetryPolicy, TimeoutPolicy, TransportKind,
         },
         wire::WireValue,
-        CameraId, Error,
+        Error,
     };
 
     const OBSERVER_LATE_DELIVERY: &str =
@@ -1957,6 +1957,7 @@ mod lifecycle_trace {
             Phase::Executing { socket, .. } => {
                 format!("executing(socket={})", socket.to_wire())
             }
+            Phase::ExecutingDisplaced { .. } => "executing-displaced".to_owned(),
             Phase::AwaitingReply { .. } => "awaiting-reply".to_owned(),
             Phase::Backoff { .. } => "backoff".to_owned(),
             Phase::AwaitingCancellationResolution { socket, .. } => {
@@ -2274,10 +2275,9 @@ mod lifecycle_trace {
 
         fn observe_state(&mut self, input: &[&str], out: &mut Vec<String>) {
             let name = input[3].to_owned();
-            let target = TargetSlot::try_from(
-                CameraId::new(required(input, "target").parse().unwrap()).unwrap(),
-            )
-            .unwrap();
+            let target = TargetSlot::from(
+                crate::IndividualCameraId::new(required(input, "target").parse().unwrap()).unwrap(),
+            );
             self.cache_observers.push((name.clone(), target));
             out.push(format!(
                 "{} effect cache-observer-added observer={name} target={}",
@@ -2288,10 +2288,9 @@ mod lifecycle_trace {
 
         fn admit(&mut self, input: &[&str], out: &mut Vec<String>) {
             let label = input[3].to_owned();
-            let target = TargetSlot::try_from(
-                CameraId::new(required(input, "target").parse().unwrap()).unwrap(),
-            )
-            .unwrap();
+            let target = TargetSlot::from(
+                crate::IndividualCameraId::new(required(input, "target").parse().unwrap()).unwrap(),
+            );
             let wire = required(input, "wire");
             let kind = match required(input, "observer") {
                 "async" => ObserverKind::Async,
@@ -2404,7 +2403,8 @@ mod lifecycle_trace {
             }
             // Every lifecycle fixture is a raw session, so correlation is by
             // target and socket rather than by envelope sequence.
-            let target = TargetSlot::try_from(decoded.source).unwrap();
+            let target =
+                TargetSlot::from(crate::IndividualCameraId::try_from(decoded.source).unwrap());
             let sequence: Option<EnvelopeSequence> = None;
             let now = self.now;
             let pre_socket = |state: &OwnerState, id: RequestId| match state.request_state(id) {

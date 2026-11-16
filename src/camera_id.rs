@@ -233,6 +233,18 @@ pub struct IndividualCameraId(u8);
 impl IndividualCameraId {
     /// Camera 1, the usual individual-camera default.
     pub const CAMERA_1: Self = Self(1);
+    /// Camera 2 on an individual VISCA chain.
+    pub const CAMERA_2: Self = Self(2);
+    /// Camera 3 on an individual VISCA chain.
+    pub const CAMERA_3: Self = Self(3);
+    /// Camera 4 on an individual VISCA chain.
+    pub const CAMERA_4: Self = Self(4);
+    /// Camera 5 on an individual VISCA chain.
+    pub const CAMERA_5: Self = Self(5);
+    /// Camera 6 on an individual VISCA chain.
+    pub const CAMERA_6: Self = Self(6);
+    /// Camera 7 on an individual VISCA chain.
+    pub const CAMERA_7: Self = Self(7);
 }
 impl TryFrom<CameraId> for IndividualCameraId {
     type Error = Error;

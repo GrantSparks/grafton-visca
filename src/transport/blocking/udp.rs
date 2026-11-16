@@ -95,6 +95,31 @@ fn send_datagram<S: ?Sized>(
     }
 }
 
+/// Receive one nonempty datagram within one budget. Empty datagrams and
+/// signal interruptions keep the same deadline and re-arm its remainder.
+fn receive_datagram<S: ?Sized>(
+    socket: &mut S,
+    arm: Arm<S>,
+    deadline: Deadline,
+    capacity: usize,
+    mut receive: impl FnMut(&mut S) -> std::io::Result<ReceiveOutcome>,
+) -> Result<ReceiveOutcome, Error> {
+    loop {
+        let remaining = deadline.remaining_or(Instant::now(), Error::io_timeout)?;
+        arm(socket, remaining)?;
+        match receive(socket) {
+            Ok(outcome) => {
+                if let Some(outcome) = deliverable(outcome, capacity)? {
+                    return Ok(outcome);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) if TimedIo::Bounded.ended_idle(&error) => return Err(Error::io_timeout()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
 impl HasTransportConfig for Udp {
     fn identity(&self) -> crate::transport::TransportIdentity<'_> {
         crate::transport::TransportIdentity::Udp
@@ -119,23 +144,9 @@ impl BlockingTransport for Udp {
         timeout: Duration,
     ) -> Result<ReceiveOutcome, Error> {
         let deadline = Deadline::after(Instant::now(), timeout, "read_timeout")?;
-        // One deadline for the whole receive: empty datagrams are skipped
-        // without granting a fresh timeout (see `transport::datagram`).
-        loop {
-            let remaining = deadline.remaining_or(Instant::now(), Error::io_timeout)?;
-            arm_read(&mut self.socket, remaining)?;
-            match recv_datagram(&self.socket, dst) {
-                Ok(outcome) => {
-                    if let Some(outcome) = deliverable(outcome, dst.len())? {
-                        return Ok(outcome);
-                    }
-                }
-                Err(error) if TimedIo::Bounded.ended_idle(&error) => {
-                    return Err(Error::io_timeout());
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
+        receive_datagram(&mut self.socket, arm_read, deadline, dst.len(), |socket| {
+            recv_datagram(socket, dst)
+        })
     }
 }
 
@@ -179,6 +190,37 @@ mod tests {
         })
         .expect("the retried send succeeds");
         assert_eq!(socket.arms, 2, "re-armed before the retried syscall");
+        assert!(socket.results.is_empty());
+    }
+
+    #[test]
+    fn an_interrupted_receive_is_retried_in_place() {
+        // Local fake: the real UDP receive loop owns the retry and re-arm.
+        struct FakeSocket {
+            armed: Vec<Duration>,
+            results: Vec<std::io::Result<ReceiveOutcome>>,
+        }
+        fn arm(socket: &mut FakeSocket, timeout: Duration) -> std::io::Result<()> {
+            socket.armed.push(timeout);
+            Ok(())
+        }
+        let mut socket = FakeSocket {
+            armed: Vec::new(),
+            results: vec![
+                Err(std::io::ErrorKind::Interrupted.into()),
+                Ok(ReceiveOutcome::complete(3)),
+            ],
+        };
+        let budget = Duration::from_secs(1);
+        let deadline = Deadline::after(Instant::now(), budget, "read_timeout").expect("deadline");
+        let outcome = receive_datagram(&mut socket, arm, deadline, 16, |socket| {
+            socket.results.remove(0)
+        })
+        .expect("the reply after EINTR is delivered");
+        assert_eq!(outcome, ReceiveOutcome::complete(3));
+        assert_eq!(socket.armed.len(), 2);
+        assert!(socket.armed[1] <= socket.armed[0]);
+        assert!(socket.armed[0] <= budget);
         assert!(socket.results.is_empty());
     }
 
