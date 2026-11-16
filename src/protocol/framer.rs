@@ -8,7 +8,6 @@
 use bytes::Bytes;
 use bytes::{Buf, BytesMut};
 
-#[cfg(test)]
 use crate::protocol::sony::PayloadType;
 use crate::{
     command::bytes::VISCA_TERMINATOR,
@@ -22,7 +21,7 @@ use crate::{
 ///
 /// Only [`Self::OversizedRawFrame`] preserves the next frame's boundary. An
 /// owner may count and discard that frame on a stream; the other variants are
-/// terminal framing failures. Public transport errors retain the configured
+/// terminal framing failures. Oversize transport errors retain the configured
 /// byte limit through the conversion to [`Error`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FramingError {
@@ -32,17 +31,30 @@ pub(crate) enum FramingError {
     BufferOverflow { max_size: usize },
     /// A Sony header declares a frame larger than the configured frame limit.
     OversizedSonyFrame { max_size: usize },
+    /// The payload-type prefix cannot begin a Sony header.
+    InvalidSonyHeader,
 }
 
 impl From<FramingError> for Error {
     fn from(error: FramingError) -> Self {
-        let max_size = match error {
+        match error {
             FramingError::OversizedRawFrame { max_size }
             | FramingError::BufferOverflow { max_size }
-            | FramingError::OversizedSonyFrame { max_size } => max_size,
-        };
-        Self::ResponseTooLarge { max_size }
+            | FramingError::OversizedSonyFrame { max_size } => Self::ResponseTooLarge { max_size },
+            FramingError::InvalidSonyHeader => Self::invalid_response(
+                "valid Sony header payload type; stream frame boundary is unknown",
+                Vec::new(),
+            ),
+        }
     }
+}
+
+/// The complete decision of a bounded frame scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FrameScan {
+    Complete(usize),
+    NeedMore,
+    Rejected(FramingError),
 }
 
 /// The protocol identity visible in an incomplete raw response prefix.
@@ -116,23 +128,26 @@ pub(crate) trait Framer: private::Sealed {
     fn buffer(&self) -> &FrameBuffer;
     fn buffer_mut(&mut self) -> &mut FrameBuffer;
     fn from_buffer(buffer: FrameBuffer) -> Self;
-    fn frame_len(&self, input: &[u8]) -> Option<Result<usize, FramingError>>;
-    fn next_frame_len(&mut self) -> Option<Result<usize, FramingError>> {
-        let next = self.frame_len(&self.buffer().buf)?;
+    fn frame_len(&self, input: &[u8]) -> FrameScan;
+    fn next_frame_len(&mut self) -> FrameScan {
+        let next = self.frame_len(&self.buffer().buf);
         match next {
-            Err(FramingError::OversizedRawFrame { .. }) => {
-                let length = self
+            FrameScan::Rejected(FramingError::OversizedRawFrame { .. }) => {
+                // The raw scanner rejects only a delimited frame, whose exact
+                // boundary remains known despite exceeding the configured size.
+                if let Some(position) = self
                     .buffer()
                     .buf
                     .iter()
-                    .position(|byte| *byte == VISCA_TERMINATOR)?
-                    + 1;
-                self.buffer_mut().buf.advance(length);
+                    .position(|byte| *byte == VISCA_TERMINATOR)
+                {
+                    self.buffer_mut().buf.advance(position + 1);
+                }
             }
-            Err(_) => self.buffer_mut().buf.clear(),
-            Ok(_) => {}
+            FrameScan::Rejected(_) => self.buffer_mut().buf.clear(),
+            FrameScan::Complete(_) | FrameScan::NeedMore => {}
         }
-        Some(next)
+        next
     }
 
     /// Push bytes without changing retained input if the hard bound is exceeded.
@@ -153,9 +168,10 @@ pub(crate) trait Framer: private::Sealed {
         &mut self,
         visit: impl FnOnce(&[u8]) -> T,
     ) -> Option<Result<T, FramingError>> {
-        let length = match self.next_frame_len()? {
-            Ok(length) => length,
-            Err(error) => return Some(Err(error)),
+        let length = match self.next_frame_len() {
+            FrameScan::Complete(length) => length,
+            FrameScan::NeedMore => return None,
+            FrameScan::Rejected(error) => return Some(Err(error)),
         };
         let value = visit(&self.buffer().buf[..length]);
         self.buffer_mut().buf.advance(length);
@@ -281,15 +297,18 @@ impl Framer for RawFramer {
     fn from_buffer(buffer: FrameBuffer) -> Self {
         Self { buffer }
     }
-    fn frame_len(&self, input: &[u8]) -> Option<Result<usize, FramingError>> {
-        let length = input.iter().position(|byte| *byte == VISCA_TERMINATOR)? + 1;
-        Some(if length > self.buffer.max_frame_size {
-            Err(FramingError::OversizedRawFrame {
+    fn frame_len(&self, input: &[u8]) -> FrameScan {
+        let Some(position) = input.iter().position(|byte| *byte == VISCA_TERMINATOR) else {
+            return FrameScan::NeedMore;
+        };
+        let length = position + 1;
+        if length > self.buffer.max_frame_size {
+            FrameScan::Rejected(FramingError::OversizedRawFrame {
                 max_size: self.buffer.max_frame_size,
             })
         } else {
-            Ok(length)
-        })
+            FrameScan::Complete(length)
+        }
     }
 }
 
@@ -315,15 +334,25 @@ impl Framer for SonyFramer {
     fn from_buffer(buffer: FrameBuffer) -> Self {
         Self { buffer }
     }
-    fn frame_len(&self, input: &[u8]) -> Option<Result<usize, FramingError>> {
-        let header = SonyHeader::decode(input.get(..SonyHeader::SIZE)?)?;
+    fn frame_len(&self, input: &[u8]) -> FrameScan {
+        if input.len() >= 2 && PayloadType::from_bytes([input[0], input[1]]).is_none() {
+            return FrameScan::Rejected(FramingError::InvalidSonyHeader);
+        }
+        let Some(header_bytes) = input.get(..SonyHeader::SIZE) else {
+            return FrameScan::NeedMore;
+        };
+        let Some(header) = SonyHeader::decode(header_bytes) else {
+            return FrameScan::Rejected(FramingError::InvalidSonyHeader);
+        };
         let length = SonyHeader::SIZE + usize::from(header.payload_length);
         if length > self.buffer.max_frame_size {
-            Some(Err(FramingError::OversizedSonyFrame {
+            FrameScan::Rejected(FramingError::OversizedSonyFrame {
                 max_size: self.buffer.max_frame_size,
-            }))
+            })
+        } else if input.len() >= length {
+            FrameScan::Complete(length)
         } else {
-            (input.len() >= length).then_some(Ok(length))
+            FrameScan::NeedMore
         }
     }
 }
@@ -802,16 +831,16 @@ mod tests {
         data.extend_from_slice(&sony2);
 
         framer.push(Bytes::from(data)).unwrap();
-        let frames: Vec<_> = framer
-            .drain_frames()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+        let frames: Vec<_> = framer.drain_frames().collect();
 
-        // The leading Sony frame is length-delimited. The raw bytes after it
-        // are not a Sony header, so Sony mode keeps them buffered rather than
-        // delimiting them at a terminator.
-        assert_eq!(frames, vec![Bytes::from(sony1)]);
-        assert_eq!(framer.buffered_len(), raw.len() + sony2.len());
+        // The leading Sony frame is length-delimited. Raw bytes then lose
+        // framing position: neither their terminator nor the later valid
+        // Sony header may be guessed as the next boundary.
+        assert_eq!(
+            frames,
+            vec![Ok(Bytes::from(sony1)), Err(FramingError::InvalidSonyHeader)]
+        );
+        assert!(framer.is_empty());
     }
 
     #[test]
@@ -1153,17 +1182,31 @@ mod tests {
     }
 
     #[test]
-    fn sony_mode_retains_an_invalid_header_instead_of_delimiting_it() {
+    fn sony_mode_rejects_an_invalid_header_instead_of_guessing_a_boundary() {
         let mut framer = SonyFramer::new_with_limits(256, 100, 1024);
 
         framer
             .push(Bytes::from(invalid_sony_header_then_raw_bytes()))
             .unwrap();
 
-        // Sony mode never falls back to terminator framing: the eight header
-        // bytes do not decode, so nothing is yielded and nothing is discarded.
-        assert!(framer.drain_frames().next().is_none());
-        assert_eq!(framer.buffered_len(), 11);
+        assert_eq!(
+            framer.drain_frames().next(),
+            Some(Err(FramingError::InvalidSonyHeader))
+        );
+        assert!(framer.is_empty());
+
+        // Reject as soon as the two-byte type is known, without waiting for a
+        // complete header or for a later reply to arrive behind it.
+        framer.push_slice(&[0x90]).unwrap();
+        assert_eq!(framer.frame_len(&[0x90]), FrameScan::NeedMore);
+        framer.push_slice(&[0x41]).unwrap();
+        assert_eq!(
+            framer.drain_frames().next(),
+            Some(Err(FramingError::InvalidSonyHeader))
+        );
+        assert!(
+            matches!(Error::from(FramingError::InvalidSonyHeader), Error::InvalidResponse { expected, .. } if expected.contains("Sony header"))
+        );
     }
 
     #[test]

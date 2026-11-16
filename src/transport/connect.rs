@@ -81,6 +81,23 @@ pub(crate) fn socket_setup<T>(endpoint: &str, result: std::io::Result<T>) -> Res
 /// while later addresses are still waiting (capped by the budget left).
 pub(crate) const MIN_ADDRESS_ATTEMPT: Duration = Duration::from_millis(250);
 
+/// One failed TCP address attempt, independent of the connector facade.
+#[derive(Debug)]
+pub(crate) enum AttemptFailure {
+    ShareExpired,
+    Socket(std::io::Error),
+}
+
+impl AttemptFailure {
+    pub(crate) fn from_socket(error: std::io::Error) -> Self {
+        if error.kind() == std::io::ErrorKind::TimedOut {
+            Self::ShareExpired
+        } else {
+            Self::Socket(error)
+        }
+    }
+}
+
 /// Sans-I/O plan for connecting a TCP stream to the first reachable resolved
 /// address before one deadline.
 #[derive(Debug)]
@@ -88,7 +105,6 @@ pub(crate) struct TcpAttempts {
     addresses: std::vec::IntoIter<SocketAddr>,
     deadline: Deadline,
     last_error: Option<std::io::Error>,
-    expired: bool,
 }
 
 impl TcpAttempts {
@@ -97,7 +113,6 @@ impl TcpAttempts {
             addresses: addresses.into_iter(),
             deadline,
             last_error: None,
-            expired: false,
         }
     }
 
@@ -106,7 +121,6 @@ impl TcpAttempts {
     pub(crate) fn next_attempt(&mut self, now: Instant) -> Option<(SocketAddr, Duration)> {
         let remaining = self.deadline.remaining_at(now);
         if remaining.is_zero() {
-            self.expired = true;
             return None;
         }
         let attempts_left = u32::try_from(self.addresses.len()).unwrap_or(u32::MAX);
@@ -121,11 +135,11 @@ impl TcpAttempts {
         Some((address, share))
     }
 
-    /// Record a failed attempt. `None` means the attempt ran out of budget.
-    pub(crate) fn failed(&mut self, error: Option<std::io::Error>) {
-        match error {
-            Some(error) => self.last_error = Some(error),
-            None => self.expired = true,
+    /// Record one attempt's verdict without letting an expired share hide a
+    /// later address's conclusive socket failure.
+    pub(crate) fn failed(&mut self, failure: AttemptFailure) {
+        if let AttemptFailure::Socket(error) = failure {
+            self.last_error = Some(error);
         }
     }
 
@@ -135,7 +149,7 @@ impl TcpAttempts {
     /// reported a socket-level `TimedOut`, so expiry has one spelling on every
     /// facade.
     pub(crate) fn into_error(self, endpoint: &str, now: Instant) -> Error {
-        if self.expired || self.deadline.remaining_at(now).is_zero() {
+        if self.deadline.remaining_at(now).is_zero() {
             return Error::connect_timeout();
         }
         match self.last_error {
@@ -205,7 +219,7 @@ mod tests {
         while let Some((address, budget)) = attempts.next_attempt(now) {
             budgets.push(budget);
             tried.push(address);
-            attempts.failed(Some(ErrorKind::ConnectionRefused.into()));
+            attempts.failed(AttemptFailure::Socket(ErrorKind::ConnectionRefused.into()));
         }
         assert_eq!(tried, addresses());
         // The first address gets an equal share; the last gets what is left.
@@ -228,7 +242,7 @@ mod tests {
         let (_, remaining) = attempts.next_attempt(now).expect("first attempt");
         // A blocking connect reports its own TimedOut; an async timer drops
         // the attempt. Both spend the budget and end the same way.
-        attempts.failed(Some(ErrorKind::TimedOut.into()));
+        attempts.failed(AttemptFailure::from_socket(ErrorKind::TimedOut.into()));
         assert!(attempts.next_attempt(now + remaining).is_none());
         assert!(matches!(
             attempts.into_error("camera.local:5678", now + remaining),
@@ -237,10 +251,53 @@ mod tests {
 
         let mut attempts = TcpAttempts::new(vec![addresses()[0]], deadline);
         attempts.next_attempt(now).expect("first attempt");
-        attempts.failed(None);
+        attempts.failed(AttemptFailure::ShareExpired);
         assert!(matches!(
             attempts.into_error("camera.local:5678", now),
             Error::Timeout { .. }
+        ));
+    }
+
+    #[test]
+    fn address_share_expiry_never_overwrites_a_conclusive_socket_failure() {
+        let now = Instant::now();
+        let deadline = connect_deadline(now, Duration::from_secs(2)).expect("budget");
+        for failures in [
+            [
+                AttemptFailure::ShareExpired,
+                AttemptFailure::Socket(ErrorKind::ConnectionRefused.into()),
+            ],
+            [
+                AttemptFailure::Socket(ErrorKind::ConnectionRefused.into()),
+                AttemptFailure::ShareExpired,
+            ],
+        ] {
+            let mut attempts = TcpAttempts::new(addresses(), deadline);
+            for failure in failures {
+                attempts.next_attempt(now).expect("address remains");
+                attempts.failed(failure);
+            }
+            assert!(attempts.next_attempt(now).is_none());
+            assert!(matches!(attempts.into_error("camera.test:5678", now),
+                Error::ConnectionFailed { source, .. } if source.kind() == ErrorKind::ConnectionRefused));
+        }
+    }
+
+    #[test]
+    fn only_expired_address_shares_are_a_timeout_even_before_the_total_deadline() {
+        let now = Instant::now();
+        let deadline = connect_deadline(now, Duration::from_secs(2)).expect("budget");
+        let mut attempts = TcpAttempts::new(addresses(), deadline);
+        while attempts.next_attempt(now).is_some() {
+            attempts.failed(AttemptFailure::ShareExpired);
+        }
+        assert!(matches!(
+            attempts.into_error("camera.test:5678", now),
+            Error::Timeout { .. }
+        ));
+        assert!(matches!(
+            AttemptFailure::from_socket(ErrorKind::TimedOut.into()),
+            AttemptFailure::ShareExpired
         ));
     }
 

@@ -39,7 +39,7 @@ const SONY_HEADER: usize = 8;
 ///   most bytes a single transport read requests. A larger datagram is
 ///   discarded. A larger raw stream frame that ends in `0xFF` is discarded
 ///   and counted as malformed input; the terminator preserves the next frame's
-///   boundary. An oversized Sony header ends a stream session because its
+///   boundary. An oversized or undecodable Sony header ends a stream session because its
 ///   next boundary is unknowable; a datagram is independently discarded and
 ///   counted as malformed input. The receive floor reserves 16 payload bytes
 ///   plus a Sony header ([`BufferConfig::MIN_RECV_BUFFER_SIZE`]); every preset

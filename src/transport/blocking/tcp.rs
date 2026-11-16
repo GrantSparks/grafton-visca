@@ -1,7 +1,7 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
 use std::{
-    net::TcpStream,
+    net::{SocketAddr, TcpStream},
     time::{Duration, Instant},
 };
 
@@ -11,7 +11,7 @@ use crate::{
         address::resolve_blocking,
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
         builder::TransportConfig,
-        connect::{connect_deadline, preflight, socket_setup, TcpAttempts},
+        connect::{connect_deadline, preflight, socket_setup, AttemptFailure, TcpAttempts},
         socket_options::{apply_tcp_socket_options, TcpConnectionConfig},
         stream_read, BlockingTransport, HasTransportConfig, ReceiveOutcome,
     },
@@ -55,22 +55,37 @@ impl Tcp {
         let endpoint = preflight(address, &config)?;
         let options = TcpConnectionConfig::from(config);
         let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
-        let mut attempts = TcpAttempts::new(resolve_blocking(&endpoint, deadline)?, deadline);
-
-        while let Some((address, remaining)) = attempts.next_attempt(Instant::now()) {
-            match TcpStream::connect_timeout(&address, remaining) {
-                Ok(stream) => {
-                    socket_setup(
-                        &endpoint,
-                        apply_tcp_socket_options(socket2::SockRef::from(&stream), options),
-                    )?;
-                    return Ok(Self { stream, config });
-                }
-                Err(error) => attempts.failed(Some(error)),
-            }
-        }
-        Err(attempts.into_error(&endpoint, Instant::now()))
+        let stream = connect_resolved(
+            &endpoint,
+            options,
+            resolve_blocking(&endpoint, deadline)?,
+            deadline,
+        )?;
+        Ok(Self { stream, config })
     }
+}
+
+/// Drive the same address plan used by the async connectors after resolution.
+fn connect_resolved(
+    endpoint: &str,
+    options: TcpConnectionConfig,
+    addresses: Vec<SocketAddr>,
+    deadline: Deadline,
+) -> Result<TcpStream, Error> {
+    let mut attempts = TcpAttempts::new(addresses, deadline);
+    while let Some((address, remaining)) = attempts.next_attempt(Instant::now()) {
+        match TcpStream::connect_timeout(&address, remaining) {
+            Ok(stream) => {
+                socket_setup(
+                    endpoint,
+                    apply_tcp_socket_options(socket2::SockRef::from(&stream), address, options),
+                )?;
+                return Ok(stream);
+            }
+            Err(error) => attempts.failed(AttemptFailure::from_socket(error)),
+        }
+    }
+    Err(attempts.into_error(endpoint, Instant::now()))
 }
 
 impl HasTransportConfig for Tcp {
@@ -166,6 +181,43 @@ mod tests {
         assert!(
             !accepted,
             "invalid configuration must be rejected before TCP connect"
+        );
+    }
+    #[test]
+    fn an_unroutable_first_address_does_not_hide_the_next_refusal() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("reserve local port");
+        let refused = listener.local_addr().expect("local port");
+        drop(listener);
+        let options = TcpConnectionConfig::from(
+            TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(800)),
+        );
+        let deadline = connect_deadline(Instant::now(), options.connect_timeout).expect("budget");
+        let error = connect_resolved(
+            "camera.test:5678",
+            options,
+            vec!["192.0.2.1:5678".parse().expect("test-net address"), refused],
+            deadline,
+        )
+        .expect_err("both addresses fail");
+        assert!(
+            matches!(error, Error::ConnectionFailed { source, .. } if source.kind() == ErrorKind::ConnectionRefused)
+        );
+    }
+
+    #[test]
+    fn ipv6_tcp_ttl_sets_the_unicast_hop_limit() {
+        let Ok(listener) = TcpListener::bind("[::1]:0") else {
+            return;
+        };
+        let address = listener.local_addr().expect("IPv6 listener");
+        let config = TransportConfig::for_tcp().with_ttl(Some(7));
+        let transport =
+            Tcp::connect_with_config(&address.to_string(), config).expect("IPv6 TCP connect");
+        assert_eq!(
+            socket2::SockRef::from(&transport.stream)
+                .unicast_hops_v6()
+                .expect("IPv6 hops"),
+            7
         );
     }
 }

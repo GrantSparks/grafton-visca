@@ -18,7 +18,7 @@ use crate::{
     timeout::Deadline,
     transport::{
         address::{bind_address_for, literal_socket_addr, resolved},
-        connect::{connect_deadline, socket_setup, udp_target, TcpAttempts},
+        connect::{connect_deadline, socket_setup, udp_target, AttemptFailure, TcpAttempts},
         socket_options::{
             apply_tcp_socket_options, apply_udp_socket_options, TcpConnectionConfig,
             UdpSocketConfig,
@@ -87,12 +87,12 @@ pub(crate) async fn connect_tcp<N: AsyncNet>(
             Some(Ok(stream)) => {
                 socket_setup(
                     endpoint,
-                    apply_tcp_socket_options(N::tcp_socket(&stream), options),
+                    apply_tcp_socket_options(N::tcp_socket(&stream), address, options),
                 )?;
                 return Ok(stream);
             }
-            Some(Err(error)) => attempts.failed(Some(error)),
-            None => attempts.failed(None),
+            Some(Err(error)) => attempts.failed(AttemptFailure::from_socket(error)),
+            None => attempts.failed(AttemptFailure::ShareExpired),
         }
     }
     Err(attempts.into_error(endpoint, Instant::now()))
@@ -123,7 +123,7 @@ pub(crate) async fn connect_udp<N: AsyncNet>(
 
     socket_setup(
         endpoint,
-        apply_udp_socket_options(N::udp_socket(&socket), options),
+        apply_udp_socket_options(N::udp_socket(&socket), target, options),
     )?;
     Ok(socket)
 }
@@ -145,22 +145,34 @@ mod tests {
 
     /// A runtime whose resolver returns an unroutable address first and a
     /// reachable one second.
-    struct TwoAddressNet;
+    struct TwoAddressNet<
+        const REFUSE: bool = false,
+        const ALL_EXPIRED: bool = false,
+        N = crate::transport::tokio::connectors::TokioNet,
+    >(std::marker::PhantomData<N>);
 
-    impl AsyncNet for TwoAddressNet {
+    impl<const REFUSE: bool, const ALL_EXPIRED: bool, N: AsyncNet + 'static> AsyncNet
+        for TwoAddressNet<REFUSE, ALL_EXPIRED, N>
+    {
         type TcpStream = TcpStream;
         type UdpSocket = UdpSocket;
 
         async fn lookup(_endpoint: String) -> io::Result<Vec<SocketAddr>> {
             Ok(vec![
                 UNROUTABLE.parse().expect("address"),
-                *REACHABLE.get().expect("listener address"),
+                if REFUSE || ALL_EXPIRED {
+                    "127.0.0.1:9".parse().expect("address")
+                } else {
+                    *REACHABLE.get().expect("listener address")
+                },
             ])
         }
 
         async fn connect_tcp(address: SocketAddr) -> io::Result<TcpStream> {
-            if address == UNROUTABLE.parse().expect("address") {
+            if ALL_EXPIRED || address == UNROUTABLE.parse().expect("address") {
                 std::future::pending().await
+            } else if REFUSE {
+                Err(io::ErrorKind::ConnectionRefused.into())
             } else {
                 TcpStream::connect(address)
             }
@@ -183,7 +195,7 @@ mod tests {
         }
 
         async fn sleep(duration: Duration) {
-            tokio::time::sleep(duration).await;
+            N::sleep(duration).await;
         }
     }
 
@@ -305,6 +317,46 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn an_expired_first_address_share_preserves_the_second_address_refusal() {
+        let config = TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(600));
+        let error = connect_tcp::<TwoAddressNet<true>>("camera.test:5678", config.into())
+            .await
+            .expect_err("second address refuses");
+        assert!(
+            matches!(error, Error::ConnectionFailed { source, .. } if source.kind() == io::ErrorKind::ConnectionRefused)
+        );
+    }
+
+    #[tokio::test]
+    async fn all_expired_address_shares_are_a_timeout_on_async_runtimes() {
+        let config = TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(30));
+        assert!(matches!(
+            connect_tcp::<TwoAddressNet<false, true>>("camera.test:5678", config.into()).await,
+            Err(Error::Timeout { .. })
+        ));
+        #[cfg(feature = "runtime-smol")]
+        assert!(matches!(
+            smol::block_on(connect_tcp::<
+                TwoAddressNet<false, true, crate::transport::smol::connectors::SmolNet>,
+            >("camera.test:5678", config.into())),
+            Err(Error::Timeout { .. })
+        ));
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_preserves_the_refusal_after_an_expired_first_address_share() {
+        let config = TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(600));
+        let error = smol::block_on(connect_tcp::<
+            TwoAddressNet<true, false, crate::transport::smol::connectors::SmolNet>,
+        >("camera.test:5678", config.into()))
+        .expect_err("second address refuses");
+        assert!(
+            matches!(error, Error::ConnectionFailed { source, .. } if source.kind() == io::ErrorKind::ConnectionRefused)
+        );
+    }
+
     /// #798 review: an unroutable first address used to consume the whole
     /// connect budget, so the reachable second address was never tried.
     #[tokio::test]
@@ -323,5 +375,60 @@ mod tests {
             stream.peer_addr().expect("peer"),
             *REACHABLE.get().expect("listener address")
         );
+    }
+}
+
+#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
+#[allow(clippy::expect_used)]
+mod ipv6_tests {
+    use super::*;
+
+    async fn check_hop_limits<N: AsyncNet>() {
+        let Ok(listener) = std::net::TcpListener::bind("[::1]:0") else {
+            return;
+        };
+        let address = listener.local_addr().expect("IPv6 listener");
+        let tcp = connect_tcp::<N>(
+            &address.to_string(),
+            crate::transport::TransportConfig::for_tcp()
+                .with_ttl(Some(7))
+                .into(),
+        )
+        .await
+        .expect("IPv6 TCP connect");
+        assert_eq!(
+            N::tcp_socket(&tcp)
+                .unicast_hops_v6()
+                .expect("TCP IPv6 hops"),
+            7
+        );
+        let udp = connect_udp::<N>(
+            &address.to_string(),
+            crate::transport::TransportConfig::for_udp()
+                .with_ttl(Some(7))
+                .into(),
+        )
+        .await
+        .expect("IPv6 UDP setup");
+        assert_eq!(
+            N::udp_socket(&udp)
+                .unicast_hops_v6()
+                .expect("UDP IPv6 hops"),
+            7
+        );
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn tokio_tcp_and_udp_apply_the_ipv6_hop_limit() {
+        check_hop_limits::<crate::transport::tokio::connectors::TokioNet>().await;
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_tcp_and_udp_apply_the_ipv6_hop_limit() {
+        smol::block_on(check_hop_limits::<
+            crate::transport::smol::connectors::SmolNet,
+        >());
     }
 }

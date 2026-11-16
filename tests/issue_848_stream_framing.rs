@@ -55,6 +55,33 @@ impl Stream {
     }
 }
 
+// The same malformed header is recoverable when its datagram boundary is known.
+struct Datagram(Stream);
+impl Datagram {
+    fn new(camera: FakeCamera) -> Self {
+        Self(Stream::new(camera))
+    }
+    #[cfg(feature = "blocking")]
+    fn blocking_wire(&self) -> fake_camera::BlockingWire {
+        self.0
+            .camera
+            .blocking_wire()
+            .with_config(Stream::config())
+            .with_semantics(SendSemantics::Datagram)
+    }
+    #[cfg(all(
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    ))]
+    fn async_wire(&self) -> fake_camera::AsyncWire {
+        self.0
+            .camera
+            .async_wire()
+            .with_config(Stream::config())
+            .with_semantics(SendSemantics::Datagram)
+    }
+}
+
 facade_matrix! {
     fn oversized_delimited_raw_noise_is_counted_and_the_following_ack_still_applies() {
         let camera = FakeCamera::new(|_, answer| {
@@ -108,4 +135,39 @@ facade_matrix! {
             .expect_err("the declared Sony frame cannot be honoured");
         assert!(error.requires_new_session(), "{error:?}");
     }
+    fn an_undecodable_sony_header_terminates_without_waiting_for_more_input() {
+        let camera = FakeCamera::new(|write, answer| {
+            if write.starts_with(&[0x02, 0x00]) { return; }
+            answer.reply(vec![0x90]);
+            answer.reply(vec![0x41]);
+        });
+        let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>().unwrap());
+        let session = open!(Stream::new(camera), config).expect("Sony stream owner");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        let error = wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied()).expect_err("invalid payload type loses the stream boundary");
+        assert!(error.requires_new_session(), "{error:?}");
+        assert!(format!("{error:?}").contains("Sony header"), "{error:?}");
+    }
+
+    fn an_undecodable_sony_datagram_is_counted_and_the_next_reply_applies() {
+        let camera = FakeCamera::new(|write, answer| {
+            if write.starts_with(&[0x02, 0x00]) { return; }
+            answer.reply(vec![0x90, 0x41]);
+            for class in [0x41, 0x51] {
+                let mut reply = vec![1, 0x11, 0, 3];
+                reply.extend_from_slice(&write[4..8]);
+                reply.extend_from_slice(&[0x90, class, 0xff]);
+                answer.reply(reply);
+            }
+        });
+        let config = SessionConfig::new(ProfileSpec::from_compile_time::<SonyFr7>().unwrap());
+        let session = open!(Datagram::new(camera), config).expect("Sony datagram owner");
+        let view = session.camera::<SonyFr7>(grafton_visca::types::CameraId::CAMERA_1).unwrap();
+        wait!(wait!(view.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)).unwrap().applied()).expect("the next Sony ACK and completion still apply");
+        let metrics = wait!(session.metrics()).unwrap();
+        assert_eq!(metrics.session, SessionStatus::Running);
+        assert_eq!(metrics.ignored_malformed_frames, 1);
+        session.shutdown().unwrap();
+    }
+
 }

@@ -17,7 +17,7 @@ use smallvec::SmallVec;
 use crate::{
     profiles::{ProfileEnvelope, ProfileSpec},
     protocol::{
-        framer::{Framer, FramingError, RawFramer, SonyFramer},
+        framer::{FrameScan, Framer, FramingError, RawFramer, SonyFramer},
         response::{decode_basic_for_source, BasicKind},
     },
     raw::INLINE_BYTES,
@@ -758,9 +758,14 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
             let input = &buffers.receive_mut()[..received];
             let mut offset = 0;
             while offset < input.len() {
-                let length = framer
-                    .frame_len(&input[offset..])
-                    .ok_or(MalformedFrame::DatagramTrailingBytes)??;
+                let length = match framer.frame_len(&input[offset..]) {
+                    FrameScan::Complete(length) => length,
+                    FrameScan::NeedMore => return Err(MalformedFrame::DatagramTrailingBytes.into()),
+                    FrameScan::Rejected(FramingError::InvalidSonyHeader) => {
+                        return Err(MalformedFrame::InvalidSonyHeader.into())
+                    }
+                    FrameScan::Rejected(error) => return Err(error.into()),
+                };
                 if frames.len() >= frame_limit {
                     return Err(MalformedFrame::DatagramFrameLimit { limit: frame_limit }.into());
                 }
@@ -1798,6 +1803,44 @@ mod tests {
     }
 
     #[test]
+    fn invalid_sony_headers_are_terminal_on_streams_and_classified_on_datagrams() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
+        );
+        for transport in [TransportKind::Stream, TransportKind::Datagram] {
+            let mut framer = SonyFramer::new_with_limits(64, 64, 128);
+            let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+            // A valid ACK follows an invalid header; the stream must never
+            // deliver it by guessing a new Sony boundary.
+            let packet = [0x90, 0x41, 1, 0x11, 0, 3, 0, 0, 0, 1, 0x90, 0x41, 0xff];
+            buffers.receive_mut()[..packet.len()].copy_from_slice(&packet);
+            let failure = decode_frames_with_routing(
+                &envelope,
+                &mut framer,
+                routing,
+                &mut buffers,
+                packet.len(),
+                4,
+                transport,
+            )
+            .unwrap_err();
+            match transport {
+                TransportKind::Stream => assert!(
+                    matches!(failure, ReceiveDecodeFailure::Fatal { error: Error::InvalidResponse { expected, .. }, .. } if expected.contains("Sony header"))
+                ),
+                TransportKind::Datagram => assert!(matches!(
+                    failure,
+                    ReceiveDecodeFailure::Malformed(MalformedFrame::InvalidSonyHeader)
+                )),
+            }
+            assert!(buffers.take_frames().is_empty());
+            assert!(!framer.has_buffered_data());
+        }
+    }
+
+    #[test]
     fn datagram_decoding_neither_copies_into_nor_clears_stream_storage() {
         let envelope = RawVisca::new(AddressingMode::Ip);
         let routing = RoutingState::new(
@@ -1825,7 +1868,7 @@ mod tests {
             1,
             "datagrams leave stream retention untouched"
         );
-        assert!(framer.frame_len(&packet).unwrap().is_ok());
+        assert!(matches!(framer.frame_len(&packet), FrameScan::Complete(_)));
         assert_eq!(framer.buffered_len(), 1, "length inspection is pure");
     }
 }

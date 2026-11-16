@@ -11,7 +11,7 @@ use crate::transport::builder::{TcpKeepaliveConfig, TransportConfig};
 pub struct TcpConnectionConfig {
     /// `TCP_NODELAY`; `None` keeps the operating-system default.
     pub nodelay: Option<bool>,
-    /// IPv4 TTL; `None` keeps the operating-system default.
+    /// IPv4 TTL / IPv6 hop limit; `None` keeps the operating-system default.
     pub ttl: Option<u32>,
     /// Budget for resolving and connecting.
     pub connect_timeout: std::time::Duration,
@@ -35,7 +35,7 @@ impl From<TransportConfig> for TcpConnectionConfig {
 /// The UDP projection of a [`TransportConfig`].
 #[derive(Debug, Clone, Copy)]
 pub struct UdpSocketConfig {
-    /// IPv4 TTL; `None` keeps the operating-system default.
+    /// IPv4 TTL / IPv6 hop limit; `None` keeps the operating-system default.
     pub ttl: Option<u32>,
     /// Budget for resolving and connecting.
     pub connect_timeout: std::time::Duration,
@@ -53,13 +53,18 @@ impl From<TransportConfig> for UdpSocketConfig {
 /// Apply the configured TCP options to a connected stream.
 pub(crate) fn apply_tcp_socket_options(
     socket: socket2::SockRef<'_>,
+    address: std::net::SocketAddr,
     config: TcpConnectionConfig,
 ) -> std::io::Result<()> {
     if let Some(nodelay) = config.nodelay {
         socket.set_tcp_nodelay(nodelay)?;
     }
     if let Some(ttl) = config.ttl {
-        socket.set_ttl_v4(ttl)?;
+        if address.is_ipv6() {
+            socket.set_unicast_hops_v6(ttl)?;
+        } else {
+            socket.set_ttl_v4(ttl)?;
+        }
     }
     if let Some(keepalive) = config.tcp_keepalive {
         socket.set_tcp_keepalive(&tcp_keepalive(keepalive))?;
@@ -70,10 +75,15 @@ pub(crate) fn apply_tcp_socket_options(
 /// Apply the configured UDP options to a bound socket.
 pub(crate) fn apply_udp_socket_options(
     socket: socket2::SockRef<'_>,
+    address: std::net::SocketAddr,
     config: UdpSocketConfig,
 ) -> std::io::Result<()> {
     if let Some(ttl) = config.ttl {
-        socket.set_ttl_v4(ttl)?;
+        if address.is_ipv6() {
+            socket.set_unicast_hops_v6(ttl)?;
+        } else {
+            socket.set_ttl_v4(ttl)?;
+        }
     }
     Ok(())
 }
@@ -125,7 +135,7 @@ mod tests {
         let stream = TcpStream::connect(addr).expect("connect stream");
         let config = TcpConnectionConfig::from(TransportConfig::for_tcp());
         assert_eq!(config.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
-        apply_tcp_socket_options(socket2::SockRef::from(&stream), config)
+        apply_tcp_socket_options(socket2::SockRef::from(&stream), addr, config)
             .expect("apply TCP options");
 
         let socket = socket2::SockRef::from(&stream);
@@ -133,5 +143,26 @@ mod tests {
         assert!(socket.tcp_nodelay().expect("read nodelay state"));
 
         accept_thread.join().expect("join accept thread");
+    }
+    #[test]
+    fn ipv4_ttl_remains_applied_to_tcp_and_udp() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("IPv4 listener");
+        let address = listener.local_addr().expect("listener address");
+        let stream = TcpStream::connect(address).expect("IPv4 connect");
+        apply_tcp_socket_options(
+            socket2::SockRef::from(&stream),
+            address,
+            TransportConfig::for_tcp().with_ttl(Some(7)).into(),
+        )
+        .expect("TCP options");
+        assert_eq!(stream.ttl().expect("IPv4 TCP TTL"), 7);
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("IPv4 UDP socket");
+        apply_udp_socket_options(
+            socket2::SockRef::from(&socket),
+            address,
+            TransportConfig::for_udp().with_ttl(Some(7)).into(),
+        )
+        .expect("UDP options");
+        assert_eq!(socket.ttl().expect("IPv4 UDP TTL"), 7);
     }
 }

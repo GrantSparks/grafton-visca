@@ -866,7 +866,7 @@ socket nibbles, RS-485 echoes, address-set replies, and truncated frames. The
 session stays `Running` and the frame's real reply still settles the outstanding
 command. An oversized raw frame ending in `FF` is discarded and counted too: its
 terminator preserves the next frame boundary. Cumulative input beyond the hard
-retention bound `max_buffer_size + recv_buffer_size`, or a Sony header declaring
+retention bound `max_buffer_size + recv_buffer_size`, a Sony header with an undecodable payload type, or one declaring
 a payload the framer cannot retain, is a genuine framing failure that still
 poisons a stream (#848). For the serial preset the bound is 8192 + 256 = 8448
 bytes, and overflow reports that configured bound. Raw and Sony framers are
