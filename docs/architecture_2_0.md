@@ -192,6 +192,9 @@ completion and cancellation support, preset axes and position inquiries.
 A custom profile cannot claim a built-in identity after changing any of those
 facts. `camera::<AnyProfile>(target)` retains runtime validation instead of
 making compile-time capability claims.
+Profile validation and settlement preparation share one axis-to-inquiry
+declaration and its canonical noun gates; a declared IRIS position inquiry or
+preset recall axis requires the `Iris` grant (#937).
 
 Multi-target registration is rejected before socket creation on any
 IP-addressed transport, which is every standard TCP and UDP configuration and

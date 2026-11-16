@@ -1112,9 +1112,12 @@ cell. Values outside the nominal degree range are always refused. Relative
 moves use the selected source range's full span and the same conversion rule.
 
 `ProfileSpec::position_inquiries()` returns `Option<types::AffectedAxes>` as
-the sole per-axis low-level settlement matrix; `None` means no position inquiries. These facts describe settlement queries, distinct from public
-typed inquiry grants. `PresetCaps::recall_axes` describes exact recall effects;
-completionless profiles need every corresponding settlement inquiry.
+the per-axis settlement matrix; `None` means no position inquiries. Each axis
+uses its public inquiry's canonical gate: IRIS polling requires the `Iris`
+grant, and ND-filter polling requires `NdFilter`. Validation checks this same
+axis-to-inquiry declaration for position inquiries and preset recall axes.
+`PresetCaps::recall_axes` describes exact recall effects; completionless
+profiles need every corresponding settlement inquiry.
 
 Profile defaults use the validated `IndividualCameraId` and cannot select
 broadcast. `SessionConfig::new` registers that proven default directly. Every

@@ -1151,6 +1151,7 @@ pub mod request;
 /// targets or completion behavior at runtime.
 pub mod raw;
 
+mod position_inquiries;
 mod requests;
 pub(crate) use requests::{
     AffectedAxes, ControlClass, Inquiry, OperationCommand, PayloadShape, Request, ResponseDecoder,

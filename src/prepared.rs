@@ -11,13 +11,7 @@ use crate::session_config::ValidatedTuning;
 use crate::CameraId;
 use crate::{
     camera::{MotionQuery, MovementTolerance, PanTiltUnits},
-    command::{
-        inquiry::{
-            FocusPositionInquiry, IrisInquiry, NdFilterInquiry, PanTiltPositionInquiry,
-            ZoomPositionInquiry,
-        },
-        NdFilterDensity,
-    },
+    command::NdFilterDensity,
     completion,
     profiles::{RetryBounds, DEFAULT_RETRY_BASE},
     target::TargetSlot,
@@ -214,101 +208,55 @@ impl<R: PositionReading> PositionQuery<R> {
     }
 }
 
-/// Complete set of typed position inquiries selected for one operation.
-#[derive(Debug, Clone)]
-pub(crate) struct PositionQueryPlan {
-    pub(crate) pan_tilt: Option<PositionQuery<PanTiltUnits>>,
-    pub(crate) zoom: Option<PositionQuery<ZoomPosition>>,
-    pub(crate) focus: Option<PositionQuery<FocusPosition>>,
-    pub(crate) iris: Option<PositionQuery<IrisLevel>>,
-    pub(crate) nd_filter: Option<PositionQuery<NdFilterDensity>>,
-}
+/// Generates typed polling storage, budgeting and preparation from the same
+/// axis-to-inquiry declaration that validates profile settlement availability.
+macro_rules! position_query_plan {
+    ($($axis:ident, $field:ident => $inquiry:ident;)*) => {
+        /// Complete set of typed position inquiries selected for one operation.
+        #[derive(Debug, Clone)]
+        pub(crate) struct PositionQueryPlan {
+            $(pub(crate) $field: Option<PositionQuery<
+                <crate::command::inquiry::$inquiry as Inquiry>::Response,
+            >>,)*
+        }
 
-impl PositionQueryPlan {
-    /// Budget one complete sample from the exact inquiries the plan lowers.
-    /// Each inquiry's observer covers its own retry budget, and pacing may
-    /// delay its admission after the preceding query.
-    fn snapshot_budget(&self) -> Option<Duration> {
-        [
-            self.pan_tilt.as_ref().map(|query| &query.inquiry.context),
-            self.zoom.as_ref().map(|query| &query.inquiry.context),
-            self.focus.as_ref().map(|query| &query.inquiry.context),
-            self.iris.as_ref().map(|query| &query.inquiry.context),
-            self.nd_filter.as_ref().map(|query| &query.inquiry.context),
-        ]
-        .into_iter()
-        .flatten()
-        .try_fold(Duration::ZERO, |budget, context| {
-            budget
-                .checked_add(observation_timeout(context, context.timeout.inquiry.get()))?
-                .checked_add(context.control.minimum_spacing)
-        })
-    }
+        impl PositionQueryPlan {
+            /// Budget one complete sample from the exact inquiries the plan lowers.
+            /// Each inquiry's observer covers its own retry budget, and pacing may
+            /// delay its admission after the preceding query.
+            fn snapshot_budget(&self) -> Option<Duration> {
+                [$(self.$field.as_ref().map(|query| &query.inquiry.context),)*]
+                    .into_iter()
+                    .flatten()
+                    .try_fold(Duration::ZERO, |budget, context| {
+                        budget
+                            .checked_add(observation_timeout(context, context.timeout.inquiry.get()))?
+                            .checked_add(context.control.minimum_spacing)
+                    })
+            }
 
-    fn prepare(
-        registration: &crate::TargetRegistration,
-        tuning: ValidatedTuning,
-        axes: AffectedAxes,
-    ) -> Result<Self> {
-        Ok(Self {
-            pan_tilt: axes
-                .contains(AffectedAxes::PAN_TILT)
-                .then(|| {
-                    prepare_inquiry(
-                        &PanTiltPositionInquiry,
-                        registration,
-                        tuning,
-                        ClassSelection::Request,
-                    )
+            fn prepare(
+                registration: &crate::TargetRegistration,
+                tuning: ValidatedTuning,
+                axes: AffectedAxes,
+            ) -> Result<Self> {
+                Ok(Self {
+                    $($field: axes.iter()
+                        .any(|axis| axis == crate::requests::AffectedAxis::$axis)
+                        .then(|| prepare_inquiry(
+                            &crate::command::inquiry::$inquiry,
+                            registration,
+                            tuning,
+                            ClassSelection::Request,
+                        ))
+                        .transpose()?
+                        .map(|prepared| PositionQuery::new(prepared.into_template())),)*
                 })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-            zoom: axes
-                .contains(AffectedAxes::ZOOM)
-                .then(|| {
-                    prepare_inquiry(
-                        &ZoomPositionInquiry,
-                        registration,
-                        tuning,
-                        ClassSelection::Request,
-                    )
-                })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-            focus: axes
-                .contains(AffectedAxes::FOCUS)
-                .then(|| {
-                    prepare_inquiry(
-                        &FocusPositionInquiry,
-                        registration,
-                        tuning,
-                        ClassSelection::Request,
-                    )
-                })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-            iris: axes
-                .contains(AffectedAxes::IRIS)
-                .then(|| {
-                    prepare_inquiry(&IrisInquiry, registration, tuning, ClassSelection::Request)
-                })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-            nd_filter: axes
-                .contains(AffectedAxes::ND_FILTER)
-                .then(|| {
-                    prepare_inquiry(
-                        &NdFilterInquiry,
-                        registration,
-                        tuning,
-                        ClassSelection::Request,
-                    )
-                })
-                .transpose()?
-                .map(|prepared| PositionQuery::new(prepared.into_template())),
-        })
-    }
+            }
+        }
+    };
 }
+crate::position_inquiries::settlement_inquiries!(position_query_plan);
 
 /// Prepares the complete set of position inquiries for one explicitly
 /// selected motion-axis set.
@@ -3486,7 +3434,71 @@ mod tests {
         check::<crate::profiles::GenericVisca>();
     }
 
+    #[test]
+    fn every_builtin_can_prepare_its_declared_queries_without_exact_completion() {
+        for id in crate::profiles::ProfileId::all() {
+            let mut facts = id.raw_facts();
+            facts.capabilities.profile_id = None;
+            facts.supports_operation_complete = false;
+            let profile = ProfileSpec::from_facts(facts).expect("built-in settlement facts");
+            let queries = profile.position_inquiries().expect("position inquiries");
+            let recall_axes = profile.preset_recall_axes().expect("preset axes");
+            let target = crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile);
+            prepare_position_queries(&target, OperationalTuning::default(), queries)
+                .unwrap_or_else(|error| panic!("{id:?} declared queries: {error}"));
+            prepare_position_queries(&target, OperationalTuning::default(), recall_axes)
+                .unwrap_or_else(|error| panic!("{id:?} recall queries: {error}"));
+        }
+    }
+
     proptest::proptest! {
+        #[test]
+        fn validated_profile_mutations_admit_their_settlement_inquiries(
+            query_bits in 0u8..32,
+            recall_bits in 1u8..32,
+            iris in proptest::bool::ANY,
+            iris_steps in proptest::bool::ANY,
+            nd_filter in proptest::bool::ANY,
+            exact_completion in proptest::bool::ANY,
+        ) {
+            use crate::capabilities::TypedSupportSurface;
+
+            for id in crate::profiles::ProfileId::all() {
+                let mut facts = id.raw_facts();
+                facts.capabilities.profile_id = None;
+                facts.supports_operation_complete = exact_completion;
+                facts.position_inquiries = AffectedAxes::from_bits(query_bits).ok();
+                if let Some(presets) = facts.capabilities.presets.as_mut() {
+                    presets.recall_axes = AffectedAxes::from_bits(recall_bits).expect("nonempty axes");
+                }
+                for (surface, granted) in [
+                    (TypedSupportSurface::Iris, iris),
+                    (TypedSupportSurface::IrisSteps, iris_steps),
+                    (TypedSupportSurface::NdFilter, nd_filter),
+                ] {
+                    facts.capabilities.typed_support = if granted {
+                        facts.capabilities.typed_support.union(TypedSupportSet::from_surface(surface))
+                    } else {
+                        facts.capabilities.typed_support.without(surface)
+                    };
+                }
+                let Ok(profile) = ProfileSpec::from_facts(facts) else { continue; };
+                let queries = profile.position_inquiries();
+                let recall_axes = profile.preset_recall_axes();
+                let target = crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile);
+                if let Some(axes) = queries {
+                    let prepared = prepare_position_queries(&target, OperationalTuning::default(), axes);
+                    proptest::prop_assert!(prepared.is_ok(), "{id:?} declared queries: {prepared:?}");
+                }
+                if !exact_completion {
+                    if let Some(axes) = recall_axes {
+                        let prepared = prepare_position_queries(&target, OperationalTuning::default(), axes);
+                        proptest::prop_assert!(prepared.is_ok(), "{id:?} recall queries: {prepared:?}");
+                    }
+                }
+            }
+        }
+
         #[test]
         fn retry_budget_and_observer_cover_arbitrary_valid_ack_overrides(
             ack_ms in 500_u64..=3_600_000,

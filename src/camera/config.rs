@@ -513,7 +513,7 @@ mod tests {
                             .maximum_command_sockets(base.maximum_command_sockets())
                             .supports_operation_complete(base.supports_operation_complete())
                             .supports_command_cancel(base.supports_command_cancel())
-                            .position_inquiries(base.position_inquiries())
+                            .position_inquiries(crate::AffectedAxes::MOVEMENT)
                             .build()
                     }
                 }

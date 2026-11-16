@@ -1,0 +1,76 @@
+//! The inquiry selected to poll each physical axis during settlement.
+//!
+//! This declaration generates both the validation gates below and the typed
+//! position-query plan in `prepared`, so a gate cannot drift from the inquiry
+//! that preparation actually submits.
+
+use crate::{
+    capabilities::Capabilities, command::surface::RowGate, requests::AffectedAxis, AffectedAxes,
+};
+
+macro_rules! settlement_inquiries {
+    ($consumer:ident) => {
+        $consumer! {
+            PanTilt, pan_tilt => PanTiltPositionInquiry;
+            Zoom, zoom => ZoomPositionInquiry;
+            Focus, focus => FocusPositionInquiry;
+            Iris, iris => IrisInquiry;
+            NdFilter, nd_filter => NdFilterInquiry;
+        }
+    };
+}
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) use settlement_inquiries;
+
+macro_rules! inquiry_gates {
+    ($($axis:ident, $field:ident => $inquiry:ident;)*) => {
+        // Keep the declaration exhaustive when the closed axis vocabulary grows.
+        const fn inquiry_gate(axis: AffectedAxis) -> RowGate {
+            match axis {
+                $(AffectedAxis::$axis =>
+                    <crate::command::inquiry::$inquiry as crate::command::inquiry_structs::GeneratedInquiry>::GATE,)*
+            }
+        }
+
+        /// Each axis and the gate of the exact inquiry used to poll it.
+        pub(crate) const SETTLEMENT_INQUIRIES: &[(AffectedAxis, RowGate)] = &[
+            $((AffectedAxis::$axis, inquiry_gate(AffectedAxis::$axis)),)*
+        ];
+    };
+}
+settlement_inquiries!(inquiry_gates);
+
+/// Whether every selected axis's settlement inquiry admits these capabilities.
+pub(crate) fn permits(capabilities: &Capabilities, axes: AffectedAxes) -> bool {
+    axes.iter().all(|axis| {
+        SETTLEMENT_INQUIRIES
+            .iter()
+            .find(|(candidate, _)| *candidate == axis)
+            .is_some_and(|(_, gate)| gate.permits(capabilities))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settlement_inquiries_cover_every_axis_once() {
+        let axes = AffectedAxes::PAN_TILT
+            | AffectedAxes::ZOOM
+            | AffectedAxes::FOCUS
+            | AffectedAxes::IRIS
+            | AffectedAxes::ND_FILTER;
+        assert_eq!(SETTLEMENT_INQUIRIES.len(), axes.iter().len());
+        for axis in axes.iter() {
+            assert_eq!(
+                SETTLEMENT_INQUIRIES
+                    .iter()
+                    .filter(|(candidate, _)| *candidate == axis)
+                    .count(),
+                1,
+                "{axis:?} must select exactly one settlement inquiry"
+            );
+        }
+    }
+}

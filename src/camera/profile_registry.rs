@@ -922,8 +922,6 @@ macro_rules! __define_builtin_profiles {
                 ] {
                     assert!(facts.image_base_support || !caps.supports(surface), "{id:?} {surface:?}");
                 }
-                assert!(!facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::IRIS)) || caps.supports($crate::capabilities::TypedSupportSurface::Iris));
-                assert!(!facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::ND_FILTER)) || caps.supports($crate::capabilities::TypedSupportSurface::NdFilter));
             }
 
             #[test]
@@ -1195,28 +1193,6 @@ macro_rules! __define_builtin_profiles {
                 )*
             }
 
-            /// A scalar settlement inquiry exists exactly where its typed
-            /// surface is granted: iris with `Iris`, ND with `NdFilter`.
-            #[test]
-            fn scalar_position_inquiries_follow_their_typed_surfaces() {
-                for facts in BUILTIN_PROFILE_FACTS {
-                    assert_eq!(
-                        facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::IRIS)),
-                        facts.has_typed_support(
-                            $crate::capabilities::TypedSupportSurface::Iris
-                        ),
-                        "{:?} iris inquiry",
-                        facts.id
-                    );
-                    assert_eq!(
-                        facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::ND_FILTER)),
-                        facts.has_typed_support($crate::capabilities::TypedSupportSurface::NdFilter),
-                        "{:?} ND-filter inquiry",
-                        facts.id
-                    );
-                }
-            }
-
             #[test]
             fn sony_fr7_has_no_shared_ae_mode_inventory() {
                 let profile = $crate::ProfileSpec::from_compile_time::<$crate::profiles::SonyFr7>()
@@ -1276,22 +1252,8 @@ macro_rules! __define_builtin_profiles {
                         $crate::capabilities::TypedSupportSurface::Iris,
                     ) {
                         assert!(
-                            !facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::IRIS)),
-                            "{} must not expose a typed iris settlement inquiry without typed iris support",
-                            facts.type_name
-                        );
-                        assert!(
                             facts.evidence.iter().any(|item| item.key == "iris"),
                             "{} must document why iris typed support is absent",
-                            facts.type_name
-                        );
-                    }
-                    if !facts.has_typed_support(
-                        $crate::capabilities::TypedSupportSurface::NdFilter,
-                    ) {
-                        assert!(
-                            !facts.position_inquiries.is_some_and(|axes| axes.contains($crate::AffectedAxes::ND_FILTER)),
-                            "{} must not expose an ND settlement inquiry without typed ND support",
                             facts.type_name
                         );
                     }

@@ -4642,6 +4642,7 @@ mod tests {
         capabilities.typed_support =
             crate::capabilities::TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
         let profile = runtime_profile_builder(&source, capabilities)
+            .position_inquiries(AffectedAxes::MOVEMENT)
             .build()
             .expect("runtime partial profile");
 
