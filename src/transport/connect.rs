@@ -19,8 +19,10 @@
 //!    it selects the first address. It binds the unspecified local address
 //!    of the selected family. UDP has no handshake, so setup never probes
 //!    reachability or falls back after a successful socket connect.
-//! 5. The shared socket options are applied
-//!    ([`socket_options`](crate::transport::socket_options)).
+//! 5. Shared socket options ([`socket_options`](crate::transport::socket_options))
+//!    are applied before TCP connect, so TTL also governs the handshake. Socket
+//!    setup failure advances to the next address in the same attempt plan. UDP
+//!    options are set before the first datagram.
 //!
 //! # Errors
 //!

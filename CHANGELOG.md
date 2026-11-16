@@ -553,6 +553,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- TCP sockets apply TTL, nodelay and keepalive before the handshake on blocking,
+  Tokio and smol sessions. A socket-option failure tries the next resolved
+  address within the same connection budget (#972).
+
 - Raw stream disputes retire individual members of merged STOP debt runs, and
   socketless disputed ACKs retain executing-socket evidence, preventing later
   replies from being assigned to unrelated requests (#950).

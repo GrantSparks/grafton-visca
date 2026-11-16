@@ -278,7 +278,10 @@ impl TransportConfig {
         self.ttl
     }
 
-    /// Selects the IPv4 TTL / IPv6 hop limit, or `None` for the OS default. Transport opening validates the configuration.
+    /// Selects the IPv4 TTL / IPv6 hop limit, or `None` for the OS default.
+    ///
+    /// The value applies from the first packet, including the TCP handshake.
+    /// Transport opening validates the configuration.
     #[must_use]
     pub const fn with_ttl(mut self, value: Option<u32>) -> Self {
         self.ttl = value;

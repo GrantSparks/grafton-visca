@@ -19,10 +19,7 @@ use crate::{
     transport::{
         address::{bind_address_for, literal_socket_addr, resolved},
         connect::{connect_deadline, socket_setup, udp_target, AttemptFailure, TcpAttempts},
-        socket_options::{
-            apply_tcp_socket_options, apply_udp_socket_options, TcpConnectionConfig,
-            UdpSocketConfig,
-        },
+        socket_options::{apply_udp_socket_options, TcpConnectionConfig, UdpSocketConfig},
     },
     Error, Result,
 };
@@ -36,9 +33,12 @@ pub trait AsyncNet {
 
     /// Resolve a canonical `host:port` endpoint.
     fn lookup(endpoint: String) -> impl Future<Output = io::Result<Vec<SocketAddr>>> + Send;
-    /// Connect a TCP stream to one resolved address.
-    fn connect_tcp(address: SocketAddr)
-        -> impl Future<Output = io::Result<Self::TcpStream>> + Send;
+    /// Configure an unconnected TCP socket, then connect to one resolved address.
+    /// Socket-option errors are failures of this address attempt.
+    fn connect_tcp(
+        address: SocketAddr,
+        options: TcpConnectionConfig,
+    ) -> impl Future<Output = io::Result<Self::TcpStream>> + Send;
     /// Bind a UDP socket to a local address.
     fn bind_udp(address: SocketAddr) -> impl Future<Output = io::Result<Self::UdpSocket>> + Send;
     /// Connect a bound UDP socket to one resolved address.
@@ -47,6 +47,7 @@ pub trait AsyncNet {
         address: SocketAddr,
     ) -> impl Future<Output = io::Result<()>> + Send + '_;
     /// The OS socket behind a TCP stream, for socket options.
+    #[cfg(test)]
     fn tcp_socket(stream: &Self::TcpStream) -> socket2::SockRef<'_>;
     /// The OS socket behind a UDP socket, for socket options.
     fn udp_socket(socket: &Self::UdpSocket) -> socket2::SockRef<'_>;
@@ -83,14 +84,8 @@ pub(crate) async fn connect_tcp<N: AsyncNet>(
     let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
     let mut attempts = TcpAttempts::new(resolve::<N>(endpoint, deadline).await?, deadline);
     while let Some((address, remaining)) = attempts.next_attempt(Instant::now()) {
-        match within::<N, _>(remaining, N::connect_tcp(address)).await {
-            Some(Ok(stream)) => {
-                socket_setup(
-                    endpoint,
-                    apply_tcp_socket_options(N::tcp_socket(&stream), address, options),
-                )?;
-                return Ok(stream);
-            }
+        match within::<N, _>(remaining, N::connect_tcp(address, options)).await {
+            Some(Ok(stream)) => return Ok(stream),
             Some(Err(error)) => attempts.failed(AttemptFailure::from_socket(error)),
             None => attempts.failed(AttemptFailure::ShareExpired),
         }
@@ -142,6 +137,7 @@ mod tests {
     /// An address that never answers (TEST-NET-1).
     const UNROUTABLE: &str = "192.0.2.1:5678";
     static REACHABLE: OnceLock<SocketAddr> = OnceLock::new();
+    static OPTION_ADDRESSES: OnceLock<[SocketAddr; 2]> = OnceLock::new();
 
     /// A runtime whose resolver returns an unroutable address first and a
     /// reachable one second.
@@ -168,7 +164,10 @@ mod tests {
             ])
         }
 
-        async fn connect_tcp(address: SocketAddr) -> io::Result<TcpStream> {
+        async fn connect_tcp(
+            address: SocketAddr,
+            _options: TcpConnectionConfig,
+        ) -> io::Result<TcpStream> {
             if ALL_EXPIRED || address == UNROUTABLE.parse().expect("address") {
                 std::future::pending().await
             } else if REFUSE {
@@ -186,6 +185,7 @@ mod tests {
             Err(io::ErrorKind::Unsupported.into())
         }
 
+        #[cfg(test)]
         fn tcp_socket(stream: &TcpStream) -> socket2::SockRef<'_> {
             socket2::SockRef::from(stream)
         }
@@ -197,6 +197,95 @@ mod tests {
         async fn sleep(duration: Duration) {
             N::sleep(duration).await;
         }
+    }
+
+    /// Local fake: inject one real socket-option failure before a runtime's
+    /// normal connect, while exercising the production address-attempt loop.
+    struct OptionFailureNet<N>(std::marker::PhantomData<N>);
+
+    impl<N: AsyncNet + 'static> AsyncNet for OptionFailureNet<N> {
+        type TcpStream = N::TcpStream;
+        type UdpSocket = N::UdpSocket;
+
+        async fn lookup(_: String) -> io::Result<Vec<SocketAddr>> {
+            Ok(OPTION_ADDRESSES
+                .get()
+                .expect("option-test addresses")
+                .to_vec())
+        }
+
+        async fn connect_tcp(
+            address: SocketAddr,
+            mut options: TcpConnectionConfig,
+        ) -> io::Result<Self::TcpStream> {
+            if address == OPTION_ADDRESSES.get().expect("option-test addresses")[0] {
+                options.ttl = Some(300);
+                crate::transport::socket_options::configured_tcp_socket(address, options)?;
+                unreachable!("invalid TTL cannot start a connect");
+            }
+            N::connect_tcp(address, options).await
+        }
+
+        async fn bind_udp(address: SocketAddr) -> io::Result<Self::UdpSocket> {
+            N::bind_udp(address).await
+        }
+
+        async fn connect_udp(socket: &Self::UdpSocket, address: SocketAddr) -> io::Result<()> {
+            N::connect_udp(socket, address).await
+        }
+
+        #[cfg(test)]
+        fn tcp_socket(stream: &Self::TcpStream) -> socket2::SockRef<'_> {
+            N::tcp_socket(stream)
+        }
+
+        fn udp_socket(socket: &Self::UdpSocket) -> socket2::SockRef<'_> {
+            N::udp_socket(socket)
+        }
+
+        async fn sleep(duration: Duration) {
+            N::sleep(duration).await;
+        }
+    }
+
+    async fn check_option_failure_fallback<N: AsyncNet + 'static>() {
+        let config = TransportConfig::for_tcp().with_ttl(Some(2));
+        let stream = connect_tcp::<OptionFailureNet<N>>("camera.options.test:1259", config.into())
+            .await
+            .expect("second address connects after option failure");
+        assert_eq!(N::tcp_socket(&stream).ttl_v4().expect("TTL"), 2);
+        assert_eq!(
+            N::tcp_socket(&stream)
+                .peer_addr()
+                .expect("peer")
+                .as_socket(),
+            Some(OPTION_ADDRESSES.get().expect("addresses")[1])
+        );
+    }
+
+    #[tokio::test]
+    async fn socket_option_failure_advances_to_the_next_address_on_each_runtime() {
+        let first = TcpListener::bind("127.0.0.1:0").expect("first listener");
+        first.set_nonblocking(true).expect("nonblocking listener");
+        let second = TcpListener::bind("127.0.0.1:0").expect("second listener");
+        OPTION_ADDRESSES
+            .set([
+                first.local_addr().expect("first"),
+                second.local_addr().expect("second"),
+            ])
+            .expect("set option-test addresses");
+        check_option_failure_fallback::<crate::transport::tokio::connectors::TokioNet>().await;
+        #[cfg(feature = "runtime-smol")]
+        smol::block_on(check_option_failure_fallback::<
+            crate::transport::smol::connectors::SmolNet,
+        >());
+        assert_eq!(
+            first
+                .accept()
+                .expect_err("failed setup never connects")
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
     }
 
     /// Inject failures at the real shared connector boundary. The socket
@@ -211,7 +300,7 @@ mod tests {
         async fn lookup(_: String) -> io::Result<Vec<SocketAddr>> {
             unreachable!("numeric test endpoints do not resolve")
         }
-        async fn connect_tcp(_: SocketAddr) -> io::Result<TcpStream> {
+        async fn connect_tcp(_: SocketAddr, _: TcpConnectionConfig) -> io::Result<TcpStream> {
             unreachable!("UDP test")
         }
         async fn bind_udp(address: SocketAddr) -> io::Result<UdpSocket> {
@@ -237,6 +326,7 @@ mod tests {
                 socket.connect(address)
             }
         }
+        #[cfg(test)]
         fn tcp_socket(stream: &TcpStream) -> socket2::SockRef<'_> {
             socket2::SockRef::from(stream)
         }
