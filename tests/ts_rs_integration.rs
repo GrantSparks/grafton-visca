@@ -24,10 +24,10 @@ fn test_request_contract_exports() {
     let axes = AffectedAxes::export_to_string(&cfg).expect("Failed to export AffectedAxes");
     let qos = SubmissionClass::export_to_string(&cfg).expect("Failed to export SubmissionClass");
     assert!(!axes.is_empty());
-    assert!(qos.contains("\"Background\""));
-    assert!(qos.contains("\"Normal\""));
-    assert!(qos.contains("\"User\""));
-    assert!(!qos.contains("\"Urgent\""));
+    assert!(qos.contains("\"background\""));
+    assert!(qos.contains("\"normal\""));
+    assert!(qos.contains("\"user\""));
+    assert!(!qos.contains("\"urgent\""));
 }
 
 #[test]

@@ -11,6 +11,7 @@
     all(feature = "async", feature = "runtime-tokio")
 ))]
 
+#[cfg(all(feature = "async", feature = "runtime-tokio"))]
 #[path = "common/profile_encodings.rs"]
 mod profile_encodings;
 
