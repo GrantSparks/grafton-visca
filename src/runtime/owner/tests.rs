@@ -1957,6 +1957,7 @@ mod lifecycle_trace {
             Phase::Executing { socket, .. } => {
                 format!("executing(socket={})", socket.to_wire())
             }
+            Phase::ExecutingDisplaced { .. } => "executing-displaced".to_owned(),
             Phase::AwaitingReply { .. } => "awaiting-reply".to_owned(),
             Phase::Backoff { .. } => "backoff".to_owned(),
             Phase::AwaitingCancellationResolution { socket, .. } => {

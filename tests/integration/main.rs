@@ -128,3 +128,5 @@ mod visca_enum_macro_test;
 mod visca_inquiry_pan_tilt_macro_contract;
 mod visca_value_macro_contract;
 mod visca_value_serde_validation;
+
+mod issue_963_sony_socket_reuse;

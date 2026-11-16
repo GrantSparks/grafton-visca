@@ -288,10 +288,9 @@ impl Entry {
             return Certainty::FailedConclusively;
         }
         let current_possible = match evidence {
-            AttemptEvidence::Unwritten | AttemptEvidence::Rejected => matches!(
-                self.lifecycle(),
-                Lifecycle::Executing { .. } | Lifecycle::AwaitingCancellationResolution { .. }
-            ),
+            AttemptEvidence::Unwritten | AttemptEvidence::Rejected => {
+                self.lifecycle().is_accepted()
+            }
             AttemptEvidence::Written => true,
             AttemptEvidence::Lifecycle => self.lifecycle().attempt().is_some(),
         };
@@ -2997,19 +2996,10 @@ trait EngineMethods: EngineAccess {
                 .is_none_or(|owner| owner == id)
     }
 
-    /// Chooses an uncontested socket for an ACK.
-    ///
-    /// A named raw ACK is reconciled against stale local ownership by
-    /// [`Self::assign_ack_socket`] before reaching this helper. Sequenced Sony
-    /// ACKs may fall back to the other socket (#620/#682) when the named one
-    /// is contested: their request and later terminal frames carry an
-    /// independent sequence identity, so the assignment cannot be confused
-    /// with another request's. A socketless ACK binds to the first free
-    /// physical socket available to that dispatched attempt, because the frame
-    /// names no socket and the first free socket is the one the camera assigns
-    /// next. Stream callers first exclude retained completions and inert holds
-    /// that make the camera's physical occupancy unknowable. `None` means no
-    /// safe assignment exists.
+    /// Chooses the camera's named socket, or the first free physical socket
+    /// for an ACK that does not name one. Named ownership is reconciled by
+    /// `assign_ack_socket` before this helper; inventing a different socket
+    /// would send cancellation to the wrong command.
     fn assign_socket(
         &self,
         target: TargetSlot,
@@ -3020,13 +3010,6 @@ trait EngineMethods: EngineAccess {
         if let Some(socket) = requested {
             if self.socket_available(target, socket, id) {
                 return Some(socket);
-            }
-            if self.mode().is_raw() {
-                return None;
-            }
-            let other = other_socket(socket);
-            if assignment_socket_count > 1 && self.socket_available(target, other, id) {
-                return Some(other);
             }
             return None;
         }
@@ -3054,15 +3037,10 @@ trait EngineMethods: EngineAccess {
                 .all(|socket| self.socket_owner(target, socket).is_some())
     }
 
-    /// Applies a camera's authoritative raw socket assignment.
+    /// Applies the camera's authoritative named socket assignment.
     ///
-    /// If a named raw socket is still indexed to another request, the camera
-    /// has proved that local claim stale: the older completion was lost while
-    /// the camera released and reused the socket. Move that older request to an
-    /// inert unkeyed ambiguity quarantine, then bind the new uniquely resolved
-    /// ACK to the socket it actually names (#721). Inventing the other socket
-    /// would make cancellation bytes and every later socket-keyed terminal
-    /// disagree with the camera.
+    /// Raw predecessors become ambiguity holds. Sony predecessors lose their
+    /// socket claim but retain their exact-sequence terminal and deadline.
     fn assign_ack_socket(
         &mut self,
         target: TargetSlot,
@@ -3071,12 +3049,12 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) -> Option<ViscaSocket> {
-        if self.mode().is_raw() {
-            if let Some(socket) = requested {
-                if let Some(stale) = self
-                    .socket_owner(target, socket)
-                    .filter(|owner| *owner != id)
-                {
+        if let Some(socket) = requested {
+            if let Some(stale) = self
+                .socket_owner(target, socket)
+                .filter(|owner| *owner != id)
+            {
+                if self.mode().is_raw() {
                     self.terminate_unconfirmed_raw(
                         stale,
                         UnconfirmedScope::Displaced,
@@ -3086,18 +3064,55 @@ trait EngineMethods: EngineAccess {
                     if !matches!(self.session, EngineSession::Running) {
                         return None;
                     }
+                } else {
+                    self.displace_sony_socket(stale, now, effects);
                 }
-                let (core, mode) = self.split();
-                match mode {
-                    CorrelationState::RawDatagram(holds) => DatagramContext { core, holds }
-                        .quarantine_displaced_socket_hold(target, socket),
-                    CorrelationState::RawStream(stream) => StreamContext { core, stream }
-                        .quarantine_displaced_socket_hold(target, socket),
-                    CorrelationState::Sequenced => {}
+            }
+            let (core, mode) = self.split();
+            match mode {
+                CorrelationState::RawDatagram(holds) => {
+                    DatagramContext { core, holds }.quarantine_displaced_socket_hold(target, socket)
                 }
+                CorrelationState::RawStream(stream) => {
+                    StreamContext { core, stream }.quarantine_displaced_socket_hold(target, socket)
+                }
+                CorrelationState::Sequenced => {}
             }
         }
         self.assign_socket(target, requested, id)
+    }
+
+    fn displace_sony_socket(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let next = match entry.lifecycle() {
+            Lifecycle::Executing {
+                started_at,
+                deadline,
+                attempt,
+                ..
+            } => Lifecycle::ExecutingDisplaced {
+                started_at,
+                deadline,
+                attempt,
+            },
+            Lifecycle::AwaitingCancellationResolution {
+                deadline, attempt, ..
+            } => Lifecycle::ExecutingDisplaced {
+                started_at: now,
+                deadline,
+                attempt,
+            },
+            _ => return,
+        };
+        if entry.cancellation_observation_open() {
+            effects.push(Effect::CancellationObservation {
+                id,
+                observation: CancellationObservation::Failed(Error::CancellationUnconfirmed),
+            });
+        }
+        self.transition(id, next, now, effects);
     }
 
     fn ack(
@@ -3203,7 +3218,7 @@ trait EngineMethods: EngineAccess {
             {
                 true
             }
-            Lifecycle::AwaitingCompletion { .. } => true,
+            Lifecycle::AwaitingCompletion { .. } | Lifecycle::ExecutingDisplaced { .. } => true,
             Lifecycle::Sending { .. }
             | Lifecycle::Ready { .. }
             | Lifecycle::Backoff { .. }
@@ -3573,7 +3588,7 @@ trait EngineMethods: EngineAccess {
         // independent cancellation correlation, so a merely recorded,
         // socketless cancel intent instead leaves `0x05` as the original
         // request's retryable rejection below.
-        let acknowledged = entry.lifecycle().socket().is_some();
+        let acknowledged = entry.lifecycle().is_accepted();
         if acknowledged {
             let cancellation_answered =
                 self.mode().is_raw() && code == 0x05 && raw_cancellation_no_socket_response(entry);
@@ -4421,7 +4436,9 @@ trait EngineMethods: EngineAccess {
                 Lifecycle::Sending { .. }
                 | Lifecycle::AwaitingAck { .. }
                 | Lifecycle::AwaitingCompletion { .. } => release.release_pre_ack_unkeyed(),
-                Lifecycle::Ready { .. } | Lifecycle::Backoff { .. } => {}
+                Lifecycle::Ready { .. }
+                | Lifecycle::Backoff { .. }
+                | Lifecycle::ExecutingDisplaced { .. } => {}
             }
         }
         releases
@@ -4828,6 +4845,11 @@ trait EngineMethods: EngineAccess {
             return Err("a non-urgent entry holds a control-reserve slot".into());
         }
         for entry in self.entries.values() {
+            if matches!(entry.lifecycle(), Lifecycle::ExecutingDisplaced { .. })
+                && (self.mode().is_raw() || entry.current_sequence().is_none())
+            {
+                return Err("displaced execution requires a Sony request sequence".into());
+            }
             if matches!(
                 entry.lifecycle(),
                 Lifecycle::Ready { .. } | Lifecycle::Backoff { .. }
@@ -5210,6 +5232,7 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
                 | Lifecycle::AwaitingAck { .. }
                 | Lifecycle::AwaitingCompletion { .. }
                 | Lifecycle::Executing { .. }
+                | Lifecycle::ExecutingDisplaced { .. }
                 | Lifecycle::AwaitingCancellationResolution { .. }
         ),
         CorrelationKind::Cancellation => entry.lifecycle().awaiting_cancellation_answer(),
@@ -5229,14 +5252,6 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
 /// command's retryable `0x05` classification.
 fn raw_cancellation_no_socket_response(entry: &Entry) -> bool {
     entry.lifecycle().awaiting_cancellation_answer()
-}
-
-/// The other of a target's two command sockets.
-const fn other_socket(socket: ViscaSocket) -> ViscaSocket {
-    match socket {
-        ViscaSocket::S1 => ViscaSocket::S2,
-        ViscaSocket::S2 => ViscaSocket::S1,
-    }
 }
 
 #[cfg(test)]

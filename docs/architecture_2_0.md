@@ -370,9 +370,13 @@ as unconfirmed; an inert `Socket(S1|S2)` hold is downgraded. In both cases the
 original ambiguity deadline remains as an unkeyed `PreAck` hold, while the
 uniquely identified successor owns the named socket for its completion and any
 cancellation packet.
-A socketless ACK still selects the first free registered socket. The bounded
-#620/#682 other-free-socket fallback remains only for sequence-correlated Sony
-traffic, whose later terminals have an independent request identity.
+A socketless ACK still selects the first free registered socket. A named Sony
+ACK follows the same authoritative assignment rule: its predecessor enters
+`ExecutingDisplaced`, which retains its exact sequence and original completion
+deadline but no socket claim or physical capacity. Its late terminal still
+resolves by sequence; a cancellation fails with `CancellationUnconfirmed`
+because its former socket now belongs to another command. An open cancellation
+observation receives that same failure when displacement occurs (#963).
 
 For a raw socketless error, the evidence rule is equally strict: route the
 unique unacknowledged command only when no inquiry owner is live; otherwise
@@ -1032,6 +1036,7 @@ resource bound above applies independently to each raw target.
 | `AwaitingAck` | Send time, ACK deadline and attempt facts. | None or requested. |
 | `AwaitingCompletion` | Send time, completion deadline and attempt facts. No socket. | None; cancellation is refused with `CancellationNotSupported` (#835). |
 | `Executing` | Socket, start time, original completion deadline and attempt facts. | `ExecutingCancellation`: none, requested, sending, or observation-failed. |
+| `ExecutingDisplaced` | Sony start time, original completion deadline and attempt facts; exact sequence retained, no socket or physical occupancy. | None; cancellation is refused with `CancellationUnconfirmed` (#963). |
 | `AwaitingReply` | Send order, send time, inquiry deadline and attempt facts. | None; inquiries are not cancellable. |
 | `Backoff` | Ready-at time and the previous written attempt retained for exact Sony acceptance. | None. |
 | `AwaitingCancellationResolution` | Socket, original deadline and attempt facts. | `ResolvingCancellation`: requested, sending, awaiting-terminal, or observation-failed; never none. |
@@ -1068,7 +1073,7 @@ substates repeats the socket: only the enclosing socketed lifecycle owns it.
 Whether cancellation was attempted is derived from the substate, rather than a
 separate latch (#836).
 
-These types admit 15 flattened `(phase, cancellation)` combinations. The
+These types admit 16 flattened `(phase, cancellation)` combinations. The
 transition/property tests independently check that table. The closed state
 representation replaces the former phase-local latch and cancellation checks.
 Only command requests carry `ReplyShape`; inquiry contexts carry none. Active
@@ -1077,10 +1082,11 @@ consult the immutable request when selecting the next lifecycle. `EntryTable`
 owns live entries, eager ready queues, Sony sequence indexes, and a two-slot
 socket table indexed by `ViscaSocket`. Only admission, closed transitions, and
 removal mutate those indexes; there is no mutable entry or index view. A
-camera-proven socket displacement has a closed placement carrying its one
-socketed lifecycle until same-frame cleanup, so removing the predecessor cannot
-release a successor's socket. Capacity, raw holds, and stream-ledger safety
-remain audited, and both halt entry points run the debug invariant hook on every
+camera-proven raw socket displacement has a closed placement carrying its one
+socketed lifecycle until same-frame cleanup. Sony displacement instead enters
+`ExecutingDisplaced` so the original request remains live by sequence. Neither
+predecessor can release a successor's socket. Capacity, raw holds, and
+stream-ledger safety remain audited, and both halt entry points run the debug invariant hook on every
 return path (#836, #856, #859, #860).
 
 Write receipts name the request and match its active sending transmission.
@@ -1135,7 +1141,7 @@ terminal verdict. Delivery moves the result into that slot (#903).
 | Ordinary command or inquiry dispatch while its lane owes an answer inside its window | Queue; an `Urgent` ACK-bearing STOP may still write when no command is unacknowledged (#795). |
 | Ledger debt unpaid when the due pass reaches its window end | Latch only overlapping inquiry declarations, or the command lane: fail affected queued `Ready`/`Backoff` work and reject matching new work, unwritten, with `InquiryCorrelationLost` (overlapping inquiries, `CompletionOnly`) or `CommandCorrelationLost` (ordinary ACK-bearing, `CompletionOnly`, `NoReply`), `Terminal`/`NotAccepted`. The latch neither expires nor wakes the owner; STOPs, other targets, and the session are unaffected; the debt's answer, or a later first answer that settles it, reopens the lane (#795). |
 | Disputed raw stream frame (a socketless error behind a `CompletionOnly` entry that may still be rejected or a `NoReply` command's owed entry, or any frame behind a disputed waiting request, with another candidate behind it) | Bind to neither; keep the union of the debts either explanation leaves: the `CompletionOnly` command owes only its completion, the other candidate keeps owing and is disputed (never crossed; settled by its own answer or by write order) (#795). |
-| Sequenced Sony ACK naming a busy socket | Use the target's other free socket when available for #620/#682 compatibility; otherwise report `Ignored(SocketConflict)` and finish `CommandFailedAfterAck`. The exact sequence proved acceptance even when local ownership cannot safely track its socket, so replay is forbidden (#858). |
+| Sequenced Sony ACK naming a busy socket | Bind the new request to the named socket. Retain the predecessor as socket-free `ExecutingDisplaced`, routable by its request sequence until its original completion deadline; refuse its cancellation with `CancellationUnconfirmed`. A socketless ACK with both physical sockets occupied reports `Ignored(SocketConflict)` and finishes `CommandFailedAfterAck` (#963). |
 | Unrelated input or due work while a request is `Sending` | Forbidden by the immediate-write contract. Both owners apply the identified result first; the input-boundary auditor rejects a violation in debug and test builds (#860). |
 | Completion in `Executing`, including after cancellation ambiguity elapsed | `finish` with `CommandOutcome::Applied`; exact socket ownership keeps it attributable through the completion deadline, and a retained cancellation observer maps this to `Completed` (#724). |
 | Exact completion in `AwaitingCancellationResolution` before its phase deadline | `finish` with `CommandOutcome::Applied`; the request is still open while its owned socket is retained. |

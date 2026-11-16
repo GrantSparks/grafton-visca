@@ -1348,6 +1348,13 @@ retry class.
 
 ## Recovery changes
 
+Sony socket reuse replaces the 1.x other-free-socket fallback. When an ACK
+names a locally occupied socket, 2.0 binds the new command to that named socket
+and retains the predecessor only by its Sony sequence. A late predecessor
+completion still applies it, while its original completion deadline still ends
+it unconfirmed. Cancelling that displaced operation returns
+`CancellationUnconfirmed` and sends no packet to the successor's socket (#963).
+
 | 1.x API | 2.0 replacement |
 | --- | --- |
 | `Error::is_retryable()` and `suggested_retry_delay()` | Both are removed. Match `error.recovery()`: `Resubmit { after }`, `WaitAgain`, `Reconcile`, `ReopenSession`, or `Abandon`. Only `Resubmit` permits an automatic new submission; the other variants keep live work, unknown effects, dead sessions and deliberate failures distinct. `kind()` and `failure_context()` remain facts, not another recovery recipe. |

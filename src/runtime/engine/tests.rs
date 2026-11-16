@@ -32,6 +32,7 @@ mod raw_stream_model;
 mod retry_history;
 mod session_end;
 mod socketless_ack_conflicts;
+mod sony_socket_reuse;
 mod write_outcomes;
 
 fn extend_fixture_hold(
@@ -4609,7 +4610,9 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
                 }
             }
         }
-        Phase::AwaitingCompletion { .. } => DecodedResponse::Completion { socket: None },
+        Phase::ExecutingDisplaced { .. } | Phase::AwaitingCompletion { .. } => {
+            DecodedResponse::Completion { socket: None }
+        }
         Phase::AwaitingReply { .. } => DecodedResponse::InquiryReply {
             payload: smallvec![action as u8],
         },
@@ -6623,12 +6626,10 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     single.assert_invariants().unwrap();
 }
 
-/// A genuine two-live-owner collision reports sequenced Sony
-/// `SocketConflict`, and acceptance still forbids replay. Raw named ACKs have a different rule:
-/// their camera-provided socket is authoritative, so a locally stale owner or
-/// tombstone is reconciled before assignment (#721/#750).
+/// A socketless Sony ACK cannot invent capacity when both sockets remain
+/// held. Its sequence proves acceptance but names no owner to displace.
 #[test]
-fn sequenced_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
+fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     for (ticket, sequence, socket) in [(1, 0x1001, ViscaSocket::S1), (2, 0x1002, ViscaSocket::S2)] {
@@ -6682,7 +6683,7 @@ fn sequenced_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
         .unwrap();
     let mut sink = Vec::new();
     let mut decision = Decision::new(&mut sink);
-    engine.ack(third_id, Some(ViscaSocket::S1), start, &mut decision);
+    engine.ack(third_id, None, start, &mut decision);
     engine.finish_decision(start, decision);
     let effects = sink;
     assert_eq!(

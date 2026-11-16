@@ -82,6 +82,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Push AF and menu selectors. The unsourced motion-sync readback is removed;
   custom integrations provide an evidenced inquiry and decoder (#969).
 
+- Sony named ACKs now bind to the camera's socket after reuse, superseding
+  the other-socket fallback retained by #682 and #721. The displaced
+  predecessor retains sequence-based completion and its original deadline;
+  cancellation is refused instead of targeting its successor (#963).
+
 - Built-in typed camera views reuse their validated profile identity and grants
   without allocating; custom profiles retain complete fact comparison (#958).
 

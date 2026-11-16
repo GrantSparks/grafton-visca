@@ -36,7 +36,7 @@ impl State {
             Phase::Sending { .. } => Self::Sending,
             Phase::AwaitingAck { .. } => Self::AwaitingAck,
             Phase::AwaitingCompletion { .. } => Self::AwaitingCompletion,
-            Phase::Executing { .. } => Self::Executing,
+            Phase::Executing { .. } | Phase::ExecutingDisplaced { .. } => Self::Executing,
             Phase::AwaitingReply { .. } => Self::AwaitingReply,
             Phase::Backoff { .. } => Self::Backoff,
             Phase::AwaitingCancellationResolution { .. } => Self::AwaitingCancellationResolution,
@@ -190,7 +190,7 @@ const EXPECTED: [[Expected; 9]; 8] = [
     ],
 ];
 
-/// The architecture's fifteen admissible flattened pairs, independently of
+/// The architecture's admissible flattened pairs, independently of
 /// which combinations the stored lifecycle type can represent.
 fn pair_is_admissible(phase: Phase, cancellation: CancelState) -> bool {
     match phase {
@@ -198,7 +198,8 @@ fn pair_is_admissible(phase: Phase, cancellation: CancelState) -> bool {
         | Phase::Sending { .. }
         | Phase::Backoff { .. }
         | Phase::AwaitingReply { .. }
-        | Phase::AwaitingCompletion { .. } => matches!(cancellation, CancelState::None),
+        | Phase::AwaitingCompletion { .. }
+        | Phase::ExecutingDisplaced { .. } => matches!(cancellation, CancelState::None),
         Phase::AwaitingAck { .. } => {
             matches!(
                 cancellation,
@@ -379,6 +380,7 @@ impl Fixture {
                     Phase::Backoff { ready_at, .. } => ready_at,
                     Phase::AwaitingAck { deadline, .. }
                     | Phase::AwaitingCompletion { deadline, .. }
+                    | Phase::ExecutingDisplaced { deadline, .. }
                     | Phase::Executing { deadline, .. }
                     | Phase::AwaitingReply { deadline, .. }
                     | Phase::AwaitingCancellationResolution { deadline, .. } => deadline,
@@ -549,7 +551,7 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
 }
 
 #[test]
-fn flattened_pair_oracle_has_exactly_the_fifteen_documented_pairs() {
+fn flattened_pair_oracle_has_exactly_the_sixteen_documented_pairs() {
     let now = Instant::now();
     let transmission = TransmissionId::from_nonzero(NonZeroU64::new(999_999).unwrap());
     let cancellations = [
@@ -579,7 +581,14 @@ fn flattened_pair_oracle_has_exactly_the_fifteen_documented_pairs() {
             legal += usize::from(pair_is_admissible(phase, cancellation));
         }
     }
-    assert_eq!(legal, 15, "the documented pair set changed");
+    let displaced = Phase::ExecutingDisplaced {
+        started_at: now,
+        deadline: now,
+    };
+    for cancellation in cancellations {
+        legal += usize::from(pair_is_admissible(displaced, cancellation));
+    }
+    assert_eq!(legal, 16, "the documented pair set changed");
 }
 
 #[test]
