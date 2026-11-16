@@ -51,9 +51,9 @@ expect_failure() {
 # The baseline comes from its commit, not from the modified working tree.
 echo 'pub struct Changed;' >src/lib.rs
 expect_failure 1 bash "${checker}" "${base}" blocking
-rg -q 'public API changes require a CHANGELOG.md hunk' failure.log
-rg -q '^\+pub struct Changed;' target/public-api/blocking/changes.diff
-rg -q '^pub struct Original;' target/public-api/blocking/base.txt
+grep -Eq 'public API changes require a CHANGELOG.md hunk' failure.log
+grep -Eq '^\+pub struct Changed;' target/public-api/blocking/changes.diff
+grep -Eq '^pub struct Original;' target/public-api/blocking/base.txt
 echo 'Document the intended change.' >>CHANGELOG.md
 bash "${checker}" "${base}" blocking
 
