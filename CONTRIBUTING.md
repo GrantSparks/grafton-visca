@@ -136,8 +136,10 @@ this grammar; update the declarations and their reviewed contracts together.
    has `with_p(self, value) -> Self` setters, `p(&self)` getters and private
    fields.
 10. **Serialization.** Every serde-visible name is `snake_case`. Persisted
-    profile ids are explicit and pinned by tests. Data types support serde,
-    schemars and ts-rs; sessions, views and handles do not.
+    profile ids are explicit and pinned by tests. Portable data types support
+    serde, schemars and ts-rs, including values, configuration, policies and
+    diagnostics. Runtime errors and error-bearing outcomes remain opaque,
+    alongside sessions, views and handles.
 11. **Complete noun docs.** Every noun method states its behavior, unit and
     range source, and completion shape. Placeholder text is rejected.
 12. **Complete gates.** A row's static bound and runtime gate list the same
