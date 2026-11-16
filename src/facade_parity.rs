@@ -1,14 +1,11 @@
 //! Method-set parity between the blocking and async facades (#805).
 //!
-//! The two facades are written per execution mode because their `open`,
-//! `close` and waiting styles legitimately differ, but they must expose the
-//! same public surface: every public method on `Session`, `CameraSession`,
-//! `Camera` and `Operation` exists on both, with the same generics,
-//! parameters and return type, and both expand the same shared method
-//! macros. Async constructors additionally take their runtime last; opening
-//! additionally takes its executor. The noun accessors and their
-//! `Camera` getters are not compared here: one consumer
-//! (`crate::noun_facade::static_noun_facade!`) generates both facades' copies.
+//! The remaining handwritten `Session` methods and `CameraSession`
+//! constructors must expose the same signatures in both execution modes.
+//! Async constructors additionally take their runtime last; opening additionally
+//! takes its executor. Shared camera/session forwarders, operation handles and
+//! noun methods are generated once, so their definitions need no declaration
+//! comparison here.
 //!
 //! The native camera cores share one macro definition. Its two invocations are
 //! expanded by the scanner so their private and crate-visible methods, complete
@@ -208,8 +205,8 @@ const ASYNC: &[(&str, &str)] = &[
     ("src/operation.rs", include_str!("operation.rs")),
 ];
 
-/// The public facade types both modes must expose identically.
-const FACADE_TYPES: &[&str] = &["Session", "CameraSession", "Camera", "Operation"];
+/// Facade types with handwritten methods or constructors still to compare.
+const FACADE_TYPES: &[&str] = &["Session", "CameraSession"];
 
 /// One public method as both facades must agree on it: its receiver and its
 /// parameter names. Shared macros are recorded by name with an empty
@@ -318,7 +315,13 @@ fn core_contract(sources: &[(&str, &str)], ty: &str) -> Surface {
 fn scanned_surface(sources: &[(&str, &str)], ty: &str, core: bool) -> Surface {
     let mut surface = Surface::new();
     for (label, source) in sources {
-        let lines = declaration_lines(source, label, true);
+        let constructors = if ty == "CameraSession" {
+            camera_session_constructors(source)
+        } else {
+            String::new()
+        };
+        let source = format!("{source}\n{constructors}");
+        let lines = declaration_lines(&source, label, true);
         let line_refs: Vec<&str> = lines.iter().map(String::as_str).collect();
         let mut index = 0;
         while index < lines.len() {
@@ -338,6 +341,25 @@ fn scanned_surface(sources: &[(&str, &str)], ty: &str, core: bool) -> Surface {
         }
     }
     surface
+}
+
+/// The per-mode camera constructors remain handwritten inside the shared
+/// facade invocation. Inspect that fragment alongside standalone impls.
+fn camera_session_constructors(source: &str) -> String {
+    let source = clean_source(source, "camera session constructors");
+    let marker = "camera_session_constructors:";
+    let Some(start) = source.find(marker) else {
+        return String::new();
+    };
+    let open = start
+        + source[start..]
+            .find('{')
+            .unwrap_or_else(|| panic!("camera session constructors have no body"));
+    let end = closing_brace(&source, open);
+    format!(
+        "impl<P: CameraProfile> CameraSession<P> {{\n{}\n}}",
+        &source[open + 1..end - 1]
+    )
 }
 
 /// Records the public methods and shared macro expansions directly inside
@@ -648,15 +670,28 @@ fn both_facades_expose_the_same_method_set() {
             !asynchronous.is_empty(),
             "the scanner found no async `{ty}` methods"
         );
-        if *ty == "Camera" {
-            assert!(blocking.contains_key("into_typed"));
-            assert!(asynchronous.contains_key("into_typed"));
-        }
         assert_eq!(
             blocking, asynchronous,
             "`{ty}` differs between the blocking and async facades"
         );
     }
+}
+
+#[test]
+fn handwritten_camera_constructor_fragments_keep_signature_checks() {
+    let blocking = "camera_facade! { camera_session_constructors: {\n pub fn connect(config: &CameraConfig<P>) -> Result<Self> {}\n} }";
+    let asynchronous = "camera_facade! { camera_session_constructors: {\n pub async fn connect(config: &CameraConfig<P>, runtime: impl crate::runtime::Runtime) -> Result<Self> {}\n} }";
+    let expected = surface(&[("blocking constructors", blocking)], "CameraSession");
+    assert!(expected.contains_key("connect"));
+    assert_eq!(
+        expected,
+        surface(&[("async constructors", asynchronous)], "CameraSession")
+    );
+    let changed = asynchronous.replace("&CameraConfig<P>", "&SessionConfig");
+    assert_ne!(
+        expected,
+        surface(&[("changed constructors", &changed)], "CameraSession")
+    );
 }
 
 #[test]
