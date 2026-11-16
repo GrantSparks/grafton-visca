@@ -109,45 +109,21 @@ macro_rules! assert_profile_gate {
 
 pub(crate) use assert_profile_gate;
 
-/// Static speed inputs accept either the declared value or a coarse level.
-/// Both compile-time and runtime-selected cameras use the same speed inputs.
+/// A row's `#[into]` parameter accepts any value convertible to its declared type.
+/// Unmarked parameters retain their exact declared type in both facades.
 macro_rules! noun_parameter_type {
-    (drive; speed; $ty:ty) => { impl ::core::convert::Into<$ty> };
-    (absolute; speed; $ty:ty) => { impl ::core::convert::Into<$ty> };
-    (relative; speed; $ty:ty) => { impl ::core::convert::Into<$ty> };
-    (tele_variable; speed; $ty:ty) => { impl ::core::convert::Into<$ty> };
-    (wide_variable; speed; $ty:ty) => { impl ::core::convert::Into<$ty> };
-    (far_variable; speed; $ty:ty) => { impl ::core::convert::Into<$ty> };
-    (near_variable; speed; $ty:ty) => { impl ::core::convert::Into<$ty> };
-    ($method:ident; $argument:ident; $ty:ty) => { $ty };
+    ([into]; $ty:ty) => { impl ::core::convert::Into<$ty> };
+    ([]; $ty:ty) => { $ty };
 }
 
 pub(crate) use noun_parameter_type;
 
-/// Retains the caller argument's hygiene while selecting by method and spelling.
+/// Converts marked inputs before evaluating the row's request expression.
 macro_rules! noun_parameter_value {
-    (drive; speed; $argument:ident; $ty:ty) => {
+    ([into]; $argument:ident; $ty:ty) => {
         let $argument: $ty = ::core::convert::Into::into($argument);
     };
-    (absolute; speed; $argument:ident; $ty:ty) => {
-        let $argument: $ty = ::core::convert::Into::into($argument);
-    };
-    (relative; speed; $argument:ident; $ty:ty) => {
-        let $argument: $ty = ::core::convert::Into::into($argument);
-    };
-    (tele_variable; speed; $argument:ident; $ty:ty) => {
-        let $argument: $ty = ::core::convert::Into::into($argument);
-    };
-    (wide_variable; speed; $argument:ident; $ty:ty) => {
-        let $argument: $ty = ::core::convert::Into::into($argument);
-    };
-    (far_variable; speed; $argument:ident; $ty:ty) => {
-        let $argument: $ty = ::core::convert::Into::into($argument);
-    };
-    (near_variable; speed; $argument:ident; $ty:ty) => {
-        let $argument: $ty = ::core::convert::Into::into($argument);
-    };
-    ($method:ident; $spelling:ident; $argument:ident; $ty:ty) => {};
+    ([]; $argument:ident; $ty:ty) => {};
 }
 
 pub(crate) use noun_parameter_value;
@@ -166,7 +142,9 @@ pub(crate) use noun_parameter_value;
 /// row. The header `doc` documents both the struct and the getter. The header
 /// `gate` places the bounds: `[typed M]` bounds the struct, its `Debug`, its
 /// `impl` and the getter; `[domain M]` bounds only the getter; `[always]`
-/// bounds nothing. A row's `where` clause narrows its own method.
+/// bounds nothing. A row's `where` clause narrows its own method. The row's
+/// `#[into]` parameter marker selects conversion through `Into`; unmarked
+/// parameters keep their declared type.
 macro_rules! static_noun_facade {
     (@accessor [always] $($rest:tt)*) => {
         $crate::noun_facade::static_noun_facade!(@emit [] [] $($rest)*);
@@ -224,15 +202,15 @@ macro_rules! static_noun_facade {
         }
     };
 
-    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] inquiry $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] inquiry $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         #[doc = ""]
         #[doc = $crate::noun_table::completion_doc!(inquiry)]
-        pub $($async)? fn $method(self $(, $arg: $crate::noun_facade::noun_parameter_type!($method; $arg; $ty))*) -> $crate::Result<$ret>
+        pub $($async)? fn $method(self $(, $arg: $crate::noun_facade::noun_parameter_type!([$($coercion)?]; $ty))*) -> $crate::Result<$ret>
         $(where P: $crate::capabilities::Permits<$crate::capabilities::permit_gate!($gate)> $(+ $crate::capabilities::Permits<$crate::capabilities::permit_gate!($extra)>)*)?
         {
-            $($crate::noun_facade::noun_parameter_value!($method; $arg; $arg; $ty);)*
+            $($crate::noun_facade::noun_parameter_value!([$($coercion)?]; $arg; $ty);)*
             $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_inquiry_request!(
                 self.camera.profile(), self.camera.registration(); $($request)*
@@ -242,47 +220,47 @@ macro_rules! static_noun_facade {
         }
     };
     (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] plain
-        $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+        $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         #[doc = ""]
         #[doc = $crate::noun_table::completion_doc!(plain)]
-        pub $($async)? fn $method(self $(, $arg: $crate::noun_facade::noun_parameter_type!($method; $arg; $ty))*) -> $crate::Result<()>
+        pub $($async)? fn $method(self $(, $arg: $crate::noun_facade::noun_parameter_type!([$($coercion)?]; $ty))*) -> $crate::Result<()>
         $(where P: $crate::capabilities::Permits<$crate::capabilities::permit_gate!($gate)> $(+ $crate::capabilities::Permits<$crate::capabilities::permit_gate!($extra)>)*)?
         {
-            $($crate::noun_facade::noun_parameter_value!($method; $arg; $arg; $ty);)*
+            $($crate::noun_facade::noun_parameter_value!([$($coercion)?]; $arg; $ty);)*
             $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.execute(&request) $($await)*
         }
     };
     (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] applied
-        $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+        $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         #[doc = ""]
         #[doc = $crate::noun_table::completion_doc!(applied)]
-        pub $($async)? fn $method(self $(, $arg: $crate::noun_facade::noun_parameter_type!($method; $arg; $ty))*)
+        pub $($async)? fn $method(self $(, $arg: $crate::noun_facade::noun_parameter_type!([$($coercion)?]; $ty))*)
             -> $crate::Result<Operation<$crate::completion::AppliedOnly>>
         $(where P: $crate::capabilities::Permits<$crate::capabilities::permit_gate!($gate)> $(+ $crate::capabilities::Permits<$crate::capabilities::permit_gate!($extra)>)*)?
         {
-            $($crate::noun_facade::noun_parameter_value!($method; $arg; $arg; $ty);)*
+            $($crate::noun_facade::noun_parameter_value!([$($coercion)?]; $arg; $ty);)*
             $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::AppliedOnly, _>(&request) $($await)*
         }
     };
     (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] targeted
-        $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+        $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         #[doc = ""]
         #[doc = $crate::noun_table::completion_doc!(targeted)]
-        pub $($async)? fn $method(self $(, $arg: $crate::noun_facade::noun_parameter_type!($method; $arg; $ty))*)
+        pub $($async)? fn $method(self $(, $arg: $crate::noun_facade::noun_parameter_type!([$($coercion)?]; $ty))*)
             -> $crate::Result<Operation<$crate::completion::Targeted>>
         $(where P: $crate::capabilities::Permits<$crate::capabilities::permit_gate!($gate)> $(+ $crate::capabilities::Permits<$crate::capabilities::permit_gate!($extra)>)*)?
         {
-            $($crate::noun_facade::noun_parameter_value!($method; $arg; $arg; $ty);)*
+            $($crate::noun_facade::noun_parameter_value!([$($coercion)?]; $arg; $ty);)*
             $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::Targeted, _>(&request) $($await)*
@@ -294,13 +272,12 @@ macro_rules! static_noun_facade {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
-                dyn_trait: $dyn_trait:ident,
                 gate: $gate:tt,
                 doc: $doc:literal $(,)?
             };
             $(
                 $(#[$row_doc:meta])*
-                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$($command:ident)?] $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty
                     $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
@@ -310,7 +287,7 @@ macro_rules! static_noun_facade {
             $crate::noun_facade::static_noun_facade!(@accessor $gate $accessor $getter $doc {
                 $(
                     $crate::noun_facade::static_noun_facade!(@method $mode $await $gate
-                        [$(#[$row_doc])*] $kind $method($($arg: $ty),*) -> $ret;
+                        [$(#[$row_doc])*] $kind $method($($(#[$coercion])? $arg: $ty),*) -> $ret;
                         [$($rgate $(+ $extra)*)?]; [$($request)*]);
                 )*
             });
@@ -341,7 +318,6 @@ macro_rules! static_motion_facade {
         @motion {
             accessor: $accessor:ident,
             getter: $getter:ident,
-            dyn_trait: $dyn_trait:ident,
             doc: $doc:literal $(,)?
         };
         $(
@@ -432,10 +408,8 @@ mod tests {
 
     #[test]
     fn static_speed_inputs_accept_coarse_and_exact_values_before_lowering() {
-        fn accept(
-            speed: noun_parameter_type!(drive; speed; Speed<PanTiltSpeed>),
-        ) -> Speed<PanTiltSpeed> {
-            noun_parameter_value!(drive; speed; speed; Speed<PanTiltSpeed>);
+        fn accept(speed: noun_parameter_type!([into]; Speed<PanTiltSpeed>)) -> Speed<PanTiltSpeed> {
+            noun_parameter_value!([into]; speed; Speed<PanTiltSpeed>);
             speed
         }
         let exact = PanTiltSpeed::new(

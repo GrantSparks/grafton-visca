@@ -6,6 +6,10 @@
 //!
 //! `checked` handles a fallible value constructor; `with_target` performs
 //! profile-dependent lowering before admission. Unit requests are unit values.
+//! Each noun header declares its accessor, getter, gate and documentation.
+//! Mark a parameter `#[into] name: Type` to accept `impl Into<Type>` in both
+//! facades; its request expression receives the converted `Type`. Other table
+//! projections continue to use the declared value type.
 
 /// Completion wording shared by generated noun documentation and metadata.
 #[cfg(any(feature = "blocking", feature = "async", test))]
@@ -26,7 +30,6 @@ macro_rules! noun_table {
             @noun Power {
                 accessor: PowerAccessor,
                 getter: power,
-                dyn_trait: DynPower,
                 gate: [domain HasPower],
                 doc: "Power commands and the power-state inquiry.",
             };
@@ -47,7 +50,6 @@ macro_rules! noun_table {
             @noun Zoom {
                 accessor: ZoomAccessor,
                 getter: zoom,
-                dyn_trait: DynZoom,
                 gate: [domain HasZoom],
                 doc: "Optical and digital zoom commands and the zoom-position inquiry.",
             };
@@ -73,14 +75,14 @@ macro_rules! noun_table {
             /// An exact `ZoomSpeed` is a unitless protocol speed code in `0..=7`; zero is
             /// the slowest drive, not STOP. `SpeedLevel` resolves within the selected
             /// profile's `ZoomCaps::speed` range, which also bounds exact inputs.
-            applied [TeleVariable] tele_variable(speed: types::Speed<types::ZoomSpeed>) -> command::zoom::TeleVariable
+            applied [TeleVariable] tele_variable(#[into] speed: types::Speed<types::ZoomSpeed>) -> command::zoom::TeleVariable
                 = [with_target |target| command::zoom::TeleVariable::for_target(target, speed)];
             /// Drives toward wide angle at a validated variable speed.
             ///
             /// An exact `ZoomSpeed` is a unitless protocol speed code in `0..=7`; zero is
             /// the slowest drive, not STOP. `SpeedLevel` resolves within the selected
             /// profile's `ZoomCaps::speed` range, which also bounds exact inputs.
-            applied [WideVariable] wide_variable(speed: types::Speed<types::ZoomSpeed>) -> command::zoom::WideVariable
+            applied [WideVariable] wide_variable(#[into] speed: types::Speed<types::ZoomSpeed>) -> command::zoom::WideVariable
                 = [with_target |target| command::zoom::WideVariable::for_target(target, speed)];
             /// Moves to an absolute zoom position.
             ///
@@ -141,7 +143,6 @@ macro_rules! noun_table {
             @noun System {
                 accessor: SystemAccessor,
                 getter: system,
-                dyn_trait: DynSystem,
                 gate: [always],
                 doc: "Settings persistence and the version inquiry.",
             };
@@ -162,7 +163,6 @@ macro_rules! noun_table {
             @noun PanTilt {
                 accessor: PanTiltAccessor,
                 getter: pan_tilt,
-                dyn_trait: DynPanTilt,
                 gate: [domain HasPanTilt],
                 doc: "Pan/tilt movement, limits, and the position inquiry.",
             };
@@ -192,7 +192,7 @@ macro_rules! noun_table {
             /// through the profile's `PanTiltCaps::pan_speed` and `tilt_speed`; exact
             /// speeds use checked protocol codes, not degrees per second. Active axes
             /// require nonzero speeds.
-            applied [Drive] drive(direction: types::PanTiltDirection, speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Drive
+            applied [Drive] drive(direction: types::PanTiltDirection, #[into] speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Drive
                 = [with_target |target| command::pan_tilt::Drive::for_target(target, direction, speed)];
             /// Stops pan/tilt movement using profile-safe stop speeds.
             applied [Stop] stop() -> command::pan_tilt::Stop
@@ -208,7 +208,7 @@ macro_rules! noun_table {
             /// `SpeedLevel` resolves through `PanTiltCaps::pan_speed` and `tilt_speed`.
             /// Position moves also honor the profile's paired-speed grammar and confirmed
             /// speed mode.
-            targeted [Absolute] absolute(position: types::PanTiltPosition, speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Absolute
+            targeted [Absolute] absolute(position: types::PanTiltPosition, #[into] speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Absolute
                 = [with_target |target| command::pan_tilt::Absolute::for_target(target, position, speed)];
             /// Moves by a relative degree offset. Each axis accepts the span of the target profile's absolute
             /// limits; speed lowering uses that profile's position-command grammar.
@@ -221,7 +221,7 @@ macro_rules! noun_table {
             /// `SpeedLevel` resolves through `PanTiltCaps::pan_speed` and `tilt_speed`.
             /// Position moves also honor the profile's paired-speed grammar and confirmed
             /// speed mode.
-            targeted [Relative] relative(offset: types::PanTiltPosition, speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Relative
+            targeted [Relative] relative(offset: types::PanTiltPosition, #[into] speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Relative
                 = [with_target |target| command::pan_tilt::Relative::for_target(target, offset, speed)];
             /// Sets one motion-limit corner in degrees using the registered target's coordinate conversion and
             /// documented position limits.
@@ -252,7 +252,6 @@ macro_rules! noun_table {
             @noun Focus {
                 accessor: FocusAccessor,
                 getter: focus,
-                dyn_trait: DynFocus,
                 gate: [domain HasFocus],
                 doc: "Focus movement, modes, and focus inquiries.",
             };
@@ -281,14 +280,14 @@ macro_rules! noun_table {
             /// An exact `FocusSpeed` is a unitless protocol speed code in `0..=7`; zero is
             /// the slowest drive, not STOP. `SpeedLevel` resolves within the selected
             /// profile's `FocusCaps::speed` range, which also bounds exact inputs.
-            applied [FarVariable] far_variable(speed: types::Speed<types::FocusSpeed>) -> command::focus::FarVariable
+            applied [FarVariable] far_variable(#[into] speed: types::Speed<types::FocusSpeed>) -> command::focus::FarVariable
                 = [with_target |target| command::focus::FarVariable::for_target(target, speed)];
             /// Drives focus nearer at a variable speed.
             ///
             /// An exact `FocusSpeed` is a unitless protocol speed code in `0..=7`; zero is
             /// the slowest drive, not STOP. `SpeedLevel` resolves within the selected
             /// profile's `FocusCaps::speed` range, which also bounds exact inputs.
-            applied [NearVariable] near_variable(speed: types::Speed<types::FocusSpeed>) -> command::focus::NearVariable
+            applied [NearVariable] near_variable(#[into] speed: types::Speed<types::FocusSpeed>) -> command::focus::NearVariable
                 = [with_target |target| command::focus::NearVariable::for_target(target, speed)];
             /// Stops focus movement.
             applied [Stop] stop() -> command::focus::Stop
@@ -386,7 +385,6 @@ macro_rules! noun_table {
             @noun Presets {
                 accessor: PresetsAccessor,
                 getter: presets,
-                dyn_trait: DynPresets,
                 gate: [domain HasPresets],
                 doc: "Preset recall, store, clear, and recall-speed commands.",
             };
@@ -465,7 +463,6 @@ macro_rules! noun_table {
             @noun Exposure {
                 accessor: ExposureAccessor,
                 getter: exposure,
-                dyn_trait: DynExposure,
                 gate: [domain HasExposure],
                 doc: "Exposure, iris, shutter, brightness, and gain commands and inquiries.",
             };
@@ -802,7 +799,6 @@ macro_rules! noun_table {
             @noun WhiteBalance {
                 accessor: WhiteBalanceAccessor,
                 getter: white_balance,
-                dyn_trait: DynWhiteBalance,
                 gate: [domain HasWhiteBalance],
                 doc: "White-balance, color-temperature, and color-channel commands and inquiries.",
             };
@@ -1117,7 +1113,6 @@ macro_rules! noun_table {
             @noun Image {
                 accessor: ImageAccessor,
                 getter: image,
-                dyn_trait: DynImage,
                 gate: [domain HasImage],
                 doc: "Image-processing, noise-reduction, flip, and freeze commands and inquiries.",
             };
@@ -1434,7 +1429,6 @@ macro_rules! noun_table {
             @noun Tally {
                 accessor: TallyAccessor,
                 getter: tally,
-                dyn_trait: DynTally,
                 gate: [typed HasTally],
                 doc: "Tally-light commands and inquiries.",
             };
@@ -1485,7 +1479,6 @@ macro_rules! noun_table {
             @noun NdFilter {
                 accessor: NdFilterAccessor,
                 getter: nd_filter,
-                dyn_trait: DynNdFilter,
                 gate: [typed HasNdFilter],
                 doc: "Neutral-density filter commands and inquiries.",
             };
@@ -1544,7 +1537,6 @@ macro_rules! noun_table {
             @noun MotionSync {
                 accessor: MotionSyncAccessor,
                 getter: motion_sync,
-                dyn_trait: DynMotionSync,
                 gate: [typed HasMotionSync],
                 doc: "Motion-sync commands and inquiries.",
             };
@@ -1574,7 +1566,6 @@ macro_rules! noun_table {
             @noun Menu {
                 accessor: MenuAccessor,
                 getter: menu,
-                dyn_trait: DynMenu,
                 gate: [domain HasMenu],
                 doc: "On-screen menu display and navigation commands and the menu-status inquiry.",
             };
@@ -1628,7 +1619,6 @@ macro_rules! noun_table {
             @noun Streaming {
                 accessor: StreamingAccessor,
                 getter: streaming,
-                dyn_trait: DynStreaming,
                 gate: [always],
                 doc: "Streaming quality, multicast output, and USB-audio controls and inquiries.",
             };
@@ -1691,7 +1681,6 @@ macro_rules! motion_table {
             @motion {
                 accessor: MotionAccessor,
                 getter: motion,
-                dyn_trait: DynMotion,
                 doc: "Motion safety and observation: stopping all motion, movement queries, and idle waits.",
             };
 
@@ -1745,47 +1734,42 @@ pub(crate) use motion_table;
 /// The noun table names every accessor once in its headers;
 /// the blocking facade re-exports them through this consumer instead of
 /// restating the list. Invoke it as
-/// `noun_table!(reexport_nouns, [accessor], [blocking_nouns])`, and use
-/// `motion_table!(reexport_nouns, [accessor], [blocking_nouns])` for motion.
+/// `noun_table!(reexport_nouns, [blocking_nouns])`, and use
+/// `motion_table!(reexport_nouns, [blocking_nouns])` for motion.
 #[cfg(feature = "blocking")]
 macro_rules! reexport_nouns {
-    (@use [accessor] [$($path:tt)*] $([$accessor:ident $dyn_trait:ident])*) => {
+    (@use [$($path:tt)*] $([$accessor:ident])*) => {
         pub use $($path)*::{$($accessor),*};
     };
-    (@use [dyn_trait] [$($path:tt)*] $([$accessor:ident $dyn_trait:ident])*) => {
-        pub use $($path)*::{$($dyn_trait),*};
-    };
 
-    ($name:tt $path:tt
+    ($path:tt
         @motion {
             accessor: $accessor:ident,
             getter: $getter:ident,
-            dyn_trait: $dyn_trait:ident,
             doc: $doc:literal $(,)?
         };
         $($rows:tt)*
     ) => {
-        $crate::noun_table::reexport_nouns!(@use $name $path [$accessor $dyn_trait]);
+        $crate::noun_table::reexport_nouns!(@use $path [$accessor]);
     };
 
-    ($name:tt $path:tt
+    ($path:tt
         $(
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
-                dyn_trait: $dyn_trait:ident,
                 gate: $gate:tt,
                 doc: $doc:literal $(,)?
             };
             $(
                 $(#[$row_doc:meta])*
-                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$($command:ident)?] $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty
                     $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
         @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
-        $crate::noun_table::reexport_nouns!(@use $name $path $([$accessor $dyn_trait])*);
+        $crate::noun_table::reexport_nouns!(@use $path $([$accessor])*);
     };
 }
 

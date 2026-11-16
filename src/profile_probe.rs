@@ -327,7 +327,7 @@ where
 
 macro_rules! probe_surface {
     (inquiry, $target:ident, $metadata:ident, $getter:ident, $method:ident,
-        [$($argument:ident: $ty:ty),*], [$($request:tt)*]) => {{
+        [$($(#[$coercion:ident])? $argument:ident: $ty:ty),*], [$($request:tt)*]) => {{
         let (kind, source) = inquiry_contract(|($($argument,)*): ($($ty,)*)| {
             crate::noun_facade::noun_inquiry_request!(
                 $target.profile(), $target; $($request)*
@@ -345,13 +345,12 @@ macro_rules! probe_surfaces {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
-                dyn_trait: $dyn_trait:ident,
                 gate: $base:tt,
                 doc: $doc:literal $(,)?
             };
             $(
                 $(#[doc = $row_doc:literal])*
-                $kind:ident [$($command:ident)?] $method:ident($($argument:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$($command:ident)?] $method:ident($($(#[$coercion:ident])? $argument:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*

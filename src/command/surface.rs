@@ -421,13 +421,12 @@ macro_rules! surface_registry {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
-                dyn_trait: $dyn_trait:ident,
                 gate: $base:tt,
                 doc: $doc:literal $(,)?
             };
             $(
                 $(#[$row_doc:meta])*
-                $kind:ident [$key:ident] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$key:ident] $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*

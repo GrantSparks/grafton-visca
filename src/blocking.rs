@@ -829,8 +829,8 @@ impl<P: CameraProfile> Camera<P> {
 mod blocking_nouns;
 
 use crate::noun_table::reexport_nouns;
-crate::noun_table::noun_table!(reexport_nouns, [accessor], [blocking_nouns]);
-crate::noun_table::motion_table!(reexport_nouns, [accessor], [blocking_nouns]);
+crate::noun_table::noun_table!(reexport_nouns, [blocking_nouns]);
+crate::noun_table::motion_table!(reexport_nouns, [blocking_nouns]);
 
 #[cfg(all(test, feature = "test-utils"))]
 #[allow(clippy::expect_used, clippy::unwrap_used)]

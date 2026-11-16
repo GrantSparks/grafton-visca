@@ -1496,7 +1496,7 @@ macro_rules! typed_request_inventory {
             @noun $noun:ident { $($header:tt)* };
             $(
                 $(#[$doc:meta])*
-                $kind:ident [$key:ident] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $kind:ident [$key:ident] $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
