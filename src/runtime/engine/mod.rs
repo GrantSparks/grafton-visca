@@ -2179,7 +2179,7 @@ trait EngineMethods: EngineAccess {
     ///
     /// Keeping this at the engine's one transmission-result ingress also makes
     /// an [`EngineTurn::InputOnly`] write-result turn obey the same boundary
-    /// as an ordinary [`Self::handle`] turn.
+    /// as an ordinary [`Self::handle_into`] turn.
     fn write_result_after_total_budget(
         &mut self,
         owner: TransmissionOwner,
