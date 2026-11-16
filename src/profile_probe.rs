@@ -217,20 +217,20 @@ impl ProbeSettings {
         let config = CameraConfig::new(selection.clone(), options);
         // Ordinary pure configuration checks own profile, endpoint and transport
         // validation. SerialStartup::default performs no address setup or clear.
-        let endpoint = if let Some(baud_rate) = baud_rate {
-            config
-                .validate()
-                .map_err(|error| format!("invalid probe connection: {error}"))?;
-            let serial = config
-                .serial_config(address, baud_rate)
-                .map_err(|error| format!("invalid probe serial configuration: {error}"))?;
-            serial.port().to_owned()
-        } else {
-            config
-                .standard_connection_plan()
-                .map_err(|error| format!("invalid probe connection: {error}"))?
-                .endpoint
-        };
+        let endpoint = config
+            .connection_plan()
+            .map_err(|error| {
+                let context = if baud_rate.is_some() {
+                    "invalid probe serial configuration"
+                } else {
+                    "invalid probe connection"
+                };
+                format!("{context}: {error}")
+            })?
+            .connection
+            .transport
+            .endpoint()
+            .to_owned();
         let default_label = match &selection {
             ProfileSelection::Builtin(id) => serde_json::to_value(id)
                 .map_err(|error| error.to_string())?
@@ -955,7 +955,8 @@ mod tests {
             assert_eq!(settings.transport.baud_rate, Some(expected_baud));
             let serial = settings
                 .config
-                .serial_config(&input.address, expected_baud)
+                .connection_plan()
+                .map(|plan| plan.connection.transport.into_serial())
                 .expect("validated serial config");
             assert!(!serial.startup().address_set());
             assert!(!serial.startup().interface_clear());

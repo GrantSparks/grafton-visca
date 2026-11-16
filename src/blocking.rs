@@ -270,37 +270,14 @@ impl Session {
     /// Profile, policy, transport and endpoint validation complete before DNS,
     /// device opening or owner startup. A serial session may register several targets.
     pub fn connect(config: &SessionConfig) -> Result<Self> {
-        if let crate::camera::TransportOptions::Serial { port, baud_rate } = config.transport() {
-            let session_config = config.clone().validated()?;
-            session_config.validate_for_transport(crate::transport::TransportIdentity::Serial {
-                bus: None,
-            })?;
-            let serial_config = config.serial_config(port, *baud_rate)?;
-            #[cfg(feature = "transport-serial")]
-            {
-                return crate::camera::construction::connect_blocking_serial(
-                    serial_config,
-                    session_config,
-                );
-            }
-            #[cfg(not(feature = "transport-serial"))]
-            {
-                let _ = serial_config;
-                return Err(Error::FeatureNotSupported {
-                    feature: "blocking serial transport",
-                });
-            }
-        }
-        let plan = config.standard_connection_plan()?;
-        crate::camera::construction::connect_blocking(
-            plan.kind,
-            &plan.endpoint,
-            plan.transport_config,
-            plan.session_config,
-        )
+        crate::camera::construction::connect_blocking(config.connection_plan()?)
     }
 
     /// Opens a blocking session over a configured transport and profile.
+    ///
+    /// Profile compatibility is checked against the actual opened transport.
+    /// The standard connection selection stored in `config` is not used here;
+    /// [`CameraSession::open`] additionally validates its camera configuration's selection.
     ///
     /// Startup validates the profiles, tuning, transport buffers, and the
     /// immutable owner policy, and sends the optional Sony sequence RESET on
@@ -515,52 +492,29 @@ impl<P: CameraProfile> CameraSession<P> {
     ///
     /// Construction already checked the selection's `CameraProfile` contract,
     /// so this internal bind reuses those facts without another profile resolution.
-    pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
-        let target = TargetSlot::try_from(target)?;
-        let profile = session.config.registered_target(target)?;
-        let camera = Camera::from_core(session.core(profile));
-        Ok(Self { session, camera })
+    pub(crate) fn from_registration(
+        session: Session,
+        registration: Arc<crate::TargetRegistration>,
+    ) -> Self {
+        let camera = Camera::from_core(session.core(registration));
+        Self { session, camera }
     }
 
     /// Connects a typed or runtime-selected camera configuration to one owner.
     ///
     /// TCP, UDP and serial return the same single-camera session shape.
     pub fn connect(config: &CameraConfig<P>) -> Result<Self> {
-        if let crate::camera::TransportOptions::Serial { port, baud_rate } = config.transport() {
-            let session_config = config.validated_session_config()?;
-            let target = session_config.sole_target_for("CameraConfig::with_camera_id")?;
-            session_config.validate_for_transport(crate::transport::TransportIdentity::Serial {
-                bus: None,
-            })?;
-            let serial_config = config.serial_config(port, *baud_rate)?;
-            #[cfg(feature = "transport-serial")]
-            {
-                let session = crate::camera::construction::connect_blocking_serial(
-                    serial_config,
-                    session_config,
-                )?;
-                return Self::from_session(session, target);
-            }
-            #[cfg(not(feature = "transport-serial"))]
-            {
-                let _ = (serial_config, target);
-                return Err(Error::FeatureNotSupported {
-                    feature: "blocking serial transport",
-                });
-            }
-        }
-        let plan = config.standard_connection_plan()?;
-        let target = plan.camera_id;
-        let session = crate::camera::construction::connect_blocking(
-            plan.kind,
-            &plan.endpoint,
-            plan.transport_config,
-            plan.session_config,
-        )?;
-        Self::from_session(session, target)
+        let plan = config.connection_plan()?;
+        let session = crate::camera::construction::connect_blocking(plan.connection)?;
+        Ok(Self::from_registration(session, plan.registration))
     }
 
     /// Opens one single-camera owner session over a caller-owned transport.
+    ///
+    /// Both the transport selected in `config` and the actual opened transport
+    /// must support the profile, as for [`CameraConfig::validate`](crate::config::CameraConfig::validate).
+    /// Use `TransportOptions::Custom` in the configuration when only the opened
+    /// transport should select the transport kind.
     ///
     /// This is the [`Session::open`] counterpart for callers that already own
     /// a transport. The profile comes from `config`, so the camera this
@@ -570,10 +524,9 @@ impl<P: CameraProfile> CameraSession<P> {
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
-        let session_config = config.validated_session_config()?;
-        let target = session_config.sole_target_for("CameraConfig::with_camera_id")?;
+        let (session_config, registration) = config.validated_camera_config()?;
         let session = Session::open_validated(transport, session_config)?;
-        Self::from_session(session, target)
+        Ok(Self::from_registration(session, registration))
     }
 
     /// Erases only the compile-time profile parameter, retaining the same owner.
@@ -1145,9 +1098,13 @@ mod tests {
             .expect("matching complete profile");
         assert_eq!(typed.target(), CameraId::CAMERA_1);
         assert_eq!(typed.submission_class(), Some(SubmissionClass::Background));
-        let mut single =
-            CameraSession::<PtzOpticsG2>::from_session(session.clone(), CameraId::CAMERA_1)
-                .expect("single camera");
+        let mut single = CameraSession::<PtzOpticsG2>::from_registration(
+            session.clone(),
+            session
+                .config
+                .registered_target(TargetSlot::CAMERA_1)
+                .expect("registered target"),
+        );
         single.set_submission_class(Some(SubmissionClass::User));
         let single: CameraSession = single.into_any();
         let single = single

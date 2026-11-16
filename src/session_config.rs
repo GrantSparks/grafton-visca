@@ -473,10 +473,16 @@ impl SessionConfig {
     }
 
     fn with_profile(target: TargetSlot, profile: ProfileSpec) -> Self {
-        let mut config = Self::default();
-        config.targets[target] = Some(Arc::new(crate::TargetRegistration::from_profile(
+        Self::from_registration(Arc::new(crate::TargetRegistration::from_profile(
             target, profile,
-        )));
+        )))
+    }
+
+    /// Installs an already-checked individual registration without re-proving its ID.
+    pub(crate) fn from_registration(registration: Arc<crate::TargetRegistration>) -> Self {
+        let mut config = Self::default();
+        let slot = registration.slot();
+        config.targets[slot] = Some(registration);
         config
     }
 }
@@ -495,12 +501,11 @@ impl Default for SessionConfig {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl SessionConfig {
-    pub(crate) fn standard_connection_plan(
-        &self,
-    ) -> Result<crate::camera::config::SessionConnectionPlan> {
-        use crate::camera::config::{SessionConnectionPlan, TransportOptions};
-        use crate::transport::NetworkTransport;
-        use crate::transport::TransportConfig;
+    pub(crate) fn connection_plan(&self) -> Result<crate::camera::config::ConnectionPlan> {
+        use crate::camera::config::{
+            ConnectionPlan, ConnectionTransport, NetworkConnection, TransportOptions,
+        };
+        use crate::transport::{NetworkTransport, TransportConfig};
         let session_config = self.clone().validated()?;
         crate::camera::config::validate_selected_transport(&session_config, &self.transport)?;
         let (kind, address, configured_default) = match &self.transport {
@@ -514,10 +519,12 @@ impl SessionConfig {
                 address.as_str(),
                 TransportConfig::for_udp(),
             ),
-            TransportOptions::Serial { .. } => {
-                return Err(Error::InvalidState {
-                    reason: "serial transport requires its serial construction path".into(),
-                })
+            TransportOptions::Serial { port, baud_rate } => {
+                let serial = self.serial_config(port, *baud_rate)?;
+                return Ok(ConnectionPlan {
+                    transport: ConnectionTransport::Serial(serial),
+                    session_config,
+                });
             }
             TransportOptions::Custom => {
                 return Err(Error::InvalidState {
@@ -530,8 +537,7 @@ impl SessionConfig {
             registration.as_deref().map(|target| port(target.profile()))
         });
         let first = ports.next().flatten();
-        // A mixed registry can supply an explicit endpoint port. A host-only
-        // endpoint needs a single default agreed by every registered profile.
+        // A host-only endpoint needs one default agreed by every registered profile.
         let default_port = if ports.all(|candidate| candidate == first) {
             first
         } else {
@@ -540,10 +546,12 @@ impl SessionConfig {
         let transport_config = self.transport_config.unwrap_or(configured_default);
         transport_config.validate()?;
         let endpoint = crate::transport::address::canonicalize_endpoint(address, default_port)?;
-        Ok(SessionConnectionPlan {
-            kind: kind.standard().configuration_kind(),
-            endpoint,
-            transport_config,
+        Ok(ConnectionPlan {
+            transport: ConnectionTransport::Network(NetworkConnection {
+                kind,
+                endpoint,
+                transport_config,
+            }),
             session_config,
         })
     }
@@ -706,15 +714,6 @@ impl ValidatedSessionConfig {
 
     pub(crate) fn into_config(self) -> SessionConfig {
         self.0
-    }
-    /// The sole registered target, for a selector that names no target.
-    /// `targeted` is the selector a caller with several targets uses instead;
-    /// a validated configuration always has at least one target.
-    pub(crate) fn sole_target_for(&self, targeted: &'static str) -> Result<CameraId> {
-        self.0.sole_target().ok_or_else(|| Error::InvalidState {
-            reason: format!("session has multiple registered targets; select one with {targeted}")
-                .into(),
-        })
     }
 }
 

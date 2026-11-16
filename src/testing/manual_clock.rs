@@ -657,14 +657,16 @@ impl ManualClock {
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
         self.check_participant(participant)?;
-        let validated = config.validated_session_config()?;
-        let camera_id = validated.sole_target_for("ManualClock::open_blocking_camera_session")?;
+        let (validated, registration) = config.validated_camera_config()?;
         let session = crate::blocking::Session::open_on(
             transport,
             validated,
             crate::runtime::owner::Clock::Manual(self.clone()),
         )?;
-        crate::blocking::CameraSession::from_session(session, camera_id)
+        Ok(crate::blocking::CameraSession::from_registration(
+            session,
+            registration,
+        ))
     }
 
     fn check_participant(&self, participant: &ClockParticipant) -> crate::Result<()> {
