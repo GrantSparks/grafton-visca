@@ -90,7 +90,7 @@ runtime)` returns the same single-camera `CameraSession<P>` shape.
 ## Reusable configuration and target selection
 
 `config::CameraConfig<P>` is reusable single-camera configuration. Its
-`with_*` methods select the address, checked `CameraId`, operational tuning,
+`with_*` methods select the address, checked `IndividualCameraId`, operational tuning,
 and transport buffer/keepalive settings. Open it with
 `blocking::CameraSession::connect(&config)` or
 `r#async::CameraSession::connect(&config, runtime).await`.
@@ -134,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         blocking::CameraSession,
         capabilities::Capabilities,
-        capabilities::PowerCaps,
+        capabilities::{PowerCaps, PowerStatusQuery},
         command::power,
         profiles::AnyProfile,
         profiles::ProfileEnvelope,
@@ -147,6 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
     capabilities.power = Some(PowerCaps {
+        status_query: PowerStatusQuery::Standard,
         on_time: Duration::from_secs(1),
         standby: None,
         wake_on_lan: false,

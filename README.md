@@ -564,7 +564,7 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
   `Kelvin` expresses physical color temperature, and `ExposureTime` expresses
   rational shutter durations. Use `wire::WireValue` only when encoding or
   decoding protocol values.
-- Use `types::CameraId::new(raw)?` to check an input address, then select it
+- Use `types::IndividualCameraId::new(raw)?` to check a session target, then select it
   with `CameraConfig::with_camera_id`.
 
 ---
@@ -602,11 +602,11 @@ grafton-visca = { version = "=2.0.0-rc.3", features = ["runtime-tokio", "transpo
 use grafton_visca::config::CameraConfig;
 use grafton_visca::profiles::PtzOpticsG2;
 use grafton_visca::transport::TransportConfig;
-use grafton_visca::types::CameraId;
+use grafton_visca::types::IndividualCameraId;
 use std::time::Duration;
 
 let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-    .with_camera_id(CameraId::CAMERA_1)
+    .with_camera_id(IndividualCameraId::CAMERA_1)
     .with_transport_config(
         TransportConfig::for_tcp().with_tcp_keepalive(Some(
             grafton_visca::transport::TcpKeepaliveConfig::new(Duration::from_secs(30)),
