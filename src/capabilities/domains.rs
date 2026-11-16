@@ -603,11 +603,9 @@ impl super::Capabilities {
                 pan_tilt.motion_sync_speed_range,
                 |value| crate::types::MotionSyncSpeed::new(value).is_ok()
             );
-            let (pan_word, tilt_word) = match pan_tilt.coordinates.wire_codec() {
-                super::PanTiltWireCodec::StandardVisca => (0x7FFF, 0x7FFF),
-                super::PanTiltWireCodec::SonyBrc300 => (0x7_FFFF, 0x7FFF),
-                super::PanTiltWireCodec::SonyFr7 => (0x7_FFFF, 0x7_FFFF),
-            };
+            let framing =
+                crate::command::pan_tilt_wire::PanTiltFraming::for_conversion(pan_tilt.coordinates);
+            let (pan_word, tilt_word) = (framing.pan_maximum(), framing.tilt_maximum());
             domain(
                 "capabilities.pan_tilt.pan_range",
                 [pan_tilt.pan_range.min(), pan_tilt.pan_range.max()],
