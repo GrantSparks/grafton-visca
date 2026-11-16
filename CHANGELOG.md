@@ -73,6 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remains available on raw wire requests through `CameraId`; invalid target
   addresses are rejected by the value type before configuration or I/O.
 
+- **BREAKING** Power-status packet selection is a required
+  `PowerCaps::status_query` fact. Exported BRC-H900 custom profiles retain their
+  extended query, and profile checks and probe reports expose the selected
+  dialect. Saved power facts must declare `standard` or `extended` (#966).
+
 - Profile validation rejects gain grants without a gain range, zoom endpoints
   outside the checked position domain, and recall speeds outside the selected
   encoding. Generic VISCA optical normalization uses its sourced `0x4000`

@@ -343,6 +343,7 @@ fn synthetic_spec(
         names: None,
     });
     caps.power = Some(PowerCaps {
+        status_query: capabilities::PowerStatusQuery::Standard,
         on_time: Duration::from_secs(5),
         standby: typed_support
             .contains(S::PowerStandby)

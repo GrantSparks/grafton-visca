@@ -1674,6 +1674,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -1862,6 +1863,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -2050,6 +2052,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -2235,6 +2238,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(15),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: true,
@@ -2412,6 +2416,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Extended,
                                 on_time: std::time::Duration::from_secs(12),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -2562,6 +2567,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(8),
                                 standby: Some(std::time::Duration::from_secs(1)),
                                 wake_on_lan: false,
@@ -2743,6 +2749,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: None,
                                 wake_on_lan: false,
@@ -2911,6 +2918,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(10),
                                 standby: None,
                                 wake_on_lan: false,
@@ -3066,6 +3074,7 @@ macro_rules! builtin_profile_registry {
                                 names: std::num::NonZeroUsize::new(0),
                             },
                             power: {
+                                status_query: $crate::capabilities::PowerStatusQuery::Standard,
                                 on_time: std::time::Duration::from_secs(30),
                                 standby: None,
                                 wake_on_lan: false,

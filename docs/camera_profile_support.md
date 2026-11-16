@@ -719,6 +719,12 @@ escape hatch for simulators and downstream integrations.
 | `GenericVisca` | 5678 | 1259 | yes | `RawVisca` |
 <!-- END GENERATED PROFILE TRANSPORTS -->
 
+`capabilities.power.status_query` selects `standard` (`09 04 00`) or `extended`
+(`09 7E 04 00`) power readback. BRC-H900 declares `extended`; exporting it and
+clearing `profile_id` preserves that fact and its packet. A custom model can
+select either dialect. Exported JSON, `profile_spec check` and probe reports
+show the selection explicitly; existing built-in packet bytes are unchanged.
+
 Generic VISCA uses the optical zoom interval `0x0000..=0x4000` shared by its
 EVI-H100, BRC-300 and Nearus sources. Profile validation checks optical and
 digital maxima against `ZoomPosition`, gain grants against their declared gain

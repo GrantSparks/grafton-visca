@@ -3149,6 +3149,7 @@ mod tests {
     fn power_only_profiles_need_no_movement_or_preset_facts() {
         let mut caps = Capabilities::runtime_baseline("Power camera", 1).expect("baseline");
         caps.power = Some(PowerCaps {
+            status_query: crate::capabilities::PowerStatusQuery::Standard,
             on_time: Duration::from_millis(750),
             standby: Some(Duration::from_millis(250)),
             wake_on_lan: true,

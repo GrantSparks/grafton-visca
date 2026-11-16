@@ -2292,6 +2292,7 @@ mod tests {
         // gate tracks each noun's base marker independently.
         let power_only = minimal_profile(|capabilities| {
             capabilities.power = Some(crate::capabilities::PowerCaps {
+                status_query: crate::capabilities::PowerStatusQuery::Standard,
                 on_time: Duration::from_millis(750),
                 standby: None,
                 wake_on_lan: false,

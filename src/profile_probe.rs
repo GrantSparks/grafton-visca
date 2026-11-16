@@ -698,6 +698,10 @@ mod tests {
         assert_eq!(serialized["schema_version"], 1);
         assert_eq!(serialized["transport"]["kind"], "tcp");
         assert_eq!(
+            serialized["profile"]["capabilities"]["power"]["status_query"],
+            "standard"
+        );
+        assert_eq!(
             serde_json::from_value::<ProbeReport>(serialized).expect("schema round trip"),
             report
         );

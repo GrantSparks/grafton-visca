@@ -576,13 +576,9 @@ pub(crate) mod checked {
             if matches!(gate, RowGate::Typed(gates) | RowGate::DomainAndTyped(_, gates) if gates.contains(surface))
                 && source.covers_model(Some(model))
             {
-                let bytes = if matches!(kind, crate::command::InquiryKind::Power)
-                    && model == ProfileId::SonyBrcH900
-                {
-                    &crate::command::bytes::constants::power::BRC_H900_STATE_INQUIRY[..]
-                } else {
-                    bytes
-                };
+                let profile = model.spec().expect("built-in source facts");
+                let bytes =
+                    crate::command::inquiry_structs::body_for_profile(*kind, bytes, &profile);
                 push(PacketPattern::exact(bytes));
             }
         }

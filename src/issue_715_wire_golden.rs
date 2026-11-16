@@ -1928,7 +1928,7 @@ fn registered_profile_rows() -> Vec<String> {
     let unsigned = unsigned_target();
     let mut output = Vec::new();
     macro_rules! case {
-        ($label:literal, $bytes:expr) => {{
+        ($label:expr, $bytes:expr) => {{
             let result: Result<Vec<u8>, Error> = (|| $bytes)();
             output.push(match result {
                 Ok(bytes) => format!("{}\t{}", $label, hex(&bytes)),
@@ -2176,6 +2176,29 @@ fn registered_profile_rows() -> Vec<String> {
             &registered_target::<crate::profiles::SonyBrcH900>(),
         )
     );
+    for (label, id) in [
+        (
+            "H900Clone[PowerInquiry,target-aware]",
+            crate::profiles::ProfileId::SonyBrcH900,
+        ),
+        (
+            "CustomExtended[PowerInquiry,target-aware]",
+            crate::profiles::ProfileId::PtzOpticsG2,
+        ),
+    ] {
+        let mut facts = id.raw_facts();
+        facts.capabilities.profile_id = None;
+        facts
+            .capabilities
+            .power
+            .as_mut()
+            .expect("power")
+            .status_query = crate::capabilities::PowerStatusQuery::Extended;
+        let profile = crate::ProfileSpec::from_facts(facts).expect("custom power query");
+        let target =
+            crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("custom target");
+        case!(label, prepared_query(&PowerInquiry, &target));
+    }
     output
 }
 
@@ -2213,6 +2236,8 @@ fn registered_profile_rows_match_reviewed_literals() {
         "Unsigned[ABS,zero,bias]\t81 01 06 02 09 07 08 00 00 00 08 00 00 00 FF",
         "Unsigned[REL,zero,no-bias]\t81 01 06 03 09 07 00 00 00 00 00 00 00 00 FF",
         "H900[PowerInquiry,target-aware]\t81 09 7E 04 00 FF",
+        "H900Clone[PowerInquiry,target-aware]\t81 09 7E 04 00 FF",
+        "CustomExtended[PowerInquiry,target-aware]\t81 09 7E 04 00 FF",
     ];
     let actual = registered_profile_rows();
     assert_eq!(actual, expected);

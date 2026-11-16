@@ -470,7 +470,45 @@ pub struct PresetCaps {
     pub names: Option<NonZeroUsize>,
 }
 
-/// Power sequencing facts for a camera with power control.
+/// Packet category used by a camera's power-status inquiry.
+///
+/// This is a profile fact: an exported custom profile keeps the same query
+/// packet after its built-in identity is removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum PowerStatusQuery {
+    /// Standard VISCA `09 04 00` power-status query.
+    #[cfg_attr(feature = "serde", serde(rename = "standard"))]
+    Standard,
+    /// Extended-category `09 7E 04 00` power-status query.
+    #[cfg_attr(feature = "serde", serde(rename = "extended"))]
+    Extended,
+}
+
+impl PowerStatusQuery {
+    pub(crate) const fn body(self) -> &'static [u8] {
+        use crate::command::bytes::constants::power;
+        match self {
+            Self::Standard => &power::STATE_INQUIRY,
+            Self::Extended => &power::BRC_H900_STATE_INQUIRY,
+        }
+    }
+
+    /// Allocation bound derived from this family's declared packet bodies.
+    pub(crate) const fn maximum_body() -> &'static [u8] {
+        let standard = Self::Standard.body();
+        let extended = Self::Extended.body();
+        if standard.len() > extended.len() {
+            standard
+        } else {
+            extended
+        }
+    }
+}
+
+/// Power-query dialect and sequencing facts for a camera with power control.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(
     feature = "serde",
@@ -480,6 +518,8 @@ pub struct PresetCaps {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PowerCaps {
+    /// Source-backed packet category for the power-status inquiry.
+    pub status_query: PowerStatusQuery,
     /// Documented nonzero power-on duration.
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
     pub on_time: Duration,

@@ -796,8 +796,7 @@ macro_rules! define_builtin_inquiries {
             impl crate::Request for $struct {
                 type Class = crate::request::InquiryClass;
 
-                const MAX_SIZE: usize = crate::command::bytes::frame_len(Self::BODY)
-                    + if matches!(Self::KIND, InquiryKind::Power) { 1 } else { 0 }
+                const MAX_SIZE: usize = crate::command::bytes::frame_len(maximum_body(Self::KIND, Self::BODY))
                     + builtin_inquiry_argument_len!($($argument)?);
                 const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
                 const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Inquiry;
@@ -2486,23 +2485,24 @@ fn require_len(payload: &Payload<'_>, expected: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// The BRC-H900 places power status in its extended category. Keeping this
-/// selection beside the generated inquiry preserves canonical public decoding
-/// while custom requests continue to encode their declared opcode unchanged.
+/// Bound target-selected queries by the longest body their fact can select.
+const fn maximum_body(kind: InquiryKind, standard: &'static [u8]) -> &'static [u8] {
+    match kind {
+        InquiryKind::Power => crate::capabilities::PowerStatusQuery::maximum_body(),
+        _ => standard,
+    }
+}
+
+/// Selects profile-owned packet dialects without consulting built-in identity.
+/// Custom requests continue to encode their declared opcode unchanged.
 pub(crate) fn body_for_profile(
     kind: InquiryKind,
     standard: &'static [u8],
     profile: &crate::ProfileSpec,
 ) -> &'static [u8] {
-    if matches!(kind, InquiryKind::Power)
-        && matches!(
-            profile.capabilities().profile_id,
-            Some(crate::profiles::ProfileId::SonyBrcH900)
-        )
-    {
-        &power_wire::BRC_H900_STATE_INQUIRY
-    } else {
-        standard
+    match (kind, profile.capabilities().power) {
+        (InquiryKind::Power, Some(power)) => power.status_query.body(),
+        _ => standard,
     }
 }
 
@@ -2645,6 +2645,61 @@ mod generated_invariant_tests {
             body_for_profile(InquiryKind::Power, PowerInquiry::BODY, &standard),
             &[0x09, 0x04, 0x00]
         );
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn power_query_dialect_survives_export_and_accepts_custom_selection() {
+        use crate::capabilities::PowerStatusQuery;
+        const _: () = assert!(
+            <PowerInquiry as crate::Request>::MAX_SIZE
+                >= crate::command::bytes::frame_len(PowerStatusQuery::maximum_body())
+        );
+        for id in crate::profiles::ProfileId::all() {
+            let mut facts = id.raw_facts();
+            let selected = facts
+                .capabilities
+                .power
+                .as_ref()
+                .expect("power facts")
+                .status_query;
+            assert_eq!(
+                selected,
+                if *id == crate::profiles::ProfileId::SonyBrcH900 {
+                    PowerStatusQuery::Extended
+                } else {
+                    PowerStatusQuery::Standard
+                }
+            );
+            facts.capabilities.profile_id = None;
+            for query in [selected, PowerStatusQuery::Extended] {
+                facts
+                    .capabilities
+                    .power
+                    .as_mut()
+                    .expect("power facts")
+                    .status_query = query;
+                let profile =
+                    crate::ProfileSpec::from_facts(facts.clone()).expect("custom power dialect");
+                let target = crate::TargetRegistration::from_profile(
+                    crate::target::TargetSlot::CAMERA_1,
+                    profile,
+                );
+                let mut buffer = [0; <PowerInquiry as crate::Request>::MAX_SIZE];
+                let written = <PowerInquiry as crate::Request>::write_for_target(
+                    &PowerInquiry,
+                    &target,
+                    &mut buffer,
+                    crate::requests::RequestContractAuthority::new(),
+                )
+                .expect("target-selected power query");
+                let expected: &[u8] = match query {
+                    PowerStatusQuery::Standard => &[0x81, 0x09, 0x04, 0x00, 0xFF],
+                    PowerStatusQuery::Extended => &[0x81, 0x09, 0x7E, 0x04, 0x00, 0xFF],
+                };
+                assert_eq!(&buffer[..written], expected, "{id:?}");
+            }
+        }
     }
 
     #[test]
