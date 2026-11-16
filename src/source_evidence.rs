@@ -678,25 +678,24 @@ pub(crate) mod checked {
                 // The obsolete 0A-category prefix in this aggregate summary
                 // is not positive permission. Both actual sourced rows use
                 // the catalogue's 2A-category packet and remain checked.
-                let setter = command(C::UsbAudioOn)?;
                 let getter = inquiry("UsbAudioInquiry")?;
-                assert_eq!(
-                    setter, getter,
-                    "USB command and inquiry share their actual register"
-                );
-                let mut obsolete = setter.prefix_len(3);
+                let mut obsolete = getter.prefix_len(3);
                 obsolete.bytes[0] &= !0x20;
-                (S::UsbAudio, vec![obsolete, setter], vec![setter])
+                (
+                    S::UsbAudio,
+                    vec![obsolete, getter],
+                    vec![getter, command(C::UsbAudioOn)?, command(C::UsbAudioOff)?],
+                )
             }
             "r1-ptzopticsg2-ptzopticspresetrecallspeed-grant"
             | "r10-ptzopticsg3-ptzopticspresetrecallspeed-grant"
             | "r1-ptzoptics30x-ptzopticspresetrecallspeed-grant" => {
-                // The summary includes the fully wildcard speed argument;
-                // command patterns deliberately stop at the catalogue prefix.
+                // The summary omits the terminator that distinguishes this
+                // short packet from the shared pan/tilt drive register.
                 let setter = command(C::PresetRecallSpeed)?;
                 (
                     S::PresetRecallSpeed,
-                    vec![setter.then(&[0], &[0])],
+                    vec![setter.prefix_len(3).then(&[0], &[0])],
                     vec![setter],
                 )
             }
