@@ -193,6 +193,11 @@ impl Core {
         self.state.trace.borrow_mut().push(label);
     }
 
+    fn recycle_effects(&mut self, effects: VecDeque<Effect>) {
+        assert!(effects.is_empty(), "drive must drain before recycling");
+        self.state.trace.borrow_mut().push("recycle_effects");
+    }
+
     fn resume<D>(&mut self, then: Resume, _driver: &mut D) -> TurnStep {
         self.state.trace.borrow_mut().push("resume");
         TurnStep::Done(then.0)
@@ -366,7 +371,8 @@ fn expanded_shells_share_the_entire_core_call_order_and_teardown_barrier() {
             .expect("write feedback");
         assert_eq!(finish - prepared, if refuse_write { 1 } else { 2 });
         assert_eq!(calls[finish + 1], "next_transmit");
-        assert_eq!(calls[finish + 2], "resume");
+        assert_eq!(calls[finish + 2], "recycle_effects");
+        assert_eq!(calls[finish + 3], "resume");
         assert!(calls.contains(&"control_consumed_wake"));
         assert!(calls.contains(&"pace_receive"));
         assert!(calls.contains(&"redeliver"));

@@ -1269,14 +1269,19 @@ struct DiagnosticSubscriber {
     sender: flume::Sender<DiagnosticEvent>,
 }
 
-/// Reused for every write/read/framing operation. Capacities never grow after
-/// construction; over-size input is rejected before mutation.
+/// Reused for every write/read/framing operation. Wire and receive capacities
+/// are bounded at construction; over-size input is rejected before mutation.
+/// Effect storage retains its warmed capacity across complete drive turns.
 #[derive(Debug)]
 pub(crate) struct OwnerBuffers {
     send: Vec<u8>,
     transmit: BytesMut,
     receive: Box<[u8]>,
     frames: FrameBatch,
+    /// Lent to each engine decision and kept warm between turns.
+    effect_scratch: Vec<Effect>,
+    /// Lent to the mode-native drive loop and returned before continuation.
+    effects: VecDeque<Effect>,
 }
 
 impl OwnerBuffers {
@@ -1291,7 +1296,31 @@ impl OwnerBuffers {
             transmit: BytesMut::with_capacity(MAX_BYTES.saturating_add(8)),
             receive: vec![0; limits.receive_bytes].into_boxed_slice(),
             frames: FrameBatch::with_capacity(limits.frames_per_receive),
+            effect_scratch: Vec::new(),
+            effects: VecDeque::new(),
         })
+    }
+
+    /// Lend the warmed drive queue after appending this decision's effects.
+    fn take_effects(&mut self) -> VecDeque<Effect> {
+        let mut effects = std::mem::take(&mut self.effects);
+        effects.extend(self.effect_scratch.drain(..));
+        effects
+    }
+
+    /// A continuation may reuse the queue only after its drive has finished.
+    pub(super) fn recycle_effects(&mut self, mut effects: VecDeque<Effect>) {
+        effects.clear();
+        if effects.capacity() > self.effects.capacity() {
+            self.effects = effects;
+        }
+    }
+
+    /// Recursive write/expiry results must precede effects already queued.
+    fn prepend_effects(&mut self, effects: &mut VecDeque<Effect>) {
+        for effect in self.effect_scratch.drain(..).rev() {
+            effects.push_front(effect);
+        }
     }
 
     fn prepare(&mut self, transmission: &Transmission) -> Result<(&[u8], &mut BytesMut), Error> {
@@ -1787,7 +1816,9 @@ impl OwnerState {
 
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
         self.observe_input(&input);
-        self.engine.handle(input, now).into()
+        self.engine
+            .handle_into(input, now, &mut self.buffers.effect_scratch);
+        self.buffers.take_effects()
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
@@ -1803,7 +1834,9 @@ impl OwnerState {
         input: Input,
     ) -> VecDeque<Effect> {
         self.observe_input(&input);
-        self.engine.handle_in_turn(&turn.0, input).into()
+        self.engine
+            .handle_in_turn_into(&turn.0, input, &mut self.buffers.effect_scratch);
+        self.buffers.take_effects()
     }
 
     pub(crate) fn finish_input_turn(
@@ -1811,7 +1844,21 @@ impl OwnerState {
         turn: OwnerInputTurn,
         engine_turn: EngineTurn,
     ) -> VecDeque<Effect> {
-        self.engine.finish_input_turn(turn.0, engine_turn).into()
+        self.engine
+            .finish_input_turn_into(turn.0, engine_turn, &mut self.buffers.effect_scratch);
+        self.buffers.take_effects()
+    }
+
+    /// Complete an input-only decision after its already queued source effects.
+    pub(super) fn finish_input_turn_into(
+        &mut self,
+        turn: OwnerInputTurn,
+        engine_turn: EngineTurn,
+        effects: &mut VecDeque<Effect>,
+    ) {
+        self.engine
+            .finish_input_turn_into(turn.0, engine_turn, &mut self.buffers.effect_scratch);
+        effects.extend(self.buffers.effect_scratch.drain(..));
     }
 
     fn observe_input(&mut self, input: &Input) {
@@ -1835,9 +1882,12 @@ impl OwnerState {
     }
 
     pub(crate) fn advance(&mut self, now: Instant) -> VecDeque<Effect> {
-        self.engine.advance(now).into()
+        self.engine
+            .advance_into(now, &mut self.buffers.effect_scratch);
+        self.buffers.take_effects()
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_write(
         &mut self,
         staged: &StagedWrite,
@@ -1847,6 +1897,7 @@ impl OwnerState {
         self.finish_write_turn(staged, result, now, EngineTurn::Complete)
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_write_turn(
         &mut self,
         staged: &StagedWrite,
@@ -1854,39 +1905,69 @@ impl OwnerState {
         now: Instant,
         turn: EngineTurn,
     ) -> VecDeque<Effect> {
+        let mut effects = self.buffers.take_effects();
+        self.finish_write_turn_into(staged, result, now, turn, &mut effects);
+        effects
+    }
+
+    pub(super) fn finish_write_turn_into(
+        &mut self,
+        staged: &StagedWrite,
+        result: WriteOutcome,
+        now: Instant,
+        turn: EngineTurn,
+        effects: &mut VecDeque<Effect>,
+    ) {
         self.observe_write(staged, &result);
-        self.engine
-            .handle_turn(
-                Input::TransmissionFinished {
-                    request: staged.request,
-                    transmission: staged.transmission,
-                    result,
-                },
-                now,
-                turn,
-            )
-            .into()
+        self.engine.handle_turn_into(
+            Input::TransmissionFinished {
+                request: staged.request,
+                transmission: staged.transmission,
+                result,
+            },
+            now,
+            turn,
+            &mut self.buffers.effect_scratch,
+        );
+        self.buffers.prepend_effects(effects);
     }
 
     /// Records and applies an identified write result in the same decoded-input
     /// turn that produced it, without allowing deadlines between source frames.
-    pub(crate) fn finish_write_in_turn(
+    pub(super) fn finish_write_in_turn_into(
         &mut self,
         turn: &OwnerInputTurn,
         staged: &StagedWrite,
         result: WriteOutcome,
-    ) -> VecDeque<Effect> {
+        effects: &mut VecDeque<Effect>,
+    ) {
         self.observe_write(staged, &result);
-        self.engine
-            .handle_in_turn(
-                &turn.0,
-                Input::TransmissionFinished {
-                    request: staged.request,
-                    transmission: staged.transmission,
-                    result,
-                },
-            )
-            .into()
+        self.engine.handle_in_turn_into(
+            &turn.0,
+            Input::TransmissionFinished {
+                request: staged.request,
+                transmission: staged.transmission,
+                result,
+            },
+            &mut self.buffers.effect_scratch,
+        );
+        self.buffers.prepend_effects(effects);
+    }
+
+    pub(super) fn expire_unwritten_halt_into(
+        &mut self,
+        staged: &StagedWrite,
+        now: Instant,
+        effects: &mut VecDeque<Effect>,
+    ) -> bool {
+        let expired = self.engine.expire_unwritten_halt_into(
+            staged.request,
+            staged.transmission,
+            now,
+            &mut self.buffers.effect_scratch,
+        );
+        self.buffers.prepend_effects(effects);
+        expired
     }
 
     fn observe_write(&mut self, staged: &StagedWrite, result: &WriteOutcome) {
@@ -2004,22 +2085,28 @@ impl OwnerState {
         now: Instant,
     ) -> (VecDeque<Effect>, Result<(), Error>) {
         let Some(active) = self.active.get_mut(&request.id) else {
-            return (VecDeque::new(), Ok(()));
+            return (self.buffers.take_effects(), Ok(()));
         };
         if active.cancellation.is_some() {
-            return (VecDeque::new(), Ok(()));
+            return (self.buffers.take_effects(), Ok(()));
         }
         active.cancellation = Some(CancellationIntent::Requested(request.observer));
         let turn = self.engine.begin_input_turn(now);
-        let (mut effects, answer) = self.engine.cancel_in_turn(&turn, request.id);
+        let answer =
+            self.engine
+                .cancel_in_turn_into(&turn, request.id, &mut self.buffers.effect_scratch);
         if answer.is_err() {
             // A refusal records no intent; the original operation stays live.
             if let Some(active) = self.active.get_mut(&request.id) {
                 active.cancellation = None;
             }
         }
-        effects.extend(self.engine.finish_input_turn(turn, EngineTurn::Complete));
-        (effects.into(), answer)
+        self.engine.finish_input_turn_into(
+            turn,
+            EngineTurn::Complete,
+            &mut self.buffers.effect_scratch,
+        );
+        (self.buffers.take_effects(), answer)
     }
 
     #[cfg(any(feature = "async", feature = "blocking", test))]
@@ -2436,7 +2523,8 @@ pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
     }
 }
 
-/// Prepend recursively produced effects while preserving their source order.
+/// Prepend test-driver effects while preserving their source order.
+#[cfg(test)]
 pub(crate) fn prepend_effects(queue: &mut VecDeque<Effect>, produced: VecDeque<Effect>) {
     for effect in produced.into_iter().rev() {
         queue.push_front(effect);

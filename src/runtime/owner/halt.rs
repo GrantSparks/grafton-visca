@@ -42,12 +42,15 @@ impl OwnerState {
     ) -> HaltReceipt {
         let turn = self.begin_input_turn(now);
         if let Some(axes) = prepared.axes {
-            for effect in self
-                .engine
-                .halt_in_turn(&turn.0, prepared.target, axes, cutoff)
-            {
+            // Applying the effects mutates the owner, so lend the scratch
+            // storage locally while retaining its allocation after draining.
+            let mut effects = std::mem::take(&mut self.buffers.effect_scratch);
+            self.engine
+                .halt_in_turn_into(&turn.0, prepared.target, axes, cutoff, &mut effects);
+            for effect in effects.drain(..) {
                 let _ = self.apply_effect(effect, now);
             }
+            self.buffers.effect_scratch = effects;
         }
         // All admissions are input-only: no axis's write or observation can
         // delay admission of another STOP. Released ordinary permits and the
@@ -79,7 +82,8 @@ impl OwnerState {
         });
         // Input-only finalization preserves all protocol pacing; the shell
         // starts ordinary dispatch after publishing the bounded receipt.
-        let _ = self.finish_input_turn(turn, EngineTurn::InputOnly);
+        let effects = self.finish_input_turn(turn, EngineTurn::InputOnly);
+        self.buffers.recycle_effects(effects);
         HaltReceipt { slots, deadline }
     }
 }

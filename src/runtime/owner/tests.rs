@@ -3028,3 +3028,41 @@ fn consumed_input_verdict_preserves_stream_cause_and_discards_one_datagram() {
         OwnerReceive::NoProgress(NoProgressReason::MalformedDatagram)
     ));
 }
+
+#[test]
+fn effect_storage_retains_warm_capacity_and_prepends_recursive_results_in_order() {
+    let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+    buffers.effect_scratch.extend([
+        Effect::Ignored(IgnoreReason::UnknownRequest),
+        Effect::Ignored(IgnoreReason::MalformedFrame),
+    ]);
+    let mut effects = buffers.take_effects();
+    buffers.effect_scratch.extend([
+        Effect::Ignored(IgnoreReason::StaleTransmission),
+        Effect::Ignored(IgnoreReason::ReplyShapeMismatch),
+    ]);
+    buffers.prepend_effects(&mut effects);
+    let reasons: Vec<_> = effects
+        .iter()
+        .map(|effect| match effect {
+            Effect::Ignored(reason) => *reason,
+            _ => panic!("only ignored effects in this queue fixture"),
+        })
+        .collect();
+    assert_eq!(
+        reasons,
+        [
+            IgnoreReason::StaleTransmission,
+            IgnoreReason::ReplyShapeMismatch,
+            IgnoreReason::UnknownRequest,
+            IgnoreReason::MalformedFrame,
+        ]
+    );
+    let queue_capacity = effects.capacity();
+    let scratch_capacity = buffers.effect_scratch.capacity();
+    effects.clear();
+    buffers.recycle_effects(effects);
+    assert_eq!(buffers.take_effects().capacity(), queue_capacity);
+    assert_eq!(buffers.effect_scratch.capacity(), scratch_capacity);
+    assert!(buffers.effect_scratch.is_empty());
+}

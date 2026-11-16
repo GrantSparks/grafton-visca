@@ -38,8 +38,8 @@ use super::boundary::{
 };
 use super::turn::{Disposition, OwnerCoordinator, ReceiveClass, Selected, TurnOutcome, TurnPlan};
 use super::{
-    clamp_receive_pause, prepend_effects, transient_receive_pause, AppliedEffect, IdleReceiveRun,
-    Input, OwnerInputTurn, OwnerReceive, OwnerState, RawReleaseResolution, RetainedStreamInput,
+    clamp_receive_pause, transient_receive_pause, AppliedEffect, IdleReceiveRun, Input,
+    OwnerInputTurn, OwnerReceive, OwnerState, RawReleaseResolution, RetainedStreamInput,
     SessionState, ShutdownReason, StagedWrite, TransientFaultRun,
 };
 use crate::runtime::engine::{Effect, EngineTurn, IgnoreReason};
@@ -496,18 +496,21 @@ impl OwnerShellCore {
                 continue;
             }
             if let AppliedEffect::Transmit(staged) = applied {
-                if let Some(expired) = self.state.engine.expire_unwritten_halt(
-                    staged.request,
-                    staged.transmission,
-                    observed_at,
-                ) {
-                    prepend_effects(effects, expired.into());
+                if self
+                    .state
+                    .expire_unwritten_halt_into(&staged, observed_at, effects)
+                {
                     continue;
                 }
                 return Some(staged);
             }
         }
         None
+    }
+
+    /// Return drive storage before a continuation starts another decision.
+    pub(super) fn recycle_effects(&mut self, effects: VecDeque<Effect>) {
+        self.state.buffers().recycle_effects(effects);
     }
 
     /// Report a transmit the shell just wrote. Inside an input `turn` it
@@ -529,8 +532,8 @@ impl OwnerShellCore {
         let Some(turn) = turn else {
             return self.finish_transmit_outside_turn(staged, result, finished_at, effects);
         };
-        let produced = self.state.finish_write_in_turn(turn, staged, result);
-        prepend_effects(effects, produced);
+        self.state
+            .finish_write_in_turn_into(turn, staged, result, effects);
     }
 
     fn finish_transmit_outside_turn(
@@ -547,17 +550,17 @@ impl OwnerShellCore {
         // A transmit inside an input turn already has this property by using
         // the active input turn; this is the equivalent seam for a standalone
         // effect chain.
-        let produced = if self
+        let turn = if self
             .state
             .raw_correlation_releases_due(finished_at)
             .is_empty()
         {
-            self.state.finish_write(staged, result, finished_at)
+            EngineTurn::Complete
         } else {
-            self.state
-                .finish_write_turn(staged, result, finished_at, EngineTurn::InputOnly)
+            EngineTurn::InputOnly
         };
-        prepend_effects(effects, produced);
+        self.state
+            .finish_write_turn_into(staged, result, finished_at, turn, effects);
     }
 
     /// End the session: publish its terminal result, answer every boundary
@@ -775,7 +778,8 @@ impl OwnerShellCore {
             let mut effects = self
                 .state
                 .input_in_turn(&turn, Input::ReceiveFault { error });
-            effects.extend(self.state.finish_input_turn(turn, EngineTurn::InputOnly));
+            self.state
+                .finish_input_turn_into(turn, EngineTurn::InputOnly, &mut effects);
             effects
         } else {
             self.state.input(Input::ReceiveFault { error }, received_at)
@@ -1236,7 +1240,7 @@ mod tests {
             );
             assert!(matches!(
                 diagnostics.try_recv(),
-                Some(crate::observability::DiagnosticEvent::SessionChanged { from, to, reason })
+                Some(DiagnosticEvent::SessionChanged { from, to, reason })
                     if from == crate::SessionStatus::Running
                         && to == crate::SessionStatus::from_engine(status.state())
                         && reason == cause.kind()

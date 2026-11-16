@@ -531,7 +531,8 @@ impl ProtocolEngine {
         EngineMethods::assert_input_boundary(self)
     }
 
-    // Collecting compatibility wrappers become test-only with the owner migration.
+    // Test drivers collect effects; production always appends to owner-owned storage.
+    #[cfg(test)]
     pub(crate) fn handle(&mut self, input: Input, now: Instant) -> Vec<Effect> {
         let mut effects = Vec::new();
         self.handle_into(input, now, &mut effects);
@@ -542,6 +543,7 @@ impl ProtocolEngine {
         EngineMethods::handle_into(self, input, now, effects);
     }
 
+    #[cfg(test)]
     pub(crate) fn handle_turn(
         &mut self,
         input: Input,
@@ -567,6 +569,7 @@ impl ProtocolEngine {
         EngineMethods::begin_input_turn(self, now)
     }
 
+    #[cfg(test)]
     pub(crate) fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
         let mut effects = Vec::new();
         self.handle_in_turn_into(turn, input, &mut effects);
@@ -591,16 +594,6 @@ impl ProtocolEngine {
         EngineMethods::admit_in_turn(self, turn, request, slot)
     }
 
-    pub(crate) fn cancel_in_turn(
-        &mut self,
-        turn: &InputTurn,
-        id: RequestId,
-    ) -> (Vec<Effect>, Result<(), Error>) {
-        let mut effects = Vec::new();
-        let result = self.cancel_in_turn_into(turn, id, &mut effects);
-        (effects, result)
-    }
-
     pub(crate) fn cancel_in_turn_into(
         &mut self,
         turn: &InputTurn,
@@ -610,6 +603,7 @@ impl ProtocolEngine {
         EngineMethods::cancel_in_turn_into(self, turn, id, effects)
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_input_turn(
         &mut self,
         input_turn: InputTurn,
@@ -629,6 +623,7 @@ impl ProtocolEngine {
         EngineMethods::finish_input_turn_into(self, input_turn, engine_turn, effects);
     }
 
+    #[cfg(test)]
     pub(crate) fn advance(&mut self, now: Instant) -> Vec<Effect> {
         let mut effects = Vec::new();
         self.advance_into(now, &mut effects);
@@ -646,6 +641,7 @@ impl ProtocolEngine {
         effects
     }
 
+    #[cfg(test)]
     pub(crate) fn halt_in_turn(
         &mut self,
         turn: &InputTurn,
@@ -669,6 +665,7 @@ impl ProtocolEngine {
         EngineMethods::halt_in_turn_into(self, turn, target, axes, cutoff, effects);
     }
 
+    #[cfg(test)]
     pub(crate) fn expire_unwritten_halt(
         &mut self,
         request: RequestId,
