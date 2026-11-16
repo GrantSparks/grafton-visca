@@ -815,6 +815,7 @@ mod bound_temperature_decoder_tests {
         Ok(())
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
     fn custom_temperature_table_encodes_and_decodes_the_same_steps() -> Result<()> {
         let profile = custom_profile(Arc::from([3100, 4200, 6300]))?;

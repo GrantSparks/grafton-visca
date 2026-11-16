@@ -1215,7 +1215,8 @@ mod tests {
         assert!(serde_json::from_value::<super::CameraConfig>(unknown).is_err());
         let mut broadcast = json.clone();
         broadcast["camera_id"] = 8.into();
-        let error = serde_json::from_value::<super::CameraConfig>(broadcast).unwrap_err();
+        let error = serde_json::from_value::<super::CameraConfig>(broadcast)
+            .expect_err("broadcast is not an individual target");
         assert!(error.to_string().contains("7"), "{error}");
         let mut unknown_policy = json;
         unknown_policy["policy"]["unexpected"] = true.into();

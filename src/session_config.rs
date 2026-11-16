@@ -913,7 +913,8 @@ mod config_value_tests {
         assert!(serde_json::from_value::<SessionConfig>(duplicate).is_err());
         let mut broadcast = json.clone();
         broadcast["targets"][0]["camera_id"] = 8.into();
-        let error = serde_json::from_value::<SessionConfig>(broadcast).unwrap_err();
+        let error = serde_json::from_value::<SessionConfig>(broadcast)
+            .expect_err("broadcast is not an individual target");
         assert!(error.to_string().contains("7"), "{error}");
         let mut unknown_target = json;
         unknown_target["targets"][0]["unexpected"] = true.into();

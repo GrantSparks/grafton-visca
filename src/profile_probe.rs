@@ -711,9 +711,8 @@ mod tests {
     fn generated_probe_inventory_is_read_only_for_every_builtin_profile() {
         for id in ProfileId::all() {
             let profile = id.spec().expect("built-in profile");
-            let target =
-                TargetRegistration::new(profile.capabilities().default_camera_id.into(), profile)
-                    .expect("target");
+            let target = TargetRegistration::new(profile.capabilities().default_camera_id, profile)
+                .expect("target");
             let mut prepared = 0;
             for entry in BUILTIN_INQUIRIES {
                 let queries = (entry.prepare_probe)(&target)
@@ -753,9 +752,8 @@ mod tests {
     fn argument_samples_use_profile_bounds_and_all_closed_selectors() {
         for id in ProfileId::all() {
             let profile = id.spec().expect("profile");
-            let target =
-                TargetRegistration::new(profile.capabilities().default_camera_id.into(), profile)
-                    .expect("target");
+            let target = TargetRegistration::new(profile.capabilities().default_camera_id, profile)
+                .expect("target");
             let presets = target
                 .profile()
                 .capabilities()
