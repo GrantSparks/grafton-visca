@@ -1472,8 +1472,7 @@ mod tests {
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 profile.clone(),
-            )
-            .expect("valid target registration"),
+            ),
             crate::OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         )

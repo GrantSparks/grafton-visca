@@ -84,6 +84,11 @@ async fn standard_connection() -> Result<(), grafton_visca::Error> {
 
 Use `runtime-smol` with `SmolRuntime`, or use `connect_udp` for UDP.
 The async constructors take an explicit runtime as their last argument.
+TCP and UDP addresses require bracketed IPv6 literals and canonical dotted-quad
+IPv4 literals without leading zeros. Legacy forms such as `192.168.1.010`,
+`127.1` and `0x7f000001` return `InvalidAddress` before name resolution or
+socket creation. Hostnames such as `cam-01.studio` and `10.cams.example` remain
+valid.
 Tokio serial uses `transport-serial-tokio`; `connect_serial(port, baud_rate,
 runtime)` returns the same single-camera `CameraSession<P>` shape.
 
@@ -170,7 +175,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .transports(TransportCompatibility::new().with_tcp(5678))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(timing)
-        .maximum_command_sockets(1)
+        .maximum_command_sockets(grafton_visca::types::CommandSocketCount::ONE)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
         .position_inquiries(None)

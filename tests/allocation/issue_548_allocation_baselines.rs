@@ -305,8 +305,7 @@ assert_generated_inquiry_inventory!(
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
                 .expect("source profile")
-            )
-            .expect("target registration"),
+            ),
             grafton_visca::types::ZoomDomain::Optical
         )
         .expect("normalized inquiry")
@@ -338,8 +337,7 @@ fn representative_typed_requests_encode_without_heap_allocation() {
                 grafton_visca::profiles::PtzOpticsG2,
             >()
             .expect("source profile"),
-        )
-        .expect("target registration"),
+        ),
         PanTiltDirection::Up,
         grafton_visca::types::PanTiltSpeed {
             pan: speed(),
@@ -354,8 +352,7 @@ fn representative_typed_requests_encode_without_heap_allocation() {
                 grafton_visca::profiles::PtzOpticsG2,
             >()
             .expect("source profile"),
-        )
-        .expect("target registration"),
+        ),
         zoom_speed(),
     )
     .expect("profile-aware request");
@@ -368,8 +365,7 @@ fn representative_typed_requests_encode_without_heap_allocation() {
                 grafton_visca::profiles::PtzOpticsG2,
             >()
             .expect("source profile"),
-        )
-        .expect("target registration"),
+        ),
     )
     .expect("profile-safe stop");
 
@@ -499,8 +495,7 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
     let target = grafton_visca::config::TargetRegistration::new(
         grafton_visca::types::IndividualCameraId::CAMERA_1,
         profile,
-    )
-    .expect("target registration");
+    );
     let tuning = OperationalTuning::new();
     let raw = grafton_visca::raw::PlainRequest::new(
         [0x81, 1, 4, 0, 2, 0xff],
@@ -543,7 +538,6 @@ fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile,
         )
-        .expect("target registration")
     });
     for target in &targets {
         let allocations = allocations_during(|| {
@@ -955,8 +949,7 @@ fn targeted_operation_preparation_does_not_build_unused_polling_queries() {
         ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300"),
     ] {
         let target =
-            TargetRegistration::new(grafton_visca::types::IndividualCameraId::CAMERA_1, profile)
-                .expect("target");
+            TargetRegistration::new(grafton_visca::types::IndividualCameraId::CAMERA_1, profile);
         preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
             .expect("warm operation preparation");
         let allocations = allocations_during(|| {

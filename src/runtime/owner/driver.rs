@@ -96,7 +96,7 @@ macro_rules! owner_turn_driver {
         where
             D: $driver,
         {
-            let write_timeout = self.core.state.policy().write_timeout;
+            let write_timeout = self.core.state.facts().write_timeout;
             while let Some(staged) = self.core.next_transmit(&mut effects, self.io.now()) {
                 let result = match self.core.state.prepare_write(&staged) {
                     Ok(write) => self.io.write(driver, write, write_timeout) $($await)*,

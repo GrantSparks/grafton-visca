@@ -435,10 +435,6 @@ mod paused {
                 OperationalTuning::new().with_ack_timeout(Duration::from_millis(1)),
                 // A zero deadline is never a deadline.
                 OperationalTuning::new().with_quick_timeout(Duration::ZERO),
-                // Raises the profile's socket limit.
-                OperationalTuning::new().with_maximum_command_sockets(3),
-                // Zero sockets is not a capacity.
-                OperationalTuning::new().with_maximum_command_sockets(0),
                 // Tuning may only lower the default base retry count of 3.
                 OperationalTuning::new().with_retry_limit(4),
                 // Backoff that is not ordered, with a budget that cannot hold it.

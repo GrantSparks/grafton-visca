@@ -19,7 +19,7 @@ pub struct OperationalTuning {
     command_spacing: Option<Duration>,
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number } | null"))]
     inquiry_spacing: Option<Duration>,
-    maximum_command_sockets: Option<u8>,
+    maximum_command_sockets: Option<crate::CommandSocketCount>,
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number } | null"))]
     ack_timeout: Option<Duration>,
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number } | null"))]
@@ -84,7 +84,10 @@ impl OperationalTuning {
 
     /// Lowers owner socket capacity without exceeding the profile limit.
     #[must_use]
-    pub const fn with_maximum_command_sockets(mut self, maximum: u8) -> Self {
+    pub const fn with_maximum_command_sockets(
+        mut self,
+        maximum: crate::CommandSocketCount,
+    ) -> Self {
         self.maximum_command_sockets = Some(maximum);
         self
     }
@@ -188,14 +191,15 @@ impl OperationalTuning {
     }
 
     /// Lengthens the total retry budget, subject to the profile floor.
+    ///
+    /// Retry bounds may only be lengthened. The profile validates each
+    /// override before preparation, including monotonic-clock limits.
     #[must_use]
     pub const fn with_retry_budget(mut self, value: Duration) -> Self {
         self.retry_budget = Some(value);
         self
     }
 
-    /// Retry bounds may only be lengthened. The profile validates each
-    /// override before preparation, including monotonic-clock limits.
     /// Returns the optional command spacing override.
     #[must_use]
     pub const fn command_spacing(self) -> Option<Duration> {
@@ -210,7 +214,7 @@ impl OperationalTuning {
 
     /// Returns the optional maximum command sockets override.
     #[must_use]
-    pub const fn maximum_command_sockets(self) -> Option<u8> {
+    pub const fn maximum_command_sockets(self) -> Option<crate::CommandSocketCount> {
         self.maximum_command_sockets
     }
 
@@ -305,35 +309,6 @@ impl OperationalTuning {
     }
 }
 
-/// Owner-side reads of the remaining overrides; only preparation and the
-/// owner policy consume them.
-#[cfg(any(feature = "blocking", feature = "async"))]
-impl OperationalTuning {
-    pub(crate) const fn command_spacing_override(self) -> Option<Duration> {
-        self.command_spacing
-    }
-
-    pub(crate) const fn inquiry_spacing_override(self) -> Option<Duration> {
-        self.inquiry_spacing
-    }
-
-    pub(crate) const fn maximum_command_sockets_override(self) -> Option<u8> {
-        self.maximum_command_sockets
-    }
-
-    pub(crate) const fn ack_timeout_override(self) -> Option<Duration> {
-        self.ack_timeout
-    }
-
-    pub(crate) const fn settlement_timeout_override(self) -> Option<Duration> {
-        self.settlement_timeout
-    }
-
-    pub(crate) const fn inquiry_timeout_override(self) -> Option<Duration> {
-        self.inquiry_timeout
-    }
-}
-
 impl OperationalTuning {
     /// Applies the retry-timing overrides to a request's profile retry
     /// bounds. Each override may only lengthen its bound, so a value below the
@@ -361,7 +336,7 @@ mod tests {
         let tuning = OperationalTuning::new()
             .with_command_spacing(duration)
             .with_inquiry_spacing(duration)
-            .with_maximum_command_sockets(1)
+            .with_maximum_command_sockets(crate::types::CommandSocketCount::ONE)
             .with_ack_timeout(duration)
             .with_quick_timeout(duration)
             .with_movement_timeout(duration)
@@ -374,7 +349,10 @@ mod tests {
             .with_initial_retry_backoff(duration)
             .with_maximum_retry_backoff(duration)
             .with_retry_budget(duration);
-        assert_eq!(tuning.maximum_command_sockets(), Some(1));
+        assert_eq!(
+            tuning.maximum_command_sockets(),
+            Some(crate::CommandSocketCount::ONE)
+        );
         assert_eq!(tuning.retry_limit(), Some(2));
         for value in [
             tuning.command_spacing(),
@@ -399,6 +377,14 @@ mod tests {
     #[test]
     fn tuning_persistence_has_fifteen_optional_settings_and_no_unchecked_fields() {
         let empty = OperationalTuning::new();
+        for count in [0, 3] {
+            assert!(
+                serde_json::from_value::<OperationalTuning>(serde_json::json!({
+                    "maximum_command_sockets": count
+                }))
+                .is_err()
+            );
+        }
         assert_eq!(empty, OperationalTuning::default());
         assert_eq!(
             serde_json::from_str::<OperationalTuning>("{}").expect("omitted overrides"),
@@ -420,7 +406,7 @@ mod tests {
             "maximum_retry_backoff": null, "retry_budget": {"secs": 30, "nanos": 0}
         });
         let saved = OperationalTuning::new()
-            .with_maximum_command_sockets(1)
+            .with_maximum_command_sockets(crate::types::CommandSocketCount::ONE)
             .with_quick_timeout(Duration::new(12, 345))
             .with_retry_limit(2)
             .with_retry_budget(Duration::from_secs(30));

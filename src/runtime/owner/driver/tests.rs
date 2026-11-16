@@ -78,7 +78,7 @@ struct State {
 }
 
 impl State {
-    fn policy(&self) -> &Policy {
+    fn facts(&self) -> &Policy {
         &self.policy
     }
 

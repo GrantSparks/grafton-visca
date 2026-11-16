@@ -116,7 +116,7 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
                 .build()
                 .expect("valid timing"),
         )
-        .maximum_command_sockets(1)
+        .maximum_command_sockets(grafton_visca::types::CommandSocketCount::ONE)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
         .position_inquiries(None)
@@ -165,7 +165,7 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
                 .build()
                 .expect("valid timing"),
         )
-        .maximum_command_sockets(1)
+        .maximum_command_sockets(grafton_visca::types::CommandSocketCount::ONE)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
         .position_inquiries(None)

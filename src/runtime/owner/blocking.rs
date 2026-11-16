@@ -18,8 +18,9 @@
 //! short: a [`READY_PROBE`] when a later source in the order is already ready,
 //! otherwise at most a [`CONTROL_SLICE`]. A read that times out leaves the
 //! receive pending and the same pass continues down the order, exactly as a
-//! pending receive future does; only a full read timeout without data, or an
-//! eager transport that answers "no data" before its timeout, is an idle
+//! pending receive future does; only a full read timeout without data and
+//! without a ready boundary, or an eager transport that answers "no data"
+//! before its timeout, is an idle
 //! receive event (#675). One read keeps the worker away from its boundary
 //! lanes for at most one slice. Queued boundaries, writes and protocol
 //! eligibility can add to a control or STOP request's total latency.
@@ -56,8 +57,8 @@ pub(crate) const READY_PROBE: Duration = Duration::from_millis(1);
 
 /// Blocking transport/framing driver owned by the worker thread.
 pub(crate) trait BlockingOwnerDriver: Send + RetainedStreamInput {
-    /// Write one framed request, bounded by the transport's write timeout.
-    fn write(&mut self, write: WireWrite<'_>) -> WriteOutcome;
+    /// Write one framed request, bounded by the owner's write timeout.
+    fn write(&mut self, write: WireWrite<'_>, write_timeout: Duration) -> WriteOutcome;
 
     /// Return complete frames the framer still holds, or read once for at
     /// most `timeout`. A read that times out reports [`OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)`].
@@ -99,11 +100,11 @@ impl BlockingOwnerIo {
         &mut self,
         driver: &mut D,
         write: WireWrite<'_>,
-        _write_timeout: Duration,
+        write_timeout: Duration,
     ) -> WriteOutcome {
         // Native transports bound their write directly; no future or
         // executor is introduced by the common turn-driver expansion.
-        driver.write(write)
+        driver.write(write, write_timeout)
     }
 
     /// Select one event in the planned order. A pass polls every source once;
@@ -118,13 +119,14 @@ impl BlockingOwnerIo {
     where
         D: BlockingOwnerDriver,
     {
-        let read_timeout = core.state.policy().read_timeout;
-        let frame_limit = core.state.policy().limits.frames_per_receive;
+        let read_timeout = core.state.facts().read_timeout;
+        let frame_limit = core.state.facts().limits.frames_per_receive;
         // Time this selection has spent reading without data. Like the async
         // read under its timeout, it restarts with every selection.
         let mut idle = Duration::ZERO;
         loop {
             let mut read = false;
+            let mut idle_elapsed_at = None;
             for (position, source) in selection.order().enumerate() {
                 let event = match source {
                     Source::Receive => match selection.receive {
@@ -150,7 +152,7 @@ impl BlockingOwnerIo {
                                     self.clock.now(),
                                 )
                             };
-                            receive(
+                            match receive(
                                 &mut core.state,
                                 driver,
                                 &self.clock,
@@ -160,7 +162,22 @@ impl BlockingOwnerIo {
                                     read_timeout,
                                 },
                                 &mut idle,
-                            )
+                            ) {
+                                ReadVerdict::Event {
+                                    result,
+                                    received_at,
+                                } => Some(OwnerEvent::Receive {
+                                    result,
+                                    received_at,
+                                }),
+                                ReadVerdict::Pending {
+                                    idle_elapsed,
+                                    received_at,
+                                } => {
+                                    idle_elapsed_at = idle_elapsed.then_some(received_at);
+                                    None
+                                }
+                            }
                         }
                     },
                     Source::Timer => {
@@ -171,6 +188,19 @@ impl BlockingOwnerIo {
                 if let Some(event) = event {
                     return event;
                 }
+            }
+            if let Some(received_at) = idle_elapsed_at {
+                // A timed-out read remains pending while the same pass polls
+                // its boundaries. Only an otherwise idle pass lets the read
+                // timeout win, matching the async operation-versus-lanes race.
+                // Preserve the read's sampled instant for raw hold proofs;
+                // polling boundary lanes supplies no later receive evidence.
+                return OwnerEvent::Receive {
+                    result: OwnerReceive::NoProgress(
+                        crate::runtime::owner::NoProgressReason::IdleTimeout,
+                    ),
+                    received_at,
+                };
             }
             if !read {
                 // Receive is paced and no other source is ready: wait for the
@@ -236,15 +266,27 @@ struct ReadBudget {
     read_timeout: Duration,
 }
 
-/// One bounded read. Returns `None` while the receive is still pending: the
-/// read waited out its slice and the selection's read timeout has not elapsed.
+/// A complete receive event or a read still pending after its bounded slice.
+enum ReadVerdict {
+    Event {
+        result: OwnerReceive,
+        received_at: Instant,
+    },
+    Pending {
+        idle_elapsed: bool,
+        received_at: Instant,
+    },
+}
+
+/// One bounded read. A timed-out slice stays pending until the selection has
+/// polled its remaining sources, even when the full read timeout has elapsed.
 fn receive<D>(
     state: &mut OwnerState,
     driver: &mut D,
     clock: &Clock,
     budget: ReadBudget,
     idle: &mut Duration,
-) -> Option<OwnerEvent>
+) -> ReadVerdict
 where
     D: BlockingOwnerDriver,
 {
@@ -254,7 +296,7 @@ where
         read_timeout,
     } = budget;
     let started = clock.now();
-    let mut result = driver.receive(state.buffers(), frame_limit, timeout);
+    let result = driver.receive(state.buffers(), frame_limit, timeout);
     // Sampled after the read returns: only this instant proves that input was
     // sampled at or after a raw hold deadline.
     let received_at = clock.now();
@@ -266,17 +308,17 @@ where
         *idle = idle.saturating_add(waited);
         // A read that answered sooner than asked is an eager idle transport,
         // whose idle answer is itself the receive event and is paced (#675).
-        if waited >= timeout && *idle < read_timeout {
-            return None;
-        }
         if waited >= timeout {
-            result = OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::IdleTimeout);
+            return ReadVerdict::Pending {
+                idle_elapsed: *idle >= read_timeout,
+                received_at,
+            };
         }
     }
-    Some(OwnerEvent::Receive {
+    ReadVerdict::Event {
         result,
         received_at,
-    })
+    }
 }
 
 /// Whether the planned timer is due at `now`.

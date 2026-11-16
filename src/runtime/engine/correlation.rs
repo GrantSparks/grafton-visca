@@ -2,7 +2,7 @@
 use std::{collections::BTreeMap, sync::LazyLock, time::Instant};
 
 use super::{
-    holds::{self, HoldTable, StreamScope},
+    holds::{self, HoldTable, Scope, StreamScope},
     CompletionSockets, EnvelopeKind, PendingSocketlessCompletions, RawHold, RawHoldKey,
     RawHoldScope, RawReleaseGate, RequestId, StreamLedger, TransportKind,
 };
@@ -12,7 +12,7 @@ use crate::target::{PerTarget, TargetSlot};
 pub(super) struct CompletionLearning {
     /// Largest dispatched or camera-proven physical socket capacity. Retuning
     /// cannot erase the possible execution of an older owed ACK.
-    pub(super) socket_capacity_seen: u8,
+    pub(super) socket_capacity_seen: Option<crate::CommandSocketCount>,
     pub(super) completion_sockets: CompletionSockets,
     pub(super) unlearned_completions: u32,
     pub(super) pending_socketless_completions: Option<PendingSocketlessCompletions>,
@@ -21,7 +21,7 @@ pub(super) struct CompletionLearning {
 impl Default for CompletionLearning {
     fn default() -> Self {
         Self {
-            socket_capacity_seen: 0,
+            socket_capacity_seen: None,
             completion_sockets: CompletionSockets::Unknown,
             unlearned_completions: 0,
             pending_socketless_completions: None,
@@ -103,6 +103,23 @@ pub(super) enum CorrelationState<'a> {
     RawDatagram(&'a mut HoldTable<RawHoldScope>),
     RawStream(&'a mut StreamCorrelation),
 }
+
+impl CorrelationState<'_> {
+    pub(super) fn extend_hold(
+        &mut self,
+        target: TargetSlot,
+        scope: StreamScope,
+        until: Instant,
+        owner: Option<RequestId>,
+    ) {
+        match self {
+            Self::RawDatagram(holds) => holds.extend(target, scope.raw(), until, owner),
+            Self::RawStream(stream) => stream.holds.extend(target, scope, until, owner),
+            Self::Sequenced => {}
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum CorrelationRef<'a> {
     Sequenced,

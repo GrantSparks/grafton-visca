@@ -636,7 +636,7 @@ mod dispute_regressions {
                     .build()
                     .expect("short STOP timing"),
             )
-            .maximum_command_sockets(2)
+            .maximum_command_sockets(grafton_visca::types::CommandSocketCount::TWO)
             .supports_operation_complete(false)
             .supports_command_cancel(true)
             .position_inquiries(base.position_inquiries())

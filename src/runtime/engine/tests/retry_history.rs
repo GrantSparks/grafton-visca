@@ -464,12 +464,13 @@ fn a_later_camera_rejection_cannot_erase_an_earlier_possible_effect() {
 }
 
 #[test]
-fn the_bounded_history_keeps_the_request_sequence_across_retries_and_cancellation() {
+fn sequence_slots_keep_the_request_sequence_across_retries_and_cancellation() {
+    const RETRIES: u32 = 10;
     let (mut engine, id, start) = fixture_with_retry(
         History::NeverWritten,
         EnvelopeKind::Sony,
         RetryPolicy {
-            max_retries: u32::try_from(MAX_SEQUENCE_HISTORY + 2).unwrap(),
+            max_retries: RETRIES,
             initial_backoff: Duration::from_millis(1),
             maximum_backoff: Duration::from_millis(1),
             ..retrying()
@@ -479,7 +480,7 @@ fn the_bounded_history_keeps_the_request_sequence_across_retries_and_cancellatio
     let first = dispatch(&mut engine, id, start);
     send_ok(&mut engine, &first, Some(sequence), start);
     let mut now = start;
-    for _ in 0..MAX_SEQUENCE_HISTORY + 2 {
+    for _ in 0..RETRIES {
         let rejected = engine.handle(
             frame(
                 1,
@@ -497,7 +498,7 @@ fn the_bounded_history_keeps_the_request_sequence_across_retries_and_cancellatio
         now = ready_at;
         let entry = engine.entry(id).unwrap();
         assert_eq!(entry.current_sequence(), Some(sequence));
-        assert_eq!(entry.sequence_history.len(), 1);
+        assert_eq!(entry.sequences.records().count(), 1);
     }
     engine.handle(
         frame(
@@ -528,7 +529,11 @@ fn the_bounded_history_keeps_the_request_sequence_across_retries_and_cancellatio
             .all(|effect| !matches!(effect, Effect::Transmit { .. })));
         let entry = engine.entry(id).unwrap();
         assert_eq!(entry.current_sequence(), Some(sequence));
-        assert_eq!(entry.sequence_history.len(), 2);
+        assert_eq!(
+            entry.sequences[CorrelationKind::Cancellation],
+            Some(sequence + 1)
+        );
+        assert_eq!(entry.sequences.records().count(), 2);
         engine.assert_invariants().unwrap();
     }
 }

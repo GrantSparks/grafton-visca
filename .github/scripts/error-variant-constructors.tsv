@@ -1,5 +1,7 @@
 # Variant	Production source	Unique construction expression (literal contents ignored)
 ConnectionFailed	src/transport/connect.rs	Error::connection_failed(endpoint.to_owned(), std::sync::Arc::new(error))
+CameraNotAddressed	src/session_config.rs	Error::CameraNotAddressed { port: bus.port.clone().into(), camera: missing, addressed, }
+SerialChainTooLong	src/transport/serial/handshake.rs	return Err(Error::SerialChainTooLong { port: self.port.clone().into(), reported: camera_count, });
 ConnectionClosed	src/error.rs	Self::ConnectionClosed { source }
 CommandPending	src/command/response/types.rs	Response::CmdAck { .. } => Err(Error::CommandPending)
 InvalidResponse	src/command/response/types.rs	Response::Unknown { data, .. } => Err(Error::InvalidResponse {

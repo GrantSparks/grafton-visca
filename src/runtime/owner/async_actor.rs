@@ -336,11 +336,7 @@ impl AsyncOwnerHandle {
     /// first. The work is polled first, so one ready at the deadline wins.
     async fn until<T>(&self, deadline: Instant, work: impl Future<Output = T>) -> Option<T> {
         let remaining = deadline.saturating_duration_since(self.now());
-        future::or(async { Some(work.await) }, async {
-            self.sleep(remaining).await;
-            None
-        })
-        .await
+        crate::timeout::within(work, self.sleep(remaining)).await
     }
 
     /// The owner clock every handle wait is measured against.
@@ -370,12 +366,10 @@ impl AsyncOwnerHandle {
             while self.core.actor_alive.recv_async().await.is_ok() {}
             TerminalWake::OwnerGone
         };
-        let timer = async {
-            self.sleep(deadline.saturating_duration_since(self.now()))
-                .await;
-            TerminalWake::Deadline
-        };
-        future::or(terminal, future::or(owner_gone, timer)).await
+        let timer = self.sleep(deadline.saturating_duration_since(self.now()));
+        crate::timeout::within(future::or(terminal, owner_gone), timer)
+            .await
+            .unwrap_or(TerminalWake::Deadline)
     }
 
     async fn next_observation(
@@ -401,15 +395,12 @@ impl AsyncOwnerHandle {
             while self.core.actor_alive.recv_async().await.is_ok() {}
             ObservationWake::OwnerGone
         };
-        let timer = async {
-            self.sleep(remaining).await;
-            ObservationWake::Deadline
-        };
-        future::or(
-            terminal,
-            future::or(cancellation, future::or(owner_gone, timer)),
+        crate::timeout::within(
+            future::or(terminal, future::or(cancellation, owner_gone)),
+            self.sleep(remaining),
         )
         .await
+        .unwrap_or(ObservationWake::Deadline)
     }
 
     /// Admits `request` under the inquiry or completion timeout its own
@@ -583,9 +574,9 @@ impl<R: Executor> AsyncOwnerIo<R> {
     ) -> OwnerEvent {
         let runtime = &self.runtime;
         let now = Executor::now(runtime.as_ref());
-        let read_timeout = core.state.policy().read_timeout;
+        let read_timeout = core.state.facts().read_timeout;
 
-        let frame_limit = core.state.policy().limits.frames_per_receive;
+        let frame_limit = core.state.facts().limits.frames_per_receive;
         let receive = async {
             match selection.receive {
                 // The exact no-input probe for this release set is
@@ -680,7 +671,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
     where
         D: AsyncOwnerDriver,
     {
-        let mut receive = pin!(driver.receive(buffers, frame_limit));
+        let receive = driver.receive(buffers, frame_limit);
         let deadline = match crate::timeout::instant_after(
             Executor::now(runtime),
             read_timeout,
@@ -694,28 +685,24 @@ impl<R: Executor> AsyncOwnerIo<R> {
             }
         };
         idle_after_timeout.as_mut().reset(deadline);
-        future::poll_fn(|context| match receive.as_mut().poll(context) {
-            Poll::Ready(result) => {
-                let no_input = matches!(
-                    result,
-                    OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
-                );
-                // A custom transport may enforce the same timeout itself.
-                // Its left-biased idle answer then wins the race, but it has
-                // already waited the full bound and needs no extra pause.
-                if no_input && idle_after_timeout.as_mut().poll(context).is_ready() {
-                    Poll::Ready(OwnerReceive::NoProgress(
-                        crate::runtime::owner::NoProgressReason::IdleTimeout,
-                    ))
+        let received = crate::timeout::within(receive, idle_after_timeout.as_mut()).await;
+        match received {
+            Some(OwnerReceive::NoProgress(super::NoProgressReason::EagerIdle)) => {
+                // A custom transport may enforce the same timeout itself. Its
+                // idle answer needs no extra pause when the owner timer is ready.
+                let elapsed = future::poll_fn(|context| {
+                    Poll::Ready(idle_after_timeout.as_mut().poll(context).is_ready())
+                })
+                .await;
+                OwnerReceive::NoProgress(if elapsed {
+                    super::NoProgressReason::IdleTimeout
                 } else {
-                    Poll::Ready(result)
-                }
+                    super::NoProgressReason::EagerIdle
+                })
             }
-            Poll::Pending => idle_after_timeout.as_mut().poll(context).map(|()| {
-                OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::IdleTimeout)
-            }),
-        })
-        .await
+            Some(result) => result,
+            None => OwnerReceive::NoProgress(super::NoProgressReason::IdleTimeout),
+        }
     }
 
     /// Run one transport write under the session's write timeout so a stalled
@@ -735,13 +722,8 @@ impl<R: Executor> AsyncOwnerIo<R> {
     where
         D: AsyncOwnerDriver,
     {
-        // A left-biased race, matching the actor's other bounded waits: the
-        // write is polled first, so a write that completes always wins and only
-        // one that outlasts `write_timeout` yields the failure branch. Using
-        // `future::or` over `Executor::timeout` keeps the spawned actor future
-        // `Send` for any lifetime (the trait's `timeout` return type binds the
-        // wrapped future to the executor borrow's lifetime, which a spawn cannot
-        // prove generally); both are executor-neutral and behave identically.
+        // The shared timeout helper keeps the operation-first rule independent
+        // of the executor borrow's lifetime, so this spawned future stays Send.
         let deadline = match crate::timeout::instant_after(
             Executor::now(runtime),
             write_timeout,
@@ -751,11 +733,9 @@ impl<R: Executor> AsyncOwnerIo<R> {
             Err(error) => return WriteOutcome::NotSent(error),
         };
         timeout.as_mut().reset(deadline);
-        let timed_out = async {
-            timeout.as_mut().await;
-            WriteOutcome::Failed(Error::io_timeout())
-        };
-        future::or(driver.write(write), timed_out).await
+        crate::timeout::within(driver.write(write), timeout.as_mut())
+            .await
+            .unwrap_or_else(|| WriteOutcome::Failed(Error::io_timeout()))
     }
 }
 

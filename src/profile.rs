@@ -925,7 +925,7 @@ pub(crate) struct ProfileFacts {
     pub(crate) transports: TransportCompatibility,
     pub(crate) envelope: ProfileEnvelope,
     pub(crate) timing: ProfileTiming,
-    pub(crate) maximum_command_sockets: u8,
+    pub(crate) maximum_command_sockets: crate::CommandSocketCount,
     pub(crate) supports_operation_complete: bool,
     pub(crate) supports_command_cancel: bool,
     // Each settlement axis uses its public inquiry's canonical gate. In
@@ -1241,7 +1241,7 @@ impl ProfileSpec {
 
     /// Returns the maximum number of camera command sockets.
     #[must_use]
-    pub const fn maximum_command_sockets(&self) -> u8 {
+    pub const fn maximum_command_sockets(&self) -> crate::CommandSocketCount {
         self.facts.maximum_command_sockets
     }
 
@@ -1391,7 +1391,7 @@ impl ProfileSpec {
         }
         if tuning
             .maximum_command_sockets()
-            .is_some_and(|value| value == 0 || value > self.facts.maximum_command_sockets)
+            .is_some_and(|value| value > self.facts.maximum_command_sockets)
         {
             return Err(Error::InvalidRequest {
                 reason: "operational tuning cannot raise the profile socket limit".into(),
@@ -1541,12 +1541,6 @@ impl ProfileFacts {
             ));
         }
         self.timing = self.timing.validate()?;
-        if !(1..=2).contains(&self.maximum_command_sockets) {
-            return Err(invalid_profile_fields(
-                &["maximum_command_sockets"],
-                "must be one or two",
-            ));
-        }
         if self.capabilities.model_name.trim().is_empty() {
             return Err(invalid_profile_fields(
                 &["capabilities.model_name"],
@@ -1767,7 +1761,7 @@ pub struct ProfileSpecBuilder {
     transports: Option<TransportCompatibility>,
     envelope: Option<ProfileEnvelope>,
     timing: Option<ProfileTiming>,
-    maximum_command_sockets: Option<u8>,
+    maximum_command_sockets: Option<crate::CommandSocketCount>,
     supports_operation_complete: Option<bool>,
     supports_command_cancel: Option<bool>,
     position_inquiries: Option<Option<AffectedAxes>>,
@@ -1805,7 +1799,7 @@ impl ProfileSpecBuilder {
 
     /// Sets the maximum command socket count.
     #[must_use]
-    pub fn maximum_command_sockets(mut self, maximum: u8) -> Self {
+    pub fn maximum_command_sockets(mut self, maximum: crate::CommandSocketCount) -> Self {
         self.maximum_command_sockets = Some(maximum);
         self
     }
@@ -2055,7 +2049,7 @@ mod tests {
                     .build()
                     .expect("valid timing"),
             )
-            .maximum_command_sockets(1)
+            .maximum_command_sockets(crate::types::CommandSocketCount::ONE)
             .supports_operation_complete(false)
             .supports_command_cancel(false)
             .position_inquiries(AffectedAxes::PAN_TILT | AffectedAxes::ZOOM | AffectedAxes::FOCUS)
@@ -2078,7 +2072,7 @@ mod tests {
                     .build()
                     .expect("valid timing"),
             )
-            .maximum_command_sockets(1)
+            .maximum_command_sockets(crate::types::CommandSocketCount::ONE)
             .supports_operation_complete(false)
             .supports_command_cancel(false)
             .position_inquiries(None)
@@ -2434,6 +2428,79 @@ mod tests {
     }
 
     #[test]
+    fn extended_speed_ranges_require_the_variable_speed_fact() {
+        for codec in [PanTiltWireCodec::StandardVisca, PanTiltWireCodec::SonyFr7] {
+            for pan_axis in [true, false] {
+                let mut caps = valid_runtime_capabilities();
+                let pan_tilt = caps.pan_tilt.as_mut().expect("pan/tilt");
+                pan_tilt.coordinates =
+                    conversion(CoordinateSystem::SignedCentered, codec, 10.0, 10.0);
+                let field = if pan_axis {
+                    pan_tilt.pan_speed = CapabilityRange::<u8>::new(1, 50);
+                    "capabilities.pan_tilt.pan_speed"
+                } else {
+                    pan_tilt.tilt_speed = CapabilityRange::<u8>::new(1, 50);
+                    "capabilities.pan_tilt.tilt_speed"
+                };
+                let error = runtime_builder(caps.clone())
+                    .build()
+                    .expect_err("unreachable speed range");
+                let message = error.to_string();
+                assert!(message.contains(field), "{message}");
+                assert!(
+                    message.contains("capabilities.pan_tilt.variable_speed"),
+                    "{message}"
+                );
+                caps.pan_tilt.as_mut().expect("pan/tilt").variable_speed = true;
+                let message = runtime_builder(caps.clone())
+                    .build()
+                    .expect_err("the fine-mode setter needs its permission")
+                    .to_string();
+                assert!(message.contains(field), "{message}");
+                assert!(message.contains("capabilities.typed_support"), "{message}");
+                caps.typed_support = caps.typed_support.union(TypedSupportSet::from_surface(
+                    TypedSupportSurface::PanTiltSpeedMode,
+                ));
+                runtime_builder(caps)
+                    .build()
+                    .expect("a variable-speed profile can reach the fine range");
+            }
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn persisted_extended_speed_ranges_require_the_variable_speed_fact() {
+        let profile = runtime_builder(valid_runtime_capabilities())
+            .build()
+            .expect("valid profile");
+        for field in ["pan_speed", "tilt_speed"] {
+            let mut saved = serde_json::to_value(&profile).expect("serialize profile");
+            saved["capabilities"]["pan_tilt"][field] = serde_json::json!({"min": 1, "max": 50});
+            let message = serde_json::from_value::<ProfileSpec>(saved.clone())
+                .expect_err("reject unreachable speed ranges on load")
+                .to_string();
+            assert!(
+                message.contains(&format!("capabilities.pan_tilt.{field}")),
+                "{message}"
+            );
+            assert!(
+                message.contains("capabilities.pan_tilt.variable_speed"),
+                "{message}"
+            );
+            saved["capabilities"]["pan_tilt"]["variable_speed"] = serde_json::json!(true);
+            let message = serde_json::from_value::<ProfileSpec>(saved)
+                .expect_err("reject a fine range without the speed-mode permission")
+                .to_string();
+            assert!(
+                message.contains(&format!("capabilities.pan_tilt.{field}")),
+                "{message}"
+            );
+            assert!(message.contains("capabilities.typed_support"), "{message}");
+        }
+    }
+
+    #[test]
     fn tuning_cannot_weaken_pacing_or_raise_socket_capacity() {
         let profile = runtime_builder(valid_runtime_capabilities())
             .build()
@@ -2444,7 +2511,10 @@ mod tests {
             )
             .is_err());
         assert!(profile
-            .validate_tuning(OperationalTuning::new().with_maximum_command_sockets(2))
+            .validate_tuning(
+                OperationalTuning::new()
+                    .with_maximum_command_sockets(crate::types::CommandSocketCount::TWO)
+            )
             .is_err());
         assert!(profile
             .validate_tuning(OperationalTuning::new().with_ack_timeout(Duration::from_nanos(1)))
@@ -2617,7 +2687,7 @@ mod tests {
                     .build()
                     .expect("valid timing"),
             )
-            .maximum_command_sockets(1)
+            .maximum_command_sockets(crate::types::CommandSocketCount::ONE)
             .supports_operation_complete(false)
             .supports_command_cancel(false)
             .position_inquiries(AffectedAxes::PAN_TILT | AffectedAxes::ZOOM | AffectedAxes::FOCUS)
@@ -2873,8 +2943,7 @@ mod tests {
     #[test]
     fn coordinate_conversion_uses_selected_bounds_and_one_endpoint_policy() {
         let spec = ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7");
-        let desktop = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, spec)
-            .expect("target");
+        let desktop = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, spec);
         let ceiling = desktop
             .clone()
             .with_mount(crate::MountPosition::Ceiling)
@@ -2925,8 +2994,7 @@ mod tests {
         let target = crate::TargetRegistration::new(
             crate::IndividualCameraId::CAMERA_1,
             runtime_builder(caps).build().expect("unsigned profile"),
-        )
-        .expect("target");
+        );
         assert_eq!(
             target
                 .convert_pan_tilt_degrees(0.0, 0.0)
@@ -3051,8 +3119,7 @@ mod tests {
             .supports_operation_complete(true)
             .build()
             .expect("command-only digital zoom profile");
-        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
-            .expect("target");
+        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
         let request = crate::command::zoom::SetNormalized::for_target(
             &target,
             crate::units::UnitInterval::MAX,
@@ -3485,11 +3552,13 @@ mod tests {
         assert_identity_mismatch!("timing", |builder: ProfileSpecBuilder| builder
             .timing(altered_timing));
         assert_identity_mismatch!("maximum_command_sockets", |builder: ProfileSpecBuilder| {
-            builder.maximum_command_sockets(if base.maximum_command_sockets() == 1 {
-                2
-            } else {
-                1
-            })
+            builder.maximum_command_sockets(
+                if base.maximum_command_sockets() == crate::CommandSocketCount::ONE {
+                    crate::CommandSocketCount::TWO
+                } else {
+                    crate::CommandSocketCount::ONE
+                },
+            )
         });
         assert_identity_mismatch!(
             "supports_operation_complete",
@@ -3612,8 +3681,7 @@ mod tests {
         caps.presets.as_mut().expect("presets").highest = 0;
         let profile = runtime_builder(caps).build().expect("preset zero");
         let registration =
-            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
-                .expect("target");
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
         let set = |number| {
             crate::Request::validate_for_target(
                 &crate::request::builtin::PresetSet::new(
@@ -3730,6 +3798,12 @@ mod tests {
     fn grouped_profile_persistence_requires_current_keys_and_validates_values() {
         let base = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
         let value = serde_json::to_value(&base).expect("serialize");
+        for count in [0, 3] {
+            let mut invalid = value.clone();
+            invalid["maximum_command_sockets"] = serde_json::json!(count);
+            assert!(serde_json::from_value::<ProfileFacts>(invalid.clone()).is_err());
+            assert!(serde_json::from_value::<ProfileSpec>(invalid).is_err());
+        }
         for (path, key) in [
             ("/capabilities", "focus"),
             ("/capabilities/zoom", "optical_ratio"),

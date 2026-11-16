@@ -41,13 +41,12 @@ fn queued_mode_refusal(invalidate: bool) {
     let registration = TargetRegistration::new(
         crate::IndividualCameraId::CAMERA_1,
         ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
-    )
-    .unwrap();
+    );
     let mut policy = owner_policy(EnvelopeKind::Sony);
     policy.targets[TargetSlot::CAMERA_1]
         .as_mut()
         .unwrap()
-        .command_sockets = 1;
+        .command_sockets = crate::types::CommandSocketCount::ONE;
     let mut state = OwnerState::new(policy, Instant::now()).unwrap();
     let initial = Instant::now();
     let _enabled = sent(
@@ -169,6 +168,91 @@ fn queued_mode_refusal(invalidate: bool) {
 }
 
 #[test]
+fn a_non_fr7_codec_requires_the_confirmed_fine_mode_for_fast_drives() {
+    let mut facts = crate::profiles::ProfileId::SonyFr7.raw_facts();
+    facts.capabilities.profile_id = None;
+    facts.capabilities.pan_tilt.as_mut().unwrap().coordinates =
+        crate::PanTiltCoordinateConversion::new(
+            crate::capabilities::CoordinateSystem::SignedCentered,
+            crate::capabilities::PanTiltWireCodec::StandardVisca,
+            16.0,
+            16.0,
+        )
+        .unwrap();
+    let pan_tilt = facts.capabilities.pan_tilt.as_mut().unwrap();
+    pan_tilt.pan_range = crate::capabilities::CapabilityRange::<i32>::new(-160, 160);
+    pan_tilt.tilt_ranges = crate::capabilities::TiltRanges::Single(
+        crate::capabilities::CapabilityRange::<i32>::new(-80, 80),
+    );
+    let registration = TargetRegistration::new(
+        crate::IndividualCameraId::CAMERA_1,
+        ProfileSpec::from_facts(facts).unwrap(),
+    );
+    let initial = Instant::now();
+    let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), initial).unwrap();
+    let request = drive_request(&registration, OperationalTuning::new());
+    let permit = state.permits().try_acquire(request.context()).unwrap();
+    let (input, observer, _) = super::super::stage_admission(&mut state, request, permit);
+    let effects = input.complete(&mut state, initial);
+    for effect in effects {
+        if let AppliedEffect::Transmit(write) = state.apply_effect(effect, initial) {
+            let error = state
+                .prepare_write(&write)
+                .expect_err("fine mode is unconfirmed");
+            assert!(error.to_string().contains("pan/tilt speeds above 24"));
+            assert!(!error.to_string().contains("Sony"));
+            let effects = state.finish_write(&write, WriteOutcome::NotSent(error), initial);
+            drain(&mut state, effects, None, initial);
+        }
+    }
+    assert!(matches!(
+        observer.try_recv(),
+        Some(RuntimeOutcome::Command(CommandOutcome::Failed(_)))
+    ));
+    let now = initial + Duration::from_secs(1);
+    let _mode = sent(
+        &mut state,
+        mode_request(&registration, PanTiltSpeedMode::Fine50),
+        Some(1),
+        now,
+    );
+    apply(
+        &mut state,
+        frame(
+            Some(1),
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        now,
+    );
+    apply(
+        &mut state,
+        frame(
+            Some(1),
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        now,
+    );
+    let request = drive_request(&registration, OperationalTuning::new());
+    let permit = state.permits().try_acquire(request.context()).unwrap();
+    let (input, _observer, _) = super::super::stage_admission(&mut state, request, permit);
+    let mut accepted = false;
+    let now = now + Duration::from_secs(1);
+    for effect in input.complete(&mut state, now) {
+        if let AppliedEffect::Transmit(write) = state.apply_effect(effect, now) {
+            state
+                .prepare_write(&write)
+                .expect("confirmed fine mode permits a fast drive with any codec");
+            accepted = true;
+        }
+    }
+    assert!(accepted, "the fast drive reaches the write boundary");
+}
+
+#[test]
 fn a_queued_drive_observes_the_new_applied_normal_mode_at_dispatch() {
     queued_mode_refusal(false);
 }
@@ -184,8 +268,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
     let spacing = profile.timing().command_spacing();
     let ack_timeout = profile.timing().ack_timeout();
     assert!(spacing < ack_timeout);
-    let registration =
-        TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile).unwrap();
+    let registration = TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
     let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
     let initial = Instant::now();
     let _enabled = sent(

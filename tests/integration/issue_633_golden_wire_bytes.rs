@@ -67,8 +67,7 @@ fn drive(direction: PanTiltDirection) -> grafton_visca::command::pan_tilt::Drive
                 grafton_visca::profiles::PtzOpticsG2,
             >()
             .expect("source profile"),
-        )
-        .expect("target registration"),
+        ),
         direction,
         grafton_visca::types::PanTiltSpeed {
             pan: pan_speed(PAN_SPEED_MAX),
@@ -173,8 +172,7 @@ fn pan_tilt_stop_home_and_reset_match_golden_frames() {
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
                 .expect("source profile"),
-            )
-            .expect("target registration"),
+            ),
         )
         .expect("profile-safe stop"),
         patterns::pan_tilt::STOP,
@@ -224,8 +222,7 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
         &grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
-        )
-        .expect("target registration"),
+        ),
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(10.0).expect("valid degrees"),
             tilt: Degrees::new(-5.0).expect("valid degrees"),
@@ -246,8 +243,7 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
         &grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
-        )
-        .expect("target registration"),
+        ),
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(10.0).expect("valid degrees"),
             tilt: Degrees::new(-5.0).expect("valid degrees"),
@@ -273,8 +269,7 @@ fn g2_relative_negative_45_degrees_matches_the_signed_offset_literal() {
     let target = grafton_visca::config::TargetRegistration::new(
         grafton_visca::types::IndividualCameraId::CAMERA_1,
         ptz_optics_profile(),
-    )
-    .expect("G2 registration");
+    );
     let relative = grafton_visca::command::pan_tilt::Relative::for_target(
         &target,
         grafton_visca::types::PanTiltPosition {
@@ -351,8 +346,7 @@ fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
             &grafton_visca::config::TargetRegistration::new(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.clone(),
-            )
-            .expect("target registration"),
+            ),
             corner,
             grafton_visca::types::PanTiltPosition {
                 pan: Degrees::new(10.0).expect("valid degrees"),
@@ -366,8 +360,7 @@ fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
             &grafton_visca::config::TargetRegistration::new(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.clone(),
-            )
-            .expect("target registration"),
+            ),
             corner,
         )
         .expect("standard VISCA limit clear");
@@ -397,8 +390,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         &grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
-        )
-        .expect("target registration"),
+        ),
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
             tilt: Degrees::new(15.0).expect("valid degrees"),
@@ -418,8 +410,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         &grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
-        )
-        .expect("target registration"),
+        ),
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
             tilt: Degrees::new(15.0).expect("valid degrees"),
@@ -439,8 +430,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         &grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
-        )
-        .expect("target registration"),
+        ),
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
             tilt: Degrees::new(15.0).expect("valid degrees"),
@@ -464,8 +454,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         &grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
-        )
-        .expect("target registration"),
+        ),
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
             tilt: Degrees::new(15.0).expect("valid degrees"),
@@ -489,8 +478,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         &grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
-        )
-        .expect("target registration"),
+        ),
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
             tilt: Degrees::new(15.0).expect("valid degrees"),
@@ -514,8 +502,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         &grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
-        )
-        .expect("target registration"),
+        ),
         PanTiltLimitCorner::UpRight,
         grafton_visca::types::PanTiltPosition {
             pan: Degrees::new(45.0).expect("valid degrees"),
@@ -536,8 +523,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         &grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
             profile.clone(),
-        )
-        .expect("target registration"),
+        ),
         PanTiltLimitCorner::UpRight,
     )
     .expect("BRC-300 limit clear");
@@ -599,8 +585,7 @@ fn zoom_drive_and_direct_target_match_golden_frames() {
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
                 .expect("source profile"),
-            )
-            .expect("target registration"),
+            ),
             speed,
         )
         .expect("profile-aware request"),
@@ -615,8 +600,7 @@ fn zoom_drive_and_direct_target_match_golden_frames() {
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
                 .expect("source profile"),
-            )
-            .expect("target registration"),
+            ),
             speed,
         )
         .expect("profile-aware request"),
@@ -660,8 +644,7 @@ fn focus_drive_and_direct_target_match_golden_frames() {
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
                 .expect("source profile"),
-            )
-            .expect("target registration"),
+            ),
             speed,
         )
         .expect("profile-aware request"),
@@ -676,8 +659,7 @@ fn focus_drive_and_direct_target_match_golden_frames() {
                     grafton_visca::profiles::PtzOpticsG2,
                 >()
                 .expect("source profile"),
-            )
-            .expect("target registration"),
+            ),
             speed,
         )
         .expect("profile-aware request"),
@@ -720,8 +702,7 @@ fn preset_and_power_commands_match_golden_frames() {
             &grafton_visca::config::TargetRegistration::new(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.clone(),
-            )
-            .expect("target registration"),
+            ),
             slot,
         )
         .expect("profile declares preset recall"),
@@ -788,8 +769,7 @@ fn preset_slot_255_stays_terminated() {
             &grafton_visca::config::TargetRegistration::new(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
                 profile.clone(),
-            )
-            .expect("target registration"),
+            ),
             slot,
         )
         .expect("profile declares preset recall"),

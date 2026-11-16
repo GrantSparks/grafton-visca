@@ -4,6 +4,12 @@
 //! VISCA commands when communicating over Sony's IP protocol.
 
 /// Sony encapsulated header payload types.
+// Facade-less builds frame requests only; reply/control kinds are consumed by
+// the owner parser, which is present when either facade is enabled.
+#[cfg_attr(
+    not(any(feature = "blocking", feature = "async", test)),
+    allow(dead_code)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PayloadType {
     /// VISCA command payload (0x01 0x00).
@@ -35,6 +41,7 @@ impl PayloadType {
     }
 
     /// Parse payload type from bytes.
+    #[cfg(any(feature = "blocking", feature = "async", test))]
     #[inline]
     pub fn from_bytes(bytes: [u8; 2]) -> Option<Self> {
         match bytes {
@@ -106,6 +113,7 @@ impl SonyHeader {
     }
 
     /// Decode header from bytes.
+    #[cfg(any(feature = "blocking", feature = "async", test))]
     #[inline]
     pub fn decode(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < Self::SIZE {

@@ -705,7 +705,6 @@ mod tests {
             crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<P>().expect("profile"),
         )
-        .expect("target")
     }
 
     #[test]

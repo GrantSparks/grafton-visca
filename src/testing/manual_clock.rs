@@ -1131,10 +1131,11 @@ impl<E: Executor> Executor for ManualClockExecutor<E> {
         T: Send + 'a,
     {
         let expiry = self.clock.sleep_async(duration);
-        futures_lite::future::or(async move { Ok(fut.await) }, async move {
-            expiry.await;
-            Err(Error::io_timeout())
-        })
+        async move {
+            crate::timeout::within(fut, expiry)
+                .await
+                .ok_or_else(Error::io_timeout)
+        }
     }
 
     fn now(&self) -> Instant {

@@ -249,7 +249,7 @@ impl StreamContext<'_> {
                 ..
             }
         ) {
-            self.stream.learning[target].socket_capacity_seen = 2;
+            self.stream.learning[target].socket_capacity_seen = Some(CommandSocketCount::TWO);
         }
         let evidence = match frame.response {
             DecodedResponse::Ack { socket } => Evidence::Ack(socket),
@@ -719,15 +719,12 @@ impl StreamContext<'_> {
             return;
         }
         let socket = requested.or_else(|| {
-            [ViscaSocket::S1, ViscaSocket::S2]
-                .into_iter()
-                .take(self.command_sockets(target))
-                .find(|socket| {
-                    self.socket_owner(target, *socket).is_none()
-                        && self
-                            .raw_hold(target, RawHoldScope::Socket(*socket))
-                            .is_none()
-                })
+            self.command_sockets(target).sockets().find(|socket| {
+                self.socket_owner(target, *socket).is_none()
+                    && self
+                        .raw_hold(target, RawHoldScope::Socket(*socket))
+                        .is_none()
+            })
         });
         if let Some(socket) = socket.filter(|socket| self.socket_owner(target, *socket).is_none()) {
             self.stream.holds.extend(
@@ -752,16 +749,16 @@ impl StreamContext<'_> {
         effects: &mut Decision,
     ) {
         let mut until = add_duration(now, completion);
-        let capacity = if self.command_sockets(target) > 1
-            || self.stream.learning[target].socket_capacity_seen > 1
+        let capacity = if self.command_sockets(target) == CommandSocketCount::TWO
+            || self.stream.learning[target].socket_capacity_seen == Some(CommandSocketCount::TWO)
             || self.socket_owner(target, ViscaSocket::S2).is_some()
             || self
                 .raw_hold(target, RawHoldScope::Socket(ViscaSocket::S2))
                 .is_some()
         {
-            2
+            CommandSocketCount::TWO
         } else {
-            1
+            CommandSocketCount::ONE
         };
         for socket in [ViscaSocket::S1, ViscaSocket::S2] {
             if let Some(owner) = self.socket_owner(target, socket) {
@@ -777,11 +774,8 @@ impl StreamContext<'_> {
         }
         let learning = &mut self.stream.learning[target];
         learning.pending_socketless_completions = None;
-        learning.socket_capacity_seen = capacity;
-        for socket in [ViscaSocket::S1, ViscaSocket::S2]
-            .into_iter()
-            .take(usize::from(capacity))
-        {
+        learning.socket_capacity_seen = Some(capacity);
+        for socket in capacity.sockets() {
             self.stream
                 .holds
                 .extend(target, StreamScope::Socket(socket), until, None);

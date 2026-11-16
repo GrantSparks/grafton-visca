@@ -27,8 +27,7 @@
 //! let target = TargetRegistration::new(
 //!     IndividualCameraId::CAMERA_1,
 //!     ProfileSpec::from_compile_time::<PtzOpticsG2>().unwrap(),
-//! )
-//! .unwrap();
+//! );
 //! let request = Drive::for_target(
 //!     &target,
 //!     PanTiltDirection::UpRight,

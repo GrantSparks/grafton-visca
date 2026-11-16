@@ -699,8 +699,8 @@ impl OwnerHandleCore {
         // applies backpressure on the sending handle; it never falls back to
         // a lossy `try_send` path.
         let cancellation_capacity = 1;
-        let control_capacity = state.policy().limits.control_requests;
-        let rejection_capacity = state.policy().limits.staged_diagnostics;
+        let control_capacity = state.facts().limits.control_requests;
+        let rejection_capacity = state.facts().limits.staged_diagnostics;
         let (admission_tx, admissions) = flume::bounded(boundary_capacity);
         let (cancellation_tx, cancellations) = flume::bounded(cancellation_capacity);
         let (control_tx, control) = flume::bounded(control_capacity);

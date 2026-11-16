@@ -108,6 +108,8 @@ mod issue_897_gain_limit;
 mod issue_911_state_projection_contracts;
 mod issue_937_settlement_profile_validation;
 mod issue_944_connection_plans;
+mod issue_979_owner_read_timeout;
+mod issue_981_numeric_endpoints;
 mod macro_generator_contract;
 mod no_hardcoded_terminator_test;
 mod pan_tilt_polarity;

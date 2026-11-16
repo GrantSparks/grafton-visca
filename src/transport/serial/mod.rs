@@ -22,7 +22,8 @@
 //! - **Addressed cameras.** When Address Set runs, the transport reports the
 //!   camera count through `HasTransportConfig::identity`, and session
 //!   startup checks every registered camera against it before any protocol
-//!   I/O, on every entry point.
+//!   I/O, on every entry point. A registered camera beyond the chain returns
+//!   [`Error::CameraNotAddressed`] with its camera id and the reported count.
 //!
 //! # Startup protocol
 //!
@@ -35,7 +36,9 @@
 //!   (or whose input cannot be framed) is retried after 100 ms; after the
 //!   last attempt startup fails with [`Error::MaxRetriesExceeded`].
 //!   A final reply reporting more than seven cameras fails immediately with
-//!   [`Error::InvalidRequest`], without repeating Address Set.
+//!   [`Error::SerialChainTooLong`], without repeating Address Set. Both topology
+//!   verdicts classify as [`crate::error::ErrorKind::InvalidParameter`]; a silent
+//!   chain remains a timeout rather than a topology verdict.
 //! - **A failed or timed-out write is never retried**, for either command:
 //!   how much of the broadcast reached the bus is unknowable, and resending
 //!   after a partial frame would put a malformed concatenation on the daisy

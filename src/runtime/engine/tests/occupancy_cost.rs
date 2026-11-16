@@ -16,7 +16,7 @@ fn blocked_engine(
         .register_target(
             camera(1),
             TargetPolicy {
-                command_sockets: 1,
+                command_sockets: CommandSocketCount::ONE,
                 ..TargetPolicy::test_default()
             },
         )

@@ -363,7 +363,7 @@ mod tests {
             builder = builder.encoding(encoding);
         }
         let profile = builder.build().expect("custom profile");
-        TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile).expect("target")
+        TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
     }
     #[test]
     fn variable_speeds_lower_coarse_levels_and_reject_unsupported_exact_values() {

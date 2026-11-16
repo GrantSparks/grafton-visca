@@ -171,3 +171,158 @@ fn unconfirmed_cancel_write_failure_and_resolution_expiry_retain_future_socket_h
         engine.assert_invariants().unwrap();
     }
 }
+
+/// Cancellation must retain every ACK that the original response window admits,
+/// even when the ambiguity interval elapsed long before that ACK arrives (#978).
+#[test]
+fn pre_ack_cancel_never_shortens_a_long_ack_window() {
+    for (envelope, transport) in [
+        (EnvelopeKind::Raw, TransportKind::Datagram),
+        (EnvelopeKind::Raw, TransportKind::Stream),
+        (EnvelopeKind::Sony, TransportKind::Datagram),
+    ] {
+        let now = Instant::now();
+        let mut engine = engine(envelope, transport);
+        let mut request = command(1, CancellationPolicy::Supported);
+        request.context_mut().timeout.ack = NonZeroDuration::new(Duration::from_secs(1)).unwrap();
+        let (write, id) = admit(&mut engine, 1, request, now);
+        let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
+        send_ok(&mut engine, &write, sequence, now);
+        let requested = engine.handle(Input::Cancel { id }, now + Duration::from_millis(1));
+        assert!(requested.iter().any(|effect| matches!(effect,
+            Effect::CancellationObservation { id: observed, observation: CancellationObservation::Recorded } if *observed == id)));
+
+        let early = engine.advance(now + Duration::from_millis(60));
+        assert!(
+            terminal_outcome(&early, id).is_none(),
+            "{envelope:?}/{transport:?}"
+        );
+        assert_eq!(engine.next_due().unwrap().at, now + Duration::from_secs(1));
+        assert!(engine
+            .raw_correlation_releases_due(now + Duration::from_millis(60))
+            .is_empty());
+
+        let ack_at = now + Duration::from_millis(500);
+        let ack = engine.handle(
+            frame(
+                1,
+                sequence.map(|value| (value, SequenceWidth::Full32)),
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            ack_at,
+        );
+        assert!(
+            ignored_reasons(&ack).is_empty(),
+            "{envelope:?}/{transport:?}: {ack:?}"
+        );
+        assert!(terminal_outcome(&ack, id).is_none());
+        let (transmission, cancelled_id, socket) = cancel_transmit(&ack);
+        assert_eq!((cancelled_id, socket), (id, ViscaSocket::S1));
+        assert_eq!(
+            ack.iter()
+                .filter(|effect| matches!(
+                    effect,
+                    Effect::Transmit {
+                        kind: Transmission::Cancel { .. },
+                        ..
+                    }
+                ))
+                .count(),
+            1
+        );
+        let cancel_sequence = sequence.map(|_| 0x2001);
+        let sent = engine.handle(
+            Input::TransmissionFinished {
+                request: id,
+                transmission,
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(cancel_sequence)),
+            },
+            ack_at,
+        );
+        assert!(terminal_outcome(&sent, id).is_none());
+        let cancelled = engine.handle(
+            frame(
+                1,
+                cancel_sequence.map(|value| (value, SequenceWidth::Full32)),
+                DecodedResponse::Error {
+                    socket: Some(ViscaSocket::S1),
+                    code: 0x04,
+                },
+            ),
+            ack_at + Duration::from_millis(1),
+        );
+        assert!(matches!(
+            terminal_outcome(&cancelled, id),
+            Some(RuntimeOutcome::Command(CommandOutcome::Cancelled))
+        ));
+        engine.assert_invariants().unwrap();
+    }
+}
+
+#[test]
+fn pre_ack_cancel_expires_at_the_later_deadline_and_retains_a_full_raw_window() {
+    for ack_ms in [20, 1_000] {
+        for (envelope, transport) in [
+            (EnvelopeKind::Raw, TransportKind::Datagram),
+            (EnvelopeKind::Raw, TransportKind::Stream),
+            (EnvelopeKind::Sony, TransportKind::Datagram),
+        ] {
+            let now = Instant::now();
+            let mut engine = engine(envelope, transport);
+            let mut request = command(1, CancellationPolicy::Supported);
+            request.context_mut().timeout.ack =
+                NonZeroDuration::new(Duration::from_millis(ack_ms)).unwrap();
+            let (write, id) = admit(&mut engine, 1, request, now);
+            send_ok(
+                &mut engine,
+                &write,
+                (envelope == EnvelopeKind::Sony).then_some(0x1001),
+                now,
+            );
+            engine.handle(Input::Cancel { id }, now + Duration::from_millis(1));
+            let terminal = now + Duration::from_millis(ack_ms.max(51));
+            assert!(
+                terminal_outcome(&engine.advance(terminal - Duration::from_nanos(1)), id).is_none()
+            );
+            let expired = engine.advance(terminal);
+            match envelope {
+                EnvelopeKind::Raw => assert!(matches!(
+                    terminal_failure(&expired, id),
+                    Some(Error::UnsequencedCommandUnconfirmed)
+                )),
+                EnvelopeKind::Sony => assert!(matches!(
+                    terminal_failure(&expired, id),
+                    Some(Error::CancellationUnconfirmed)
+                )),
+            }
+            assert!(engine.entry(id).is_none());
+            let retained_until = terminal + Duration::from_millis(50);
+            if envelope == EnvelopeKind::Raw {
+                match transport {
+                    TransportKind::Datagram => assert_eq!(
+                        engine
+                            .raw_hold(camera(1), RawHoldScope::PreAck)
+                            .unwrap()
+                            .until,
+                        retained_until
+                    ),
+                    TransportKind::Stream => {
+                        let debt = engine
+                            .correlation
+                            .ledger()
+                            .entries()
+                            .find(|(_, debt)| debt.request == id)
+                            .unwrap()
+                            .1;
+                        assert!(
+                            matches!(debt.standing, Standing::Owed { window_end, .. } if window_end == retained_until)
+                        );
+                    }
+                }
+            }
+            engine.assert_invariants().unwrap();
+        }
+    }
+}

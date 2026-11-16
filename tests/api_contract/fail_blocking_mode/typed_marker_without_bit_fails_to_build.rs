@@ -18,7 +18,7 @@ impl CompileTimeProfile for NoNdPermission {
             .transports(baseline.transports())
             .envelope(baseline.envelope())
             .timing(baseline.timing())
-            .maximum_command_sockets(1)
+            .maximum_command_sockets(grafton_visca::types::CommandSocketCount::ONE)
             .supports_operation_complete(false)
             .supports_command_cancel(false)
             .position_inquiries(None)

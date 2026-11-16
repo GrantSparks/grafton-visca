@@ -1879,7 +1879,6 @@ fn registered_target<P: crate::CompileTimeProfile>() -> crate::TargetRegistratio
         IndividualCameraId::CAMERA_1,
         crate::ProfileSpec::from_compile_time::<P>().expect("source-backed profile"),
     )
-    .expect("individual target")
 }
 
 #[allow(clippy::expect_used)]
@@ -1912,7 +1911,7 @@ fn unsigned_target() -> crate::TargetRegistration {
         builder = builder.encoding(selection);
     }
     let profile = builder.build().expect("validated custom profile");
-    crate::TargetRegistration::new(IndividualCameraId::CAMERA_1, profile).expect("unsigned target")
+    crate::TargetRegistration::new(IndividualCameraId::CAMERA_1, profile)
 }
 
 #[allow(clippy::expect_used)]
@@ -2195,8 +2194,7 @@ fn registered_profile_rows() -> Vec<String> {
             .expect("power")
             .status_query = crate::capabilities::PowerStatusQuery::Extended;
         let profile = crate::ProfileSpec::from_facts(facts).expect("custom power query");
-        let target = crate::TargetRegistration::new(IndividualCameraId::CAMERA_1, profile)
-            .expect("custom target");
+        let target = crate::TargetRegistration::new(IndividualCameraId::CAMERA_1, profile);
         case!(label, prepared_query(&PowerInquiry, &target));
     }
     output

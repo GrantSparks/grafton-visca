@@ -88,8 +88,7 @@ fn targets(ids: &[u8]) -> SessionConfig {
     let mut config = SessionConfig::for_target(
         grafton_visca::types::IndividualCameraId::new(ids[0]).expect("camera id"),
         profile.clone(),
-    )
-    .expect("first target");
+    );
     for id in &ids[1..] {
         config = config
             .with_target(
@@ -134,13 +133,9 @@ fn assert_outcome<T: std::fmt::Debug>(
             assert!(
                 matches!(
                     &error,
-                    Error::ConnectionFailed { addr, source, .. }
-                        if addr == PORT
-                            && source.kind() == std::io::ErrorKind::NotFound
-                            && source.to_string() == format!(
-                                "camera {missing} was not addressed by Address Set (chain reported {})",
-                                addressed.expect("Address Set ran")
-                            )
+                    Error::CameraNotAddressed { port, camera, addressed: count, .. }
+                        if port == PORT && camera.value() == *missing
+                            && *count == addressed.expect("Address Set ran")
                 ),
                 "unexpected error {error:?}"
             );

@@ -15,6 +15,20 @@ Raw broadcast frames, including address assignment and interface clear, retain
 `types::CameraId::BROADCAST`; convert an individual address with `.into()` when
 encoding a raw frame.
 
+`TargetRegistration::new(target, profile)` and
+`SessionConfig::for_target(target, profile)` return their value directly (#989).
+Remove `?`, `.unwrap()` or `.expect(...)` from those constructor calls. The
+checked individual target already guarantees a valid address; `with_target`
+and `with_mount` remain fallible.
+
+## Command socket capacities (#984)
+
+Command socket capacities now take `types::CommandSocketCount::ONE` or `TWO`
+in `ProfileSpecBuilder::maximum_command_sockets` and
+`OperationalTuning::with_maximum_command_sockets`; their getters return the
+checked type. Convert a numeric input with `CommandSocketCount::new(value)?`.
+Persisted JSON still uses numbers, and values outside 1–2 fail on load (#984).
+
 ## Canonical modules and checked values (#932)
 
 Import each item from its topical module. The crate root retains `Error`,
@@ -1218,9 +1232,11 @@ Address Set returns `TransportIdentity::Serial { bus: Some(&bus) }` from
 including the standard `CameraSession` serial paths and caller-built
 transports, checks each registered camera against it before any protocol I/O:
 a camera the chain did not address fails with
-`ConnectionFailed { addr: <port> }` whose `NotFound` source reads
-"camera N was not addressed by Address Set (chain reported M)". Extra cameras
-on the chain are allowed. Without Address Set, the serial identity has
+`CameraNotAddressed { port, camera, addressed }`. An Address Set reply reporting
+more than seven cameras fails with `SerialChainTooLong { port, reported }`.
+Both classify as `InvalidParameter` and are not automatically retryable;
+`ConnectionFailed` retains actual serial-device open failures and their OS causes.
+Extra cameras up to the seven-camera limit are allowed. Without Address Set, the serial identity has
 `bus: None`. A custom transport that wraps another forwards `identity()` and
 `transport_config()`, preserving the inner serial bus report and its startup
 validation.
@@ -1532,3 +1548,9 @@ Envelope implementations now select the exact `ProfileEnvelope` through
 protocol identity matters, or call `meta.sequence()` for an optional Sony
 identity. The former `FrameMeta::new` constructor and public sequence field
 are removed.
+
+`Envelope::extract_response` and `Envelope::extract_with_meta` are removed (#988).
+The sealed envelope trait now supplies `KIND`, `new`, and `frame_into`; a session
+owns response framing, parsing and correlation for every transport. Custom
+transports return received bytes to their session. Outgoing `frame_into` metadata
+continues to report the Sony sequence identity.

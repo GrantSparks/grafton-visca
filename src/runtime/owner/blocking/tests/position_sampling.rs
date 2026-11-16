@@ -50,8 +50,7 @@ fn position_observations_use_delivery_time_even_when_the_caller_wakes_late() {
                 worker: Arc::new(Mutex::new(None)),
             };
             let registration =
-                crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
-                    .unwrap();
+                crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
             let queries = crate::prepared::prepare_position_queries(
                 &registration,
                 owner.validated_tuning(),

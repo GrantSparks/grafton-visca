@@ -45,7 +45,6 @@ macro_rules! export_typed_support_markers {
         surface: $surface:ident,
         marker: $marker:ident,
                     $(encodings: [$($encoding_variant:ident => $encoding_tag:literal),+ $(,)?],)?
-        area: $area:literal,
         surface_doc: $surface_doc:literal,
         marker_doc: $marker_doc:literal,
         diagnostic: $diagnostic:literal,

@@ -5,7 +5,7 @@
 
 use std::borrow::Cow;
 use std::{
-    net::{IpAddr, Ipv6Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     num::NonZeroU16,
 };
 
@@ -67,7 +67,7 @@ impl ParsedEndpoint {
 
         match address.chars().filter(|&c| c == ':').count() {
             0 => Ok(Self {
-                host: parse_dns_host(address)?,
+                host: parse_host(address)?,
                 port: None,
             }),
             1 => {
@@ -76,7 +76,7 @@ impl ParsedEndpoint {
                     .ok_or_else(|| invalid_address("Missing port separator"))?;
 
                 Ok(Self {
-                    host: parse_dns_host(host_part)?,
+                    host: parse_host(host_part)?,
                     port: Some(parse_port(port_part)?),
                 })
             }
@@ -143,7 +143,7 @@ fn parse_bracketed_ipv6(address: &str) -> Result<ParsedEndpoint, Error> {
     })
 }
 
-fn parse_dns_host(host: &str) -> Result<Host, Error> {
+fn parse_host(host: &str) -> Result<Host, Error> {
     if host.is_empty() {
         return Err(invalid_address("Empty host part"));
     }
@@ -154,6 +154,26 @@ fn parse_dns_host(host: &str) -> Result<Host, Error> {
 
     if host.chars().any(char::is_whitespace) {
         return Err(invalid_address("Host contains whitespace"));
+    }
+
+    // The whole-endpoint fast path may reject a port spelling that parse_port
+    // accepts, so classify the isolated host as a literal before considering DNS.
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        return Ok(Host::Ip(IpAddr::V4(ip)));
+    }
+
+    // A numeric final label denotes a legacy or malformed literal, never a DNS
+    // name: the platform resolver could interpret leading zeroes as octal.
+    let final_label = host.trim_end_matches('.').rsplit('.').next().unwrap_or("");
+    let decimal = !final_label.is_empty() && final_label.bytes().all(|c| c.is_ascii_digit());
+    let hexadecimal = final_label
+        .strip_prefix("0x")
+        .or_else(|| final_label.strip_prefix("0X"))
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_hexdigit()));
+    if decimal || hexadecimal {
+        return Err(invalid_address(
+            "IPv4 literals must be canonical dotted-quad without leading zeros",
+        ));
     }
 
     Ok(Host::Dns(host.into()))
@@ -191,6 +211,10 @@ fn invalid_address(reason: impl Into<Cow<'static, str>>) -> Error {
 /// 4. Default ports are applied when the parsed port is missing
 /// 5. A missing final port without a default returns `Error::InvalidAddress`
 /// 6. The output is always a canonical `host:port` string suitable for `ToSocketAddrs`
+///
+/// IPv4 literals must use canonical dotted-quad notation without leading zeros.
+/// Numeric final host labels (including hexadecimal forms) are rejected before
+/// name resolution, so a legacy spelling cannot silently select another camera.
 ///
 /// IPv6 zone identifiers are intentionally rejected because the internal endpoint
 /// model uses `std::net::IpAddr`, which does not represent scope identifiers.
@@ -469,8 +493,6 @@ impl Drop for LookupSlot {
     feature = "runtime-smol"
 ))]
 pub(crate) fn bind_address_for(target: SocketAddr) -> SocketAddr {
-    use std::net::Ipv4Addr;
-
     match target {
         SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
         SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
@@ -581,6 +603,28 @@ mod tests {
                 resolve_blocking("[::1]:5678", budget(Duration::ZERO)).unwrap(),
                 vec!["[::1]:5678".parse::<SocketAddr>().unwrap()]
             );
+        }
+
+        #[test]
+        fn rejected_numeric_hosts_never_reach_the_lookup_helper() {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+
+            static LOOKUPS: AtomicUsize = AtomicUsize::new(0);
+            fn counting(_: String) -> std::io::Result<Vec<SocketAddr>> {
+                LOOKUPS.fetch_add(1, Ordering::Relaxed);
+                Ok(vec![answer()])
+            }
+            static RESOLVER: BlockingResolver = BlockingResolver::new(1, counting);
+
+            for address in ["192.168.1.010:1259", "127.1:1259", "0x7f000001:1259"] {
+                let result = crate::transport::connect::preflight(
+                    address,
+                    &crate::transport::TransportConfig::for_udp(),
+                )
+                .and_then(|endpoint| RESOLVER.resolve(&endpoint, budget(Duration::from_secs(1))));
+                assert!(matches!(result, Err(Error::InvalidAddress { .. })));
+            }
+            assert_eq!(LOOKUPS.load(Ordering::Relaxed), 0);
         }
 
         #[test]
@@ -772,8 +816,67 @@ mod tests {
             "host:name:5678",
             "[fe80::1%eth0]:5678",
             "fe80::1%eth0",
+            "192.168.1.010",
+            "192.168.001.010:1259",
+            "010.0.0.1",
+            "127.1",
+            "0x7f.1",
+            "0x7f000001",
+            "0X7F000001",
+            "2130706433",
+            "camera.123",
+            "127.1.",
         ] {
             assert_invalid(canonicalize_endpoint(address, Some(5678)));
+        }
+    }
+
+    #[test]
+    fn canonical_ipv4_and_numeric_non_final_dns_labels_remain_accepted() {
+        for host in ["192.168.1.10", "0.0.0.0", "255.255.255.255"] {
+            assert_eq!(
+                ParsedEndpoint::parse(host).unwrap().host,
+                Host::Ip(host.parse().unwrap())
+            );
+            assert_eq!(
+                canonicalize_endpoint(host, Some(1259)).unwrap(),
+                format!("{host}:1259")
+            );
+        }
+        assert_eq!(
+            canonicalize_endpoint("192.168.1.10:+1259", None).unwrap(),
+            "192.168.1.10:1259"
+        );
+        assert_eq!(
+            ParsedEndpoint::parse("192.168.1.10:+1259").unwrap().host,
+            Host::Ip("192.168.1.10".parse().unwrap())
+        );
+        for host in ["cam-01.studio", "10.cams.example", "0x7f.cams.example"] {
+            assert_eq!(
+                ParsedEndpoint::parse(host).unwrap().host,
+                Host::Dns(host.into())
+            );
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn ipv4_display_round_trips_as_a_literal(octets in proptest::array::uniform4(proptest::num::u8::ANY)) {
+            let ip = Ipv4Addr::from(octets);
+            let parsed = ParsedEndpoint::parse(&ip.to_string()).unwrap();
+            proptest::prop_assert_eq!(parsed.host, Host::Ip(IpAddr::V4(ip)));
+        }
+
+        #[test]
+        fn numeric_final_labels_never_fall_through_to_dns(
+            prefix in "[a-z][a-z0-9]{0,12}",
+            suffix in "[0-9]{1,12}",
+        ) {
+            let address = format!("{prefix}.{suffix}:1259");
+            proptest::prop_assert!(matches!(
+                canonicalize_endpoint(&address, None),
+                Err(Error::InvalidAddress { .. })
+            ), "numeric final label must be rejected");
         }
     }
 

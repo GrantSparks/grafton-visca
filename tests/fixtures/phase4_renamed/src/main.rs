@@ -541,7 +541,7 @@ impl CompileTimeProfile for DownstreamProfile {
                     .command_spacing(Duration::ZERO)
                     .build()?,
             )
-            .maximum_command_sockets(1)
+            .maximum_command_sockets(visca_renamed::types::CommandSocketCount::ONE)
             .supports_operation_complete(base.supports_operation_complete())
             .supports_command_cancel(true)
             .position_inquiries(Some(AffectedAxes::MOVEMENT))

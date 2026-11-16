@@ -152,8 +152,7 @@ fn runtime_profile_default_selects_the_registered_individual_target() {
         .profile(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .is_none());
     let explicit =
-        SessionConfig::for_target(grafton_visca::types::IndividualCameraId::CAMERA_1, profile)
-            .expect("explicit individual target");
+        SessionConfig::for_target(grafton_visca::types::IndividualCameraId::CAMERA_1, profile);
     assert_eq!(
         explicit.sole_target(),
         Some(grafton_visca::types::IndividualCameraId::CAMERA_1)

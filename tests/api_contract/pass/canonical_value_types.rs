@@ -12,8 +12,7 @@ fn main() {
     let target = TargetRegistration::new(
         grafton_visca::types::IndividualCameraId::CAMERA_1,
         ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("source profile"),
-    )
-    .expect("target registration");
+    );
     let far = focus::FarVariable::for_target(&target, speed).expect("profile-aware request");
     let near = focus::NearVariable::for_target(&target, speed).expect("profile-aware request");
     let _: Speed<FocusSpeed> = far.speed();

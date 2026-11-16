@@ -294,10 +294,21 @@ cached answer; wait for the operation or stop the axis.
 The table is checked against one value of every public `Error` variant, with
 additional rows for context-dependent outcomes.
 
+Serial startup distinguishes device I/O from the topology reported by Address
+Set. `CameraNotAddressed { port, camera, addressed }` means the registered camera
+is beyond the reported chain; `SerialChainTooLong { port, reported }` means the
+chain exceeds seven cameras. Both are `InvalidParameter` / `Abandon`: correct
+the chain or configuration before opening again. An absent serial device remains
+`ConnectionFailed` with its original operating-system cause. A silent chain that
+exhausts all Address Set attempts remains `MaxRetriesExceeded` (`Timeout` /
+`Abandon`), because it provides no topology evidence.
+
 <!-- BEGIN GENERATED RECOVERY VERDICTS -->
 | Error / condition | Kind | Stage / certainty | Recovery |
 | --- | --- | --- | --- |
 | `ConnectionFailed` | `IoRefused` | — | `Abandon` |
+| `CameraNotAddressed` | `InvalidParameter` | — | `Abandon` |
+| `SerialChainTooLong` | `InvalidParameter` | — | `Abandon` |
 | `ConnectionClosed` | `IoClosed` | — | `ReopenSession` |
 | `CommandPending / ACK received` | `Busy` | — | `WaitAgain` |
 | `InvalidResponse` | `Protocol` | — | `Abandon` |

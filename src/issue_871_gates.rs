@@ -267,7 +267,6 @@ fn build(capabilities: Capabilities, source: &ProfileSpec, with_domains: bool) -
 
 fn target_for(profile: &ProfileSpec) -> crate::TargetRegistration {
     crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile.clone())
-        .expect("registered gate-test target")
 }
 
 macro_rules! prepare {

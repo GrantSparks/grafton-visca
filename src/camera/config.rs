@@ -367,7 +367,7 @@ impl<P: CameraProfile> CameraConfig<P> {
         let id = self
             .camera_id
             .unwrap_or(profile.capabilities().default_camera_id);
-        let registration = std::sync::Arc::new(crate::TargetRegistration::new(id, profile)?);
+        let registration = std::sync::Arc::new(crate::TargetRegistration::new(id, profile));
         let config = crate::session_config::SessionConfig::from_registration(registration.clone())
             .with_policy(self.policy)
             .with_transport(self.transport.clone())

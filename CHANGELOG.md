@@ -68,10 +68,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Typed-support documentation derives each marker's area from its owning noun
+  and groups related markers together, using one title for white balance,
+  pan/tilt, motion sync and every other noun (#990).
+
+- Owners retain immutable session facts separately from live engine tuning,
+  record cancellation intent only after acceptance, and use the validated
+  session write timeout for blocking writes and Sony startup reset (#986).
+
+- Blocking owners continue to ready boundary lanes and engine deadlines after
+  an idle read exhausts its timeout, including 1 ms timeouts, so admission,
+  controls and `close()` remain live with silent transports (#979).
+
+- **BREAKING** (#988): `Envelope` retains framing and construction only. The
+  unused `extract_response` and `extract_with_meta` methods are removed; sessions
+  own reply parsing. Sony framing and owner parsing use one payload rule and
+  malformed replies remain allocation-free Copy verdicts.
+
+- Async connect steps, transport reads/writes and executor timeouts share an
+  operation-first deadline race: a completed operation wins when the deadline
+  is also ready, consistently across Tokio, smol and manual-clock executors (#982).
+
+- Sony correlation retains one request sequence and one cancellation sequence;
+  retries reuse the request slot. Engine pacing derives the shared request floor
+  from its two lane timestamps, and raw hold extension uses one mode dispatch
+  (#985).
+
+- Serial Address Set reports missing registered cameras through
+  `CameraNotAddressed { port, camera, addressed }` and over-long chains through
+  `SerialChainTooLong { port, reported }`. Both classify as `InvalidParameter`
+  and are distinct from a serial device's I/O failure (#987).
+
+- Endpoint parsing rejects legacy numeric IPv4 spellings, including leading
+  zeros, short forms and hexadecimal addresses, before DNS or socket creation.
+  Inputs such as `192.168.1.010` now return `InvalidAddress` instead of risking
+  connection to a different camera (#981).
+
+- Pan/tilt fine-speed prerequisites follow the profile's variable-speed fact
+  across coordinate formats. Profile construction and deserialization reject
+  speed ranges above the standard maximum unless variable modes and the typed
+  speed-mode setter are supported; the current confirmed mode remains
+  authoritative at write time (#983).
+
+- Terminal delivery releases ordinary and urgent admission capacity before
+  waking the caller, so immediate sequential resubmission and settlement
+  polling cannot fail because the previous request still holds its slot (#980).
+
+- **BREAKING** (#984): Profile and operational-tuning socket capacities use
+  `types::CommandSocketCount` (`ONE` or `TWO`) throughout the runtime. Persisted
+  capacity remains numeric; values outside 1–2 fail during deserialization.
+
 - **BREAKING** (#971): Session targets, camera registrations, camera views and
   persisted camera configuration use `IndividualCameraId` (1–7). Broadcast
   remains available on raw wire requests through `CameraId`; invalid target
   addresses are rejected by the value type before configuration or I/O.
+  `TargetRegistration::new` and `SessionConfig::for_target` return their values
+  directly, with no impossible constructor error to handle (#989).
 
 - **BREAKING** Power-status packet selection is a required
   `PowerCaps::status_query` fact. Exported BRC-H900 custom profiles retain their
@@ -587,6 +639,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   helpers. Use `ManualClockExecutor::local` and its `run_until` driver instead.
 
 ### Fixed
+
+- Pre-ACK cancellation retains the later of the original ACK deadline and the
+  cancellation ambiguity deadline on raw datagram, raw stream and Sony sessions,
+  so a slow in-window ACK still triggers socket cancellation (#978).
 
 - Blocking reads retry signal interruptions within their original deadline,
   including UDP receives. Serial startup treats zero-byte reads as immediate

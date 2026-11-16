@@ -40,7 +40,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
     let observation = now + Duration::from_millis(7);
     let transmission = TransmissionId::from_nonzero(NonZeroU64::new(1).unwrap());
     let attempt = AttemptFacts {
-        socket_capacity: Some(2),
+        socket_capacity: Some(CommandSocketCount::TWO),
         stream_order: Some(1),
     };
     let requested = RequestedCancellation {
@@ -110,7 +110,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
                 cancellation: Some(requested),
             },
             ACK | COMMAND | UNACKNOWLEDGED,
-            Some(deadline),
+            Some(ambiguity),
         ),
         (
             "completion only",
@@ -233,6 +233,12 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
         ..sending
     };
     for lifecycle in [
+        Lifecycle::AwaitingAck {
+            sent_at: now,
+            deadline,
+            attempt,
+            cancellation: Some(early_request),
+        },
         executing(ExecutingCancellation::Sending(early_send)),
         executing(ExecutingCancellation::ObservationFailed {
             ambiguity_deadline: sooner,

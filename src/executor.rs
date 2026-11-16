@@ -112,7 +112,9 @@ pub trait Executor: Clone + Send + Sync + 'static {
     /// Create a timeout future.
     ///
     /// Wraps the given future with a timeout. If the future doesn't complete
-    /// within the specified duration, returns an error.
+    /// within the specified duration, returns an error. Implementations must
+    /// poll the operation before the timer: a completed operation wins even
+    /// when its timer is already ready.
     fn timeout<'a, F, T>(
         &'a self,
         duration: std::time::Duration,
@@ -377,12 +379,13 @@ mod tokio_impl {
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            let timeout = self.in_selected_context(|| tokio::time::timeout(duration, fut));
+            let timeout = self
+                .in_selected_context(|| crate::timeout::within(fut, tokio::time::sleep(duration)));
             let timeout = TokioBoundFuture::new(self.handle.clone(), timeout);
             async move {
                 match timeout.await {
-                    Ok(value) => Ok(value),
-                    Err(_) => Err(Error::io_timeout()),
+                    Some(value) => Ok(value),
+                    None => Err(Error::io_timeout()),
                 }
             }
         }
@@ -479,19 +482,16 @@ mod smol_impl {
         }
     }
 
-    /// Race a future against a timer, returning `Err(Error::Timeout)` if the timer fires first.
-    ///
-    /// This is a waker-driven timeout implementation that avoids busy polling by using
-    /// `futures_lite::future::race` to efficiently wait for whichever completes first.
+    /// Apply the shared operation-first timeout rule using smol's timer.
     async fn race_timeout<T>(
         duration: Duration,
         fut: impl Future<Output = T> + Send,
     ) -> Result<T, Error> {
-        futures_lite::future::race(async { Ok(fut.await) }, async {
+        crate::timeout::within(fut, async {
             smol::Timer::after(duration).await;
-            Err(Error::io_timeout())
         })
         .await
+        .ok_or_else(Error::io_timeout)
     }
 
     impl Executor for SmolExecutor {
@@ -613,6 +613,42 @@ mod spawn_tests {
     };
 
     use super::Executor;
+
+    fn ready_operation_wins_elapsed_timeout(executor: impl Executor) {
+        executor.block_on(async {
+            for _ in 0..10_000 {
+                assert!(matches!(
+                    executor
+                        .timeout(Duration::ZERO, std::future::ready(42))
+                        .await,
+                    Ok(42)
+                ));
+            }
+        });
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_ready_operation_wins_elapsed_timeout() {
+        ready_operation_wins_elapsed_timeout(super::SmolExecutor::new());
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[test]
+    fn tokio_ready_operation_wins_elapsed_timeout() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        ready_operation_wins_elapsed_timeout(super::TokioExecutor::from_handle(
+            runtime.handle().clone(),
+        ));
+    }
+
+    #[cfg(all(feature = "async", feature = "test-utils"))]
+    #[test]
+    fn manual_clock_ready_operation_wins_elapsed_timeout() {
+        use crate::testing::testkit::{ManualClock, ManualClockExecutor};
+        let clock = ManualClock::new();
+        ready_operation_wins_elapsed_timeout(ManualClockExecutor::local(&clock));
+    }
 
     struct CompletionWake(mpsc::Sender<()>);
 

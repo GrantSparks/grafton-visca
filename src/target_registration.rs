@@ -73,8 +73,7 @@ impl<'de> serde::Deserialize<'de> for TargetRegistration {
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
         let data = <TargetRegistrationData as serde::Deserialize>::deserialize(deserializer)?;
-        let registration =
-            Self::new(data.target, data.profile).map_err(serde::de::Error::custom)?;
+        let registration = Self::new(data.target, data.profile);
         match data.mount {
             Some(mount) => registration
                 .with_mount(mount)
@@ -86,8 +85,9 @@ impl<'de> serde::Deserialize<'de> for TargetRegistration {
 
 impl TargetRegistration {
     /// Registers an individual camera with its default installation.
-    pub fn new(target: crate::IndividualCameraId, profile: ProfileSpec) -> Result<Self> {
-        Ok(Self::from_profile(TargetSlot::from(target), profile))
+    #[must_use]
+    pub fn new(target: crate::IndividualCameraId, profile: ProfileSpec) -> Self {
+        Self::from_profile(TargetSlot::from(target), profile)
     }
 
     pub(crate) fn from_profile(target: TargetSlot, profile: ProfileSpec) -> Self {
@@ -278,7 +278,6 @@ mod tests {
         let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic");
         assert!(
             TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, generic)
-                .expect("target")
                 .with_mount(MountPosition::Desktop)
                 .is_err()
         );
@@ -289,8 +288,7 @@ mod tests {
         let target = TargetRegistration::new(
             crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
-        )
-        .expect("target");
+        );
         let mut buffer = [0; 17];
         let request = absolute(&target, -170.0, 195.0).expect("left/up endpoints");
         assert_eq!(
@@ -320,8 +318,7 @@ mod tests {
         let desktop = TargetRegistration::new(
             crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
-        )
-        .expect("desktop");
+        );
         let ceiling = desktop
             .clone()
             .with_mount(MountPosition::Ceiling)
@@ -353,7 +350,6 @@ mod portable_tests {
             crate::IndividualCameraId::CAMERA_1,
             id.spec().expect("built-in spec"),
         )
-        .expect("individual target")
     }
 
     #[test]

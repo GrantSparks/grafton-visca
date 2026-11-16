@@ -30,7 +30,7 @@ use crate::{
         builder::{AddressingMode, TransportConfig},
         envelope::{
             Envelope, FrameMeta, FrameSequence, MalformedFrame, RawVisca, SonyEncapsulated,
-            SonyResponse,
+            SonyMalformed, SonyResponse,
         },
         TransportIdentity,
     },
@@ -758,7 +758,7 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
                     FrameScan::Complete(length) => length,
                     FrameScan::NeedMore => return Err(MalformedFrame::DatagramTrailingBytes.into()),
                     FrameScan::Rejected(FramingError::InvalidSonyHeader) => {
-                        return Err(MalformedFrame::InvalidSonyHeader.into())
+                        return Err(MalformedFrame::Sony(SonyMalformed::InvalidHeader).into())
                     }
                     FrameScan::Rejected(error) => return Err(error.into()),
                 };
@@ -1828,7 +1828,9 @@ mod tests {
                 ),
                 TransportKind::Datagram => assert!(matches!(
                     failure,
-                    ReceiveDecodeFailure::Malformed(MalformedFrame::InvalidSonyHeader)
+                    ReceiveDecodeFailure::Malformed(MalformedFrame::Sony(
+                        SonyMalformed::InvalidHeader
+                    ))
                 )),
             }
             assert!(buffers.take_frames().is_empty());

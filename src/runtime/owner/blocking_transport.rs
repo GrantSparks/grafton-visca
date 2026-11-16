@@ -23,12 +23,14 @@ where
     T: BlockingTransport + HasTransportConfig,
 {
     /// Send Sony's sequence-number RESET before the owner worker starts.
-    pub(crate) fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
+    pub(crate) fn send_sony_sequence_reset(
+        &mut self,
+        write_timeout: Duration,
+    ) -> Result<(), Error> {
         let mut frame = bytes::BytesMut::new();
         if !self.framing.frame_sony_sequence_reset(&mut frame) {
             return Ok(());
         }
-        let write_timeout = self.transport.transport_config().write_timeout;
         let sent = self
             .transport
             .send_with_timeout(frame.as_ref(), write_timeout);
@@ -40,12 +42,11 @@ impl<T> BlockingOwnerDriver for TransportAdapter<T, BlockingIo>
 where
     T: BlockingTransport + HasTransportConfig,
 {
-    fn write(&mut self, mut write: WireWrite<'_>) -> WriteOutcome {
+    fn write(&mut self, mut write: WireWrite<'_>, write_timeout: Duration) -> WriteOutcome {
         let meta = match write.frame() {
             Ok(meta) => meta,
             Err(error) => return WriteOutcome::NotSent(error),
         };
-        let write_timeout = self.transport.transport_config().write_timeout;
         let sent = self
             .transport
             .send_with_timeout(write.frame_buffer.as_ref(), write_timeout);
@@ -235,7 +236,10 @@ mod tests {
         transport_config.write_timeout = Duration::from_millis(37);
         let transport = ScriptedTransport::with_config(transport_config, []);
         let write_timeouts = Arc::clone(&transport.write_timeouts);
-        let (adapter, policy) = adapter(transport);
+        let (mut adapter, policy) = adapter(transport);
+        // The session's bound was validated at construction; a custom
+        // transport reporting a new default cannot override it on write.
+        adapter.transport.config.write_timeout = Duration::from_secs(7);
         assert_eq!(
             policy.protocol.wire.kind(),
             crate::runtime::engine::EnvelopeKind::Raw
@@ -250,8 +254,7 @@ mod tests {
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 profile.clone(),
-            )
-            .expect("valid target registration"),
+            ),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -274,9 +277,11 @@ mod tests {
     fn startup_sony_sequence_reset_writes_the_control_frame() {
         let transport = ScriptedTransport::new([]);
         let sent = Arc::clone(&transport.sent);
-        let (mut adapter, _) = sony_adapter(transport);
+        let (mut adapter, policy) = sony_adapter(transport);
 
-        adapter.send_sony_sequence_reset().unwrap();
+        adapter
+            .send_sony_sequence_reset(policy.write_timeout)
+            .unwrap();
 
         assert_eq!(
             *sent.lock().unwrap(),

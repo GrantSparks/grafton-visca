@@ -145,6 +145,7 @@ macro_rules! project_noun_rows {
             @noun $noun:ident {
                 accessor: $accessor:ident,
                 getter: $getter:ident,
+                title: $title:literal,
                 gate: $base:tt,
                 doc: $doc:literal $(,)?
             };

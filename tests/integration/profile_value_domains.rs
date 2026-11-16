@@ -124,109 +124,79 @@ fn evi_h100_iris_and_bright_gaps_are_refused_and_endpoints_admitted() -> Result<
 
     let evi = ProfileSpec::from_compile_time::<SonyEviH100>()?;
     for admitted in [0x00, 0x05, 0x11] {
-        iris(admitted).validate_for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                evi.clone(),
-            )
-            .expect("target registration"),
-        )?;
+        iris(admitted).validate_for_target(&grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            evi.clone(),
+        ))?;
     }
     for admitted in [0x00, 0x05, 0x1F] {
-        bright(admitted).validate_for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                evi.clone(),
-            )
-            .expect("target registration"),
-        )?;
+        bright(admitted).validate_for_target(&grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            evi.clone(),
+        ))?;
     }
     for gap in 0x01..=0x04 {
         assert!(
             matches!(
-                iris(gap).validate_for_target(
-                    &grafton_visca::config::TargetRegistration::new(
-                        grafton_visca::types::IndividualCameraId::CAMERA_1,
-                        evi.clone()
-                    )
-                    .expect("target registration")
-                ),
+                iris(gap).validate_for_target(&grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
+                    evi.clone()
+                )),
                 Err(Error::InvalidParameter { .. })
             ),
             "iris {gap:#04x}"
         );
         assert!(
             matches!(
-                bright(gap).validate_for_target(
-                    &grafton_visca::config::TargetRegistration::new(
-                        grafton_visca::types::IndividualCameraId::CAMERA_1,
-                        evi.clone()
-                    )
-                    .expect("target registration")
-                ),
+                bright(gap).validate_for_target(&grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
+                    evi.clone()
+                )),
                 Err(Error::InvalidParameter { .. })
             ),
             "bright {gap:#04x}"
         );
     }
     assert!(matches!(
-        iris(0x12).validate_for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                evi.clone()
-            )
-            .expect("target registration")
-        ),
+        iris(0x12).validate_for_target(&grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            evi.clone()
+        )),
         Err(Error::ParameterOutOfRange { .. })
     ));
     assert!(matches!(
-        bright(0x20).validate_for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                evi.clone()
-            )
-            .expect("target registration")
-        ),
+        bright(0x20).validate_for_target(&grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            evi.clone()
+        )),
         Err(Error::ParameterOutOfRange { .. })
     ));
 
     // Generic VISCA admits only the iris positions all its Sony sources list.
     let generic = ProfileSpec::from_compile_time::<GenericVisca>()?;
     assert!(iris(0x02)
-        .validate_for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                generic.clone()
-            )
-            .expect("target registration")
-        )
-        .is_err());
-    iris(0x05).validate_for_target(
-        &grafton_visca::config::TargetRegistration::new(
+        .validate_for_target(&grafton_visca::config::TargetRegistration::new(
             grafton_visca::types::IndividualCameraId::CAMERA_1,
-            generic.clone(),
-        )
-        .expect("target registration"),
-    )?;
+            generic.clone()
+        ))
+        .is_err());
+    iris(0x05).validate_for_target(&grafton_visca::config::TargetRegistration::new(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        generic.clone(),
+    ))?;
 
     let brc300 = ProfileSpec::from_compile_time::<SonyBrc300>()?;
     for level in 0x00..=0x11 {
-        iris(level).validate_for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                brc300.clone(),
-            )
-            .expect("target registration"),
-        )?;
+        iris(level).validate_for_target(&grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            brc300.clone(),
+        ))?;
     }
     for level in 0x00..=0x17 {
-        bright(level).validate_for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                brc300.clone(),
-            )
-            .expect("target registration"),
-        )?;
+        bright(level).validate_for_target(&grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            brc300.clone(),
+        ))?;
     }
     Ok(())
 }
@@ -283,13 +253,10 @@ fn fr7_and_brc_h900_advertise_no_shutter_codes() -> Result<(), Error> {
                 grafton_visca::command::exposure::SetShutter::new(
                     ShutterSpeed::new(code).expect("valid value")
                 )
-                .validate_for_target(
-                    &grafton_visca::config::TargetRegistration::new(
-                        grafton_visca::types::IndividualCameraId::CAMERA_1,
-                        profile.clone()
-                    )
-                    .expect("target registration")
-                )
+                .validate_for_target(&grafton_visca::config::TargetRegistration::new(
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
+                    profile.clone()
+                ))
                 .is_err(),
                 "{name} shutter code {code:#04x}"
             );

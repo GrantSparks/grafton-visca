@@ -3,7 +3,7 @@
 //! These wrappers keep production protocol modules crate-private while letting
 //! the fuzz package exercise the same implementations used by owners.
 
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 
 use crate::{
     command::{parse_inquiry_payload, CommandKind, Response},
@@ -68,11 +68,9 @@ fn drive_framer(mut framer: impl Framer, chunks: &[&[u8]]) {
     }
 }
 
-/// Exercise Sony request framing and both public and owner response extraction.
+/// Exercise Sony request framing and allocation-free owner response extraction.
 pub fn sony_envelope(bytes: &[u8]) {
     let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-    let _ = envelope.extract_response(bytes);
-    let _ = envelope.extract_with_meta(Bytes::copy_from_slice(bytes));
     let _ = envelope.extract_owner_response(bytes);
 
     let mut out = BytesMut::new();
@@ -265,5 +263,19 @@ mod serial_startup_tests {
             drive_serial_startup(ECHO, false),
             Some(Ok(Some(1)))
         ));
+    }
+}
+
+#[cfg(test)]
+mod sony_envelope_tests {
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn owner_parser_and_request_framing_accept_arbitrary_fuzz_input(
+            bytes in proptest::collection::vec(any::<u8>(), 0..256)
+        ) {
+            super::sony_envelope(&bytes);
+        }
     }
 }

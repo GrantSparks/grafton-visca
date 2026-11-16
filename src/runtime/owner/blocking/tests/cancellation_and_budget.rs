@@ -19,8 +19,7 @@ fn completion_only_cancel_is_unsupported_without_ending_application() {
         &crate::TargetRegistration::new(
             (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             generic_profile().clone(),
-        )
-        .expect("valid target registration"),
+        ),
         OperationalTuning::new(),
         ClassSelection::Request,
     )
@@ -70,8 +69,7 @@ fn prepared_retry_budget_covers_late_ack_and_completion_on_the_worker() {
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).individual_camera(),
                 profile.clone(),
-            )
-            .expect("valid target registration"),
+            ),
             OperationalTuning::new().with_ack_timeout(Duration::from_secs(ack_override)),
             ClassSelection::Request,
         )

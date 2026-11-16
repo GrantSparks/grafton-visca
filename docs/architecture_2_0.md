@@ -282,7 +282,14 @@ The construction and request path has a fixed order:
 `ProtocolEngine` contains shared `EngineCore` state and one closed
 `CorrelationMode`, selected at construction from the wire envelope and transport
 kind. `EngineCore` owns the entry table, target policies, identities, pacing,
-and session state. Correlation-specific state belongs to its mode:
+and session state.
+
+Each entry retains at most one Sony request sequence and one separate
+cancellation sequence. Retries replay the request slot; neither slot can evict
+the other. Pacing records the last command and inquiry instants and derives the
+session-wide last request instant from their maximum.
+
+Correlation-specific state belongs to its mode:
 
 | Mode | Owned correlation state |
 | --- | --- |
@@ -1050,15 +1057,17 @@ resource bound above applies independently to each raw target.
 Retry waiting retains the last written attempt so a late exact-sequence ACK
 honors that attempt's capacity. `SendingReply` carries only its response
 family: it contains no reply latch or cancellation intent (#858, #860).
-The original completion deadline and cancellation ambiguity deadline each have
-one home; lifecycle methods derive an effective maximum where the protocol
-requires it. A transition accepts one lifecycle value, and closed due actions
-preserve response/cancellation-before-retry ordering (#836).
+The original ACK or completion deadline and cancellation ambiguity deadline each
+have one home; lifecycle methods derive their effective maximum. Pre-ACK
+cancellation therefore retains every ACK accepted by the original window (#978).
+A transition accepts one lifecycle value, and closed due actions preserve
+response/cancellation-before-retry ordering (#836).
 
 The lifecycle selects one closed due action from its phase and the entry's
-retry budget. Each action removes its request or moves its next due instant
-strictly past the sampled clock; zero-delay retries become ready in that same
-action. A late cancellation observer and its already elapsed terminal window
+retry budget. Accepted cancellation suppresses retries and their budget; the
+effective phase deadline remains authoritative. Each action removes its request
+or moves its next due instant strictly past the sampled clock; zero-delay retries
+become ready in that same action. A late cancellation observer and its already elapsed terminal window
 finish together. Due work carries no generation ticket, and a debug iteration
 bound and per-action progress check turn a future regression into a test
 failure. Context timeout intervals are nonzero proofs, retry budgets are
@@ -1438,7 +1447,10 @@ write that can no longer be confirmed poisons the session, a datagram write
 fails only its own request with unconfirmed effect and retained correlation
 protection. A stalled peer can never park the actor and block `close()`. The blocking owner cannot preempt arbitrary synchronous code,
 so `BlockingTransport` exposes only deadline-bearing reads and writes and
-requires implementations to return within the supplied bound. Built-in TCP,
+requires implementations to return within the supplied bound. Both facades
+use the validated owner-held write timeout, including Sony startup reset;
+transport configuration is read at construction rather than again per write
+(#986). Built-in TCP,
 UDP, and serial transports install that bound at the OS/device layer, and
 construction rejects a zero advertised read or write timeout. A serial device
 receives at least one millisecond even when a derived owner budget is smaller:

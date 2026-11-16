@@ -406,7 +406,7 @@ fn synthetic_spec(
                 .command_spacing(Duration::ZERO)
                 .build()?,
         )
-        .maximum_command_sockets(2)
+        .maximum_command_sockets(crate::types::CommandSocketCount::TWO)
         .supports_operation_complete(false)
         .supports_command_cancel(true)
         .position_inquiries(AffectedAxes::MOVEMENT);

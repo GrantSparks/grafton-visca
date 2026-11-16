@@ -1054,7 +1054,7 @@ pub(crate) use crate::{
     command::WhiteBalanceMode,
     error::ErrorKind,
     inquiry_conversions::ZoomDomain,
-    visca_socket::ViscaSocket,
+    visca_socket::{CommandSocketCount, ViscaSocket},
 };
 
 #[cfg(any(feature = "blocking", feature = "async"))]

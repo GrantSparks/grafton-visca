@@ -7,7 +7,7 @@ The fuzz package exercises five bounded protocol layers through doc-hidden
 | --- | --- |
 | `response_parser` | Raw-frame admission, basic response parsing, and every generated `InquiryKind` decoder. |
 | `protocol_framer` | Raw and Sony framing with whole and split reads, plus a structurally valid Sony frame derived from each input. |
-| `sony_envelope` | Sony request framing, public VISCA extraction, owner control-reply extraction, and sequence RESET framing. |
+| `sony_envelope` | Sony request framing, owner VISCA extraction, owner control-reply extraction, and sequence RESET framing. |
 | `response_target` | Strict serial and single-/multi-target IP source routing. |
 | `serial_startup` | Address Set and I/F Clear phases with arbitrary chunks, read/write failures and timing ticks, bounded progress and retained input. |
 

@@ -12,8 +12,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_lite::future::race;
-
 use crate::{
     timeout::Deadline,
     transport::{
@@ -57,11 +55,7 @@ pub trait AsyncNet {
 
 /// Run one connect step within `remaining`; `None` means the budget ran out.
 async fn within<N: AsyncNet, T>(remaining: Duration, step: impl Future<Output = T>) -> Option<T> {
-    race(async { Some(step.await) }, async {
-        N::sleep(remaining).await;
-        None
-    })
-    .await
+    crate::timeout::within(step, N::sleep(remaining)).await
 }
 
 /// Resolve `endpoint` within the connect budget.
@@ -520,5 +514,79 @@ mod ipv6_tests {
         smol::block_on(check_hop_limits::<
             crate::transport::smol::connectors::SmolNet,
         >());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod deadline_tie_tests {
+    use std::{
+        net::{TcpListener, TcpStream, UdpSocket},
+        sync::{Arc, OnceLock},
+    };
+
+    use super::*;
+
+    static CONNECTED: OnceLock<Arc<TcpStream>> = OnceLock::new();
+    struct ReadyNet;
+
+    impl AsyncNet for ReadyNet {
+        type TcpStream = Arc<TcpStream>;
+        type UdpSocket = UdpSocket;
+
+        async fn lookup(_: String) -> io::Result<Vec<SocketAddr>> {
+            Ok(vec![CONNECTED
+                .get()
+                .expect("connected stream")
+                .peer_addr()?])
+        }
+
+        async fn connect_tcp(_: SocketAddr, _: TcpConnectionConfig) -> io::Result<Self::TcpStream> {
+            Ok(Arc::clone(CONNECTED.get().expect("connected stream")))
+        }
+
+        async fn bind_udp(address: SocketAddr) -> io::Result<UdpSocket> {
+            UdpSocket::bind(address)
+        }
+
+        async fn connect_udp(socket: &UdpSocket, address: SocketAddr) -> io::Result<()> {
+            socket.connect(address)
+        }
+
+        fn tcp_socket(stream: &Self::TcpStream) -> socket2::SockRef<'_> {
+            socket2::SockRef::from(stream.as_ref())
+        }
+
+        fn udp_socket(socket: &UdpSocket) -> socket2::SockRef<'_> {
+            socket2::SockRef::from(socket)
+        }
+
+        async fn sleep(_: Duration) {}
+    }
+
+    #[test]
+    fn completed_connect_step_wins_an_already_ready_timer() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let connected = Arc::new(TcpStream::connect(address).expect("connect"));
+        let (_peer, _) = listener.accept().expect("accept");
+        CONNECTED
+            .set(Arc::clone(&connected))
+            .expect("one test stream");
+        let options = crate::transport::builder::TransportConfig::for_tcp().into();
+        pollster::block_on(async {
+            for _ in 0..10_000 {
+                let stream =
+                    within::<ReadyNet, _>(Duration::ZERO, ReadyNet::connect_tcp(address, options))
+                        .await
+                        .expect("completed step wins")
+                        .expect("connected");
+                assert!(Arc::ptr_eq(&stream, &connected));
+            }
+            let stream = connect_tcp::<ReadyNet>("camera.tie.test:1259", options)
+                .await
+                .expect("lookup and connection both beat the ready timer");
+            assert!(Arc::ptr_eq(&stream, &connected));
+        });
     }
 }

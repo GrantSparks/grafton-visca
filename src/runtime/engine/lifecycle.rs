@@ -13,7 +13,7 @@ use std::time::Instant;
 /// written attempt separately so a late exact-sequence ACK can adopt it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AttemptFacts {
-    pub(crate) socket_capacity: Option<u8>,
+    pub(crate) socket_capacity: Option<crate::CommandSocketCount>,
     pub(crate) stream_order: Option<u64>,
 }
 
@@ -51,7 +51,6 @@ pub(crate) enum DueAction {
     CancellationResolution {
         observation_deadline: Option<Instant>,
     },
-    CancellationAmbiguity,
     CancellationObservation {
         terminal_at: Instant,
     },
@@ -69,7 +68,6 @@ pub(crate) enum DueAction {
 impl DueAction {
     pub(crate) const fn priority(self) -> u8 {
         match self {
-            Self::CancellationAmbiguity => 0,
             Self::Ack { .. }
             | Self::Completion(_)
             | Self::InquiryReply { .. }
@@ -309,12 +307,26 @@ impl Lifecycle {
     pub(crate) const fn is_uncorrelated_command(self) -> bool {
         self.is_uncorrelated_write() || self.is_awaiting_completion()
     }
-    /// End of the active response window, before a cancellation's separate
-    /// ambiguity interval is added by its caller.
+    /// End of the ACK response window. Cancellation intent may extend the
+    /// original deadline, but must never shorten it.
+    pub(crate) fn awaiting_ack_end(self) -> Option<Instant> {
+        match self {
+            Self::AwaitingAck {
+                deadline,
+                cancellation,
+                ..
+            } => Some(
+                cancellation.map_or(deadline, |request| deadline.max(request.ambiguity_deadline)),
+            ),
+            _ => None,
+        }
+    }
+
+    /// End of the active response window, including any cancellation extension.
     pub(crate) fn response_window_end(self) -> Option<Instant> {
         match self {
-            Self::AwaitingAck { deadline, .. }
-            | Self::AwaitingCompletion { deadline, .. }
+            Self::AwaitingAck { .. } => self.awaiting_ack_end(),
+            Self::AwaitingCompletion { deadline, .. }
             | Self::AwaitingReply { deadline, .. }
             | Self::ExecutingDisplaced { deadline, .. } => Some(deadline),
             Self::Executing {
@@ -425,7 +437,7 @@ impl Lifecycle {
                 attempt,
                 cancellation,
             } => Some((
-                deadline,
+                self.awaiting_ack_end()?,
                 DueAction::Ack {
                     sent_at,
                     deadline,
@@ -505,11 +517,6 @@ impl Lifecycle {
                         certainty,
                     },
                 ));
-            }
-        }
-        if let Some(ambiguity) = self.active_cancellation_ambiguity() {
-            if due.is_none_or(|(at, _)| ambiguity <= at) {
-                due = Some((ambiguity, DueAction::CancellationAmbiguity));
             }
         }
         due
@@ -777,20 +784,8 @@ impl Lifecycle {
         }
     }
 
-    pub(crate) const fn active_cancellation_ambiguity(self) -> Option<Instant> {
-        match self {
-            Self::Executing { .. }
-            | Self::ExecutingDisplaced { .. }
-            | Self::AwaitingCancellationResolution { .. } => None,
-            Self::Ready { .. }
-            | Self::Sending { .. }
-            | Self::AwaitingAck { .. }
-            | Self::AwaitingCompletion { .. }
-            | Self::AwaitingReply { .. }
-            | Self::Backoff { .. } => self.cancellation_ambiguity(),
-        }
-    }
-
+    /// Accepted cancellation suppresses retries and their budget. The phase's
+    /// effective response deadline remains authoritative until resolution.
     pub(crate) fn retry_budget_deadline(
         self,
         submitted_at: Instant,
@@ -803,7 +798,7 @@ impl Lifecycle {
 
     pub(crate) fn correlated_response_deadline(self, budget: Option<Instant>) -> Option<Instant> {
         let deadline = match self {
-            Self::AwaitingAck { deadline, .. } => self.cancellation_ambiguity().or(Some(deadline)),
+            Self::AwaitingAck { .. } => self.awaiting_ack_end(),
             Self::AwaitingCompletion { deadline, .. }
             | Self::AwaitingReply { deadline, .. }
             | Self::ExecutingDisplaced { deadline, .. } => Some(deadline),
@@ -820,16 +815,14 @@ impl Lifecycle {
             Self::Sending { .. } => None,
             Self::Ready { .. } | Self::Backoff { .. } => return None,
         };
-        [deadline, self.active_cancellation_ambiguity(), budget]
-            .into_iter()
-            .flatten()
-            .min()
+        [deadline, budget].into_iter().flatten().min()
     }
 
     pub(crate) fn raw_cancellation_release_deadline(self) -> Option<Instant> {
         let ambiguity = self.cancellation_ambiguity()?;
         match self {
-            Self::Sending { .. } | Self::AwaitingAck { .. } => Some(ambiguity),
+            Self::Sending { .. } => Some(ambiguity),
+            Self::AwaitingAck { .. } => self.awaiting_ack_end(),
             Self::Executing { deadline, .. } => Some(deadline.max(ambiguity)),
             Self::AwaitingCancellationResolution { deadline, .. } => Some(deadline.max(ambiguity)),
             Self::ExecutingDisplaced { .. }

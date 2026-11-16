@@ -355,7 +355,6 @@ mod tests {
             crate::IndividualCameraId::CAMERA_1,
             id.spec().expect("built-in profile"),
         )
-        .expect("registered target")
     }
 
     fn wire(request: &impl Request) -> Vec<u8> {

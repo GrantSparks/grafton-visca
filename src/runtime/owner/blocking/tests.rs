@@ -234,6 +234,7 @@ struct Setup {
     eager_idle: bool,
     profile: ProfileSpec,
     raw_inquiry_release_hold: Option<Duration>,
+    read_timeout: Duration,
 }
 
 impl Setup {
@@ -249,6 +250,7 @@ impl Setup {
             eager_idle: false,
             profile,
             raw_inquiry_release_hold: None,
+            read_timeout: Duration::from_millis(200),
         }
     }
 
@@ -276,7 +278,7 @@ impl Setup {
         let transport = ChannelTransport {
             clock: self.clock.clone(),
             config: TransportConfig {
-                read_timeout: Duration::from_millis(200),
+                read_timeout: self.read_timeout,
                 ..TransportConfig::default()
             },
             semantics: self.semantics,
@@ -332,8 +334,7 @@ fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
         &crate::TargetRegistration::new(
             (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             profile.clone(),
-        )
-        .expect("valid target registration"),
+        ),
         OperationalTuning::new(),
         ClassSelection::Request,
     )
@@ -347,8 +348,7 @@ fn limit_clear_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
         &crate::TargetRegistration::new(
             (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             profile.clone(),
-        )
-        .expect("valid target registration"),
+        ),
         OperationalTuning::new(),
         ClassSelection::Request,
     )
@@ -389,8 +389,7 @@ fn zoom_stop() -> crate::prepared::PreparedOperation<AppliedOnly> {
         &crate::TargetRegistration::new(
             (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             generic_profile().clone(),
-        )
-        .expect("valid target registration"),
+        ),
         OperationalTuning::new(),
         ClassSelection::Request,
     )
@@ -785,6 +784,71 @@ fn an_undecodable_datagram_is_discarded_and_the_session_continues() {
     receipt.wait().unwrap();
     assert_eq!(owner.metrics().unwrap().ignored_malformed_frames, 1);
     owner.close().unwrap();
+}
+
+/// #979: exhausting the read budget cannot pre-empt ready admission, control,
+/// cancellation, shutdown or engine deadlines, even when one probe spends it all.
+#[test]
+fn one_millisecond_reads_keep_boundary_lanes_and_deadlines_live() {
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let (owner, peer) = Setup {
+        read_timeout: READY_PROBE,
+        ..Setup::datagram()
+    }
+    .on(&clock)
+    .spawn();
+    let command = owner.submit_command(focus_manual()).unwrap();
+    peer.next_write();
+    peer.reply(ACK);
+    peer.reply(COMPLETION);
+    command.wait().unwrap();
+
+    let mut stop = owner.submit_operation(zoom_stop()).unwrap();
+    assert_eq!(peer.next_write(), ZOOM_STOP);
+    peer.reply(ACK);
+    peer.reply(COMPLETION);
+    stop.applied(None).unwrap();
+
+    let request = owner
+        .submit_with_timeout(raw_inquiry(Duration::from_millis(20)).into(), PROMPTLY)
+        .unwrap();
+    peer.next_write();
+    let deadline = owner.deadline_after(PROMPTLY).unwrap();
+    assert!(matches!(
+        owner.wait_core_until(&request, deadline),
+        Ok(RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })))
+            if matches!(source.as_ref(), Error::Timeout { .. })
+    ));
+    owner.close().unwrap();
+    assert!(peer.transport_dropped());
+}
+
+/// The system-clock path also makes progress when OS UDP read rounding makes
+/// one probe exceed the configured idle budget.
+#[test]
+fn one_millisecond_native_udp_reads_allow_admission_and_close() {
+    let silent_peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let config = TransportConfig {
+        read_timeout: READY_PROBE,
+        ..TransportConfig::default()
+    };
+    let transport = crate::transport::blocking::Udp::connect_with_config(
+        &silent_peer.local_addr().unwrap().to_string(),
+        config,
+    )
+    .unwrap();
+    let (adapter, policy) = BlockingTransportAdapter::new(
+        transport,
+        &generic_profile(),
+        crate::target::TargetSlot::CAMERA_1,
+    )
+    .unwrap();
+    let owner = BlockingOwnerHandle::spawn(policy, adapter, Clock::System).unwrap();
+    let command = owner.submit_command(focus_manual()).unwrap();
+    owner.metrics().unwrap();
+    owner.close().unwrap();
+    assert!(matches!(command.wait(), Err(Error::RuntimeShutdown)));
 }
 
 /// #675: a transport that answers "no data" at once, ignoring its timeout,

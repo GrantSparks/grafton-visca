@@ -405,8 +405,10 @@ async fn runtime_profile_target_selection_is_explicit_and_checked<E: Executor>(e
 
 async fn dynamic_queued_targeted_cancel_is_owner_local<E: Executor>(executor: E) {
     let (fake, transport) = probe(AddressingMode::Ip, false);
-    let config = SessionConfig::new(profile())
-        .with_tuning(OperationalTuning::new().with_maximum_command_sockets(1));
+    let config = SessionConfig::new(profile()).with_tuning(
+        OperationalTuning::new()
+            .with_maximum_command_sockets(grafton_visca::types::CommandSocketCount::ONE),
+    );
     let session = open_session(transport, config, executor.clone()).await;
     let camera = session
         .camera::<grafton_visca::profiles::AnyProfile>(

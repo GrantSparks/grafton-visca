@@ -38,12 +38,14 @@ use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
 use crate::target::{PerTarget, TargetSlot};
-use crate::{Certainty, Error, FailureContext, FailureStage, PayloadShape, ViscaSocket};
+use crate::{
+    Certainty, CommandSocketCount, Error, FailureContext, FailureStage, PayloadShape, ViscaSocket,
+};
 
 mod decision;
 mod entry_table;
 use decision::Decision;
-use entry_table::{AdmissionFacts, EntryChange, EntryPlacement, EntryTable};
+use entry_table::{AdmissionFacts, EntryChange, EntryPlacement, EntryTable, SequenceSlots};
 mod framing;
 pub(crate) use framing::{ProtocolEncoder, WireProtocol, WriteFraming};
 
@@ -217,7 +219,7 @@ pub(crate) struct Entry {
     lifecycle: EntryPlacement,
     submitted_at: Instant,
     prior: Option<PriorAttempts>,
-    sequence_history: SmallVec<[SequenceRecord; MAX_SEQUENCE_HISTORY]>,
+    sequences: SequenceSlots,
     slot: AdmissionSlot,
 }
 
@@ -255,14 +257,10 @@ impl Entry {
         }
     }
 
-    /// The request's successful Sony sequence is already authoritative in
-    /// the bounded correlation history. Every retry replays that sequence,
-    /// and cancellation has at most one separate record, so it cannot evict
-    /// the request record or change the sequence used by a retry.
+    /// Every retry replays the request's authoritative Sony sequence. A
+    /// cancellation occupies its own slot and cannot replace that sequence.
     fn current_sequence(&self) -> Option<u32> {
-        self.sequence_history
-            .iter()
-            .find_map(|record| (record.kind == CorrelationKind::Request).then_some(record.sequence))
+        self.sequences[CorrelationKind::Request]
     }
 
     /// An exact Sony sequence proves a previous written attempt while the
@@ -318,7 +316,7 @@ impl Entry {
         self.lifecycle()
             .correlated_response_deadline(self.retry_budget_deadline())
     }
-    fn dispatched_socket_capacity(&self) -> Option<u8> {
+    fn dispatched_socket_capacity(&self) -> Option<CommandSocketCount> {
         self.lifecycle()
             .attempt()
             .and_then(|attempt| attempt.socket_capacity)
@@ -441,11 +439,29 @@ pub(crate) struct EngineCore {
     next_request_id: IdAllocator,
     next_transmission_id: IdAllocator,
     jitter: Jitter,
-    last_request_sent: Option<Instant>,
-    last_command_sent: Option<Instant>,
-    last_inquiry_sent: Option<Instant>,
-    inquiry_cooldown_until: Option<Instant>,
+    pacing: Pacing,
     session: EngineSession,
+}
+
+/// Lane timestamps are authoritative; the session-wide floor is derived.
+#[derive(Debug, Default)]
+struct Pacing {
+    last_command: Option<Instant>,
+    last_inquiry: Option<Instant>,
+    inquiry_cooldown_until: Option<Instant>,
+}
+
+impl Pacing {
+    fn record(&mut self, lane: Lane, now: Instant) {
+        *match lane {
+            Lane::Command => &mut self.last_command,
+            Lane::Inquiry => &mut self.last_inquiry,
+        } = Some(now);
+    }
+
+    fn last_request(&self) -> Option<Instant> {
+        self.last_command.max(self.last_inquiry)
+    }
 }
 
 impl std::ops::Deref for ProtocolEngine {
@@ -492,10 +508,7 @@ impl ProtocolEngine {
                 next_request_id: IdAllocator::new(),
                 next_transmission_id: IdAllocator::new(),
                 jitter: Jitter::new(),
-                last_request_sent: None,
-                last_command_sent: None,
-                last_inquiry_sent: None,
-                inquiry_cooldown_until: None,
+                pacing: Pacing::default(),
                 session: EngineSession::Running,
             },
         })
@@ -513,16 +526,26 @@ impl ProtocolEngine {
         &mut self,
         command_spacing: Duration,
         inquiry_spacing: Duration,
-        command_sockets: PerTarget<Option<u8>>,
+        command_sockets: PerTarget<Option<CommandSocketCount>>,
         now: Instant,
     ) -> Result<(), Error> {
         EngineMethods::retune(self, command_spacing, inquiry_spacing, command_sockets, now)
     }
 
+    #[cfg(feature = "test-utils")]
+    pub(crate) const fn command_spacing(&self) -> Duration {
+        self.core.policy.command_spacing
+    }
+
+    #[cfg(feature = "test-utils")]
+    pub(crate) fn envelope_kind(&self) -> EnvelopeKind {
+        self.core.policy.wire.kind()
+    }
+
     #[cfg(test)]
     pub(crate) fn operational_limits_for_test(
         &self,
-    ) -> (Duration, Duration, PerTarget<Option<u8>>) {
+    ) -> (Duration, Duration, PerTarget<Option<CommandSocketCount>>) {
         (
             self.core.policy.command_spacing,
             self.core.policy.inquiry_spacing,
@@ -783,8 +806,8 @@ trait EngineMethods: EngineAccess {
             || (entry.reply_family() != SendingReply::Inquiry
                 && !self.mode().is_stream()
                 && !stop
-                && occupancy.targets[target].commands < self.command_sockets(target)
-                && self.used_capacity_in(target, occupancy) >= self.command_sockets(target))
+                && occupancy.targets[target].commands < self.command_sockets(target).get()
+                && self.used_capacity_in(target, occupancy) >= self.command_sockets(target).get())
     }
     fn command_gate_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
         let raw = self.mode().is_raw();
@@ -858,7 +881,7 @@ trait EngineMethods: EngineAccess {
                             state.commands
                         } else {
                             self.used_capacity_in(target, occupancy)
-                        }) >= usize::from(policy.command_sockets)
+                        }) >= policy.command_sockets.get()
                         || self.uncorrelated_shape_blocked_in(entry, target, now, occupancy))
             }
         }
@@ -866,11 +889,6 @@ trait EngineMethods: EngineAccess {
 
     /// Registers one target's socket and cancellation policy.
     fn register_target(&mut self, target: TargetSlot, policy: TargetPolicy) -> Result<(), Error> {
-        if !(1..=2).contains(&policy.command_sockets) {
-            return Err(Error::InvalidRequest {
-                reason: "VISCA command socket capacity must be one or two".into(),
-            });
-        }
         let slot = &mut self.targets[target].policy;
         match *slot {
             Some(existing) if existing != policy => Err(Error::InvalidState {
@@ -899,18 +917,9 @@ trait EngineMethods: EngineAccess {
         &mut self,
         command_spacing: Duration,
         inquiry_spacing: Duration,
-        command_sockets: PerTarget<Option<u8>>,
+        command_sockets: PerTarget<Option<CommandSocketCount>>,
         now: Instant,
     ) -> Result<(), Error> {
-        for (target, slot) in self.targets.iter() {
-            if let (Some(_), Some(sockets)) = (slot.policy, command_sockets[target]) {
-                if !(1..=2).contains(&sockets) {
-                    return Err(Error::InvalidRequest {
-                        reason: "VISCA command socket capacity must be one or two".into(),
-                    });
-                }
-            }
-        }
         let mut policy = self.policy.clone();
         policy.command_spacing = command_spacing;
         policy.inquiry_spacing = inquiry_spacing;
@@ -1449,7 +1458,7 @@ trait EngineMethods: EngineAccess {
     /// ordinary queued work, but its wire write still advances the shared
     /// command spacing deadline.  Re-scan after each write so zero-spacing
     /// profiles drain the complete urgent set; a positive spacing naturally
-    /// stops the scan after the first write advances [`Self::last_request_sent`].
+    /// stops the scan after the first write advances [`Pacing::last_request`].
     fn drain_pending_cancellations(&mut self, now: Instant, effects: &mut Decision) {
         if !matches!(self.session, EngineSession::Running) {
             return;
@@ -1470,10 +1479,10 @@ trait EngineMethods: EngineAccess {
                 return;
             };
             let before = self.entries.get(&id).map(|entry| entry.lifecycle());
-            let last_sent = self.last_request_sent;
+            let last_sent = self.pacing.last_request();
             self.emit_cancel(id, pending, now, effects);
             let after = self.entries.get(&id).map(|entry| entry.lifecycle());
-            if before == after && self.last_request_sent == last_sent {
+            if before == after && self.pacing.last_request() == last_sent {
                 return;
             }
         }
@@ -1499,7 +1508,7 @@ trait EngineMethods: EngineAccess {
             (entry.reply_family() != SendingReply::Inquiry).then(|| {
                 self.targets[target]
                     .policy
-                    .map_or(1, |policy| policy.command_sockets)
+                    .map_or(CommandSocketCount::ONE, |policy| policy.command_sockets)
             });
         let wire = Arc::clone(entry.request.wire());
         let owes = self.ledger_owes(entry);
@@ -1530,12 +1539,7 @@ trait EngineMethods: EngineAccess {
             reply,
         };
         self.transition(request, lifecycle, now, effects);
-        self.last_request_sent = Some(now);
-        if lane == Lane::Inquiry {
-            self.last_inquiry_sent = Some(now);
-        } else {
-            self.last_command_sent = Some(now);
-        }
+        self.pacing.record(lane, now);
         effects.push(Effect::Transmit {
             transmission,
             request,
@@ -1580,7 +1584,7 @@ trait EngineMethods: EngineAccess {
                     && (self.raw_hold_blocks_dispatch(entry, target)
                         || self.raw_command_gate_blocks(entry, target)
                         || self.command_capacity_used_by(entry, target)
-                            >= usize::from(policy.command_sockets)
+                            >= policy.command_sockets.get()
                         || self.uncorrelated_raw_shape_blocked(entry, target, now))
             }
         }
@@ -1602,18 +1606,18 @@ trait EngineMethods: EngineAccess {
         // keeps the established session-wide pacing floor.
         let last_spacing_write =
             if entry.reply_family() != SendingReply::Inquiry && entry.request.context().is_stop() {
-                self.last_command_sent
+                self.pacing.last_command
             } else {
-                self.last_request_sent
+                self.pacing.last_request()
             };
         let mut at = last_spacing_write.map_or(entry.submitted_at, |last| {
             add_duration(last, request_spacing)
         });
         if entry.reply_family() == SendingReply::Inquiry {
-            if let Some(last) = self.last_inquiry_sent {
+            if let Some(last) = self.pacing.last_inquiry {
                 at = at.max(add_duration(last, self.policy.inquiry_spacing));
             }
-            if let Some(cooldown) = self.inquiry_cooldown_until {
+            if let Some(cooldown) = self.pacing.inquiry_cooldown_until {
                 at = at.max(cooldown);
             }
         }
@@ -1624,7 +1628,7 @@ trait EngineMethods: EngineAccess {
     /// requests, cancellation does not inherit the request's control-class
     /// minimum spacing; only the shared profile command-spacing floor applies.
     fn cancellation_send_at(&self, entry: &Entry) -> Instant {
-        self.last_command_sent.map_or(entry.submitted_at, |last| {
+        self.pacing.last_command.map_or(entry.submitted_at, |last| {
             add_duration(last, self.policy.command_spacing)
         })
     }
@@ -1830,7 +1834,7 @@ trait EngineMethods: EngineAccess {
             if entry.reply_family() == SendingReply::Inquiry || self.mode().is_stream() || stop {
                 None
             } else {
-                let capacity = self.command_sockets(target);
+                let capacity = self.command_sockets(target).get();
                 let live = self.commands_inflight(target);
                 let held = self.raw_socket_hold_count(target);
                 (live < capacity && live.saturating_add(held) >= capacity)
@@ -2976,17 +2980,17 @@ trait EngineMethods: EngineAccess {
         })
     }
 
-    fn command_sockets(&self, target: TargetSlot) -> usize {
+    fn command_sockets(&self, target: TargetSlot) -> CommandSocketCount {
         self.targets[target]
             .policy
-            .map_or(1, |policy| usize::from(policy.command_sockets))
+            .map_or(CommandSocketCount::ONE, |policy| policy.command_sockets)
     }
 
     /// Socket assignment may need the capacity that was in force when this
     /// exact command attempt was dispatched. A live retune lowers admission
     /// capacity immediately, but it does not revoke the second physical socket
     /// from a pre-retune attempt already draining under the old capacity.
-    fn assignment_socket_count(&self, target: TargetSlot, id: RequestId) -> usize {
+    fn assignment_socket_count(&self, target: TargetSlot, id: RequestId) -> CommandSocketCount {
         let current = self.command_sockets(target);
         self.entries
             .get(&id)
@@ -2998,7 +3002,7 @@ trait EngineMethods: EngineAccess {
                         .and_then(|attempt| attempt.socket_capacity)
                 })
             })
-            .map_or(current, |dispatched| current.max(usize::from(dispatched)))
+            .map_or(current, |dispatched| current.max(dispatched))
     }
 
     fn socket_available(&self, target: TargetSlot, socket: ViscaSocket, id: RequestId) -> bool {
@@ -3026,9 +3030,8 @@ trait EngineMethods: EngineAccess {
             }
             return None;
         }
-        [ViscaSocket::S1, ViscaSocket::S2]
-            .into_iter()
-            .take(assignment_socket_count)
+        assignment_socket_count
+            .sockets()
             .find(|socket| self.socket_available(target, *socket, id))
     }
 
@@ -3044,9 +3047,9 @@ trait EngineMethods: EngineAccess {
         self.raw_socket_hold_count(target) != 0
             || learning.pending_socketless_completions.is_some()
             || learning.unlearned_completions != 0
-            || [ViscaSocket::S1, ViscaSocket::S2]
-                .into_iter()
-                .take(self.command_sockets(target))
+            || self
+                .command_sockets(target)
+                .sockets()
                 .all(|socket| self.socket_owner(target, socket).is_some())
     }
 
@@ -3270,21 +3273,12 @@ trait EngineMethods: EngineAccess {
         }) else {
             return;
         };
-        match self.split().1 {
-            CorrelationState::RawDatagram(holds) => holds.extend(
-                target,
-                RawHoldScope::AllResponses,
-                add_duration(now, ambiguity),
-                Some(id),
-            ),
-            CorrelationState::RawStream(stream) => stream.holds.extend(
-                target,
-                StreamScope::AllResponses,
-                add_duration(now, ambiguity),
-                Some(id),
-            ),
-            CorrelationState::Sequenced => {}
-        }
+        self.split().1.extend_hold(
+            target,
+            StreamScope::AllResponses,
+            add_duration(now, ambiguity),
+            Some(id),
+        );
     }
 
     /// Retains the exact declaration's reply skew after an uncertain raw
@@ -3299,17 +3293,9 @@ trait EngineMethods: EngineAccess {
             return;
         };
         let until = add_duration(now, self.policy.raw_inquiry_release_hold);
-        match self.split().1 {
-            CorrelationState::RawDatagram(holds) => {
-                holds.extend(target, RawHoldScope::Inquiry(shape), until, Some(id))
-            }
-            CorrelationState::RawStream(stream) => {
-                stream
-                    .holds
-                    .extend(target, StreamScope::Inquiry(shape), until, Some(id))
-            }
-            CorrelationState::Sequenced => {}
-        }
+        self.split()
+            .1
+            .extend_hold(target, StreamScope::Inquiry(shape), until, Some(id));
     }
 
     // ---------------------------------------------------------------------
@@ -3346,17 +3332,9 @@ trait EngineMethods: EngineAccess {
             return;
         };
         let target = entry.request.context().target;
-        match self.split().1 {
-            CorrelationState::RawDatagram(holds) => {
-                holds.extend(target, RawHoldScope::Socket(socket), until, Some(id))
-            }
-            CorrelationState::RawStream(stream) => {
-                stream
-                    .holds
-                    .extend(target, StreamScope::Socket(socket), until, Some(id))
-            }
-            CorrelationState::Sequenced => {}
-        }
+        self.split()
+            .1
+            .extend_hold(target, StreamScope::Socket(socket), until, Some(id));
     }
 
     /// Records that a request's (or its cancellation's) write left: from now
@@ -3378,7 +3356,7 @@ trait EngineMethods: EngineAccess {
             if let CorrelationState::RawStream(stream) = self.split().1 {
                 if let Some(capacity) = capacity {
                     let seen = &mut stream.learning[target].socket_capacity_seen;
-                    *seen = (*seen).max(capacity);
+                    *seen = (*seen).max(Some(capacity));
                 }
                 stream.ledger.mark_written(target, id, cancel);
             }
@@ -3814,8 +3792,7 @@ trait EngineMethods: EngineAccess {
                 framing,
             },
         });
-        self.last_request_sent = Some(now);
-        self.last_command_sent = Some(now);
+        self.pacing.record(Lane::Command, now);
     }
 
     fn schedule_retry(
@@ -3932,8 +3909,9 @@ trait EngineMethods: EngineAccess {
                 && matches!(entry.retry_cause(), Some(Error::SyntaxError))
         }) {
             let cooldown = add_duration(now, self.policy.inquiry_cooldown.max(delay));
-            self.inquiry_cooldown_until = Some(
-                self.inquiry_cooldown_until
+            self.pacing.inquiry_cooldown_until = Some(
+                self.pacing
+                    .inquiry_cooldown_until
                     .map_or(cooldown, |existing| existing.max(cooldown)),
             );
         }
@@ -3979,10 +3957,11 @@ trait EngineMethods: EngineAccess {
         // have decided a dispute.
         self.apply_retro(now, effects);
         if self
+            .pacing
             .inquiry_cooldown_until
             .is_some_and(|deadline| deadline <= now)
         {
-            self.inquiry_cooldown_until = None;
+            self.pacing.inquiry_cooldown_until = None;
         }
     }
 
@@ -4028,12 +4007,11 @@ trait EngineMethods: EngineAccess {
             return;
         };
         let target = entry.request.context().target;
-        // A cancellation can end before its original protocol window. Keep
-        // every response from that attempt away from successors through both
-        // windows and a fresh ambiguity interval, even if due work was delayed.
-        let phase_deadline = entry.lifecycle().response_window_end().unwrap_or(now);
-        let hold_base = if let Some(cancel_deadline) = entry.lifecycle().cancellation_ambiguity() {
-            now.max(phase_deadline).max(cancel_deadline)
+        // A cancelled attempt retains its complete response window and a
+        // fresh ambiguity interval, even if due work was delayed. Ordinary
+        // retirement (for example, a retry budget) starts its hold at `now`.
+        let hold_base = if entry.lifecycle().cancellation_ambiguity().is_some() {
+            now.max(entry.lifecycle().response_window_end().unwrap_or(now))
         } else {
             now
         };
@@ -4146,9 +4124,6 @@ trait EngineMethods: EngineAccess {
         let context = *entry.request.context();
         let current_certainty = entry.certainty(AttemptEvidence::Lifecycle);
         match due.action {
-            DueAction::CancellationAmbiguity => {
-                self.finish_cancellation_unconfirmed(id, now, effects)
-            }
             DueAction::CancellationObservation { terminal_at } => {
                 self.close_cancellation_observer(id, effects);
                 if terminal_at <= now {
@@ -4194,22 +4169,8 @@ trait EngineMethods: EngineAccess {
                 cancellation,
             } => {
                 let mark = effects.len();
-                if let Some(request) = cancellation {
-                    if request.ambiguity_deadline > now {
-                        self.transition(
-                            id,
-                            Lifecycle::AwaitingAck {
-                                sent_at,
-                                deadline: request.ambiguity_deadline,
-                                attempt: retry.attempt(),
-                                cancellation,
-                            },
-                            now,
-                            effects,
-                        );
-                    } else {
-                        self.finish_cancellation_unconfirmed(id, now, effects);
-                    }
+                if cancellation.is_some() {
+                    self.finish_cancellation_unconfirmed(id, now, effects);
                 } else if self.mode().is_stream()
                     && self.mode().ledger().awaits_dispute(context.target, id)
                     && deadline.saturating_duration_since(sent_at) <= context.timeout.ack.get()

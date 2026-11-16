@@ -413,7 +413,6 @@ mod tests {
             .build()
             .expect("custom profile");
         TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
-            .expect("registered target")
     }
 
     #[test]

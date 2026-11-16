@@ -82,7 +82,7 @@ facade_matrix! {
 
     fn unregistered_views_fail_before_any_protocol_write() {
         let camera = SerialCamera::new();
-        let session = open!(camera, SessionConfig::for_target(grafton_visca::types::IndividualCameraId::CAMERA_7, profile()).unwrap())
+        let session = open!(camera, SessionConfig::for_target(grafton_visca::types::IndividualCameraId::CAMERA_7, profile()))
             .expect("last individual target has an ordinary table slot");
         assert!(matches!(
             session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1),

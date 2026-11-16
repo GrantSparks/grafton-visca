@@ -147,7 +147,7 @@ fn sony_lower16_ack_keeps_the_written_attempt_socket_capacity() {
         .retune(
             Duration::ZERO,
             Duration::ZERO,
-            PerTarget::from_fn(|_| Some(1)),
+            PerTarget::from_fn(|_| Some(CommandSocketCount::ONE)),
             Instant::now(),
         )
         .unwrap();
