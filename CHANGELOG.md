@@ -92,6 +92,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `with_*` setters. All position-based observations accept replies delivered
   by the owner at the deadline, even when the caller resumes later (#967).
 
+- Targeted operations prepare and cache position-polling inquiries only when
+  `settled()` needs them, retaining submission-time tuning across live updates.
+  Built-in `Response::parse_with_profile` uses constant registry framing without
+  reconstructing an owned profile (#975).
+
 - Built-in typed camera views reuse their validated profile identity and grants
   without allocating; custom profiles retain complete fact comparison (#958).
 

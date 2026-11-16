@@ -640,7 +640,7 @@ macro_rules! owner_handle_methods {
                 self.applied_until(deadline) $($await)* ?;
                 match super::receipt::position_poll(
                     &self.settlement,
-                ) {
+                )? {
                     Some(poll) => {
                         self.observation.check_settlement()?;
                         let result = self

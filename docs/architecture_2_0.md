@@ -199,7 +199,12 @@ facts. `camera::<AnyProfile>(target)` retains runtime validation instead of
 making compile-time capability claims.
 Profile validation and settlement preparation share one axis-to-inquiry
 declaration and its canonical noun gates; a declared IRIS position inquiry or
-preset recall axis requires the `Iris` grant (#937).
+preset recall axis requires the `Iris` grant (#937). Targeted preparation proves
+axis and inquiry availability eagerly, but retains only immutable polling inputs.
+The first `settled()` wait that needs position evidence prepares the selected
+query templates and caches them for later waits. The captured registration and
+validated tuning remain those from submission, including after live retuning;
+`applied()` and handle detachment do not prepare unused inquiries (#975).
 
 Multi-target registration is rejected before socket creation on any
 IP-addressed transport, which is every standard TCP and UDP configuration and

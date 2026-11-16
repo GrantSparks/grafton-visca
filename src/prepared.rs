@@ -2,7 +2,7 @@
 
 use std::{
     marker::PhantomData,
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -90,11 +90,46 @@ pub(crate) enum SettlementPlan {
     CompletionIsSettled { default_budget: Duration },
     /// Settlement must poll the exact affected axes.
     Poll {
-        queries: PositionQueryPlan,
+        queries: LazyPositionQueryPlan,
         tolerance: MovementTolerance,
         interval: Duration,
         default_budget: Duration,
     },
+}
+
+/// A submission's immutable polling inputs. The registration shares its profile
+/// allocation; capturing it does not clone the owned profile facts. Lowering
+/// keeps tuning from submission rather than consulting later owner updates.
+#[derive(Debug, Clone)]
+pub(crate) struct LazyPositionQueryPlan {
+    registration: crate::TargetRegistration,
+    tuning: ValidatedTuning,
+    axes: AffectedAxes,
+    prepared: OnceLock<Result<PositionQueryPlan>>,
+}
+
+impl LazyPositionQueryPlan {
+    fn new(
+        registration: &crate::TargetRegistration,
+        tuning: ValidatedTuning,
+        axes: AffectedAxes,
+    ) -> Self {
+        Self {
+            registration: registration.clone(),
+            tuning,
+            axes,
+            prepared: OnceLock::new(),
+        }
+    }
+
+    /// Materializes each axis's shared template once, even when a wait is
+    /// abandoned or times out and subsequently starts a fresh sampling proof.
+    pub(crate) fn get(&self) -> Result<&PositionQueryPlan> {
+        self.prepared
+            .get_or_init(|| PositionQueryPlan::prepare(&self.registration, self.tuning, self.axes))
+            .as_ref()
+            .map_err(Clone::clone)
+    }
 }
 
 /// Wire bytes are owned during ordinary preparation. A polling template shares
@@ -273,7 +308,13 @@ pub(crate) fn prepare_position_queries(
     tuning: ValidatedTuning,
     axes: AffectedAxes,
 ) -> Result<PositionQueryPlan> {
-    let profile = registration.profile();
+    validate_position_axes(registration.profile(), axes)?;
+    PositionQueryPlan::prepare(registration, tuning, axes)
+}
+
+/// Shared eager admissibility check for independently requested position
+/// observation and deferred targeted settlement. No inquiry is prepared here.
+fn validate_position_axes(profile: &ProfileSpec, axes: AffectedAxes) -> Result<()> {
     if !profile.supports_axes(axes) {
         return Err(Error::FeatureNotSupported {
             feature: "selected motion axes are not supported by the profile",
@@ -287,7 +328,7 @@ pub(crate) fn prepare_position_queries(
             feature: "position inquiries required for the selected motion axes",
         });
     }
-    PositionQueryPlan::prepare(registration, tuning, axes)
+    Ok(())
 }
 
 /// Temporal contract for one `is_moving` observation, shared by every facade
@@ -463,24 +504,17 @@ pub(crate) fn lower_targeted_settlement(
     default_budget: Duration,
 ) -> Result<SettlementPlan> {
     let profile = registration.profile();
-    if !profile.supports_axes(axes) {
-        return Err(Error::FeatureNotSupported {
-            feature: "affected operation axes are not supported by the profile",
-        });
-    }
     if profile.supports_operation_complete() {
+        if !profile.supports_axes(axes) {
+            return Err(Error::FeatureNotSupported {
+                feature: "affected operation axes are not supported by the profile",
+            });
+        }
         return Ok(SettlementPlan::CompletionIsSettled { default_budget });
     }
-    if !profile
-        .position_inquiries()
-        .is_some_and(|available| available.contains(axes))
-    {
-        return Err(Error::FeatureNotSupported {
-            feature: "position inquiries required to settle the affected axes",
-        });
-    }
+    validate_position_axes(profile, axes)?;
     Ok(SettlementPlan::Poll {
-        queries: prepare_position_queries(registration, tuning, axes)?,
+        queries: LazyPositionQueryPlan::new(registration, tuning, axes),
         tolerance: MovementTolerance::default(),
         interval: tuning
             .get()
@@ -1026,6 +1060,13 @@ impl<R> PreparedInquiry<R> {
         let request =
             LaneRequest::inquiry(self.wire.into_shared(), self.context, self.payload_shape);
         admit(request, self.decoder, timeout)
+    }
+}
+
+#[cfg(feature = "test-utils")]
+impl PreparedOperation<completion::Targeted> {
+    pub(crate) const fn settlement_plan(&self) -> &SettlementPlan {
+        self.settlement.plan()
     }
 }
 
@@ -2278,6 +2319,7 @@ mod tests {
         );
         let tuning = OperationalTuning::new()
             .with_inquiry_spacing(Duration::from_millis(40))
+            .with_inquiry_timeout(Duration::from_secs(17))
             .with_movement_timeout(Duration::from_secs(31))
             .with_settlement_timeout(Duration::from_secs(62));
         let prepared = prepare_operation::<completion::Targeted, _>(
@@ -2314,11 +2356,25 @@ mod tests {
             Duration::from_secs(62),
             "the settlement observer also covers this movement operation's retry budget"
         );
+        assert!(
+            queries.prepared.get().is_none(),
+            "submission does not prepare polling templates"
+        );
+        let first = queries.get().expect("lazy polling queries");
+        assert!(std::ptr::eq(
+            first,
+            queries.get().expect("cached polling queries")
+        ));
+        let queries = first.clone();
         assert!(queries.pan_tilt.is_none());
         assert!(queries.focus.is_none());
         let zoom = queries.zoom.expect("selected zoom query").instantiate();
         assert_eq!(zoom.context.target.camera(), CameraId::CAMERA_2);
-        assert_eq!(zoom.context.timeout.inquiry.get(), Duration::from_secs(1));
+        assert_eq!(zoom.context.timeout.inquiry.get(), Duration::from_secs(17));
+        assert_eq!(
+            zoom.context.control.minimum_spacing,
+            Duration::from_millis(40)
+        );
         assert_eq!(
             zoom.wire.as_bytes(),
             &[
@@ -2753,6 +2809,7 @@ mod tests {
             panic!("FR7 must poll ND position without operation-complete support");
         };
         assert_eq!(nd.affected_axes, AffectedAxes::ND_FILTER);
+        let queries = queries.get().expect("lazy polling queries").clone();
         assert!(queries.pan_tilt.is_none());
         assert!(queries.zoom.is_none());
         assert!(queries.focus.is_none());
@@ -2801,6 +2858,7 @@ mod tests {
         };
         assert_eq!(prepared.context.target.camera(), CameraId::CAMERA_2);
         assert_eq!(prepared.affected_axes, AffectedAxes::IRIS);
+        let queries = queries.get().expect("lazy polling queries").clone();
         assert!(queries.pan_tilt.is_none());
         assert!(queries.zoom.is_none());
         assert!(queries.focus.is_none());

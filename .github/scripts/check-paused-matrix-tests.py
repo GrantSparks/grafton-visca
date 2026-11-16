@@ -31,6 +31,7 @@ SUITES = {
     "issue_870_relative_offsets": "facades",
     "issue_894_fr7_families": "paused",
     "issue_892_payload_shape": "",
+    "issue_975_lazy_settlement": "",
 }
 
 

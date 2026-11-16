@@ -79,13 +79,18 @@ impl Response {
     ///
     /// This method enables profile-aware parsing for responses that require
     /// coordinate system conversion (e.g., PanTiltPosition on cameras with
-    /// unsigned-centered coordinates).
+    /// unsigned-centered coordinates). Built-in profiles read the registry's
+    /// constant framing directly; custom profiles construct and validate their
+    /// declared facts.
     pub fn parse_with_profile<P: CompileTimeProfile>(
         bytes: &[u8],
         response_type: &InquiryKind,
     ) -> Result<Self, Error> {
-        let profile = ProfileSpec::from_compile_time::<P>()?;
-        let framing = match profile.pan_tilt_coordinates() {
+        let coordinates = match P::ID {
+            Some(id) => id.pan_tilt_coordinates(),
+            None => ProfileSpec::from_compile_time::<P>()?.pan_tilt_coordinates(),
+        };
+        let framing = match coordinates {
             Some(conversion) => PanTiltFraming::for_conversion(conversion),
             None if matches!(response_type, InquiryKind::PanTiltPosition) => {
                 return Err(Error::FeatureNotSupported {
@@ -95,5 +100,77 @@ impl Response {
             None => PanTiltFraming::STANDARD,
         };
         lift_inquiry(&decode_frame(bytes)?, Some(response_type), framing)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::{
+        command::{encode::WireEncode, pan_tilt_wire::PanTiltProfiled},
+        profiles::{ProfileId, PtzOpticsG2, SonyBrc300, SonyFr7},
+        types::{PanSpeed, TiltSpeed},
+    };
+
+    fn round_trip<P: CompileTimeProfile>(pan: i32, tilt: i32, response: &[u8]) {
+        let coordinates = P::ID
+            .expect("built-in identity")
+            .pan_tilt_coordinates()
+            .expect("pan/tilt coordinates");
+        let framing = PanTiltFraming::for_conversion(coordinates);
+        let command = PanTiltProfiled::AbsolutePosition {
+            framing,
+            pan,
+            tilt,
+            speeds: framing
+                .move_speeds(PanSpeed::MIN, TiltSpeed::MIN)
+                .expect("paired speeds"),
+        };
+        let mut encoded = [0; 17];
+        let length = command
+            .write_into(crate::CameraId::CAMERA_1, &mut encoded)
+            .expect("position frame");
+        let words = framing.position_nibbles();
+        assert_eq!(
+            &encoded[length - words - 1..length - 1],
+            &response[2..response.len() - 1]
+        );
+        let parsed = Response::parse_with_profile::<P>(response, &InquiryKind::PanTiltPosition)
+            .expect("profile-aware position response");
+        assert!(
+            matches!(parsed, Response::Inquiry(crate::command::inquiry_structs::InquiryData::PanTiltPosition {
+            pan: decoded_pan, tilt: decoded_tilt,
+        }) if (decoded_pan, decoded_tilt) == (pan, tilt))
+        );
+    }
+
+    #[test]
+    fn parse_with_profile_round_trips_all_three_position_framings() {
+        round_trip::<PtzOpticsG2>(
+            -1234,
+            5678,
+            &[0x90, 0x50, 0xF, 0xB, 2, 0xE, 1, 6, 2, 0xE, 0xFF],
+        );
+        round_trip::<SonyFr7>(
+            -40000,
+            46000,
+            &[0x90, 0x50, 0xF, 6, 3, 0xC, 0, 0, 0xB, 3, 0xB, 0, 0xFF],
+        );
+        round_trip::<SonyBrc300>(
+            -40000,
+            -1000,
+            &[0x90, 0x50, 0xF, 6, 3, 0xC, 0, 0xF, 0xC, 1, 8, 0xFF],
+        );
+    }
+
+    #[test]
+    fn constant_registry_coordinates_equal_validated_profile_facts() {
+        for &id in ProfileId::all() {
+            assert_eq!(
+                id.pan_tilt_coordinates(),
+                id.spec().expect("profile").pan_tilt_coordinates()
+            );
+        }
     }
 }

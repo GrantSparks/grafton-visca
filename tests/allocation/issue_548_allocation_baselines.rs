@@ -939,3 +939,75 @@ fn warmed_raw_and_sony_retries_reuse_owner_buffers() {
         }
     }
 }
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn targeted_operation_preparation_does_not_build_unused_polling_queries() {
+    use grafton_visca::{
+        command::pan_tilt::Home,
+        config::{OperationalTuning, TargetRegistration},
+        operation::Targeted,
+        profiles::{ProfileSpec, SonyBrc300, SonyFr7},
+        testing::preparation,
+    };
+    for profile in [
+        ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7"),
+        ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300"),
+    ] {
+        let target = TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+        preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
+            .expect("warm operation preparation");
+        let allocations = allocations_during(|| {
+            preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
+                .expect("operation preparation");
+        });
+        assert_eq!(allocations, 0, "targeted operation preparation allocated");
+        let prepared =
+            preparation::check_operation::<Targeted, _>(&Home, &target, OperationalTuning::new())
+                .expect("retained operation preparation");
+        let first =
+            allocations_during(|| prepared.check_settlement().expect("first settlement plan"));
+        assert_eq!(
+            first, 1,
+            "one pan/tilt inquiry template is allocated lazily"
+        );
+        let repeated = allocations_during(|| {
+            for _ in 0..10 {
+                prepared.check_settlement().expect("cached settlement plan");
+            }
+        });
+        assert_eq!(repeated, 0, "repeated settlement waits reuse the plan");
+    }
+}
+
+#[test]
+fn built_in_profile_response_parsing_does_not_reconstruct_profile_facts() {
+    use grafton_visca::{
+        __macro_support::InquiryKind,
+        profiles::{PtzOpticsG2, SonyBrc300, SonyFr7},
+        wire::Response,
+    };
+    let standard = [0x90, 0x50, 0xF, 0xB, 2, 0xE, 1, 6, 2, 0xE, 0xFF];
+    let fr7 = [0x90, 0x50, 0xF, 6, 3, 0xC, 0, 0, 0xB, 3, 0xB, 0, 0xFF];
+    let brc = [0x90, 0x50, 0xF, 6, 3, 0xC, 0, 0xF, 0xC, 1, 8, 0xFF];
+    let allocations = allocations_during(|| {
+        for _ in 0..100 {
+            std::hint::black_box(
+                Response::parse_with_profile::<PtzOpticsG2>(
+                    &standard,
+                    &InquiryKind::PanTiltPosition,
+                )
+                .expect("4/4 position"),
+            );
+            std::hint::black_box(
+                Response::parse_with_profile::<SonyFr7>(&fr7, &InquiryKind::PanTiltPosition)
+                    .expect("5/5 position"),
+            );
+            std::hint::black_box(
+                Response::parse_with_profile::<SonyBrc300>(&brc, &InquiryKind::PanTiltPosition)
+                    .expect("5/4 position"),
+            );
+        }
+    });
+    assert_eq!(allocations, 0, "built-in profile parsing allocated");
+}

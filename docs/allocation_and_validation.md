@@ -12,7 +12,15 @@ The following boundaries are release gates:
 * Derived command and inquiry encoders preserve the same zero-allocation hot
   path.
 * Standard payloads remain in inline storage; a command does not allocate once
-  merely because it is prepared for a target.
+  merely because it is prepared for a target. Targeted operation preparation
+  also stays inline on profiles that require position polling: the first
+  `settled()` wait prepares one shared inquiry template per selected position
+  query, and later waits reuse those templates. Dropping or only awaiting
+  `applied()` never builds the polling plan. The plan retains the registration
+  and tuning captured at submission, even after `Session::set_tuning`.
+* `Response::parse_with_profile` reads built-in position framing directly from
+  constant registry facts without constructing or allocating a `ProfileSpec`.
+  Caller-defined compile-time profiles still construct and validate their facts.
 * Raw and Sony receive decoding for standard payloads that fit inline storage
   borrows each frame and recycles bounded batch storage without allocating after
   warm-up, including malformed input, for both stream and datagram reads. Larger
@@ -70,6 +78,8 @@ The stable test boundaries are:
 | --- | --- |
 | Representative built-in and typed request encoding | `tests/allocation/issue_548_allocation_baselines.rs::representative_typed_requests_encode_without_heap_allocation` |
 | Pure built-in command and inquiry preparation | `tests/allocation/issue_548_allocation_baselines.rs::built_in_command_and_inquiry_preparation_stay_inline`, through `testing::preparation` with `test-utils` |
+| Targeted preparation and one-time settlement templates | `tests/allocation/issue_548_allocation_baselines.rs::targeted_operation_preparation_does_not_build_unused_polling_queries`, for FR7 and BRC-300 |
+| Built-in profile-aware response parsing | `tests/allocation/issue_548_allocation_baselines.rs::built_in_profile_response_parsing_does_not_reconstruct_profile_facts`, for the 4/4, 5/5 and 5/4 position grammars |
 | Profile-aware position preparation and decoder cloning | `tests/allocation/issue_548_allocation_baselines.rs::profiled_position_inquiry_preparation_and_decoder_clones_stay_inline`, for G2, BRC-300 and FR7 |
 | Warmed receive lowering, decoding and batch recycling | `tests/allocation/issue_548_allocation_baselines.rs::warmed_receive_decoding_and_batch_recycling_do_not_allocate`, through `testing::receive::ReceiveProbe` for raw/Sony streams and datagrams |
 | Warmed engine decisions and complete owner command/frame turns | `tests/allocation/issue_548_allocation_baselines.rs::warmed_owner_command_and_frame_turns_do_not_allocate`, through `testing::turns::TurnProbe`; raw/Sony streams and datagrams run the production turn driver, recursive exact-write handling, ACK/completion and terminal delivery. Admission and the bounded observer queue are staged outside the measurement. |

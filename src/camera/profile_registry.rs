@@ -258,6 +258,35 @@ macro_rules! __pan_tilt_facts {
         })
     };
 }
+// Project the same registry coordinates without constructing heap-owning facts.
+macro_rules! __pan_tilt_coordinates {
+    (None) => {
+        None
+    };
+    ({
+        pan_range: $pan_range:expr,
+        tilt_ranges: $tilt_ranges:expr,
+        pan_speed: $pan_speed:expr,
+        tilt_speed: $tilt_speed:expr,
+        coordinates: {
+            coordinate_system: $system:expr,
+            wire_codec: $codec:expr,
+            pan_degrees_to_units: $pan_scale:expr,
+            tilt_degrees_to_units: $tilt_scale:expr,
+        },
+        $($rest:tt)*
+    }) => {
+        Some(
+            $crate::profiles::PanTiltCoordinateConversion::from_registry(
+                $system,
+                $codec,
+                $pan_scale,
+                $tilt_scale,
+            ),
+        )
+    };
+}
+
 macro_rules! __white_balance_facts {
     (None) => {
         None
@@ -556,6 +585,11 @@ macro_rules! __define_builtin_profiles {
             /// Registry grants without constructing owned profile facts.
             pub(crate) const fn typed_support(self) -> $crate::capabilities::TypedSupportSet {
                 match self { $(Self::$profile => <$profile as $crate::profiles::CompileTimeProfile>::TYPED_SUPPORT,)* }
+            }
+
+            /// Registry framing without constructing owned profile facts.
+            pub(crate) const fn pan_tilt_coordinates(self) -> Option<$crate::profiles::PanTiltCoordinateConversion> {
+                match self { $(Self::$profile => __pan_tilt_coordinates!($pan_tilt_facts),)* }
             }
 
             /// Returns the pinned snake_case identifier used in configurations.
