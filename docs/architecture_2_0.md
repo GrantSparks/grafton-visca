@@ -76,6 +76,11 @@ delivery.
   sending `close`'s shutdown signal is preserved. Neither API is a second
   protocol authority or an implicit command resubmission mechanism.
 
+The engine retains each terminal status together with its cause, and the
+terminal effect carries that cause directly to the owner. An owner that ends
+without an engine verdict preserves its known stop reason or reports
+`OwnerTerminated` when no reason is available.
+
 There are no public callbacks, user-supplied lifecycle IDs, or unbounded
 queues. The only background thread is a blocking session's owner worker: one
 per session, not per camera (D24, #780, revising the earlier "no per-camera
