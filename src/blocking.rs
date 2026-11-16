@@ -62,6 +62,7 @@ impl Diagnostics {
     }
 
     /// Waits for an event, preserving the owner's terminal cause after the queue drains.
+    /// Returns [`Error::InvalidState`] when called from this session's owner worker.
     pub fn recv(&self) -> Result<crate::observability::DiagnosticEvent> {
         self.inner.recv_blocking()
     }
@@ -70,6 +71,8 @@ impl Diagnostics {
     ///
     /// Returns `Ok(None)` when the queue remains empty, or the owner's
     /// original terminal cause once every queued event has been received.
+    /// A non-zero timeout returns [`Error::InvalidState`] when called from this
+    /// session's owner worker.
     pub fn recv_with_timeout(
         &self,
         timeout: Duration,

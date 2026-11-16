@@ -558,6 +558,29 @@ fn diagnostic_receive_observes_an_owner_deadline_without_wall_time() {
     owner.close().unwrap();
 }
 
+/// A caller outside the worker can still block until the worker publishes an event.
+#[test]
+fn diagnostic_blocking_receive_observes_an_owner_deadline_without_wall_time() {
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let (owner, peer) = Setup::datagram().on(&clock).spawn();
+    let receipt = owner.submit_command(focus_manual()).unwrap();
+    peer.next_write();
+    let ack_deadline = clock.now() + generic_profile().timing().ack_timeout();
+    let diagnostics = owner.subscribe_diagnostics(128).unwrap();
+    while diagnostics.try_recv().is_some() {}
+
+    let event = diagnostics.recv_blocking().unwrap();
+    assert!(matches!(event, DiagnosticEvent::DeadlineExpired {
+        id,
+        deadline: crate::observability::DiagnosticDeadline::Ack,
+        ..
+    } if id == crate::observability::DiagnosticId::from_owner(receipt.core.id.get())));
+    assert_eq!(clock.now(), ack_deadline);
+    drop(receipt);
+    owner.close().unwrap();
+}
+
 /// Out-of-order peer-receipt retention on the Sony sequence-bearing envelope
 /// (#542 §4): several in-flight blocking receipts each keep their own exact
 /// terminal outcome, whatever order the camera answers in and the callers

@@ -23,11 +23,16 @@ fn refuses_reentry(during_write: bool) {
         .unwrap();
     let written = peer.next_write();
     peer.reply(&sony_reply_to(&written, ACK));
+    let diagnostics = owner.subscribe_diagnostics(16).unwrap();
 
     let callback_owner = owner.clone();
     let callback_profile = profile.clone();
     let (answered, answers) = flume::bounded(1);
     let callback: TransportCallback = Box::new(move || {
+        // A subscription created before the callback retains the worker's
+        // identity. Non-waiting reads remain usable from the callback.
+        let _ = diagnostics.try_recv();
+        assert!(diagnostics.recv_timeout(Duration::ZERO).is_ok());
         let deadline = callback_owner.now() + PROMPTLY;
         let tuning = crate::session_config::ValidatedTuning::validate(
             OperationalTuning::new(),
@@ -42,6 +47,11 @@ fn refuses_reentry(during_write: bool) {
             tuning,
         );
         let results = [
+            ("diagnostics recv", diagnostics.recv_blocking().map(|_| ())),
+            (
+                "diagnostics recv_with_timeout",
+                diagnostics.recv_timeout(PROMPTLY).map(|_| ()),
+            ),
             ("metrics", callback_owner.metrics().map(|_| ())),
             ("set_tuning", callback_owner.reconfigure(Ok(tuning))),
             (

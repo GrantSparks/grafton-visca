@@ -1214,6 +1214,8 @@ pub(crate) struct DiagnosticSubscription {
     lifecycle: Arc<boundary::OwnerLifecycle>,
     #[cfg(feature = "blocking")]
     clock: Clock,
+    #[cfg(feature = "blocking")]
+    worker_id: Option<std::thread::ThreadId>,
 }
 
 impl DiagnosticSubscription {
@@ -1237,6 +1239,7 @@ impl DiagnosticSubscription {
 
     #[cfg(feature = "blocking")]
     pub(crate) fn recv_blocking(&self) -> Result<DiagnosticEvent, Error> {
+        self.off_worker("diagnostics recv")?;
         self.clock
             .select()
             .recv(&self.receiver, |event| event)
@@ -1246,6 +1249,9 @@ impl DiagnosticSubscription {
 
     #[cfg(feature = "blocking")]
     pub(crate) fn recv_timeout(&self, timeout: Duration) -> Result<Option<DiagnosticEvent>, Error> {
+        if !timeout.is_zero() {
+            self.off_worker("diagnostics recv_with_timeout")?;
+        }
         let received = match &self.clock {
             Clock::System => match self.receiver.recv_timeout(timeout) {
                 Ok(event) => Some(Ok(event)),
@@ -1265,6 +1271,17 @@ impl DiagnosticSubscription {
             }
         };
         received.transpose().map_err(|_| self.disconnected_error())
+    }
+
+    #[cfg(feature = "blocking")]
+    fn off_worker(&self, call: &str) -> Result<(), Error> {
+        if self.worker_id == Some(std::thread::current().id()) {
+            return Err(Error::InvalidState {
+                reason: format!("blocking owner worker cannot call {call} on its own session")
+                    .into(),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -2145,6 +2162,8 @@ impl OwnerState {
             lifecycle,
             #[cfg(feature = "blocking")]
             clock: Clock::System,
+            #[cfg(feature = "blocking")]
+            worker_id: None,
         })
     }
 
