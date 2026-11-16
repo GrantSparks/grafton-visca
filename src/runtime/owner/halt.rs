@@ -73,7 +73,7 @@ impl OwnerState {
                         );
                     })?;
                 let (completion, observer) = TerminalObserver::pair();
-                let admitted = self.admit_in_turn(&turn, request, permit, observer)?;
+                let admitted = self.admit_in_turn(&turn, request.into_inner(), permit, observer)?;
                 Ok(ReceiptCore::admitted(admitted, completion, remaining.get()))
             })
         });

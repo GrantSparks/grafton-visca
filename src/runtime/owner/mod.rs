@@ -7,6 +7,8 @@
 mod adapter;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod halt;
+mod lane;
+pub(crate) use lane::LaneRequest;
 mod motion;
 use crate::observability::DiagnosticEvent;
 mod diagnostics;
@@ -547,7 +549,59 @@ impl Drop for AdmissionPermit {
 
 /// Reusable receive storage, consumed in source order and returned to the owner.
 #[cfg(any(feature = "async", feature = "blocking"))]
-pub(crate) type FrameBatch = VecDeque<DecodedFrame>;
+#[derive(Debug, Default)]
+pub(crate) struct FrameBatch {
+    frames: VecDeque<DecodedFrame>,
+    pub(crate) discarded: usize,
+}
+
+impl FrameBatch {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            frames: VecDeque::with_capacity(capacity),
+            discarded: 0,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.frames.clear();
+        self.discarded = 0;
+    }
+}
+
+impl std::ops::Deref for FrameBatch {
+    type Target = VecDeque<DecodedFrame>;
+    fn deref(&self) -> &Self::Target {
+        &self.frames
+    }
+}
+impl std::ops::DerefMut for FrameBatch {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.frames
+    }
+}
+#[cfg(test)]
+impl From<Vec<DecodedFrame>> for FrameBatch {
+    fn from(frames: Vec<DecodedFrame>) -> Self {
+        Self {
+            frames: frames.into(),
+            discarded: 0,
+        }
+    }
+}
+#[cfg(test)]
+impl From<VecDeque<DecodedFrame>> for FrameBatch {
+    fn from(frames: VecDeque<DecodedFrame>) -> Self {
+        Self {
+            frames,
+            discarded: 0,
+        }
+    }
+}
 
 /// Closed receive verdict. Only the adapter classifies transport evidence;
 /// the shell executes this decision without inspecting the error again.
@@ -569,7 +623,7 @@ pub(crate) enum NoProgressReason {
 #[derive(Debug)]
 pub(crate) enum ReceiveFatal {
     TransportClosed { cause: Option<Error> },
-    FramingFailure { cause: Error },
+    FramingFailure { cause: Error, discarded: usize },
 }
 
 impl OwnerReceive {
@@ -610,9 +664,21 @@ impl OwnerReceive {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn consumed_error(error: Error, transport: TransportKind) -> Self {
+        Self::consumed_error_with_discards(error, transport, 0)
+    }
+
+    pub(crate) fn consumed_error_with_discards(
+        error: Error,
+        transport: TransportKind,
+        discarded: usize,
+    ) -> Self {
         match transport {
-            TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure { cause: error }),
+            TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure {
+                cause: error,
+                discarded,
+            }),
             TransportKind::Datagram => Self::NoProgress(NoProgressReason::MalformedDatagram),
         }
     }
@@ -812,8 +878,22 @@ impl TerminalSlot {
             (Self::Inquiry(cell), RuntimeOutcome::Inquiry(outcome)) => cell.resolve_at(outcome, at),
             #[cfg(test)]
             (Self::Test(cell), outcome) => cell.resolve_at(outcome, at),
-            _ => unreachable!("an admitted request and its terminal effect have the same lane"),
+            // Typed staging prevents a mismatch at the admission boundary.
+            // If an internal producer ever violates that invariant, resolve
+            // the actual observer with an error instead of unwinding the owner.
+            (Self::Command(cell), RuntimeOutcome::Inquiry(_)) => {
+                cell.resolve_at(CommandOutcome::Failed(terminal_lane_mismatch()), at)
+            }
+            (Self::Inquiry(cell), RuntimeOutcome::Command(_)) => {
+                cell.resolve_at(InquiryOutcome::Failed(terminal_lane_mismatch()), at)
+            }
         }
+    }
+}
+
+fn terminal_lane_mismatch() -> Error {
+    Error::InvalidState {
+        reason: "terminal outcome lane disagrees with its admitted request".into(),
     }
 }
 
@@ -1197,15 +1277,6 @@ pub(crate) struct OwnerBuffers {
     transmit: BytesMut,
     receive: Box<[u8]>,
     frames: FrameBatch,
-    /// Count of delimited-but-unclassifiable frames the last stream decode
-    /// discarded as malformed (#672). It is a side channel from the shared
-    /// decode, which owns the framer but not the owner's diagnostics, back to
-    /// the owner: the owner takes it after each decode and records one
-    /// `Ignored(MalformedFrame)` per discarded frame. A genuine framing-position
-    /// loss stays a decode `Err` and still poisons; this counts only the frames
-    /// a byte stream tolerated and kept running past, exactly as a datagram
-    /// already discards a malformed frame.
-    discarded_malformed: usize,
 }
 
 impl OwnerBuffers {
@@ -1220,27 +1291,7 @@ impl OwnerBuffers {
             transmit: BytesMut::with_capacity(MAX_BYTES.saturating_add(8)),
             receive: vec![0; limits.receive_bytes].into_boxed_slice(),
             frames: FrameBatch::with_capacity(limits.frames_per_receive),
-            discarded_malformed: 0,
         })
-    }
-
-    /// Records how many malformed frames the current decode discarded. Called by
-    /// the shared decode; overwrites (never accumulates) so a value only ever
-    /// reflects the most recent decode.
-    pub(crate) fn set_discarded_malformed(&mut self, count: usize) {
-        self.discarded_malformed = count;
-    }
-
-    /// Takes and clears the malformed-frame discard count from the last decode.
-    pub(crate) fn take_discarded_malformed(&mut self) -> usize {
-        std::mem::take(&mut self.discarded_malformed)
-    }
-
-    /// Peeks the malformed-frame discard count without clearing it, so a drain
-    /// pass can decide it made progress and hand the count on to the owner.
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn discarded_malformed(&self) -> usize {
-        self.discarded_malformed
     }
 
     fn prepare(&mut self, transmission: &Transmission) -> Result<(&[u8], &mut BytesMut), Error> {

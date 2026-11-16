@@ -27,8 +27,8 @@ use super::OwnerMetrics;
 use super::SessionState;
 use super::{
     AdmissionPermit, AdmissionPermitPool, Admitted, CancellationRequest, DiagnosticSubscription,
-    Lane, LiveTuning, OwnerState, RuntimeRequest, TargetStateCache, TerminalLane, TerminalObserver,
-    TerminalSlot,
+    Lane, LaneRequest, LiveTuning, OwnerState, RuntimeRequest, TargetStateCache, TerminalLane,
+    TerminalObserver, TerminalSlot,
 };
 
 /// The one-way decision for an admission constrained by an outer deadline.
@@ -834,9 +834,10 @@ impl OwnerHandleCore {
     /// is recorded as a pre-admission rejection.
     pub(super) fn enqueue_admission<T: TerminalLane>(
         &self,
-        request: RuntimeRequest,
+        request: impl Into<LaneRequest<T>>,
         validity: Option<AdmissionValidity>,
     ) -> Result<(TerminalObserver<T>, AdmissionReply), Error> {
+        let request = request.into().into_inner();
         let target = request.context().target;
         let lane = request.lane();
         if let Some(error) = self.admission_rejection() {
@@ -900,7 +901,7 @@ impl OwnerHandleCore {
     /// [`PendingAdmission`].
     pub(super) fn admit<T: TerminalLane>(
         &self,
-        request: RuntimeRequest,
+        request: impl Into<LaneRequest<T>>,
     ) -> Result<PendingAdmission<T>, Error> {
         let (completion, reply) = self.enqueue_admission(request, None)?;
         Ok(PendingAdmission {
@@ -915,10 +916,11 @@ impl OwnerHandleCore {
     /// enqueuing anything.
     pub(super) fn admit_until<T: TerminalLane>(
         &self,
-        request: RuntimeRequest,
+        request: impl Into<LaneRequest<T>>,
         deadline: Instant,
         now: Instant,
     ) -> Result<PendingAdmission<T>, Error> {
+        let request = request.into();
         let target = request.context().target;
         let lane = request.lane();
         if now >= deadline {

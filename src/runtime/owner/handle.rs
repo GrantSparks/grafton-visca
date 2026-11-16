@@ -148,7 +148,7 @@ macro_rules! owner_handle_methods {
             /// failure is reported through the receipt's outcome (D24).
             $($async)* fn submit_with_timeout<T: super::TerminalLane>(
                 &self,
-                request: super::RuntimeRequest,
+                request: super::LaneRequest<T>,
                 configured_timeout: std::time::Duration,
             ) -> Result<super::ReceiptCore<T>, crate::Error> {
                 self.off_worker("submit_with_timeout")?;
@@ -162,7 +162,7 @@ macro_rules! owner_handle_methods {
             /// expiry is authoritative, so its reply is still observed.
             $($async)* fn submit_with_timeout_until<T: super::TerminalLane>(
                 &self,
-                request: super::RuntimeRequest,
+                request: super::LaneRequest<T>,
                 configured_timeout: std::time::Duration,
                 deadline: std::time::Instant,
             ) -> Result<super::ReceiptCore<T>, crate::Error> {

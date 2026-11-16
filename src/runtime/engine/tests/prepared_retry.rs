@@ -31,7 +31,7 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
             crate::prepared::ClassSelection::Request,
         )
         .unwrap();
-        let request = prepared.admit_with(|request, _observer_timeout| request);
+        let request = prepared.admit_with(|request, _observer_timeout| request.into_inner());
         let context = *request.context();
         let legacy_budget = crate::profiles::MINIMUM_RETRY_BUDGET
             .max(context.timeout.completion.get() * 2)

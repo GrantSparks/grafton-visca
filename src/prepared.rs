@@ -24,9 +24,13 @@ use crate::{Error, Result};
 
 use crate::raw::MAX_BYTES;
 use crate::runtime::engine::{
-    AppliedStateProjection, CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape,
-    RequestContext, RetryPolicy, RuntimeRequest, TimeoutPolicy,
+    AppliedStateProjection, CancellationPolicy, CommandOutcome, ControlPolicy, EncodedMessage,
+    InquiryOutcome, ReplyShape, RequestContext, RetryPolicy, TimeoutPolicy,
 };
+
+#[cfg(test)]
+use crate::runtime::engine::RuntimeRequest;
+use crate::runtime::owner::LaneRequest;
 
 /// How one submission's scheduling lane is chosen.
 ///
@@ -956,17 +960,20 @@ const fn lower_reply_shape(shape: crate::raw::RawReplyShape) -> ReplyShape {
 }
 
 impl PreparedCommand {
-    pub(crate) fn admit_with<T>(self, admit: impl FnOnce(RuntimeRequest, Duration) -> T) -> T {
+    pub(crate) fn admit_with<T>(
+        self,
+        admit: impl FnOnce(LaneRequest<CommandOutcome>, Duration) -> T,
+    ) -> T {
         let timeout = observation_timeout(
             &self.context,
             command_attempt_timeout(&self.context.timeout, self.reply_shape),
         );
-        let request = RuntimeRequest::Command {
-            reply_shape: self.reply_shape,
-            wire: self.wire.into_shared(),
-            context: self.context,
-            applied_state: self.applied_state,
-        };
+        let request = LaneRequest::command(
+            self.reply_shape,
+            self.wire.into_shared(),
+            self.context,
+            self.applied_state,
+        );
         admit(request, timeout)
     }
 }
@@ -1015,14 +1022,11 @@ impl<R> PreparedInquiry<R> {
 
     pub(crate) fn admit_with<T>(
         self,
-        admit: impl FnOnce(RuntimeRequest, ResponseDecoder<R>, Duration) -> T,
+        admit: impl FnOnce(LaneRequest<InquiryOutcome>, ResponseDecoder<R>, Duration) -> T,
     ) -> T {
         let timeout = observation_timeout(&self.context, self.context.timeout.inquiry.get());
-        let request = RuntimeRequest::Inquiry {
-            wire: self.wire.into_shared(),
-            context: self.context,
-            payload_shape: self.payload_shape,
-        };
+        let request =
+            LaneRequest::inquiry(self.wire.into_shared(), self.context, self.payload_shape);
         admit(request, self.decoder, timeout)
     }
 }
@@ -1034,7 +1038,7 @@ where
     pub(crate) fn admit_with<T>(
         self,
         admit: impl FnOnce(
-            RuntimeRequest,
+            LaneRequest<CommandOutcome>,
             AffectedAxes,
             completion::SettlementPlan<K>,
             OperationTimeouts,
@@ -1055,12 +1059,12 @@ where
                 .get()
                 .saturating_add(self.context.timeout.cancellation.get()),
         );
-        let request = RuntimeRequest::Command {
-            reply_shape: self.reply_shape,
-            wire: self.wire.into_shared(),
-            context: self.context,
-            applied_state: self.applied_state,
-        };
+        let request = LaneRequest::command(
+            self.reply_shape,
+            self.wire.into_shared(),
+            self.context,
+            self.applied_state,
+        );
         admit(
             request,
             self.affected_axes,
@@ -1184,6 +1188,51 @@ mod tests {
     };
 
     #[test]
+    fn prepared_requests_fix_the_terminal_lane_before_staging() {
+        fn command_lane(request: LaneRequest<CommandOutcome>) {
+            assert!(matches!(
+                request.into_inner(),
+                RuntimeRequest::Command { .. }
+            ));
+        }
+        fn inquiry_lane(request: LaneRequest<InquiryOutcome>) {
+            assert!(matches!(
+                request.into_inner(),
+                RuntimeRequest::Inquiry { .. }
+            ));
+        }
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
+        let registration = crate::TargetRegistration::new(CameraId::CAMERA_1, profile).unwrap();
+        prepare_command(
+            &crate::command::PowerOn,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .unwrap()
+        .admit_with(|request, _| command_lane(request));
+        prepare_operation::<completion::AppliedOnly, _>(
+            &ZoomStop,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .unwrap()
+        .admit_with(|request, _, _, _| command_lane(request));
+        let inquiry = prepare_inquiry(
+            &ZoomPositionInquiry,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .unwrap();
+        inquiry
+            .into_template()
+            .instantiate()
+            .admit_with(|request, _, _| inquiry_lane(request));
+    }
+
+    #[test]
     fn profile_payload_shape_is_selected_once_and_retained_through_templates_and_admission() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         struct ProfileSelectedInquiry(AtomicUsize);
@@ -1249,7 +1298,7 @@ mod tests {
         for template in [template.clone(), template] {
             template.instantiate().admit_with(|request, decoder, _| {
                 assert!(matches!(
-                    request,
+                    request.into_inner(),
                     RuntimeRequest::Inquiry {
                         payload_shape: crate::PayloadShape::Nibbles(4),
                         ..
@@ -4705,7 +4754,7 @@ mod tests {
 pub(crate) struct PreparedHalt {
     pub(crate) target: TargetSlot,
     pub(crate) axes: Option<AffectedAxes>,
-    pub(crate) requests: [Option<Result<RuntimeRequest>>; 3],
+    pub(crate) requests: [Option<Result<LaneRequest<CommandOutcome>>>; 3],
     pub(crate) budget: Duration,
 }
 

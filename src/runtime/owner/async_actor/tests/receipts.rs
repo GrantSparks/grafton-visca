@@ -156,7 +156,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
     let expiring = tokio::spawn(async move {
         expiring_handle
             .submit_with_timeout_until::<RuntimeOutcome>(
-                inquiry(),
+                inquiry().into(),
                 Duration::from_secs(5),
                 deadline,
             )
@@ -229,7 +229,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
     let diagnostics = observe_diagnostics(&mut actor);
     let error = handle
         .submit_with_timeout_until::<RuntimeOutcome>(
-            inquiry(),
+            inquiry().into(),
             Duration::from_secs(1),
             handle.now(),
         )

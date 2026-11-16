@@ -548,7 +548,7 @@ mod tests {
                 frames[1].response,
                 DecodedResponse::Completion { .. }
             ));
-            assert_eq!(buffers.take_discarded_malformed(), 1, "{payload_type:02x?}");
+            assert_eq!(frames.discarded, 1, "{payload_type:02x?}");
         }
     }
 
@@ -579,8 +579,9 @@ mod tests {
 
         // This would have completed `[90 50 02 FF]` if the stale prefix had
         // survived. Alone it is one delimited malformed frame and is ignored.
-        assert!(frames(receive(&mut adapter, &mut buffers)).is_empty());
-        assert_eq!(buffers.take_discarded_malformed(), 1);
+        let discarded = frames(receive(&mut adapter, &mut buffers));
+        assert!(discarded.is_empty());
+        assert_eq!(discarded.discarded, 1);
         assert!(!adapter.retained().is_some());
 
         let frames = frames(receive(&mut adapter, &mut buffers));

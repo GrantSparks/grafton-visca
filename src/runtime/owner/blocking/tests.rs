@@ -794,7 +794,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     .spawn();
 
     let first = owner
-        .submit_with_timeout(raw_inquiry(Duration::from_millis(20)), PROMPTLY)
+        .submit_with_timeout(raw_inquiry(Duration::from_millis(20)).into(), PROMPTLY)
         .unwrap();
     peer.next_write();
     let deadline = owner.deadline_after(PROMPTLY).unwrap();
@@ -805,7 +805,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     let timed_out = clock.now();
 
     let second = owner
-        .submit_with_timeout(raw_inquiry(Duration::from_secs(1)), PROMPTLY)
+        .submit_with_timeout(raw_inquiry(Duration::from_secs(1)).into(), PROMPTLY)
         .unwrap();
     peer.reply(&[0x90, 0x50, 0x01, 0xff]);
     peer.next_write();
@@ -1094,7 +1094,10 @@ fn replies_after_a_full_idle_read_win_before_their_deadlines() {
             .on(&clock)
             .spawn();
             let receipt = owner
-                .submit_with_timeout(raw_inquiry(Duration::from_millis(deadline_ms)), PROMPTLY)
+                .submit_with_timeout(
+                    raw_inquiry(Duration::from_millis(deadline_ms)).into(),
+                    PROMPTLY,
+                )
                 .unwrap();
             peer.next_write();
             peer.send(Read::At(
@@ -1215,7 +1218,7 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
         applied_state: None,
     };
     let receipt = owner
-        .submit_with_timeout(request, Duration::from_secs(10))
+        .submit_with_timeout(request.into(), Duration::from_secs(10))
         .unwrap();
     peer.next_write();
     let begun = clock.now();

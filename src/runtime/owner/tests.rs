@@ -743,7 +743,7 @@ mod metrics {
             ClassSelection::Request,
         )
         .unwrap();
-        let request = prepared.admit_with(|request, _| request);
+        let request = prepared.admit_with(|request, _| request.into_inner());
         let observer = sent(&mut state, request, None, start);
         apply(
             &mut state,
@@ -1549,9 +1549,9 @@ mod metrics {
                 target: TargetSlot::CAMERA_1,
                 axes: Some(crate::AffectedAxes::MOVEMENT),
                 requests: [
-                    Some(Ok(stop.clone())),
-                    Some(Ok(stop.clone())),
-                    Some(Ok(stop)),
+                    Some(Ok(stop.clone().into())),
+                    Some(Ok(stop.clone().into())),
+                    Some(Ok(stop.into())),
                 ],
                 budget: ACK,
             },
@@ -3017,7 +3017,7 @@ fn fatal_receive_io_table_drives_raw_and_wrapped_verdicts() {
 #[test]
 fn consumed_input_verdict_preserves_stream_cause_and_discards_one_datagram() {
     let error = Error::ResponseTooLarge { max_size: 24 }.with_context("consumed reply");
-    let OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause }) =
+    let OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause, .. }) =
         OwnerReceive::consumed_error(error.clone(), TransportKind::Stream)
     else {
         panic!("consumed stream bytes lost their framing boundary");

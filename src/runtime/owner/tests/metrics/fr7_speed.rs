@@ -22,7 +22,7 @@ fn mode_request(registration: &TargetRegistration, mode: PanTiltSpeedMode) -> Ru
         ClassSelection::Request,
     )
     .unwrap()
-    .admit_with(|request, _| request)
+    .admit_with(|request, _| request.into_inner())
 }
 
 fn drive_request(registration: &TargetRegistration, tuning: OperationalTuning) -> RuntimeRequest {
@@ -34,7 +34,7 @@ fn drive_request(registration: &TargetRegistration, tuning: OperationalTuning) -
     .unwrap();
     prepare_operation::<AppliedOnly, _>(&fast, registration, tuning, ClassSelection::Request)
         .unwrap()
-        .admit_with(|request, _, _, _| request)
+        .admit_with(|request, _, _, _| request.into_inner())
 }
 
 fn queued_mode_refusal(invalidate: bool) {

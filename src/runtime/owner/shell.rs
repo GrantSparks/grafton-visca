@@ -677,7 +677,7 @@ impl OwnerShellCore {
         // continues. Record one Ignored per
         // discarded frame so the discard stays observable; the session is
         // never poisoned for it.
-        for _ in 0..self.state.buffers().take_discarded_malformed() {
+        for _ in 0..frames.discarded {
             self.state.record_ignored(IgnoreReason::MalformedFrame);
         }
         if let Err(error) = self.state.validate_frame_batch(&frames) {
@@ -804,9 +804,14 @@ impl OwnerShellCore {
             super::ReceiveFatal::TransportClosed { cause } => ShutdownReason::TransportClosed {
                 cause: cause.map(Arc::new),
             },
-            super::ReceiveFatal::FramingFailure { cause } => ShutdownReason::FramingFailure {
-                cause: Arc::new(cause),
-            },
+            super::ReceiveFatal::FramingFailure { cause, discarded } => {
+                for _ in 0..discarded {
+                    self.state.record_ignored(IgnoreReason::MalformedFrame);
+                }
+                ShutdownReason::FramingFailure {
+                    cause: Arc::new(cause),
+                }
+            }
         };
         self.terminate(reason, received_at)
     }
@@ -824,6 +829,7 @@ impl OwnerShellCore {
             crate::runtime::engine::TransportKind::Stream => self.receive_fatal(
                 super::ReceiveFatal::FramingFailure {
                     cause: error.clone(),
+                    discarded: 0,
                 },
                 received_at,
             ),
@@ -1139,7 +1145,7 @@ mod tests {
     #![allow(clippy::panic, clippy::unwrap_used)]
 
     use super::super::boundary::OwnerHandleCore;
-    use super::super::OwnerPolicy;
+    use super::super::{DiagnosticEvent, OwnerPolicy};
     use super::*;
     use crate::runtime::engine::{CancellationPolicy, EnvelopeKind, ProtocolPolicy, TargetPolicy};
     use crate::target::TargetSlot;
@@ -1348,6 +1354,48 @@ mod tests {
     }
 
     #[test]
+    fn fatal_receive_records_every_preceding_malformed_discard_before_poison() {
+        let (_handle, mut core) = owner();
+        let diagnostics = super::super::tests::DiagnosticRecorder::new(&mut core.state);
+        let step = core.handle(
+            receive(
+                OwnerReceive::Fatal(super::super::ReceiveFatal::FramingFailure {
+                    cause: Error::ResponseTooLarge { max_size: 16 },
+                    discarded: 3,
+                }),
+                Instant::now(),
+            ),
+            &mut Datagrams,
+            Instant::now(),
+            false,
+        );
+        run_turn(&mut core, step);
+        let events = diagnostics.events();
+        let relevant: Vec<_> = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    DiagnosticEvent::Ignored { .. } | DiagnosticEvent::SessionChanged { .. }
+                )
+            })
+            .collect();
+        assert_eq!(relevant.len(), 4);
+        assert!(relevant[..3]
+            .iter()
+            .all(|event| matches!(event, DiagnosticEvent::Ignored { .. })));
+        assert!(matches!(
+            relevant[3],
+            DiagnosticEvent::SessionChanged {
+                to: crate::SessionStatus::Poisoned,
+                ..
+            }
+        ));
+        assert_eq!(core.state.metrics().ignored_malformed_frames, 3);
+        assert_eq!(core.state.state(), SessionState::Poisoned);
+    }
+
+    #[test]
     fn repeated_terminal_control_drains_retain_no_metrics_replies() {
         let (handle, mut core) = owner();
         let step = core.handle(OwnerEvent::Shutdown, &mut Datagrams, Instant::now(), false);
@@ -1471,7 +1519,7 @@ mod tests {
                 prepared: crate::prepared::PreparedHalt {
                     target: TargetSlot::CAMERA_1,
                     axes: Some(crate::AffectedAxes::ZOOM),
-                    requests: [None, Some(Ok(declared_request(true))), None],
+                    requests: [None, Some(Ok(declared_request(true).into())), None],
                     budget: Duration::from_secs(1),
                 },
                 validity: AdmissionValidity::until(deadline),

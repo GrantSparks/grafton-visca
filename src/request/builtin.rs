@@ -3588,7 +3588,7 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("state command must prepare")
-        .admit_with(|request, _timeout| match request {
+        .admit_with(|request, _timeout| match request.into_inner() {
             crate::runtime::engine::RuntimeRequest::Command {
                 applied_state: Some(state),
                 ..
@@ -4414,7 +4414,7 @@ mod tests {
                 OperationalTuning::new(),
             )
             .expect("focus mode preparation")
-            .admit_with(|request, _timeout| request);
+            .admit_with(|request, _timeout| request.into_inner());
             assert!(matches!(
                 request,
                 crate::runtime::engine::RuntimeRequest::Command {

@@ -58,7 +58,7 @@ fn refuses_reentry(during_write: bool) {
                 "submit_inquiry_until",
                 callback_owner
                     .submit_with_timeout_until::<InquiryOutcome>(
-                        raw_inquiry(PROMPTLY),
+                        raw_inquiry(PROMPTLY).into(),
                         PROMPTLY,
                         deadline,
                     )
