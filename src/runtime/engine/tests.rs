@@ -503,14 +503,14 @@ fn duplicate_write_receipts_do_not_requeue_the_request() {
 }
 
 #[test]
-fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
+fn request_and_transmission_allocators_stop_at_exhaustion() {
     let mut allocator = IdAllocator::seeded(u64::MAX);
     assert_eq!(allocator.candidate().map(NonZeroU64::get), Some(u64::MAX));
     assert!(allocator.candidate().is_none());
 
     let start = Instant::now();
     let mut request_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    request_engine.seed_allocators(u64::MAX, 1, 1);
+    request_engine.seed_allocators(u64::MAX, 1);
     let first = request_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
@@ -538,36 +538,8 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
         }
     )));
 
-    let mut generation_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    generation_engine.seed_allocators(1, 1, u64::MAX);
-    let first = generation_engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
-            slot: AdmissionSlot::Ordinary,
-        },
-        start,
-    );
-    assert_eq!(admitted(&first).get(), 1);
-    send_ok(&mut generation_engine, &first, None, start);
-    let second = generation_engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
-            slot: AdmissionSlot::Ordinary,
-        },
-        start,
-    );
-    assert!(second.iter().any(|effect| matches!(
-        effect,
-        Effect::AdmissionRejected {
-            ticket: AdmissionTicket(2),
-            error: Error::RuntimeIdentityExhausted,
-        }
-    )));
-
     let mut transmission_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    transmission_engine.seed_allocators(1, u64::MAX, 1);
+    transmission_engine.seed_allocators(1, u64::MAX);
     let first = transmission_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
@@ -608,7 +580,6 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
     )));
     assert!(transmission_engine.entry(first_id).is_some());
     request_engine.assert_invariants().unwrap();
-    generation_engine.assert_invariants().unwrap();
     transmission_engine.assert_invariants().unwrap();
 }
 
@@ -1788,7 +1759,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
 }
 
 #[test]
-fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
+fn response_at_exact_deadline_wins_and_equal_deadlines_use_request_order() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let first = engine.handle(
@@ -2835,7 +2806,7 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
 }
 
 #[test]
-fn zero_spacing_drains_pending_cancellations_in_admission_order() {
+fn zero_spacing_drains_pending_cancellations_in_request_order() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let first = engine.handle(
@@ -3320,7 +3291,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
 }
 
 #[test]
-fn stream_cancel_failure_poisons_and_terminalizes_in_admission_order() {
+fn stream_cancel_failure_poisons_and_terminalizes_in_request_order() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
     let first = engine.handle(
@@ -3651,7 +3622,7 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
 }
 
 #[test]
-fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
+fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.command_spacing = Duration::from_millis(10);
@@ -4834,7 +4805,7 @@ fn fuzz_step(
         {
             let sequence = engine
                 .transmission_owner(*request, *transmission)
-                .and_then(|owner| match owner.framing {
+                .and_then(|owner| match owner.write.framing() {
                     RequestFraming::Sony {
                         sequence: SonyRequestSequence::Replay(sequence),
                     } => Some(sequence),

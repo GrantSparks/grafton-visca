@@ -79,8 +79,7 @@ struct SequenceRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TransmissionOwner {
     request: RequestId,
-    kind: CorrelationKind,
-    framing: RequestFraming,
+    write: ActiveWrite,
 }
 
 /// One raw-VISCA correlation scope retained after its live owner can no longer
@@ -216,10 +215,8 @@ enum RetryCause {
 pub(crate) struct Entry {
     request: RuntimeRequest,
     lifecycle: EntryPlacement,
-    admission_order: u64,
     submitted_at: Instant,
     prior: Option<PriorAttempts>,
-    generation: GenerationTicket,
     sequence_history: SmallVec<[SequenceRecord; MAX_SEQUENCE_HISTORY]>,
     slot: AdmissionSlot,
 }
@@ -331,7 +328,6 @@ impl Entry {
         )?;
         Some(DueWork {
             at,
-            admission_order: self.admission_order,
             action,
             request: id,
         })
@@ -388,7 +384,6 @@ struct DispatchSelection {
 #[derive(Debug, Clone, Copy)]
 struct DueWork {
     at: Instant,
-    admission_order: u64,
     action: DueAction,
     request: RequestId,
 }
@@ -406,8 +401,8 @@ pub(crate) struct InputTurn {
 }
 
 impl DueWork {
-    fn key(self) -> (Instant, u64, u8) {
-        (self.at, self.admission_order, self.action.priority())
+    fn key(self) -> (Instant, RequestId, u8) {
+        (self.at, self.request, self.action.priority())
     }
 }
 
@@ -431,8 +426,6 @@ pub(crate) struct EngineCore {
     entries: EntryTable,
     next_request_id: IdAllocator,
     next_transmission_id: IdAllocator,
-    next_generation: IdAllocator,
-    next_admission_order: u64,
     jitter: Jitter,
     last_request_sent: Option<Instant>,
     last_command_sent: Option<Instant>,
@@ -484,8 +477,6 @@ impl ProtocolEngine {
                 entries: EntryTable::new(),
                 next_request_id: IdAllocator::new(),
                 next_transmission_id: IdAllocator::new(),
-                next_generation: IdAllocator::new(),
-                next_admission_order: 0,
                 jitter: Jitter::new(),
                 last_request_sent: None,
                 last_command_sent: None,
@@ -1276,7 +1267,7 @@ trait EngineMethods: EngineAccess {
             sink.push(Effect::Ignored(IgnoreReason::StaleTransmission));
             return true;
         };
-        if owner.kind != CorrelationKind::Request {
+        if owner.write.kind() != CorrelationKind::Request {
             return false;
         }
         let Some(entry) = self.entries.get(&owner.request) else {
@@ -1368,18 +1359,11 @@ trait EngineMethods: EngineAccess {
         let Some(id) = self.allocate_request_id() else {
             return Err(Error::RuntimeIdentityExhausted);
         };
-        let Some(generation) = self.allocate_generation() else {
-            return Err(Error::RuntimeIdentityExhausted);
-        };
-        let admission_order = self.next_admission_order;
-        self.next_admission_order = self.next_admission_order.wrapping_add(1);
         let admitted = self.entries.admit(
             id,
             request,
             AdmissionFacts {
-                order: admission_order,
                 submitted_at: now,
-                generation,
                 slot,
             },
         );
@@ -1399,12 +1383,6 @@ trait EngineMethods: EngineAccess {
         self.next_transmission_id
             .candidate()
             .map(TransmissionId::from_nonzero)
-    }
-
-    fn allocate_generation(&mut self) -> Option<GenerationTicket> {
-        self.next_generation
-            .candidate()
-            .map(|value| GenerationTicket(value.get()))
     }
 
     fn eligible_request(
@@ -1428,13 +1406,7 @@ trait EngineMethods: EngineAccess {
             let command = self.eligible_request(Lane::Command, priority, now, &occupancy);
             let request = match (inquiry, command) {
                 (Some(inquiry), Some(command)) => {
-                    let inquiry_first = self
-                        .entries
-                        .get(&inquiry)
-                        .zip(self.entries.get(&command))
-                        .is_some_and(|(inquiry, command)| {
-                            inquiry.admission_order <= command.admission_order
-                        });
+                    let inquiry_first = inquiry <= command;
                     if inquiry_first {
                         inquiry
                     } else {
@@ -1477,10 +1449,10 @@ trait EngineMethods: EngineAccess {
                     if self.cancellation_send_at(entry) > now {
                         return None;
                     }
-                    Some((entry.admission_order, *id, pending))
+                    Some((*id, pending))
                 })
-                .min_by_key(|(admission_order, id, _)| (*admission_order, *id));
-            let Some((_, id, pending)) = pending else {
+                .min_by_key(|(id, _)| *id);
+            let Some((id, pending)) = pending else {
                 return;
             };
             let before = self.entries.get(&id).map(|entry| entry.lifecycle());
@@ -1508,7 +1480,6 @@ trait EngineMethods: EngineAccess {
             return;
         };
         let lane = entry.request.lane();
-        let generation = entry.generation;
         let target = entry.request.context().target;
         let dispatched_socket_capacity =
             (entry.reply_family() != SendingReply::Inquiry).then(|| {
@@ -1530,7 +1501,7 @@ trait EngineMethods: EngineAccess {
         let reply = SendingReply::new(&entry.request);
         let stream_order = match self.split().1 {
             CorrelationState::RawStream(stream) => {
-                owes.map(|owes| stream.ledger.push(target, request, generation, owes))
+                owes.map(|owes| stream.ledger.push(target, request, owes))
             }
             CorrelationState::Sequenced | CorrelationState::RawDatagram(_) => None,
         };
@@ -2091,23 +2062,9 @@ trait EngineMethods: EngineAccess {
         transmission: TransmissionId,
     ) -> Option<TransmissionOwner> {
         let lifecycle = self.entries.get(&request)?.lifecycle.active()?;
-        if let Lifecycle::Sending {
-            transmission: active,
-            framing,
-            ..
-        } = lifecycle
-        {
-            return (active == transmission).then_some(TransmissionOwner {
-                request,
-                kind: CorrelationKind::Request,
-                framing,
-            });
-        }
-        let send = lifecycle.sending_cancellation()?;
-        (send.transmission == transmission).then_some(TransmissionOwner {
+        Some(TransmissionOwner {
             request,
-            kind: CorrelationKind::Cancellation,
-            framing: send.framing,
+            write: lifecycle.active_write(transmission)?,
         })
     }
 
@@ -2159,8 +2116,8 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) {
-        if owner.kind == CorrelationKind::Cancellation {
-            self.failed_cancellation_transmission(owner, source, now, effects);
+        if let ActiveWrite::Cancellation(write) = owner.write {
+            self.failed_cancellation_transmission(owner.request, write, source, now, effects);
             return;
         }
         let Some(entry) = self.entries.get(&owner.request) else {
@@ -2224,7 +2181,7 @@ trait EngineMethods: EngineAccess {
         else {
             return false;
         };
-        if owner.kind != CorrelationKind::Request || deadline >= now {
+        if owner.write.kind() != CorrelationKind::Request || deadline >= now {
             return false;
         }
         if written {
@@ -2265,7 +2222,7 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) {
-        let metadata_valid = match (owner.framing, meta) {
+        let metadata_valid = match (owner.write.framing(), meta) {
             (RequestFraming::Raw, TransmissionMeta::Raw) => true,
             (
                 RequestFraming::Sony {
@@ -2298,23 +2255,19 @@ trait EngineMethods: EngineAccess {
             owner.request,
             EntryChange::Written {
                 receipt: meta,
-                kind: owner.kind,
+                kind: owner.write.kind(),
             },
         );
-        self.mark_stream_answer_written(owner.request, owner.kind == CorrelationKind::Cancellation);
+        self.mark_stream_answer_written(
+            owner.request,
+            owner.write.kind() == CorrelationKind::Cancellation,
+        );
         let Some(entry) = self.entries.get(&owner.request) else {
             return;
         };
-        let lifecycle = entry.lifecycle();
-        match owner.kind {
-            CorrelationKind::Request => {
+        match owner.write {
+            ActiveWrite::Request { attempt, reply, .. } => {
                 let context = *entry.request.context();
-                let Lifecycle::Sending { attempt, reply, .. } = lifecycle else {
-                    effects.push(Effect::Ignored(
-                        IgnoreReason::IncompatibleTransmissionResult,
-                    ));
-                    return;
-                };
                 match reply {
                     SendingReply::Inquiry => {
                         self.transition(
@@ -2365,61 +2318,12 @@ trait EngineMethods: EngineAccess {
                     }
                 }
             }
-            CorrelationKind::Cancellation => {
-                let (socket, deadline, attempt, send) = match lifecycle {
-                    Lifecycle::Executing {
-                        socket,
-                        deadline,
-                        attempt,
-                        cancellation: ExecutingCancellation::Sending(send),
-                        ..
-                    }
-                    | Lifecycle::AwaitingCancellationResolution {
-                        socket,
-                        deadline,
-                        attempt,
-                        cancellation: ResolvingCancellation::Sending(send),
-                    } => (socket, deadline, attempt, send),
-                    Lifecycle::Executing {
-                        cancellation:
-                            ExecutingCancellation::None
-                            | ExecutingCancellation::Requested(_)
-                            | ExecutingCancellation::ObservationFailed { .. },
-                        ..
-                    }
-                    | Lifecycle::AwaitingCancellationResolution {
-                        cancellation:
-                            ResolvingCancellation::Requested(_)
-                            | ResolvingCancellation::AwaitingTerminal { .. }
-                            | ResolvingCancellation::ObservationFailed { .. },
-                        ..
-                    }
-                    | Lifecycle::Ready { .. }
-                    | Lifecycle::Sending { .. }
-                    | Lifecycle::AwaitingAck { .. }
-                    | Lifecycle::AwaitingCompletion { .. }
-                    | Lifecycle::AwaitingReply { .. }
-                    | Lifecycle::Backoff { .. } => {
-                        effects.push(Effect::Ignored(
-                            IgnoreReason::IncompatibleTransmissionResult,
-                        ));
-                        return;
-                    }
-                };
+            ActiveWrite::Cancellation(write) => {
                 let observation_deadline =
                     add_duration(now, entry.request.context().timeout.cancellation.get());
                 self.transition(
                     owner.request,
-                    Lifecycle::AwaitingCancellationResolution {
-                        socket,
-                        deadline,
-                        attempt,
-                        cancellation: ResolvingCancellation::AwaitingTerminal {
-                            ambiguity_deadline: send.ambiguity_deadline,
-                            observation_deadline,
-                            observer_open: send.observer_open,
-                        },
-                    },
+                    write.written(observation_deadline),
                     now,
                     effects,
                 );
@@ -2466,87 +2370,30 @@ trait EngineMethods: EngineAccess {
             );
             return;
         }
-        match owner.kind {
-            CorrelationKind::Request => {
+        match owner.write {
+            ActiveWrite::Request { .. } => {
                 self.finish_observed(owner.request, error, AttemptEvidence::Written, now, effects);
             }
-            CorrelationKind::Cancellation => {
-                self.failed_cancellation_transmission(owner, error, now, effects);
+            ActiveWrite::Cancellation(write) => {
+                self.failed_cancellation_transmission(owner.request, write, error, now, effects);
             }
         }
     }
 
     fn failed_cancellation_transmission(
         &mut self,
-        owner: TransmissionOwner,
+        request: RequestId,
+        write: CancellationWrite,
         error: Error,
         now: Instant,
         effects: &mut Decision,
     ) {
-        // A refused cancellation wrote no bytes. Drop its staged first-answer
-        // entry while the acknowledged operation keeps its socket and deadline.
-        self.retire_answers(owner.request, now, effects);
-        let Some(entry) = self.entries.get(&owner.request) else {
-            return;
-        };
-        let lifecycle = match entry.lifecycle() {
-            Lifecycle::Executing {
-                socket,
-                started_at,
-                deadline,
-                attempt,
-                cancellation: ExecutingCancellation::Sending(send),
-            } => Lifecycle::Executing {
-                socket,
-                started_at,
-                deadline,
-                attempt,
-                cancellation: ExecutingCancellation::ObservationFailed {
-                    ambiguity_deadline: send.ambiguity_deadline,
-                },
-            },
-            Lifecycle::AwaitingCancellationResolution {
-                socket,
-                deadline,
-                attempt,
-                cancellation: ResolvingCancellation::Sending(send),
-            } => Lifecycle::AwaitingCancellationResolution {
-                socket,
-                deadline,
-                attempt,
-                cancellation: ResolvingCancellation::ObservationFailed {
-                    ambiguity_deadline: send.ambiguity_deadline,
-                },
-            },
-            Lifecycle::Executing {
-                cancellation:
-                    ExecutingCancellation::None
-                    | ExecutingCancellation::Requested(_)
-                    | ExecutingCancellation::ObservationFailed { .. },
-                ..
-            }
-            | Lifecycle::AwaitingCancellationResolution {
-                cancellation:
-                    ResolvingCancellation::Requested(_)
-                    | ResolvingCancellation::AwaitingTerminal { .. }
-                    | ResolvingCancellation::ObservationFailed { .. },
-                ..
-            }
-            | Lifecycle::Ready { .. }
-            | Lifecycle::Sending { .. }
-            | Lifecycle::AwaitingAck { .. }
-            | Lifecycle::AwaitingCompletion { .. }
-            | Lifecycle::AwaitingReply { .. }
-            | Lifecycle::Backoff { .. } => {
-                effects.push(Effect::Ignored(
-                    IgnoreReason::IncompatibleTransmissionResult,
-                ));
-                return;
-            }
-        };
-        self.transition(owner.request, lifecycle, now, effects);
+        // Retire only the staged cancellation answer. The proof preserves the
+        // acknowledged operation's original socket and completion deadline.
+        self.retire_answers(request, now, effects);
+        self.transition(request, write.refused(), now, effects);
         effects.push(Effect::CancellationObservation {
-            id: owner.request,
+            id: request,
             observation: CancellationObservation::Failed(error),
         });
     }
@@ -2594,10 +2441,10 @@ trait EngineMethods: EngineAccess {
                 entry
                     .lifecycle()
                     .retry_eligibility(false)
-                    .map(|retry| (entry.admission_order, *id, retry))
+                    .map(|retry| (*id, retry))
             })
             .collect();
-        affected.sort_unstable_by_key(|(order, _, _)| *order);
+        affected.sort_unstable_by_key(|(id, _)| *id);
         if self.raw_unconfirmed_poison() && !affected.is_empty() {
             self.poison_strict_unconfirmed(now, effects);
             return;
@@ -2607,7 +2454,7 @@ trait EngineMethods: EngineAccess {
             // deadline; never replay an unconfirmed raw command.
             return;
         }
-        for (_, id, retry) in affected {
+        for (id, retry) in affected {
             self.schedule_retry(
                 id,
                 retry,
@@ -3416,44 +3263,8 @@ trait EngineMethods: EngineAccess {
         let Some(entry) = self.entries.get(&id) else {
             return;
         };
-        let (socket, until) = match entry.lifecycle() {
-            Lifecycle::Executing {
-                socket,
-                cancellation: ExecutingCancellation::Sending(send),
-                ..
-            }
-            | Lifecycle::AwaitingCancellationResolution {
-                socket,
-                cancellation: ResolvingCancellation::Sending(send),
-                ..
-            } => (socket, send.ambiguity_deadline),
-            Lifecycle::AwaitingCancellationResolution {
-                socket,
-                cancellation:
-                    ResolvingCancellation::AwaitingTerminal {
-                        ambiguity_deadline, ..
-                    },
-                ..
-            } => (socket, ambiguity_deadline),
-            Lifecycle::Executing {
-                cancellation:
-                    ExecutingCancellation::None
-                    | ExecutingCancellation::Requested(_)
-                    | ExecutingCancellation::ObservationFailed { .. },
-                ..
-            }
-            | Lifecycle::AwaitingCancellationResolution {
-                cancellation:
-                    ResolvingCancellation::Requested(_)
-                    | ResolvingCancellation::ObservationFailed { .. },
-                ..
-            }
-            | Lifecycle::Ready { .. }
-            | Lifecycle::Sending { .. }
-            | Lifecycle::AwaitingAck { .. }
-            | Lifecycle::AwaitingCompletion { .. }
-            | Lifecycle::AwaitingReply { .. }
-            | Lifecycle::Backoff { .. } => return,
+        let Some((socket, until)) = entry.lifecycle().unanswered_cancellation() else {
+            return;
         };
         let target = entry.request.context().target;
         match self.split().1 {
@@ -3548,9 +3359,10 @@ trait EngineMethods: EngineAccess {
             }
         }
         for retro in deferred.retro {
-            let awaiting = self.entries.get(&retro.request).is_some_and(|entry| {
-                entry.generation == retro.generation && !entry.lifecycle().is_off_wire()
-            });
+            let awaiting = self
+                .entries
+                .get(&retro.request)
+                .is_some_and(|entry| !entry.lifecycle().is_off_wire());
             if !awaiting {
                 continue;
             }
@@ -3878,7 +3690,6 @@ trait EngineMethods: EngineAccess {
             entry.request.context().timeout.ambiguity.get(),
         ));
         let target = entry.request.context().target;
-        let generation = entry.generation;
         let socket = pending.socket();
         let framing = match self.policy.wire.encoder() {
             ProtocolEncoder::Raw(encoder) => encoder.plan(),
@@ -3895,9 +3706,7 @@ trait EngineMethods: EngineAccess {
             effects,
         );
         if let CorrelationState::RawStream(stream) = self.split().1 {
-            stream
-                .ledger
-                .push(target, id, generation, Owes::Cancel(socket));
+            stream.ledger.push(target, id, Owes::Cancel(socket));
         }
         effects.push(Effect::Transmit {
             transmission,
@@ -4825,13 +4634,8 @@ trait EngineMethods: EngineAccess {
                 effects.push(Effect::SessionEnded(end));
             }
         }
-        let mut active: Vec<_> = self
-            .entries
-            .iter()
-            .map(|(id, entry)| (entry.admission_order, *id))
-            .collect();
-        active.sort_unstable_by_key(|(order, _)| *order);
-        for (_, id) in active {
+        let active: Vec<_> = self.entries.iter().map(|(id, _)| *id).collect();
+        for id in active {
             self.finish(id, error.clone(), now, effects);
         }
         self.targets = PerTarget::from_fn(|target| TargetState {
@@ -4966,8 +4770,7 @@ trait EngineMethods: EngineAccess {
                 return Err("live stream ledger entry with several members".into());
             }
             let awaiting = self.entries.get(&outstanding.request).is_some_and(|entry| {
-                entry.generation == outstanding.generation
-                    && entry.request.context().target == target
+                entry.request.context().target == target
                     && match outstanding.owes {
                         Owes::Ack => {
                             entry.lifecycle().is_sending() || entry.lifecycle().is_awaiting_ack()
@@ -5072,10 +4875,9 @@ trait EngineMethods: EngineAccess {
     }
 
     #[cfg(test)]
-    fn seed_allocators(&mut self, request: u64, transmission: u64, generation: u64) {
+    fn seed_allocators(&mut self, request: u64, transmission: u64) {
         self.next_request_id = IdAllocator::seeded(request);
         self.next_transmission_id = IdAllocator::seeded(transmission);
-        self.next_generation = IdAllocator::seeded(generation);
     }
 }
 impl<T: EngineAccess> EngineMethods for T {}

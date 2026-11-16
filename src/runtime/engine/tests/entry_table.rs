@@ -139,9 +139,7 @@ fn admission_and_transitions_never_duplicate_a_ready_position() {
     let mut table = EntryTable::new();
     let id = RequestId::from_nonzero(NonZeroU64::new(1).unwrap());
     let facts = AdmissionFacts {
-        order: 0,
         submitted_at: now,
-        generation: GenerationTicket(1),
         slot: AdmissionSlot::Ordinary,
     };
     assert!(table.admit(id, inquiry(1), facts));

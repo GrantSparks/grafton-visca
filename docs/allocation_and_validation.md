@@ -50,7 +50,7 @@ The following boundaries are release gates:
   fails before allocation when its fixed reservation set is full.
 * Lifecycle storage is bounded by owner admission, completion observers,
   cancellation waiters, and bounded diagnostic staging and subscriber queues.
-* Private request, transmission, and correlation-generation identifiers are
+* Private request and transmission identifiers are
   monotonic within a session and are never reused. Exhausting a 64-bit identity
   space fails admission/transmission with `RuntimeIdentityExhausted` instead of
   allowing a stale owner input to alias new work.
@@ -115,7 +115,7 @@ inventories remain in their dedicated gates.
 | Exact fixed-frame lengths and socket nibbles (ACK/completion/network change 3 bytes; error 4 bytes; fixed ACK/completion/error nibble `0` socketless, `1..=2` S1/S2, `3..=15` rejected; variable data reply only for socket 0) | `src/protocol/response.rs`: `decode_basic`, `decode_fixed_socket` | `src/protocol/response.rs`: `test_decode_rejects_trailing_bytes_on_fixed_replies`, `test_decode_fixed_socket_nibbles_are_strict`, `test_decode_socket_zero_data_reply_remains_variable` |
 | Empty UDP discard, one overall deadline, and async cooperative yield | `src/transport/blocking/udp.rs`, `src/transport/async_udp.rs`, `src/runtime/owner/async_actor.rs` | `recv_into_with_timeout_does_not_restart_after_empty_datagram`, `recv_yields_before_polling_after_empty_datagram`, `recv_yields_after_each_empty_datagram` |
 | Admission-to-terminal retry budget through every later noncancelled backoff/ready/send/ACK/execution/reply phase; default raw active expiry fails only that request and quarantines its correlation, strict opt-in poisons, safe ready expiry retains its last cause, and cancellation quarantine is never shortened | `src/runtime/engine/mod.rs`: `schedule_retry`, `next_due`, `apply_due`, `receive_fault` | `retry_budget_expires_while_awaiting_sony_ack`, `retry_budget_expires_while_executing_sony_command`, `retry_budget_expires_while_awaiting_inquiry_reply`, `raw_ready_retry_budget_expiry_reports_last_error_without_poisoning`, `raw_active_retry_budget_expiry_quarantines_and_fails_per_request`, `raw_active_retry_budget_expiry_poisons_under_strict_opt_in` |
-| Monotonic IDs and closed exhaustion boundary | `src/runtime/engine/mod.rs`: `IdAllocator`, `allocate_request_id`, `allocate_transmission_id`, `allocate_generation` | `src/runtime/engine/tests.rs`: `request_transmission_and_generation_allocators_stop_at_exhaustion` |
+| Monotonic IDs and closed exhaustion boundary | `src/runtime/engine/mod.rs`: `IdAllocator`, `allocate_request_id`, `allocate_transmission_id` | `src/runtime/engine/tests.rs`: `request_and_transmission_allocators_stop_at_exhaustion` |
 | Owner-only controls and urgent cancellation obeying/advancing shared spacing | `src/runtime/engine/mod.rs`: `drain_pending_cancellations`, `emit_cancel`; `src/noun_table.rs`: owner-control dispositions | `requested_cancellation_waits_for_shared_command_spacing`, `pending_cancellation_transmits_before_ordinary_work_and_advances_spacing`, `tests/api_contract/fail/system_protocol_controls_are_internal.rs` |
 | Profile inquiry gates and applied-axis support before encoding/admission | `src/prepared.rs`: `prepare_inquiry`, `lower_targeted_settlement`, `lower_applied_only_settlement` | `src/prepared.rs`: `gated_builtin_inquiry_rejects_unsupported_runtime_surface`, `unsupported_applied_only_axes_fail_before_encoding`; `tests/issue_551_request_contract.rs` |
 

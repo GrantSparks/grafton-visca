@@ -107,6 +107,8 @@ impl std::fmt::Debug for EncodedMessage {
 }
 
 /// Private identity allocated only when a request becomes authoritative state.
+/// Never reused within a session: its ordering is admission ordering, and an
+/// entry lookup by this identity also proves retained evidence's lifetime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct RequestId(NonZeroU64);
 
@@ -145,10 +147,6 @@ impl TransmissionId {
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct AdmissionTicket(pub(crate) u64);
-
-/// Immutable lifetime generation used by retained stream-ledger evidence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct GenerationTicket(pub(crate) u64);
 
 /// Public request semantics lower to this private scheduling classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

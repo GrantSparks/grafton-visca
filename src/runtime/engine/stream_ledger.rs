@@ -89,7 +89,7 @@ use crate::{
     PayloadShape, ViscaSocket,
 };
 
-use super::{inquiry_shape::InquiryShapes, GenerationTicket, Lane, RequestId};
+use super::{inquiry_shape::InquiryShapes, Lane, RequestId};
 
 /// Command debts at which ordinary command correlation latches. Urgent
 /// ACK-bearing STOPs and cancellations continue, and exact inquiry declarations
@@ -241,7 +241,6 @@ pub(crate) struct Outstanding {
     /// The request that wrote the entry. A run keeps the request that opened
     /// it; it only tags the socket hold a paid ACK leaves.
     pub(crate) request: RequestId,
-    pub(crate) generation: GenerationTicket,
     pub(crate) owes: Owes,
     /// Whether the write completed. A request that ends before its staged
     /// write left owes nothing.
@@ -391,7 +390,6 @@ impl NamedFrame {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Retro {
     pub(crate) request: RequestId,
-    pub(crate) generation: GenerationTicket,
     pub(crate) evidence: Evidence,
 }
 
@@ -401,7 +399,6 @@ pub(crate) struct Retro {
 struct Step {
     order: u64,
     request: RequestId,
-    generation: GenerationTicket,
     evidence: Evidence,
     /// A completion or error that named the socket this step's ACK named,
     /// before the dispute was proven: the request's own if the command was
@@ -417,7 +414,6 @@ struct Step {
 struct OpeningStep {
     order: u64,
     request: RequestId,
-    generation: GenerationTicket,
     evidence: Evidence,
 }
 
@@ -637,20 +633,13 @@ impl StreamLedger {
     }
 
     /// Appends a request whose write is about to start.
-    pub(crate) fn push(
-        &mut self,
-        target: TargetSlot,
-        request: RequestId,
-        generation: GenerationTicket,
-        owes: Owes,
-    ) -> u64 {
+    pub(crate) fn push(&mut self, target: TargetSlot, request: RequestId, owes: Owes) -> u64 {
         let order = self.next_order;
         self.next_order = self.next_order.wrapping_add(1);
         self.queue_mut(target).push_back(Outstanding {
             order,
             newest: order,
             request,
-            generation,
             owes,
             written: false,
             standing: Standing::Live,
@@ -868,7 +857,6 @@ impl StreamLedger {
                 let step = |entry: &Outstanding, evidence| OpeningStep {
                     order: entry.order,
                     request: entry.request,
-                    generation: entry.generation,
                     evidence,
                 };
                 let head_owes = queue
@@ -1367,7 +1355,6 @@ fn dispute_behind(
             handed_to = Some(Step {
                 order: entry.order,
                 request: entry.request,
-                generation: entry.generation,
                 evidence,
                 follow: None,
                 #[cfg(test)]
@@ -1399,7 +1386,6 @@ fn accept(queue: &mut Queue, dispute: &Dispute, answered: &mut Answered) {
         for evidence in std::iter::once(step.evidence).chain(step.follow.map(Evidence::Named)) {
             answered.retro.push(Retro {
                 request: step.request,
-                generation: step.generation,
                 evidence,
             });
         }
@@ -1417,7 +1403,6 @@ fn reject(queue: &mut Queue, dispute: &Dispute, answered: &mut Answered) {
     take_in(queue, dispute.command.order);
     answered.retro.push(Retro {
         request: dispute.command.request,
-        generation: dispute.command.generation,
         evidence: dispute.command.evidence,
     });
     answered.completion_only_retired = true;
@@ -1587,7 +1572,7 @@ mod tests {
         let now = Instant::now();
         for (index, owes) in (1..).zip(kinds) {
             let cancel = matches!(owes, Owes::Cancel(_));
-            ledger.push(TARGET, request(index), GenerationTicket(1), *owes);
+            ledger.push(TARGET, request(index), *owes);
             ledger.mark_written(TARGET, request(index), cancel);
         }
         for index in (1..).take(kinds.len()) {
@@ -1639,7 +1624,7 @@ mod tests {
     fn a_rejection_already_ambiguous_between_waiting_commands_is_disputed() {
         let mut ledger = StreamLedger::new();
         for id in [1, 2] {
-            ledger.push(TARGET, request(id), GenerationTicket(1), Owes::Ack);
+            ledger.push(TARGET, request(id), Owes::Ack);
             ledger.mark_written(TARGET, request(id), false);
         }
         // The first such rejection disputes the oldest waiting command; the
@@ -1657,7 +1642,7 @@ mod tests {
     fn a_learned_completion_proves_its_dispute_accepted() {
         let mut ledger = StreamLedger::new();
         for (id, owes) in [(1, Owes::Completion), (2, Owes::Ack)] {
-            ledger.push(TARGET, request(id), GenerationTicket(1), owes);
+            ledger.push(TARGET, request(id), owes);
             ledger.mark_written(TARGET, request(id), false);
         }
         let answered = ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
@@ -1669,7 +1654,6 @@ mod tests {
             decided.retro.as_slice(),
             [Retro {
                 request: request(2),
-                generation: GenerationTicket(1),
                 evidence: Evidence::Error(0x41),
             }]
         );
@@ -1694,7 +1678,7 @@ mod tests {
                 .queue(TARGET)
                 .iter()
                 .all(|entry| !entry.disputed && !entry.pinned));
-            ledger.push(TARGET, request(99), GenerationTicket(1), Owes::Ack);
+            ledger.push(TARGET, request(99), Owes::Ack);
             ledger.mark_written(TARGET, request(99), false);
             for _ in 1..count {
                 let paid = ledger.answer(TARGET, Answer::Ack, Evidence::Ack(None));
@@ -1718,7 +1702,7 @@ mod tests {
                 Owes::Ack,
             ]);
             ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
-            ledger.push(TARGET, request(99), GenerationTicket(1), Owes::Ack);
+            ledger.push(TARGET, request(99), Owes::Ack);
             ledger.mark_written(TARGET, request(99), false);
             for _ in 0..paid {
                 ledger.answer(TARGET, Answer::Ack, Evidence::Ack(None));
@@ -1814,7 +1798,6 @@ mod tests {
                 answered.retro.as_slice(),
                 [Retro {
                     request: request(retro_to),
-                    generation: GenerationTicket(1),
                     evidence: Evidence::Error(0x02),
                 }],
                 "{proof:?}"
@@ -1831,7 +1814,7 @@ mod tests {
     fn a_dispute_is_handed_off_to_the_next_waiting_stop() {
         let mut ledger = owed(&[Owes::Completion, Owes::Ack]);
         ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x02));
-        ledger.push(TARGET, request(9), GenerationTicket(1), Owes::Ack);
+        ledger.push(TARGET, request(9), Owes::Ack);
         ledger.mark_written(TARGET, request(9), false);
         // While a dispute is tracked nothing crosses, and no inquiry is
         // written.
@@ -1868,7 +1851,7 @@ mod tests {
             (4, ViscaSocket::S2),
             (5, ViscaSocket::S1),
         ] {
-            ledger.push(TARGET, request(id), GenerationTicket(1), Owes::Ack);
+            ledger.push(TARGET, request(id), Owes::Ack);
             ledger.mark_written(TARGET, request(id), false);
             ledger.answer(TARGET, Answer::Ack, Evidence::Ack(Some(socket)));
             assert!(ledger.follow(TARGET, NamedFrame::Completion(socket)));
@@ -1892,7 +1875,7 @@ mod tests {
         for reverse in [false, true] {
             let mut ledger = StreamLedger::new();
             for (id, shape) in [(1, PayloadShape::Bytes(1)), (2, PayloadShape::Nibbles(4))] {
-                ledger.push(TARGET, request(id), GenerationTicket(1), Owes::Reply(shape));
+                ledger.push(TARGET, request(id), Owes::Reply(shape));
                 ledger.mark_written(TARGET, request(id), false);
             }
             let replies: [(u64, &[u8]); 2] = if reverse {
@@ -1923,12 +1906,7 @@ mod tests {
             ledger.inquiry_state(TARGET, PayloadShape::Nibbles(4)),
             LaneState::Clear
         );
-        ledger.push(
-            TARGET,
-            request(2),
-            GenerationTicket(1),
-            Owes::Reply(PayloadShape::Nibbles(4)),
-        );
+        ledger.push(TARGET, request(2), Owes::Reply(PayloadShape::Nibbles(4)));
         ledger.mark_written(TARGET, request(2), false);
         let invalid = ledger.answer(TARGET, Answer::Reply(&[0, 0, 0, 0x10]), Evidence::Other);
         assert_eq!(invalid.resolved, Resolved::Nothing);

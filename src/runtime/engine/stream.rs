@@ -509,10 +509,9 @@ impl StreamContext<'_> {
             self.stream.holds.release_socket(target, socket);
             if let Some(id) = self.socket_owner(target, socket) {
                 self.settle_before_owner(target, id, now, effects);
-                if let Some(entry) = self.entries.get(&id) {
+                if self.entries.get(&id).is_some() {
                     effects.defer_frame(Retro {
                         request: id,
-                        generation: entry.generation,
                         evidence: Evidence::Named(NamedFrame::Completion(socket)),
                     });
                 }
@@ -528,9 +527,10 @@ impl StreamContext<'_> {
     pub(super) fn pay_unlearned_completions(&mut self, now: Instant, effects: &mut Decision) {
         while let Some((target, entry, answered)) = self.stream.next_learned_completion() {
             self.absorb_answered(target, answered, now, effects);
-            let awaiting = self.entries.get(&entry.request).is_some_and(|live| {
-                live.generation == entry.generation && live.lifecycle().is_awaiting_completion()
-            });
+            let awaiting = self
+                .entries
+                .get(&entry.request)
+                .is_some_and(|live| live.lifecycle().is_awaiting_completion());
             if awaiting {
                 self.completion(entry.request, None, now, effects);
             }
