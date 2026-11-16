@@ -39,7 +39,7 @@
 //! Run with:
 //! ```sh
 //! VISCA_CAMERA_IP=192.168.0.110 VISCA_HW_ALLOW_MOTION=1 \
-//!   cargo test --test hardware_motion_test --features runtime-tokio \
+//!   cargo test --test integration hardware_motion_test:: --features runtime-tokio \
 //!   -- --ignored --nocapture --test-threads=1
 //! ```
 //!

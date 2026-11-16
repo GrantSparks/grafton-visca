@@ -19,7 +19,7 @@
 //!
 //! Run with:
 //! ```sh
-//! VISCA_CAMERA_IP=192.168.0.110 cargo test --test hardware_control_test -- --ignored --nocapture --test-threads=1
+//! VISCA_CAMERA_IP=192.168.0.110 cargo test --test integration hardware_control_test:: -- --ignored --nocapture --test-threads=1
 //! ```
 
 use std::thread;

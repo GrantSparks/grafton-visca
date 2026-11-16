@@ -65,23 +65,23 @@
 //! ```sh
 //! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=ptzoptics_g2 \
 //!   VISCA_HW_ALLOW_SETTINGS=1 VISCA_HW_ALLOW_MOTION=1 \
-//!   cargo test --test hardware_wire_rows_test --features runtime-tokio \
+//!   cargo test --test integration hardware_wire_rows_test:: --features runtime-tokio \
 //!   -- --ignored --nocapture --test-threads=1
 //! ```
 //!
 //! The G2 shutter table round trip alone (settings, no motion):
 //! ```sh
 //! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=ptzoptics_g2 VISCA_HW_ALLOW_SETTINGS=1 \
-//!   cargo test --test hardware_wire_rows_test --features runtime-tokio \
-//!   -- --ignored --nocapture --test-threads=1 --exact hw05_shutter_round_trip
+//!   cargo test --test integration --features runtime-tokio \
+//!   -- --ignored --nocapture --test-threads=1 --exact hardware_wire_rows_test::hw05_shutter_round_trip
 //! ```
 //!
 //! The G2 tilt polarity row alone (motion; watch the camera and confirm the
 //! direction when the `OPERATOR` line asks):
 //! ```sh
 //! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=ptzoptics_g2 VISCA_HW_ALLOW_MOTION=1 \
-//!   cargo test --test hardware_wire_rows_test --features runtime-tokio \
-//!   -- --ignored --nocapture --test-threads=1 --exact hw05_tilt_polarity
+//!   cargo test --test integration --features runtime-tokio \
+//!   -- --ignored --nocapture --test-threads=1 --exact hardware_wire_rows_test::hw05_tilt_polarity
 //! ```
 
 use grafton_visca_test_support::{hardware, hardware_rest, hw};

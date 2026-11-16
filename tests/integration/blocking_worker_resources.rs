@@ -10,7 +10,7 @@
 //! They depend on the host, so they are ignored by default. Run them with
 //!
 //! ```text
-//! cargo test --release --features blocking --test blocking_worker_resources \
+//! cargo test --release --features blocking --test integration blocking_worker_resources:: \
 //!     -- --ignored --nocapture --test-threads=1
 //! ```
 //!

@@ -3,7 +3,7 @@
 //! bench: sessions to different cameras must stay independent, with no
 //! cross-talk, no shared stalls and a correct restore.
 //!
-//! **WARNING: `hwc04_concurrent_drive_and_stop` physically moves every listed
+//! **WARNING: `hardware_concurrent_test::hwc04_concurrent_drive_and_stop` physically moves every listed
 //! camera.** Every test is ignored by default and meant to be run by an
 //! operator who can see the cameras.
 //!
@@ -14,26 +14,26 @@
 //!    (passing). `VISCA_PROFILE` selects the runtime `snake_case` profile id
 //!    for every camera (default `ptzoptics_g2`); sessions use TCP port 5678 and
 //!    UDP port 1259 with the profile's registered envelope.
-//! 3. `hwc04_concurrent_drive_and_stop` additionally requires
-//!    `VISCA_HW_ALLOW_MOTION=1`. `hwc05_one_camera_fault_does_not_stall_others`
+//! 3. `hardware_concurrent_test::hwc04_concurrent_drive_and_stop` additionally requires
+//!    `VISCA_HW_ALLOW_MOTION=1`. `hardware_concurrent_test::hwc05_one_camera_fault_does_not_stall_others`
 //!    additionally requires `VISCA_HW_FAULT_FLAG` and `VISCA_HW_FAULT_CAMERA`.
 //!    A missing variable prints a skip line and returns (passing).
 //!
 //! Scenarios:
-//! - `hwc01_concurrent_inquiries_tokio`: one async TCP session per camera on
+//! - `hardware_concurrent_test::hwc01_concurrent_inquiries_tokio`: one async TCP session per camera on
 //!   one multi-thread Tokio runtime; all cameras run 20 rounds of the inquiry
 //!   set (power, zoom position, focus position, pan/tilt position, focus
 //!   mode) concurrently. No motion.
-//! - `hwc02_concurrent_inquiries_blocking_threads`: the same with one blocking
+//! - `hardware_concurrent_test::hwc02_concurrent_inquiries_blocking_threads`: the same with one blocking
 //!   TCP session per camera, each on its own OS thread, released together by
 //!   a barrier. No motion.
-//! - `hwc03_mixed_transports`: as `hwc02`, with cameras alternating between
+//! - `hardware_concurrent_test::hwc03_mixed_transports`: as `hwc02`, with cameras alternating between
 //!   TCP (first, third, ...) and UDP (second, fourth, ...). No motion.
-//! - `hwc04_concurrent_drive_and_stop`: every camera runs, released together
+//! - `hardware_concurrent_test::hwc04_concurrent_drive_and_stop`: every camera runs, released together
 //!   by a barrier per drive, a pan-right drive, a zoom-tele drive and a
 //!   zoom-wide drive, each stopped after 250 ms; then each camera must report
 //!   rest, and preset 1 is recalled on every camera (`RESTORED` per camera).
-//! - `hwc05_one_camera_fault_does_not_stall_others`: the other cameras keep
+//! - `hardware_concurrent_test::hwc05_one_camera_fault_does_not_stall_others`: the other cameras keep
 //!   running the inquiry set while the operator injects a client-side TCP
 //!   fault on one camera. No motion.
 //!
@@ -79,22 +79,22 @@
 //! ```sh
 //! # Inquiry scenarios (no motion):
 //! VISCA_CAMERA_IPS=192.0.2.10,192.0.2.11,192.0.2.12 \
-//!   cargo test --test hardware_concurrent_test --features runtime-tokio \
+//!   cargo test --test integration --features runtime-tokio \
 //!   -- --ignored --nocapture --test-threads=1 \
-//!   hwc01_concurrent_inquiries_tokio hwc02_concurrent_inquiries_blocking_threads \
-//!   hwc03_mixed_transports
+//!   hardware_concurrent_test::hwc01_concurrent_inquiries_tokio hardware_concurrent_test::hwc02_concurrent_inquiries_blocking_threads \
+//!   hardware_concurrent_test::hwc03_mixed_transports
 //!
 //! # Concurrent drive and stop (moves every listed camera):
 //! VISCA_CAMERA_IPS=192.0.2.10,192.0.2.11,192.0.2.12 VISCA_HW_ALLOW_MOTION=1 \
-//!   cargo test --test hardware_concurrent_test --features runtime-tokio \
-//!   -- --ignored --nocapture --test-threads=1 hwc04_concurrent_drive_and_stop
+//!   cargo test --test integration --features runtime-tokio \
+//!   -- --ignored --nocapture --test-threads=1 hardware_concurrent_test::hwc04_concurrent_drive_and_stop
 //!
 //! # One-camera fault (no motion):
 //! VISCA_CAMERA_IPS=192.0.2.10,192.0.2.11,192.0.2.12 \
 //!   VISCA_HW_FAULT_FLAG=/tmp/hwc05.fault VISCA_HW_FAULT_CAMERA=192.0.2.11 \
-//!   cargo test --test hardware_concurrent_test --features runtime-tokio \
+//!   cargo test --test integration --features runtime-tokio \
 //!   -- --ignored --nocapture --test-threads=1 \
-//!   hwc05_one_camera_fault_does_not_stall_others
+//!   hardware_concurrent_test::hwc05_one_camera_fault_does_not_stall_others
 //! ```
 //!
 //! `hwc05` fault sequence, run in a second shell on the test host once the
