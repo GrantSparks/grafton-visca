@@ -163,6 +163,15 @@ fn synthetic_spec(
     if typed_support.contains(S::MenuDisplay) {
         caps.menu = Some(MenuCaps {});
     }
+    // These profiles settle targeted operations by polling. Scalar controls
+    // need their own query only when the fixture declares that permission.
+    let mut position_inquiries = AffectedAxes::MOVEMENT;
+    if typed_support.contains(S::Iris) {
+        position_inquiries = position_inquiries.union(AffectedAxes::IRIS);
+    }
+    if typed_support.contains(S::NdFilter) {
+        position_inquiries = position_inquiries.union(AffectedAxes::ND_FILTER);
+    }
     let mut builder = ProfileSpec::builder(caps)
         .transports(
             TransportCompatibility::new()
@@ -187,7 +196,7 @@ fn synthetic_spec(
         .maximum_command_sockets(2)
         .supports_operation_complete(false)
         .supports_command_cancel(true)
-        .position_inquiries(AffectedAxes::MOVEMENT);
+        .position_inquiries(position_inquiries);
     // These caller-owned fixtures choose concrete encoding families explicitly.
     // Grants describe permission and do not infer profile wire encodings.
     if typed_support.contains(S::PresetRecallSpeed) {
@@ -484,6 +493,39 @@ mod tests {
             assert_eq!(profile.maximum_command_sockets(), 2);
             assert!(!profile.supports_operation_complete());
             assert!(profile.supports_command_cancel());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn synthetic_polling_queries_match_the_declared_scalar_axes() -> grafton_visca::Result<()> {
+        for (support, queries) in [
+            (TypedSupportSet::EMPTY, AffectedAxes::MOVEMENT),
+            (
+                TypedSupportSet::from_surface(TypedSupportSurface::Iris),
+                AffectedAxes::MOVEMENT.union(AffectedAxes::IRIS),
+            ),
+            (
+                TypedSupportSet::from_surface(TypedSupportSurface::NdFilter),
+                AffectedAxes::MOVEMENT.union(AffectedAxes::ND_FILTER),
+            ),
+            (
+                TypedSupportSet::from_surfaces(&[
+                    TypedSupportSurface::Iris,
+                    TypedSupportSurface::NdFilter,
+                ]),
+                AffectedAxes::ALL,
+            ),
+        ] {
+            let profile = synthetic_spec(
+                "Scalar polling fixture",
+                support,
+                Duration::from_secs(1),
+                CommandTimeouts::DEFAULT,
+            )?;
+            assert_eq!(profile.capabilities().typed_support, support);
+            assert_eq!(profile.position_inquiries(), Some(queries));
+            assert!(!profile.supports_operation_complete());
         }
         Ok(())
     }
