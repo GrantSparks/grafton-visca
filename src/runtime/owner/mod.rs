@@ -2064,7 +2064,7 @@ impl OwnerState {
                 Arc::clone(&self.target_cache),
                 staged.target(),
             );
-            if cache.variable_speed_mode() != Some(crate::command::VariableSpeedMode::Fine50) {
+            if cache.variable_speed_mode() != Some(crate::command::PanTiltSpeedMode::Fine50) {
                 return Err(Error::InvalidRequest(format!(
                     "Sony FR7 speeds above 24 require an applied Fine50 variable-speed mode for camera {}",
                     staged.target().camera()).into()));

@@ -130,7 +130,7 @@ where
     inquiry(camera.exposure().flicker_mode());
     plain(camera.system().save_settings());
     plain(camera.presets().set_recall_speed(
-        grafton_visca::command::PresetRecallSpeed::new(12).expect("valid recall speed"),
+        grafton_visca::command::PresetSpeed::new(12).expect("valid recall speed"),
     ));
     plain(camera.advanced().multicast_on());
     plain(camera.advanced().multicast_off());

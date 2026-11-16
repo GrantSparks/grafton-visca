@@ -140,7 +140,7 @@ use std::{
 
 use grafton_visca::{
     blocking::{Camera, CameraSession, Connect, Operation},
-    camera::{profiles::PtzOpticsG2, IdleWait, PanTiltPosition},
+    camera::{profiles::PtzOpticsG2, IdleWait, PanTiltUnits},
     command::PanTiltDirection,
     completion,
     runtime::TokioRuntime,
@@ -274,7 +274,7 @@ struct Snapshot {
     power_status: grafton_visca::PowerStatus,
     zoom: ZoomPosition,
     focus: FocusPosition,
-    pan_tilt: PanTiltPosition,
+    pan_tilt: PanTiltUnits,
     focus_mode: FocusMode,
 }
 
@@ -315,7 +315,7 @@ const BASELINE_REST_ATTEMPTS: usize = 3;
 /// if it never settles.
 fn settle_before_baseline(
     cam: &CamHw,
-    mut read: impl FnMut() -> Result<(PanTiltPosition, ZoomPosition), Error>,
+    mut read: impl FnMut() -> Result<(PanTiltUnits, ZoomPosition), Error>,
 ) {
     for attempt in 0..BASELINE_REST_ATTEMPTS {
         let label = format!("baseline.rest[{attempt}]");

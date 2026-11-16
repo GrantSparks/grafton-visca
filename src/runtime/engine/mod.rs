@@ -121,8 +121,8 @@ impl RawHoldKey {
 
 impl Ord for RawHoldKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        (self.target.camera().id(), self.scope.order())
-            .cmp(&(other.target.camera().id(), other.scope.order()))
+        (self.target.camera().value(), self.scope.order())
+            .cmp(&(other.target.camera().value(), other.scope.order()))
     }
 }
 

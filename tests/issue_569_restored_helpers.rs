@@ -14,8 +14,8 @@ use grafton_visca::{
     blocking::{Session, SessionConfig},
     camera::{IdleWait, MotionQuery},
     command::{
-        FlipState, FocusLock, ImageFlipMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner,
-        PresetRecallSpeed, VariableSpeedMode,
+        ImageFlipMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PanTiltSpeedMode,
+        PresetSpeed,
     },
     profile::ProfileSpec,
     profiles::{PtzOpticsG2, SonyEVIH100, SonyFR7},
@@ -138,7 +138,7 @@ fn normalized_zoom_maps_the_unit_interval_across_explicit_combined_domains() {
 
     let mut normalized = camera
         .zoom()
-        .set_normalized(UnitInterval::ONE, ZoomDomain::Optical)
+        .set_normalized(UnitInterval::MAX, ZoomDomain::Optical)
         .expect("optical-domain zoom target");
     normalized.applied().expect("optical domain applied");
     assert_eq!(
@@ -158,7 +158,7 @@ fn normalized_zoom_maps_the_unit_interval_across_explicit_combined_domains() {
 
     let mut in_digital = camera
         .zoom()
-        .set_normalized(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)
+        .set_normalized(UnitInterval::MAX, ZoomDomain::OpticalPlusDigital)
         .expect("digital-domain zoom target");
     in_digital.applied().expect("digital domain applied");
     assert_eq!(fake.take_only_payload(), digital_frame);
@@ -166,7 +166,7 @@ fn normalized_zoom_maps_the_unit_interval_across_explicit_combined_domains() {
 
     let mut wide = camera
         .zoom()
-        .set_normalized(UnitInterval::ZERO, ZoomDomain::Optical)
+        .set_normalized(UnitInterval::MIN, ZoomDomain::Optical)
         .expect("wide zoom target");
     wide.applied().expect("wide applied");
     let wide_frame = fake.take_only_payload();
@@ -256,7 +256,7 @@ fn fr7_refuses_combined_zoom_and_uses_dedicated_clear_image_readback() {
         .is_none());
     let error = camera
         .zoom()
-        .set_normalized(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)
+        .set_normalized(UnitInterval::MAX, ZoomDomain::OpticalPlusDigital)
         .expect_err("FR7 has no shared combined positioning grant");
     assert!(matches!(error, Error::FeatureNotSupported { .. }));
     assert!(
@@ -468,25 +468,13 @@ fn typed_cache_getters_decode_the_combined_flip_pair() {
         .image()
         .set_flip_mode(ImageFlipMode::Both)
         .expect("combined flip");
-    assert_eq!(
-        cache.flip_state(),
-        Some(FlipState {
-            horizontal: true,
-            vertical: true,
-        })
-    );
+    assert_eq!(cache.flip_state(), Some(ImageFlipMode::Both));
 
     camera
         .image()
         .set_flip_mode(ImageFlipMode::Horizontal)
         .expect("combined flip");
-    assert_eq!(
-        cache.flip_state(),
-        Some(FlipState {
-            horizontal: true,
-            vertical: false,
-        })
-    );
+    assert_eq!(cache.flip_state(), Some(ImageFlipMode::Horizontal));
 
     // A single-axis opcode moves one axis and leaves the other unknown, so the
     // complete pair stops being known rather than going stale.
@@ -508,8 +496,8 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
         .pan_tilt()
         .limit_set(
             PanTiltLimitCorner::DownLeft,
-            Degrees::new(0.0),
-            Degrees::new(0.0),
+            Degrees::new(0.0).expect("finite degrees"),
+            Degrees::new(0.0).expect("finite degrees"),
         )
         .expect("limit set");
     assert_eq!(
@@ -535,8 +523,8 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
         .pan_tilt()
         .limit_set(
             PanTiltLimitCorner::UpRight,
-            Degrees::new(90.0),
-            Degrees::new(30.0),
+            Degrees::new(90.0).expect("finite degrees"),
+            Degrees::new(30.0).expect("finite degrees"),
         )
         .expect("limit set");
     assert_eq!(
@@ -661,16 +649,10 @@ fn typed_cache_getters_decode_the_focus_lock_mode() {
 
     assert_eq!(cache.focus_lock(), None);
 
-    camera
-        .focus()
-        .set_lock(FocusLock::On)
-        .expect("focus lock on");
+    camera.focus().set_lock(true).expect("focus lock on");
     assert_eq!(cache.focus_lock(), Some(true));
 
-    camera
-        .focus()
-        .set_lock(FocusLock::Off)
-        .expect("focus lock off");
+    camera.focus().set_lock(false).expect("focus lock off");
     assert_eq!(cache.focus_lock(), Some(false));
 
     session.shutdown().expect("shutdown");
@@ -698,16 +680,16 @@ fn typed_cache_getters_decode_the_remaining_write_only_keys() {
 
     camera
         .advanced()
-        .set_variable_speed_mode(VariableSpeedMode::Fine50)
+        .set_variable_speed_mode(PanTiltSpeedMode::Fine50)
         .expect("variable speed mode");
-    assert_eq!(cache.variable_speed_mode(), Some(VariableSpeedMode::Fine50));
+    assert_eq!(cache.variable_speed_mode(), Some(PanTiltSpeedMode::Fine50));
     camera
         .advanced()
-        .set_variable_speed_mode(VariableSpeedMode::Standard24)
+        .set_variable_speed_mode(PanTiltSpeedMode::Standard24)
         .expect("variable speed mode");
     assert_eq!(
         cache.variable_speed_mode(),
-        Some(VariableSpeedMode::Standard24)
+        Some(PanTiltSpeedMode::Standard24)
     );
 
     session.shutdown().expect("shutdown");
@@ -760,7 +742,7 @@ fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
 
     camera
         .presets()
-        .set_recall_speed(PresetRecallSpeed::new(12).expect("preset recall speed"))
+        .set_recall_speed(PresetSpeed::new(12).expect("preset recall speed"))
         .expect("recall speed");
     assert_eq!(cache.preset_recall_speed(), Some(12));
 

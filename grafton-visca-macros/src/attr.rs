@@ -40,11 +40,6 @@ impl<T> AttrSlot<T> {
         Ok(())
     }
 
-    /// The stored value, if the key was given.
-    pub(crate) fn get(&self) -> Option<&T> {
-        self.entry.as_ref().map(|(value, _)| value)
-    }
-
     /// Consumes the slot, returning the stored value.
     pub(crate) fn into_value(self) -> Option<T> {
         self.entry.map(|(value, _)| value)

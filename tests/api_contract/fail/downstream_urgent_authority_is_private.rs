@@ -11,7 +11,7 @@ impl Request for DownstreamUrgent {
     const CONTROL_CLASS: ControlClass = ControlClass::Urgent;
 
     fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> grafton_visca::Result<usize> {
-        buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
+        buffer[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
         Ok(3)
     }
 

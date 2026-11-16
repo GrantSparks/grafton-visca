@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{
-    command::{SetVariableSpeedMode, VariableSpeedMode},
+    command::{PanTiltSpeedMode, SetVariableSpeedMode},
     completion::AppliedOnly,
     prepared::{
         test_support::{prepare_command, prepare_operation},
@@ -14,7 +14,7 @@ use crate::{
     OperationalTuning, PanTiltDirection, ProfileSpec, TargetRegistration,
 };
 
-fn mode_request(registration: &TargetRegistration, mode: VariableSpeedMode) -> RuntimeRequest {
+fn mode_request(registration: &TargetRegistration, mode: PanTiltSpeedMode) -> RuntimeRequest {
     prepare_command(
         &SetVariableSpeedMode::new(mode),
         registration,
@@ -52,7 +52,7 @@ fn queued_mode_refusal(invalidate: bool) {
     let initial = Instant::now();
     let _enabled = sent(
         &mut state,
-        mode_request(&registration, VariableSpeedMode::Fine50),
+        mode_request(&registration, PanTiltSpeedMode::Fine50),
         Some(1),
         initial,
     );
@@ -80,12 +80,12 @@ fn queued_mode_refusal(invalidate: bool) {
         state.state_cache_registry(),
         TargetSlot::CAMERA_1,
     );
-    assert_eq!(cache.variable_speed_mode(), Some(VariableSpeedMode::Fine50));
+    assert_eq!(cache.variable_speed_mode(), Some(PanTiltSpeedMode::Fine50));
 
     let now = initial + Duration::from_secs(1);
     let _changing = sent(
         &mut state,
-        mode_request(&registration, VariableSpeedMode::Standard24),
+        mode_request(&registration, PanTiltSpeedMode::Standard24),
         Some(2),
         now,
     );
@@ -110,7 +110,7 @@ fn queued_mode_refusal(invalidate: bool) {
     }
     assert_eq!(
         cache.variable_speed_mode(),
-        Some(VariableSpeedMode::Fine50),
+        Some(PanTiltSpeedMode::Fine50),
         "preparation must not pretend a queued mode change has applied"
     );
 
@@ -136,7 +136,7 @@ fn queued_mode_refusal(invalidate: bool) {
         if invalidate {
             None
         } else {
-            Some(VariableSpeedMode::Standard24)
+            Some(PanTiltSpeedMode::Standard24)
         }
     );
     let staged = staged.expect("the queued drive becomes dispatchable after the setter ends");
@@ -186,7 +186,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
     let initial = Instant::now();
     let _enabled = sent(
         &mut state,
-        mode_request(&registration, VariableSpeedMode::Fine50),
+        mode_request(&registration, PanTiltSpeedMode::Fine50),
         Some(1),
         initial,
     );
@@ -219,7 +219,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
     let mode_at = now + spacing;
     let _changing = sent(
         &mut state,
-        mode_request(&registration, VariableSpeedMode::Standard24),
+        mode_request(&registration, PanTiltSpeedMode::Standard24),
         Some(3),
         mode_at,
     );

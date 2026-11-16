@@ -19,7 +19,7 @@ use grafton_visca::{
         HasSharpnessControl, HasSharpnessMode, HasSonyAutoSlowShutter, HasSonySpotlight, HasTally,
         HasUsbAudio, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
-    command::{MotionSyncMode, NdFilterValue},
+    command::NdFilterDensity,
     completion::{AppliedOnly, Targeted},
     profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -55,7 +55,7 @@ where
     plain(
         camera
             .exposure()
-            .shutter_direct(grafton_visca::types::ShutterSpeed::new(0)),
+            .shutter_direct(grafton_visca::types::ShutterSpeed::new(0).expect("valid value")),
     );
     let _ = camera.exposure().shutter();
     plain(camera.exposure().gain_reset());
@@ -230,7 +230,6 @@ where
     let _ = camera.nd_filter().position();
     let _ = camera.nd_filter().preset();
     let _ = camera.motion_sync().mode();
-    let _ = camera.motion_sync().preset();
 }
 
 fn sony_optional(camera: &Camera<SonyFR7>) {
@@ -239,7 +238,7 @@ fn sony_optional(camera: &Camera<SonyFR7>) {
     targeted(
         camera
             .nd_filter()
-            .set_value(NdFilterValue::new(1).expect("ND value")),
+            .set_value(NdFilterDensity::new(1).expect("ND value")),
     );
     targeted(camera.nd_filter().step_up());
     applied(camera.zoom().tele());
@@ -250,7 +249,7 @@ fn awb_gate<P: CompileTimeProfile + HasAutoWhiteBalanceSensitivity>(camera: &Cam
 }
 
 fn motion_gate<P: CompileTimeProfile + HasMotionSync>(camera: &Camera<P>) {
-    plain(camera.motion_sync().set_mode(MotionSyncMode::On));
+    plain(camera.motion_sync().set_mode(true));
     plain(camera.motion_sync().set_speed(MotionSyncSpeed::SLOW));
 }
 
@@ -296,7 +295,7 @@ where
     let _ = camera.exposure().flicker_mode();
     plain(camera.system().save_settings());
     plain(camera.presets().set_recall_speed(
-        grafton_visca::command::PresetRecallSpeed::new(12).expect("valid recall speed"),
+        grafton_visca::command::PresetSpeed::new(12).expect("valid recall speed"),
     ));
     plain(camera.advanced().multicast_on());
     plain(camera.advanced().multicast_off());

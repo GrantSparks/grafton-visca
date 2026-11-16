@@ -182,8 +182,8 @@ async fn test_simulator_mixed_commands_and_inquiries() {
 #[tokio::test(start_paused = true)]
 async fn session_inquiries_observe_applied_simulator_state() {
     use grafton_visca::{
-        camera::profiles::PtzOpticsG2, types::SpeedLevel, units::Degrees,
-        PanTiltCoordinateConversion, Session, SessionConfig, TokioRuntime,
+        camera::profiles::PtzOpticsG2, types::SpeedLevel, units::Degrees, Session, SessionConfig,
+        TokioRuntime,
     };
 
     let session = Session::open(
@@ -196,14 +196,23 @@ async fn session_inquiries_observe_applied_simulator_state() {
     let camera = session.camera::<PtzOpticsG2>().unwrap();
     let mut movement = camera
         .pan_tilt()
-        .absolute(Degrees(-10.0), Degrees(-5.0), SpeedLevel::Medium)
+        .absolute(
+            Degrees::new(-10.0).expect("valid degrees"),
+            Degrees::new(-5.0).expect("valid degrees"),
+            SpeedLevel::Medium,
+        )
         .await
         .unwrap();
     movement.applied().await.unwrap();
     let position = camera.pan_tilt().position().await.unwrap();
-    let degrees = PanTiltCoordinateConversion::for_profile::<PtzOpticsG2>().to_degrees(position);
-    assert!((degrees.pan.0 + 10.0).abs() < 0.1);
-    assert!((degrees.tilt.0 + 5.0).abs() < 0.1);
+    let degrees = grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>()
+        .expect("profile")
+        .pan_tilt_coordinates()
+        .expect("coordinate conversion")
+        .to_degrees(position)
+        .expect("finite coordinates");
+    assert!((degrees.pan.value() + 10.0).abs() < 0.1);
+    assert!((degrees.tilt.value() + 5.0).abs() < 0.1);
     camera.power().off().await.unwrap();
     assert_eq!(camera.power().state().await.unwrap(), PowerStatus::Standby);
     camera.power().on().await.unwrap();

@@ -9,46 +9,33 @@ use crate::{
     types::NdiQuality,
 };
 
-visca_command! {
-        /// Internal multicast streaming command
-    pub struct MulticastStreamingInternal { enabled: bool };
-    prefix = streaming::MULTICAST;
-    param = if *enabled { 0x01 } else { 0x02 };
-    max_param_size = 1;
-}
-
-/// Multicast streaming control for PtzOptics Ndi cameras
-///
-/// Vendor-specific command to enable or disable multicast video streaming
+/// Enables or disables multicast streaming.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum MulticastStreaming {
-    /// Enable multicast streaming
-    On,
-    /// Disable multicast streaming
-    Off,
+pub struct MulticastStreamingCommand {
+    enabled: bool,
 }
 
-impl From<MulticastStreaming> for MulticastStreamingInternal {
-    fn from(value: MulticastStreaming) -> Self {
-        match value {
-            MulticastStreaming::On => MulticastStreamingInternal { enabled: true },
-            MulticastStreaming::Off => MulticastStreamingInternal { enabled: false },
-        }
+impl MulticastStreamingCommand {
+    /// Creates a multicast-streaming setting.
+    pub const fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+    /// Returns the requested multicast state.
+    pub const fn enabled(self) -> bool {
+        self.enabled
     }
 }
 
-impl crate::command::encode::WireEncode for MulticastStreaming {
+impl crate::command::encode::WireEncode for MulticastStreamingCommand {
     fn write_into(
         &self,
         camera_id: crate::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::Error> {
-        let internal: MulticastStreamingInternal = (*self).into();
-        internal.write_into(camera_id, buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&streaming::MULTICAST)
+            .byte(if self.enabled { 0x01 } else { 0x02 })
+            .finish()
     }
 }
 
@@ -94,23 +81,24 @@ impl SetNdiQuality {
     }
 }
 
-/// USB audio control command.
-///
-/// Enables or disables USB audio output on the camera.
-/// **Vendor-Specific**: PTZOptics cameras only.
+/// Enables or disables USB audio output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum UsbAudio {
-    /// Enable USB audio.
-    On,
-    /// Disable USB audio.
-    Off,
+pub struct UsbAudioCommand {
+    enabled: bool,
 }
 
-impl crate::command::encode::WireEncode for UsbAudio {
+impl UsbAudioCommand {
+    /// Creates a USB audio setting.
+    pub const fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+    /// Returns the requested USB audio state.
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
+}
+
+impl crate::command::encode::WireEncode for UsbAudioCommand {
     fn write_into(
         &self,
         camera_id: crate::CameraId,
@@ -118,10 +106,7 @@ impl crate::command::encode::WireEncode for UsbAudio {
     ) -> Result<usize, crate::Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&streaming::USB_AUDIO)
-            .byte(match self {
-                Self::On => 0x02,
-                Self::Off => 0x03,
-            })
+            .byte(if self.enabled { 0x02 } else { 0x03 })
             .finish()
     }
 }
@@ -134,16 +119,16 @@ mod tests {
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
-        MulticastStreaming,
+        MulticastStreamingCommand,
         test_multicast_on_encoding,
-        MulticastStreaming::On,
+        MulticastStreamingCommand::new(true),
         &[0x81, 0x0B, 0x01, 0x23, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MulticastStreaming,
+        MulticastStreamingCommand,
         test_multicast_off_encoding,
-        MulticastStreaming::Off,
+        MulticastStreamingCommand::new(false),
         &[0x81, 0x0B, 0x01, 0x23, 0x02, VISCA_TERMINATOR]
     );
 
@@ -176,16 +161,16 @@ mod tests {
     );
 
     visca_test!(
-        UsbAudio,
+        UsbAudioCommand,
         test_usb_audio_on_encoding,
-        UsbAudio::On,
+        UsbAudioCommand::new(true),
         &[0x81, 0x2A, 0x02, 0xA0, 0x04, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        UsbAudio,
+        UsbAudioCommand,
         test_usb_audio_off_encoding,
-        UsbAudio::Off,
+        UsbAudioCommand::new(false),
         &[0x81, 0x2A, 0x02, 0xA0, 0x04, 0x03, VISCA_TERMINATOR]
     );
 }

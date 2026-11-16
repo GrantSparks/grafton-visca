@@ -300,7 +300,7 @@ facade_matrix! {
 
         let mut relative = wait!(camera
             .pan_tilt()
-            .relative(Degrees(10.0), Degrees(0.0), SpeedLevel::Fastest))
+            .relative(Degrees::new(10.0).expect("valid degrees"), Degrees::new(0.0).expect("valid degrees"), SpeedLevel::Fastest))
         .expect("relative move admitted");
         pause!(Duration::from_millis(150));
         let relative_frame = link.writes()[1].clone();
@@ -332,7 +332,7 @@ facade_matrix! {
 
         let result = wait!(wait!(camera
             .pan_tilt()
-            .relative(Degrees(10.0), Degrees(0.0), SpeedLevel::Fastest))
+            .relative(Degrees::new(10.0).expect("valid degrees"), Degrees::new(0.0).expect("valid degrees"), SpeedLevel::Fastest))
         .expect("relative move admitted")
         .applied_with_timeout(Duration::from_secs(5)));
 

@@ -1,79 +1,61 @@
-//! Tests for ViscaEnum derive macro with attribute support
+//! Value-enum attributes share one display and wire conversion contract.
 
-use grafton_visca::ViscaEnum;
+use grafton_visca::{value_enum, wire::WireValue, Error};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[visca_enum(error_type = grafton_visca::Error)]
+#[value_enum]
 pub enum AdvancedMode {
-    #[visca_enum(name = "Automatic Mode")]
+    #[value(display = "Automatic Mode")]
     Auto = 0x00,
-
-    #[visca_enum(name = "Manual Control")]
+    #[value(display = "Manual Control")]
     Manual = 0x03,
-
-    #[visca_enum(name = "Advanced Shutter")]
+    #[value(display = "Advanced Shutter")]
     Shutter = 0x0A,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[visca_enum(error_type = grafton_visca::Error)]
-pub enum ModeWithSkip {
+#[value_enum]
+pub enum ExtensibleMode {
     Active = 0x01,
-
     Inactive = 0x02,
-
-    #[visca_enum(skip)]
-    _Reserved = 0xFF,
+    Unknown(u8),
 }
 
-#[cfg(test)]
-mod tests {
-    use std::convert::TryFrom;
+#[test]
+fn custom_display_names_are_preserved() {
+    assert_eq!(AdvancedMode::Auto.to_string(), "Automatic Mode");
+    assert_eq!(AdvancedMode::Manual.to_string(), "Manual Control");
+    assert_eq!(AdvancedMode::Shutter.to_string(), "Advanced Shutter");
+}
 
-    use super::*;
-
-    #[test]
-    fn test_custom_names_in_error_messages() {
-        let result = AdvancedMode::try_from(0xFF);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        let err_msg = format!("{err}");
-        assert!(err_msg.contains("Automatic Mode"));
-        assert!(err_msg.contains("Manual Control"));
-        assert!(err_msg.contains("Advanced Shutter"));
+#[test]
+fn closed_enum_rejects_unknown_wire_codes_with_the_crate_error() {
+    for code in [0x00, 0x03, 0x0A] {
+        let mode = AdvancedMode::from_wire(code).expect("documented code");
+        assert_eq!(mode.to_wire(), code);
     }
-
-    #[test]
-    fn test_is_valid_discriminant() {
-        assert!(AdvancedMode::is_valid_discriminant(0x00));
-        assert!(AdvancedMode::is_valid_discriminant(0x03));
-        assert!(AdvancedMode::is_valid_discriminant(0x0A));
-        assert!(!AdvancedMode::is_valid_discriminant(0x01));
-        assert!(!AdvancedMode::is_valid_discriminant(0xFF));
-    }
-
-    #[test]
-    fn test_skip_attribute() {
-        assert_eq!(ModeWithSkip::try_from(0x01).unwrap(), ModeWithSkip::Active);
-        assert_eq!(
-            ModeWithSkip::try_from(0x02).unwrap(),
-            ModeWithSkip::Inactive
+    for code in [0x01, 0xFF] {
+        let error: Error = AdvancedMode::from_wire(code).expect_err("undocumented code");
+        assert!(
+            matches!(error, Error::InvalidParameter { parameter: "AdvancedMode", value, reason, .. }
+            if value == code.to_string() && reason == "unknown wire value")
         );
-
-        assert!(ModeWithSkip::try_from(0xFF).is_err());
-        assert!(!ModeWithSkip::is_valid_discriminant(0xFF));
-        assert!(ModeWithSkip::is_valid_discriminant(0x01));
-        assert!(ModeWithSkip::is_valid_discriminant(0x02));
     }
+}
 
-    #[test]
-    fn test_from_enum_to_u8_with_attributes() {
-        assert_eq!(u8::from(AdvancedMode::Auto), 0x00);
-        assert_eq!(u8::from(AdvancedMode::Manual), 0x03);
-        assert_eq!(u8::from(AdvancedMode::Shutter), 0x0A);
-
-        assert_eq!(u8::from(ModeWithSkip::Active), 0x01);
-        assert_eq!(u8::from(ModeWithSkip::Inactive), 0x02);
+#[test]
+fn extensible_enum_preserves_unknown_codes_in_both_directions() {
+    assert_eq!(
+        ExtensibleMode::from_wire(0x01).unwrap(),
+        ExtensibleMode::Active
+    );
+    assert_eq!(
+        ExtensibleMode::from_wire(0x02).unwrap(),
+        ExtensibleMode::Inactive
+    );
+    for code in [0, 3, 0xFF] {
+        assert_eq!(
+            ExtensibleMode::from_wire(code).unwrap(),
+            ExtensibleMode::Unknown(code)
+        );
+        assert_eq!(ExtensibleMode::Unknown(code).to_wire(), code);
     }
 }

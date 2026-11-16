@@ -267,7 +267,7 @@ matrix of `.github/workflows/ci.yml`.
 - **Multi-runtime support** — Pluggable adapters for Tokio and smol
 - **Type-safe profiles** — Compile-time protocol selection (raw VISCA vs Sony encapsulation) with capability-based APIs
 - **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts, retries, and TCP keepalive
-- **Ergonomic API** — One-line connection helpers, checked unit types (`Degrees` for typed pan/tilt input, `Percentage` and `UnitInterval` for checked value conversions), built-in inquiry conversions
+- **Ergonomic API** — One-line connection helpers, checked unit types (`Degrees` for typed pan/tilt input and `UnitInterval` for normalized values), built-in inquiry conversions
 - **Optional serialization** — Serde and JSON Schema support for public value and configuration types
 - **Zero-allocation hot path** — Stack-allocated command buffers for standard VISCA commands
 
@@ -442,8 +442,7 @@ rather than falling back to the optical range.
 ```rust
 use grafton_visca::blocking::Connect;
 use grafton_visca::camera::profiles::{PtzOpticsG2, SonyFR7};
-use grafton_visca::units::UnitInterval;
-use grafton_visca::ZoomDomain;
+use grafton_visca::types::{UnitInterval, ZoomDomain};
 
 fn half_zoom() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
@@ -465,7 +464,7 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
 
     camera
         .zoom()
-        .set_normalized(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)?
+        .set_normalized(UnitInterval::MAX, ZoomDomain::OpticalPlusDigital)?
         .settled()?;
 
     session.close()
@@ -494,10 +493,13 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
   low-level extensions and may supply their own validation.
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the
   checked `0.0..=1.0` values taken by `camera.zoom().set_normalized(..)` and
-  by the inquiry conversion helpers such as
-  `ZoomPosition::normalize_with_max` and `zoom_from_normalized`. Other typed
-  control input uses `Degrees`, `SpeedLevel`, and the profile-checked `types`
-  values.
+  by profile-aware zoom normalization. Other typed control input uses checked
+  `Degrees`, `SpeedLevel`, and the profile-checked `types` values.
+- Bounded scalar values share fallible `new`, `value()`, `MIN`/`MAX`, and
+  `TryFrom`/`From` conversions. `Degrees::new` rejects nonfinite input;
+  `Kelvin` expresses physical color temperature, and `ExposureTime` expresses
+  rational shutter durations. Use `wire::WireValue` only when encoding or
+  decoding protocol values.
 - Use `CameraId` with `camera_id(...)`, or `try_camera_id(u8)` when converting
   a raw VISCA camera number from configuration.
 

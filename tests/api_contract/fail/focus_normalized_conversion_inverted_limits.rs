@@ -18,7 +18,7 @@ impl Focus for Inverted {
     const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
 }
 fn main() {
-    let _ = Inverted.normalized_to_focus_units(UnitInterval::ONE);
+    let _ = Inverted.normalized_to_focus_units(UnitInterval::MAX);
 }
 
 //~ E0080

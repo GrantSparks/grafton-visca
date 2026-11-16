@@ -10,7 +10,7 @@ use ts_rs::{Config, TS};
 
 use grafton_visca::{
     camera::{profiles::ProfileId, TransportOptions},
-    command::PresetRecallSpeed,
+    command::PresetSpeed,
     types::{SpeedLevel, ZoomPosition},
     AffectedAxes, FocusSpeed, PanTiltDirection, PresetNumber, SubmissionClass,
 };
@@ -71,7 +71,7 @@ fn test_zoom_position_export() {
 fn test_preset_number_export() {
     let cfg = Config::default();
     let ts = PresetNumber::export_to_string(&cfg).expect("Failed to export PresetNumber");
-    assert!(ts.contains("Preset number with validation."));
+    assert!(ts.contains("Zero-based preset number over the union of supported profile domains."));
     assert!(ts.contains("export type PresetNumber = number;"));
 }
 
@@ -87,10 +87,10 @@ fn test_range_macro_types_use_real_newtype_derive_semantics() {
             PresetNumber::output_path(),
         ),
         (
-            PresetRecallSpeed::name(&cfg),
-            PresetRecallSpeed::decl(&cfg),
-            PresetRecallSpeed::docs(),
-            PresetRecallSpeed::output_path(),
+            PresetSpeed::name(&cfg),
+            PresetSpeed::decl(&cfg),
+            PresetSpeed::docs(),
+            PresetSpeed::output_path(),
         ),
         (
             FocusSpeed::name(&cfg),
@@ -104,15 +104,13 @@ fn test_range_macro_types_use_real_newtype_derive_semantics() {
         assert_eq!(output, Some(std::path::PathBuf::from(format!("{name}.ts"))));
     }
 
-    assert!(PresetNumber::docs()
-        .as_deref()
-        .is_some_and(|docs| docs.contains("Preset number with validation.")));
-    assert!(PresetRecallSpeed::docs()
-        .as_deref()
-        .is_some_and(|docs| docs.contains("Preset recall speed.")));
-    assert!(FocusSpeed::docs()
-        .as_deref()
-        .is_some_and(|docs| docs.contains("Focus speed value for camera focus control.")));
+    assert!(PresetNumber::docs().as_deref().is_some_and(|docs| docs
+        .contains("Zero-based preset number over the union of supported profile domains.")));
+    assert!(PresetSpeed::docs().as_deref().is_some_and(
+        |docs| docs.contains("An FR7 preset recall speed, from 1 through 50 (R7 p. 19).")
+    ));
+    assert!(FocusSpeed::docs().as_deref().is_some_and(|docs| docs
+        .contains("Variable focus speed, from zero (slowest movement) through seven (fastest).")));
     assert!(std::panic::catch_unwind(|| PresetNumber::inline_flattened(&cfg)).is_err());
 }
 
@@ -127,7 +125,7 @@ fn test_profile_group_export() {
 #[test]
 fn test_value_types_export() {
     use grafton_visca::types::{
-        BrightnessLevel, ColorTemp, ContrastLevel, FocusPosition, GainLevel, GainLimit, IrisLevel,
+        BrightnessLevel, ContrastLevel, FocusPosition, GainLevel, GainLimit, IrisLevel, Kelvin,
         MotionSyncSpeed, PanSpeed, TiltSpeed,
     };
 
@@ -149,8 +147,8 @@ fn test_value_types_export() {
     assert!(!ContrastLevel::export_to_string(&cfg)
         .expect("Failed to export ContrastLevel")
         .is_empty());
-    assert!(!ColorTemp::export_to_string(&cfg)
-        .expect("Failed to export ColorTemp")
+    assert!(!Kelvin::export_to_string(&cfg)
+        .expect("Failed to export Kelvin")
         .is_empty());
     assert!(!FocusPosition::export_to_string(&cfg)
         .expect("Failed to export FocusPosition")

@@ -1,6 +1,5 @@
 use grafton_visca::{
-    request, CameraId, ControlClass, Inquiry, Request, ResponseDecoder, RetryClass,
-    TimeoutClass,
+    request, CameraId, ControlClass, Inquiry, Request, ResponseDecoder, RetryClass, TimeoutClass,
 };
 
 struct DownstreamInquiry;
@@ -14,14 +13,13 @@ impl Request for DownstreamInquiry {
     const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
     fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> grafton_visca::Result<usize> {
-        buffer[..3].copy_from_slice(&[target.to_address_byte(), 0x09, 0xff]);
+        buffer[..3].copy_from_slice(&[(0x80 | target.value()), 0x09, 0xff]);
         Ok(3)
     }
 }
 
 impl Inquiry for DownstreamInquiry {
     type Response = Vec<u8>;
-
 
     fn decoder(&self) -> ResponseDecoder<Self::Response> {
         ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))

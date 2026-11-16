@@ -2,40 +2,31 @@
 
 #[cfg(feature = "serde")]
 mod serde_validation {
+    use grafton_visca::wire::WireValue;
     use grafton_visca::{
         capabilities::CapabilityRange,
-        command::PresetRecallSpeed,
+        command::PresetSpeed,
         types::{
             ExposureCompensationLevel, GainLevel, NoiseReduction2DLevel, ShutterSpeed, ZoomPosition,
         },
-        FocusSpeed, PresetNumber, ViscaValue,
+        value, FocusSpeed, PresetNumber,
     };
 
-    grafton_visca::visca_range_type! {
-        /// Test-only downstream range wrapper.
-        MacroRange: u8 {
-            min: 10,
-            max: 12
-        }
-    }
+    #[grafton_visca::value(min = 10, max = 12)]
+    /// Test-only downstream range wrapper.
+    pub struct MacroRange(u8);
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-    #[visca_value(min = "1", max = "4")]
+    #[value(min = 1, max = 4)]
     struct RangeValue(u8);
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-    #[visca_value(valid_values = "[0x01, 0x03]")]
+    #[value(valid_values = [0x01, 0x03])]
     struct SparseValue(u8);
 
     #[cfg(feature = "schemars")]
     #[derive(serde::Serialize, schemars::JsonSchema)]
     struct BuiltinRangeSchemaContainer {
         preset: PresetNumber,
-        recall: PresetRecallSpeed,
+        recall: PresetSpeed,
         focus: FocusSpeed,
     }
 
@@ -105,8 +96,8 @@ mod serde_validation {
 
         assert_eq!(i8::from(minimum), -7);
         assert_eq!(i8::from(maximum), 7);
-        assert_eq!(minimum.to_protocol_value(), 0);
-        assert_eq!(maximum.to_protocol_value(), 14);
+        assert_eq!(minimum.to_wire(), 0);
+        assert_eq!(maximum.to_wire(), 14);
         assert_eq!(serde_json::to_string(&minimum).expect("scalar JSON"), "-7");
         assert!(serde_json::from_str::<ExposureCompensationLevel>("127").is_err());
         assert!(serde_json::from_str::<ExposureCompensationLevel>("128").is_err());
@@ -125,14 +116,14 @@ mod serde_validation {
 
     #[test]
     fn in_tree_range_types_reject_out_of_range_deserialization() {
-        let recall_min: PresetRecallSpeed =
+        let recall_min: PresetSpeed =
             serde_json::from_str("1").expect("minimum preset recall speed");
-        let recall_max: PresetRecallSpeed =
-            serde_json::from_str("24").expect("maximum preset recall speed");
+        let recall_max: PresetSpeed =
+            serde_json::from_str("50").expect("maximum union preset speed");
         assert_eq!(recall_min.value(), 1);
-        assert_eq!(recall_max.value(), 24);
-        assert!(serde_json::from_str::<PresetRecallSpeed>("0").is_err());
-        assert!(serde_json::from_str::<PresetRecallSpeed>("25").is_err());
+        assert_eq!(recall_max.value(), 50);
+        assert!(serde_json::from_str::<PresetSpeed>("0").is_err());
+        assert!(serde_json::from_str::<PresetSpeed>("51").is_err());
 
         let focus_min: FocusSpeed = serde_json::from_str("0").expect("minimum focus speed");
         let focus_max: FocusSpeed = serde_json::from_str("7").expect("maximum focus speed");
@@ -193,7 +184,7 @@ mod serde_validation {
         }
 
         assert_integer_schema::<ExposureCompensationLevel>();
-        assert_integer_schema::<PresetRecallSpeed>();
+        assert_integer_schema::<PresetSpeed>();
         assert_integer_schema::<FocusSpeed>();
     }
 
@@ -203,23 +194,23 @@ mod serde_validation {
         use schemars::JsonSchema;
 
         assert!(!PresetNumber::inline_schema());
-        assert!(!PresetRecallSpeed::inline_schema());
+        assert!(!PresetSpeed::inline_schema());
         assert!(!FocusSpeed::inline_schema());
         assert_eq!(PresetNumber::schema_name(), "PresetNumber");
-        assert_eq!(PresetRecallSpeed::schema_name(), "PresetRecallSpeed");
+        assert_eq!(PresetSpeed::schema_name(), "PresetSpeed");
         assert_eq!(FocusSpeed::schema_name(), "FocusSpeed");
 
         let schema = schemars::schema_for!(BuiltinRangeSchemaContainer);
         let json = serde_json::to_value(schema).expect("serialize range container schema");
         let instance = serde_json::to_value(BuiltinRangeSchemaContainer {
             preset: PresetNumber::new(1).expect("valid preset"),
-            recall: PresetRecallSpeed::new(12).expect("valid recall speed"),
+            recall: PresetSpeed::new(12).expect("valid recall speed"),
             focus: FocusSpeed::new(1).expect("valid focus speed"),
         })
         .expect("serialize range container");
         for (field, definition) in [
             ("preset", "PresetNumber"),
-            ("recall", "PresetRecallSpeed"),
+            ("recall", "PresetSpeed"),
             ("focus", "FocusSpeed"),
         ] {
             assert_eq!(
@@ -241,28 +232,34 @@ mod serde_validation {
             json.pointer("/$defs/PresetNumber/description")
                 .and_then(serde_json::Value::as_str)
                 .map(|docs| docs.lines().next()),
-            Some(Some("Preset number with validation."))
+            Some(Some(
+                "Zero-based preset number over the union of supported profile domains."
+            ))
         );
         assert_eq!(
-            json.pointer("/$defs/PresetRecallSpeed/description")
+            json.pointer("/$defs/PresetSpeed/description")
                 .and_then(serde_json::Value::as_str)
                 .map(|docs| docs.lines().next()),
-            Some(Some("Preset recall speed."))
+            Some(Some(
+                "An FR7 preset recall speed, from 1 through 50 (R7 p. 19)."
+            ))
         );
         assert_eq!(
             json.pointer("/$defs/FocusSpeed/description")
                 .and_then(serde_json::Value::as_str)
                 .map(|docs| docs.lines().next()),
-            Some(Some("Focus speed value for camera focus control."))
+            Some(Some(
+                "Variable focus speed, from zero (slowest movement) through seven (fastest)."
+            ))
         );
 
         // These are the u8 schema's bounds, not the macro's validation bounds.
         assert_eq!(
-            json.pointer("/$defs/PresetRecallSpeed/minimum"),
+            json.pointer("/$defs/PresetSpeed/minimum"),
             Some(&serde_json::json!(0))
         );
         assert_eq!(
-            json.pointer("/$defs/PresetRecallSpeed/maximum"),
+            json.pointer("/$defs/PresetSpeed/maximum"),
             Some(&serde_json::json!(255))
         );
     }
@@ -275,11 +272,11 @@ mod serde_validation {
         let cfg = ts_rs::Config::default();
         let exposure = ExposureCompensationLevel::export_to_string(&cfg)
             .expect("export ExposureCompensationLevel");
-        let recall = PresetRecallSpeed::export_to_string(&cfg).expect("export PresetRecallSpeed");
+        let recall = PresetSpeed::export_to_string(&cfg).expect("export PresetSpeed");
         let focus = FocusSpeed::export_to_string(&cfg).expect("export FocusSpeed");
 
         assert!(exposure.contains("export type ExposureCompensationLevel = number;"));
-        assert!(recall.contains("export type PresetRecallSpeed = number;"));
+        assert!(recall.contains("export type PresetSpeed = number;"));
         assert!(focus.contains("export type FocusSpeed = number;"));
     }
 }

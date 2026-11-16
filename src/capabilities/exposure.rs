@@ -3,7 +3,7 @@
 use crate::{
     capabilities::{CapabilityDomain, CapabilityRange, SupportedRange, ValidationError},
     command::exposure::ExposureMode,
-    units::Fraction,
+    units::ExposureTime,
 };
 
 /// The five shared AE modes (`04 39`): auto, manual, shutter priority, iris
@@ -116,11 +116,12 @@ impl<T: Exposure> ExposureExt for T {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct ShutterSpeedEntry {
     /// Exposure time selected by this code, such as `1/60`; serialized as
     /// `"1/60"`.
-    pub exposure: Fraction,
+    pub exposure: ExposureTime,
     /// VISCA shutter code.
     pub value: u8,
 }
@@ -128,12 +129,12 @@ pub struct ShutterSpeedEntry {
 impl ShutterSpeedEntry {
     /// Creates a table entry.
     #[must_use]
-    pub const fn new(exposure: Fraction, value: u8) -> Self {
+    pub const fn new(exposure: ExposureTime, value: u8) -> Self {
         Self { exposure, value }
     }
 }
 
-// Note: ExposureMode and DynamicRangeLevel enums are defined in the command module
+// Note: ExposureMode and WideDynamicRangeLevel enums are defined in the command module
 // and re-exported from the crate root. This avoids duplication.
 
 #[cfg(test)]
@@ -141,12 +142,8 @@ impl ShutterSpeedEntry {
 mod tests {
     use super::*;
 
-    #[allow(clippy::panic)]
     const fn entry(denominator: u32, value: u8) -> ShutterSpeedEntry {
-        match Fraction::new(1, denominator) {
-            Some(exposure) => ShutterSpeedEntry::new(exposure, value),
-            None => panic!("shutter denominators are nonzero"),
-        }
+        ShutterSpeedEntry::new(ExposureTime::reciprocal(denominator), value)
     }
 
     const TEST_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[

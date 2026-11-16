@@ -5,12 +5,11 @@
 use std::time::Duration;
 
 use grafton_visca::{
-    camera::CameraConfig,
     capabilities::{
         exposure::ShutterSpeedEntry, CapabilityDomain, CapabilityRange, Exposure, Focus,
         HasNdFilter, ImageProcessing, MenuCapability, MotionSyncMetadata, NdFilterMetadata,
-        PanTilt, Power, Presets, ProfileMetadata, ProfileTypedSupport, SupportsTcp, SupportsUdp,
-        Tally, TypedSupportSet, VariableSpeedMetadata, WhiteBalance, Zoom,
+        PanTilt, Power, Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet,
+        VariableSpeedMetadata, WhiteBalance, Zoom,
     },
     profiles::GenericVisca as Base,
     transport::RawVisca,
@@ -28,7 +27,7 @@ impl ProfileMetadata for SerialOnly {
 
     const MODEL_NAME: &'static str = "SerialOnly";
     const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId =
-        grafton_visca::IndividualCameraId::new(1).expect("individual profile default");
+        grafton_visca::IndividualCameraId::CAMERA_1;
     type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = <Base as ProfileMetadata>::ACK_TIMEOUT;
     const COMMAND_TIMEOUTS: CommandTimeouts = CommandTimeouts::DEFAULT;
@@ -124,7 +123,7 @@ fn main() {
     let _ = camera
         .unwrap()
         .nd_filter()
-        .set_value(grafton_visca::command::NdFilterValue::new(0).unwrap());
+        .set_value(grafton_visca::command::NdFilterDensity::new(0).unwrap());
 }
 
 //~ E0080

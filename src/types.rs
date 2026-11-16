@@ -1,985 +1,388 @@
-//! Type-safe wrappers for VISCA protocol values.
+//! Checked values, settings and physical quantities used by camera controls.
+//!
+//! Constructors validate each value's domain. Request preparation applies the
+//! selected camera profile's narrower limits and encoding.
 
+pub use crate::camera::{IdleWait, MotionQuery, MovementTolerance, PanTiltPosition, PanTiltUnits};
 pub use crate::command::{
-    AeLevel, BlackLevel, BlackStep, ClearImageZoomPosition, Fr7PresetNumber,
-    HighResolutionZoomSpeed, IrisStep, KneePoint, KneeSlope, MemoryColorTemperatureStep,
-    PresetDuration, PresetSpeed, TintOffset, WhiteBalanceGain, WhiteBalanceStep, WhiteKelvin,
+    AeLevel, AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, BlackLevel,
+    BlackStep, ClearImageZoomPosition, DirectMenuTarget, ExposureMode, FocusMode, FocusZone,
+    HighResolutionZoomSpeed, ImageFlipMode, IrisStep, KneeMode, KneeParameter, KneePermission,
+    KneePoint, KneeSlope, MemoryColorTemperatureStep, MenuButton, MenuDirection, NdFilterDensity,
+    NdFilterMode, NoiseReduction2D, NoiseReduction2DMode, NoiseReduction3D, PanTiltDirection,
+    PanTiltLimitCorner, PanTiltSpeedMode, PictureEffectMode, PowerStatus, PresetNumber,
+    PresetSeparateMode, PresetSpeed, PresetSpeedSelection, SharpnessMode, UnknownPictureEffect,
+    VersionInfo, WhiteBalanceGain, WhiteBalanceMode, WhiteBalanceOffset, WhiteBalanceStep,
 };
+pub use crate::inquiry_conversions::ZoomDomain;
+pub use crate::units::{Degrees, ExposureTime, Kelvin, UnitInterval};
 
-use std::fmt;
+use crate::error::Error;
 
-use crate::{error::Error, units::Percentage};
-
-crate::__grafton_visca_newtype! {
-    /// Gain level value for direct gain control.
-    ///
-    /// The wire domain includes BRC-H900 codes through `0x19` (R11 p. 36). Camera profiles
-    /// retain their documented gain range and reject values outside it during
-    /// request preparation.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(
-        min = "0x00",
-        max = "0x19",
-        display_format = "hex",
-        display_prefix = "Gain Level"
-    )]
-    pub struct GainLevel(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// Gain limit value.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x0", max = "0xF", display_format = "hex", display_prefix = "Gain Limit")]
-    pub struct GainLimit(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// Nonzero 2D noise reduction level.
-    /// Use [`crate::command::NoiseReduction2D::off()`] to disable the filter.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "1", max = "5", display_prefix = "2D NR Level")]
-    pub struct NoiseReduction2DLevel(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// Nonzero 3D noise reduction level.
-    /// Use [`crate::command::NoiseReduction3D::off()`] to disable the filter.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "1", max = "8", display_prefix = "3D NR Level")]
-    pub struct NoiseReduction3DLevel(u8);
-}
-
-/// Trait for types that can be converted into VISCA iris level values.
+/// Gain code for direct gain control.
 ///
-/// This trait provides a unified conversion interface for different iris-related types
-/// (percentages and raw levels) into the VISCA iris level format used
-/// for camera aperture control.
-pub trait IntoIrisLevel {
-    /// Converts this value into a VISCA iris level.
-    ///
-    /// # Errors
-    /// Returns an error if the value cannot be converted to a valid iris level
-    /// (e.g., out of range values).
-    fn into_iris_level(self) -> Result<IrisLevel, Error>;
-}
+/// The union domain includes BRC-H900 codes through `0x19` (R11 p. 36).
+/// Request preparation checks the selected profile's gain range.
+#[crate::value(min = 0x00, max = 0x19, display = "Gain Level {:#04x}")]
+pub struct GainLevel(u8);
 
-crate::__grafton_visca_newtype! {
-    /// Iris level for direct iris control.
-    ///
-    /// This covers the union of the standard built-in profiles' wire domains.
-    /// Individual camera profiles retain their documented iris range and reject
-    /// values outside it during request preparation.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x1E", display_format = "hex", display_prefix = "Iris")]
-    pub struct IrisLevel(u8);
-}
+/// Maximum automatic gain code, checked against the selected profile at preparation.
+#[crate::value(min = 0x00, max = 0x0F, display = "Gain Limit {:#04x}")]
+pub struct GainLimit(u8);
 
-macro_rules! impl_into_iris_level {
-    ($($t:ty => $conversion:expr),* $(,)?) => {
-        $(
-            impl IntoIrisLevel for $t {
-                fn into_iris_level(self) -> Result<IrisLevel, Error> {
-                    $conversion(self)
-                }
-            }
-        )*
-    };
-}
+/// Nonzero 2D noise reduction level; disabling the filter uses its `Off` setting.
+#[crate::value(min = 1, max = 5, display = "2D NR Level {}")]
+pub struct NoiseReduction2DLevel(u8);
 
-impl_into_iris_level! {
-    IrisLevel => Ok,
-    u8 => IrisLevel::new,
-    Percentage<f32> => |x| {
-        use std::convert::TryFrom;
+/// Nonzero 3D noise reduction level; disabling the filter uses its `Off` setting.
+#[crate::value(min = 1, max = 8, display = "3D NR Level {}")]
+pub struct NoiseReduction3DLevel(u8);
 
-        IrisLevel::try_from(x)
-    },
-}
-
-/// Shutter speed code for direct shutter control.
+/// Iris code in the union of the built-in profiles' direct iris domains.
 ///
-/// This is the byte carried by the `0p 0q` shutter field, so every `u8` is a
-/// well-formed code. Shutter codes are camera-specific: the same code selects
-/// a different exposure time on different models. The selected profile's
-/// shutter table (`ExposureCaps::shutter_speeds`) is the only authority for
-/// which codes a camera accepts; request preparation rejects a code the
-/// profile does not list. Use [`Capabilities::shutter_speed_for`] to look a
-/// code up by exposure time.
+/// Request preparation checks the selected profile's iris range.
+#[crate::value(min = 0x00, max = 0x1E, display = "Iris {:#04x}")]
+pub struct IrisLevel(u8);
+
+/// Shutter code carried by a two-nibble shutter field.
 ///
-/// [`Capabilities::shutter_speed_for`]: crate::capabilities::Capabilities::shutter_speed_for
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+/// Every byte is a syntactically valid code. The selected profile's shutter
+/// table determines the exposure time and whether the code is supported.
+#[crate::value(min = 0, max = 255, display = "Shutter {:#04x}")]
 pub struct ShutterSpeed(u8);
 
-impl ShutterSpeed {
-    /// Creates a shutter code.
-    #[must_use]
-    pub const fn new(code: u8) -> Self {
-        Self(code)
-    }
-
-    /// Returns the shutter code.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl From<u8> for ShutterSpeed {
-    fn from(code: u8) -> Self {
-        Self::new(code)
-    }
-}
-
-impl From<ShutterSpeed> for u8 {
-    fn from(speed: ShutterSpeed) -> Self {
-        speed.value()
-    }
-}
-
-impl fmt::Display for ShutterSpeed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Shutter {:#04x}", self.0)
-    }
-}
-
-/// Bright position for direct exposure brightness control.
+/// Bright position carried by a two-nibble direct brightness field.
 ///
-/// This is the byte carried by the `0p 0q` field of `CAM_Bright` Direct
-/// (`8x 01 04 4D 00 00 0p 0q FF`), so every `u8` is a well-formed position.
-/// Bright positions are camera-specific: the selected profile's
-/// `ExposureCaps::brightness_range` is the only authority for which
-/// positions a camera accepts, and request preparation rejects any other.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+/// Request preparation checks the selected profile's brightness range.
+#[crate::value(min = 0, max = 255, display = "Brightness {:#04x}")]
 pub struct BrightnessLevel(u8);
 
-impl BrightnessLevel {
-    /// Creates a bright position.
-    #[must_use]
-    pub const fn new(position: u8) -> Self {
-        Self(position)
-    }
-
-    /// Returns the bright position.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl From<u8> for BrightnessLevel {
-    fn from(position: u8) -> Self {
-        Self::new(position)
-    }
-}
-
-impl From<BrightnessLevel> for u8 {
-    fn from(level: BrightnessLevel) -> Self {
-        level.value()
-    }
-}
-
-/// A four-nibble bright reply field whose upper byte is not zero is not a
-/// bright position.
+/// A four-nibble response is a brightness code only when its upper byte is zero.
 impl TryFrom<u16> for BrightnessLevel {
     type Error = Error;
 
     fn try_from(position: u16) -> Result<Self, Self::Error> {
-        u8::try_from(position).map(Self::new).map_err(|_| {
+        let position = u8::try_from(position).map_err(|_| {
             Error::parameter_out_of_range(
-                "brightness level",
+                "brightness_level",
                 i32::from(position),
                 0,
                 i32::from(u8::MAX),
             )
-        })
+        })?;
+        Self::new(position)
     }
 }
 
-impl fmt::Display for BrightnessLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Brightness {:#04x}", self.0)
-    }
-}
+/// Sharpness code for direct adjustment.
+#[crate::value(min = 0x00, max = 0x0F, display = "Sharpness {}")]
+pub struct SharpnessLevel(u8);
 
-crate::__grafton_visca_newtype! {
-    /// Sharpness level for direct sharpness control.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x0F", display_prefix = "Sharpness")]
-    pub struct SharpnessLevel(u8);
-}
+/// Luminance code for direct adjustment.
+#[crate::value(min = 0x00, max = 0x0E, display = "Luminance {}")]
+pub struct LuminanceLevel(u8);
 
-crate::__grafton_visca_newtype! {
-    /// Luminance level for brightness adjustment.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x0", max = "0xE", display_prefix = "Luminance")]
-    pub struct LuminanceLevel(u8);
-}
+/// Contrast code for direct adjustment.
+#[crate::value(min = 0x00, max = 0x0E, display = "Contrast {}")]
+pub struct ContrastLevel(u8);
 
-crate::__grafton_visca_newtype! {
-    /// Contrast level for contrast adjustment.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x0", max = "0xE", display_prefix = "Contrast")]
-    pub struct ContrastLevel(u8);
-}
+/// Wide dynamic range adjustment code, validated against the selected profile.
+#[crate::value(min = 0x00, max = 0x08, display = "Wide Dynamic Range {}")]
+pub struct WideDynamicRangeLevel(u8);
 
-crate::__grafton_visca_newtype! {
-    /// Dynamic range level for wide dynamic range control.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x0", max = "0x8", display_prefix = "Dynamic Range")]
-    pub struct DynamicRangeLevel(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// Exposure compensation level (-7 to +7).
-    ///
-    /// Valid range: -7 to +7.
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-    #[visca_value(min = "-7", max = "7", display_prefix = "Exposure Compensation")]
-    pub struct ExposureCompensationLevel(i8);
-}
-
-/// Implements the wire codec of a signed level whose VISCA code is the level
-/// offset by a fixed centre: code `CENTER` is level zero and the code range is
-/// `0..=2 * CENTER`.
+/// Exposure compensation level from -7 through +7; zero is neutral.
 ///
-/// Command encoders and inquiry decoders both use the generated pair, so each
-/// centre is written once.
-macro_rules! centered_level_wire {
-    ($ty:ident, center = $center:literal, parameter = $parameter:literal) => {
-        impl $ty {
-            /// The wire code of level zero.
-            pub const WIRE_CENTER: u8 = $center;
+/// The wire code is the level plus seven.
+#[crate::value(
+    min = -7,
+    max = 7,
+    display = "Exposure Compensation {}",
+    wire = centered(7)
+)]
+pub struct ExposureCompensationLevel(i8);
 
-            /// Converts the level to its wire code (`level + WIRE_CENTER`).
-            #[allow(clippy::cast_sign_loss)]
-            #[must_use]
-            pub const fn to_protocol_value(self) -> u8 {
-                (self.0 + $center) as u8
-            }
-
-            /// Decodes a wire code, which must lie in `0..=2 * WIRE_CENTER`.
-            pub(crate) fn from_protocol_value(code: u8) -> Result<Self, Error> {
-                const MAXIMUM: u8 = 2 * $center;
-                if code > MAXIMUM {
-                    return Err(Error::parameter_out_of_range(
-                        $parameter,
-                        i32::from(code),
-                        0,
-                        i32::from(MAXIMUM),
-                    ));
-                }
-                // `code <= 2 * CENTER` keeps the level inside the type's
-                // `-CENTER..=CENTER` range, so this never fails.
-                Self::new(code as i8 - $center)
-            }
-        }
-    };
-}
-
-centered_level_wire!(
-    ExposureCompensationLevel,
-    center = 7,
-    parameter = "exposure_compensation"
-);
-
-macro_rules! speed_enum {
-    (
-        $(#[$meta:meta])*
-        pub enum $name:ident {
-            $(
-                $(#[$variant_meta:meta])*
-                $variant:ident => { pan: $pan:expr, tilt: $tilt:expr, zoom: $zoom:expr, focus: $focus:expr }
-            ),* $(,)?
-        }
-    ) => {
-        $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub enum $name {
-            $(
-                $(#[$variant_meta])*
-                $variant
-            ),*
-        }
-
-        impl $name {
-            /// Converts this speed level to a baseline VISCA pan speed value (1-24).
-            #[must_use]
-            pub fn to_pan_speed(self) -> u8 {
-                match self {
-                    $(Self::$variant => $pan),*
-                }
-            }
-
-            /// Converts this speed level to a baseline VISCA tilt speed value (1-20).
-            ///
-            /// Position requests whose profile owns a one-speed wire form can
-            /// lower this coarse level differently; see the profile-aware
-            /// pan/tilt request constructors.
-            #[must_use]
-            pub fn to_tilt_speed(self) -> u8 {
-                match self {
-                    $(Self::$variant => $tilt),*
-                }
-            }
-
-            /// Converts this speed level to a VISCA zoom speed value (0-7).
-            #[must_use]
-            pub fn to_zoom_speed(self) -> u8 {
-                match self {
-                    $(Self::$variant => $zoom),*
-                }
-            }
-
-            /// Converts this speed level to a VISCA focus speed value (0-7).
-            #[must_use]
-            pub fn to_focus_speed(self) -> u8 {
-                match self {
-                    $(Self::$variant => $focus),*
-                }
-            }
-        }
-
-        impl Default for $name {
-            fn default() -> Self {
-                Self::Medium
-            }
-        }
-
-        impl From<u8> for $name {
-            fn from(value: u8) -> Self {
-                match value {
-                    0..=5 => Self::Slowest,
-                    6..=10 => Self::Slow,
-                    11..=15 => Self::Medium,
-                    16..=20 => Self::Fast,
-                    _ => Self::Fastest,
-                }
-            }
-        }
-    };
-}
-
-speed_enum! {
-    /// User-friendly speed level abstraction for camera movements.
-    ///
-    /// Provides predefined speed combinations that work well across different
-    /// camera movement types (pan, tilt, zoom, focus) based on VISCA protocol ranges.
-    /// Direct `to_*_speed` conversions use the baseline values below;
-    /// profile-aware position requests lower the level through their own limits.
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-    #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-    #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-    pub enum SpeedLevel {
-        /// Slowest speed - most precise movements (pan: 1, tilt: 1, zoom: 0, focus: 0)
-        Slowest => { pan: 1, tilt: 1, zoom: 0, focus: 0 },
-        /// Slow speed - fine control (pan: 6, tilt: 5, zoom: 2, focus: 2)
-        Slow    => { pan: 6, tilt: 5, zoom: 2, focus: 2 },
-        /// Medium speed - balanced speed and control (pan: 12, tilt: 10, zoom: 4, focus: 4)
-        Medium  => { pan: 12, tilt: 10, zoom: 4, focus: 4 },
-        /// Fast speed - quick movements (pan: 18, tilt: 15, zoom: 6, focus: 6)
-        Fast    => { pan: 18, tilt: 15, zoom: 6, focus: 6 },
-        /// Fastest baseline speed (pan: 24, tilt: 20, zoom: 7, focus: 7)
-        Fastest => { pan: 24, tilt: 20, zoom: 7, focus: 7 },
-    }
-}
-
-macro_rules! fstop_enum {
-    (
-        $(#[$meta:meta])*
-        pub enum $name:ident {
-            $(
-                $(#[$variant_meta:meta])*
-                $variant:ident $(($display:literal))?
-            ),* $(,)?
-        }
-    ) => {
-        $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub enum $name {
-            $(
-                $(#[$variant_meta])*
-                $variant
-            ),*
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                match self {
-                    $(
-                        Self::$variant => write!(f, fstop_enum!(@display $variant $(, $display)?)),
-                    )*
-                }
-            }
-        }
-    };
-
-    (@display Closed) => { "Closed" };
-    (@display $variant:ident, $display:literal) => { $display };
-    (@display $variant:ident) => { stringify!($variant) };
-}
-
-fstop_enum! {
-    /// F-stop values for iris control.
-    ///
-    /// Descriptive F-stop values from `Closed` (no light) to `F1_8` (widest opening).
-    /// No profile-independent VISCA wire mapping is defined. Lower numbers mean wider
-    /// aperture (more light).
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-    #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-    pub enum FStop {
-        /// Iris completely closed - no light passes through
-        Closed,
-        /// F/11 - Smallest aperture opening
-        F11,
-        /// F/9.6
-        F9_6("F9.6"),
-        /// F/8
-        F8,
-        /// F/6.8
-        F6_8("F6.8"),
-        /// F/5.6
-        F5_6("F5.6"),
-        /// F/4.8
-        F4_8("F4.8"),
-        /// F/4
-        F4,
-        /// F/3.4
-        F3_4("F3.4"),
-        /// F/2.8
-        F2_8("F2.8"),
-        /// F/2.4
-        F2_4("F2.4"),
-        /// F/2
-        F2("F2.0"),
-        /// F/1.8 - Widest aperture opening, maximum light
-        F1_8("F1.8"),
-    }
-}
-
-/// Ndi streaming quality settings for PtzOptics cameras.
+/// Coarse movement speed resolved against the selected profile during preparation.
 ///
-/// Controls the bandwidth and quality of Ndi HX video streaming.
-/// This is a vendor-specific feature for PtzOptics Ndi cameras.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// This value has no profile-independent conversion into an axis speed. Pass
+/// it directly to a control accepting [`Speed<T>`].
+#[crate::value_enum]
+#[derive(Default)]
+pub enum SpeedLevel {
+    /// Slowest coarse movement level.
+    Slowest = 0,
+    /// Slow movement.
+    Slow = 1,
+    /// Balanced speed and control.
+    #[default]
+    Medium = 2,
+    /// Fast movement.
+    Fast = 3,
+    /// Fastest coarse movement level.
+    Fastest = 4,
+}
+
+impl SpeedLevel {
+    /// Baseline pan, tilt, zoom and focus values consumed only by profile lowering.
+    ///
+    /// The preparation path clamps these using the profile's actual speed
+    /// grammar, including BRC-300's shared pan/tilt speed field.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const fn baseline_speeds(self) -> (u8, u8, u8, u8) {
+        match self {
+            Self::Slowest => (1, 1, 0, 0),
+            Self::Slow => (6, 5, 2, 2),
+            Self::Medium => (12, 10, 4, 4),
+            Self::Fast => (18, 15, 6, 6),
+            Self::Fastest => (24, 20, 7, 7),
+        }
+    }
+}
+
+/// A coarse profile-resolved speed or an exact checked speed.
+///
+/// Exact values retain their units and are checked against the selected
+/// profile during preparation. A coarse level is lowered only after the
+/// target profile is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-pub enum NdiQuality {
-    /// High quality Ndi streaming (highest bandwidth)
-    High,
-    /// Medium quality Ndi streaming (balanced bandwidth)
-    Medium,
-    /// Low quality Ndi streaming (lowest bandwidth)
-    Low,
-    /// Ndi streaming disabled
-    Off,
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+pub enum Speed<T> {
+    /// Coarse speed interpreted using the selected profile.
+    Level(SpeedLevel),
+    /// Exact speed, still subject to the selected profile's range.
+    Exact(T),
 }
 
-crate::__grafton_visca_newtype! {
-    /// Zoom position value for direct zoom control.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x0000", max = "0x7FFF", display_format = "hex", display_prefix = "Zoom")]
-    pub struct ZoomPosition(u16);
+impl<T> From<SpeedLevel> for Speed<T> {
+    fn from(value: SpeedLevel) -> Self {
+        Self::Level(value)
+    }
 }
 
-/// Focus position value for direct focus control.
+impl From<PanTiltSpeed> for Speed<PanTiltSpeed> {
+    fn from(value: PanTiltSpeed) -> Self {
+        Self::Exact(value)
+    }
+}
+
+impl From<PanSpeed> for Speed<PanSpeed> {
+    fn from(value: PanSpeed) -> Self {
+        Self::Exact(value)
+    }
+}
+
+impl From<TiltSpeed> for Speed<TiltSpeed> {
+    fn from(value: TiltSpeed) -> Self {
+        Self::Exact(value)
+    }
+}
+
+impl From<ZoomSpeed> for Speed<ZoomSpeed> {
+    fn from(value: ZoomSpeed) -> Self {
+        Self::Exact(value)
+    }
+}
+
+impl From<FocusSpeed> for Speed<FocusSpeed> {
+    fn from(value: FocusSpeed) -> Self {
+        Self::Exact(value)
+    }
+}
+
+/// Exact pan and tilt speeds for a movement.
 ///
-/// This is a simple newtype wrapper around the raw VISCA focus position value.
-/// The focus position range varies by camera model:
-/// - PTZOptics cameras: typically 0x0000-0xFFFF
-/// - Sony cameras: typically 0x1000-0xF000
-///
-/// For profile-specific validation and normalization, use the [`FocusExt`] trait
-/// methods which respect each camera profile's actual limits.
-///
-/// [`FocusExt`]: crate::capabilities::focus::FocusExt
+/// The speed wrappers validate the union domain. Preparation checks the
+/// selected profile's ranges and paired-speed grammar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+pub struct PanTiltSpeed {
+    /// Horizontal movement speed.
+    pub pan: PanSpeed,
+    /// Vertical movement speed.
+    pub tilt: TiltSpeed,
+}
+
+impl PanTiltSpeed {
+    /// Pairs checked axis speeds; profile validation occurs during preparation.
+    #[must_use]
+    pub const fn new(pan: PanSpeed, tilt: TiltSpeed) -> Self {
+        Self { pan, tilt }
+    }
+}
+
+/// Descriptive F-stop values for iris control.
+///
+/// The value encoding identifies an F-stop; it is not a camera's iris code.
+/// The selected profile's iris table supplies any physical-to-code mapping.
+#[crate::value_enum]
+pub enum FStop {
+    /// Iris completely closed.
+    Closed = 0,
+    /// F/11, a small aperture opening.
+    F11 = 1,
+    /// F/9.6.
+    #[value(display = "F9.6")]
+    F9_6 = 2,
+    /// F/8.
+    F8 = 3,
+    /// F/6.8.
+    #[value(display = "F6.8")]
+    F6_8 = 4,
+    /// F/5.6.
+    #[value(display = "F5.6")]
+    F5_6 = 5,
+    /// F/4.8.
+    #[value(display = "F4.8")]
+    F4_8 = 6,
+    /// F/4.
+    F4 = 7,
+    /// F/3.4.
+    #[value(display = "F3.4")]
+    F3_4 = 8,
+    /// F/2.8.
+    #[value(display = "F2.8")]
+    F2_8 = 9,
+    /// F/2.4.
+    #[value(display = "F2.4")]
+    F2_4 = 10,
+    /// F/2.
+    #[value(display = "F2.0")]
+    F2 = 11,
+    /// F/1.8, a wide aperture opening.
+    #[value(display = "F1.8")]
+    F1_8 = 12,
+}
+
+/// NDI streaming quality setting.
+#[crate::value_enum]
+pub enum NdiQuality {
+    /// Highest quality and bandwidth.
+    High = 0x01,
+    /// Balanced quality and bandwidth.
+    Medium = 0x02,
+    /// Lower quality and bandwidth.
+    Low = 0x03,
+    /// Disable NDI streaming.
+    Off = 0x04,
+}
+
+/// Zoom position code; the selected profile supplies the usable zoom domains.
+#[crate::value(min = 0x0000, max = 0x7FFF, display = "Zoom {:#06x}")]
+pub struct ZoomPosition(u16);
+
+/// Focus position code, checked against the selected profile during preparation.
+///
+/// The union wire domain is the full four-nibble field, `0x0000..=0xFFFF`.
+#[crate::value(min = 0x0000, max = 0xFFFF, display = "Focus {:#06x}")]
 pub struct FocusPosition(u16);
 
-impl FocusPosition {
-    /// Create a new focus position from a raw VISCA value.
-    ///
-    /// This constructor accepts any u16 value without validation.
-    /// For profile-specific validation, use [`FocusExt::validate_focus_position`].
-    ///
-    /// [`FocusExt::validate_focus_position`]: crate::capabilities::focus::FocusExt::validate_focus_position
-    #[must_use]
-    pub const fn new(value: u16) -> Self {
-        Self(value)
-    }
+/// Red or blue channel gain for the standard manual white-balance registers.
+#[crate::value(min = 0x00, max = 0xFF, display = "RGB Gain {:#04x}")]
+pub struct RgbGain(u8);
 
-    /// Get the raw VISCA position value.
-    #[must_use]
-    pub const fn value(self) -> u16 {
-        self.0
-    }
-}
+/// Saturation adjustment code.
+#[crate::value(min = 0x00, max = 0x0E, display = "Saturation {}")]
+pub struct SaturationLevel(u8);
 
-impl From<u16> for FocusPosition {
-    fn from(value: u16) -> Self {
-        Self::new(value)
-    }
-}
+/// Hue adjustment code.
+#[crate::value(min = 0x00, max = 0x0E, display = "Hue {}")]
+pub struct HueLevel(u8);
 
-impl From<FocusPosition> for u16 {
-    fn from(pos: FocusPosition) -> Self {
-        pos.value()
-    }
-}
+/// Gamma curve adjustment code.
+#[crate::value(min = 0, max = 4, display = "Gamma {}")]
+pub struct GammaLevel(u8);
 
-impl fmt::Display for FocusPosition {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Focus {:#06x}", self.0)
-    }
-}
+/// Red or blue channel white-balance tuning, from -10 through +10.
+///
+/// The wire code is the tuning plus ten; zero is neutral.
+#[crate::value(min = -10, max = 10, display = "RGB Tuning {}", wire = centered(10))]
+pub struct RgbTuning(i8);
 
-crate::__grafton_visca_newtype! {
-    /// Color temperature value for white balance control.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(
-        min = "0x00",
-        max = "0x37",
-        display_format = "hex",
-        display_prefix = "Color Temp"
-    )]
-    pub struct ColorTemp(u16);
-}
-
-impl ColorTemp {
-    /// Color temperature, in Kelvin, selected by wire value `0x00`.
-    pub const MIN_KELVIN: u16 = 2500;
-
-    /// Kelvin per wire step.
-    pub const KELVIN_STEP: u16 = 100;
-
-    /// Color temperature, in Kelvin, selected by the maximum wire value.
-    pub const MAX_KELVIN: u16 = Self::MIN_KELVIN + Self::MAX.value() * Self::KELVIN_STEP;
-
-    /// Converts this VISCA color temperature value to Kelvin.
-    ///
-    /// The wire range `0x00..=0x37` maps linearly to
-    /// [`Self::MIN_KELVIN`]`..=`[`Self::MAX_KELVIN`] in [`Self::KELVIN_STEP`]
-    /// steps. This and [`Self::from_kelvin`] are the crate's only Kelvin
-    /// conversion; `TryFrom<Kelvin>` and profile validation use them.
-    #[must_use]
-    pub const fn to_kelvin(self) -> u16 {
-        Self::MIN_KELVIN + self.0 * Self::KELVIN_STEP
-    }
-
-    /// Creates a color temperature value from Kelvin.
-    ///
-    /// A value between two steps rounds to the nearest step, with a half step
-    /// rounding up, so every multiple of [`Self::KELVIN_STEP`] round-trips
-    /// through [`Self::to_kelvin`] unchanged.
-    ///
-    /// # Errors
-    /// Returns [`Error::ParameterOutOfRange`] if `kelvin` is outside
-    /// [`Self::MIN_KELVIN`]`..=`[`Self::MAX_KELVIN`].
-    pub fn from_kelvin(kelvin: u16) -> Result<Self, Error> {
-        if !(Self::MIN_KELVIN..=Self::MAX_KELVIN).contains(&kelvin) {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "kelvin",
-                value: i32::from(kelvin),
-                min: i32::from(Self::MIN_KELVIN),
-                max: i32::from(Self::MAX_KELVIN),
-            });
-        }
-        Self::new((kelvin - Self::MIN_KELVIN + Self::KELVIN_STEP / 2) / Self::KELVIN_STEP)
-    }
-}
-
-crate::__grafton_visca_newtype! {
-    /// Red gain value for white balance adjustment.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(
-        min = "0x00",
-        max = "0xFF",
-        display_format = "hex",
-        display_prefix = "Red Channel"
-    )]
-    pub struct RedChannel(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// Blue gain value for white balance adjustment.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(
-        min = "0x00",
-        max = "0xFF",
-        display_format = "hex",
-        display_prefix = "Blue Channel"
-    )]
-    pub struct BlueChannel(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// Saturation level for color adjustment.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Saturation")]
-    pub struct SaturationLevel(u8);
-}
-
-impl SaturationLevel {
-    /// Converts this saturation level to a percentage value (60%-200%).
-    #[must_use]
-    pub fn to_percentage(self) -> u8 {
-        60 + (self.0 * 10)
-    }
-}
-
-crate::__grafton_visca_newtype! {
-    /// Hue level for color adjustment.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Hue")]
-    pub struct HueLevel(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// Gamma curve level for gamma control.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0", max = "4", display_prefix = "Gamma")]
-    pub struct GammaLevel(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// Red tuning value for fine white balance adjustment.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "-10", max = "10", display_prefix = "Red Tuning")]
-    pub struct RedTuning(i8);
-}
-
-impl RedTuning {
-    /// Neutral red tuning value (no adjustment).
+impl RgbTuning {
+    /// Neutral tuning value.
     pub const NEUTRAL: Self = Self(0);
 }
 
-centered_level_wire!(RedTuning, center = 10, parameter = "red_tuning");
-
-crate::__grafton_visca_newtype! {
-    /// Blue tuning value for fine white balance adjustment.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "-10", max = "10", display_prefix = "Blue Tuning")]
-    pub struct BlueTuning(i8);
-}
-
-impl BlueTuning {
-    /// Neutral blue tuning value (no adjustment).
-    pub const NEUTRAL: Self = Self(0);
-}
-
-centered_level_wire!(BlueTuning, center = 10, parameter = "blue_tuning");
-
-crate::__grafton_visca_newtype! {
-    /// Pan speed value for horizontal camera movement speed.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x32", display_prefix = "Pan Speed")]
-    pub struct PanSpeed(u8);
-}
+/// Horizontal movement speed code in the union of supported profile domains.
+#[crate::value(min = 0x00, max = 0x32, display = "Pan Speed {}")]
+pub struct PanSpeed(u8);
 
 impl PanSpeed {
     /// Zero wire value. Active pan movement requires a nonzero speed.
-    pub const ZERO: Self = Self(0x00);
+    pub const ZERO: Self = Self(0);
 }
 
-impl From<SpeedLevel> for PanSpeed {
-    fn from(level: SpeedLevel) -> Self {
-        Self(level.to_pan_speed())
-    }
-}
-
-crate::__grafton_visca_newtype! {
-    /// Tilt speed value for vertical camera movement speed.
-    ///
-    /// The syntactic wire-value range is `0x00..=0x32`. Sony FR7 speeds above
-    /// 24 require session-confirmed Extended mode. Most standard two-speed
-    /// VISCA profiles limit tilt to `0x14`; request validation applies each
-    /// profile's advertised capability range before encoding.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x32", display_prefix = "Tilt Speed")]
-    pub struct TiltSpeed(u8);
-}
+/// Vertical movement speed code in the union of supported profile domains.
+///
+/// Values above 24 require the FR7's session-confirmed Extended mode;
+/// preparation validates the selected profile and speed mode.
+#[crate::value(min = 0x00, max = 0x32, display = "Tilt Speed {}")]
+pub struct TiltSpeed(u8);
 
 impl TiltSpeed {
     /// Zero wire value. Active tilt movement requires a nonzero speed.
-    pub const ZERO: Self = Self(0x00);
+    pub const ZERO: Self = Self(0);
 }
 
-impl From<SpeedLevel> for TiltSpeed {
-    fn from(level: SpeedLevel) -> Self {
-        Self(level.to_tilt_speed())
-    }
-}
-
-crate::__grafton_visca_newtype! {
-    /// Zoom speed value for camera zoom control.
-    ///
-    /// Valid range: 0 to 7, where 0 is the slowest and 7 is the fastest.
-    /// This type provides the standard zoom speed control for VISCA cameras.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x07", display_prefix = "Zoom Speed")]
-    pub struct ZoomSpeed(u8);
-}
+/// Variable zoom speed, from zero (slowest movement) through seven (fastest).
+#[crate::value(min = 0x00, max = 0x07, display = "Zoom Speed {}")]
+pub struct ZoomSpeed(u8);
 
 impl ZoomSpeed {
-    /// The slowest variable zoom speed; use the zoom STOP request to stop motion.
-    pub const ZERO: Self = Self(0x00);
+    /// Slowest variable movement; stopping uses the zoom STOP request.
+    pub const ZERO: Self = Self(0);
 }
 
-impl From<SpeedLevel> for ZoomSpeed {
-    fn from(level: SpeedLevel) -> Self {
-        Self(level.to_zoom_speed())
-    }
-}
-
-crate::__grafton_visca_newtype! {
-    /// Focus speed value for camera focus control.
-    ///
-    /// Valid range: 0 to 7, where 0 is the slowest and 7 is the fastest.
-    /// This type provides the standard focus speed control for VISCA cameras.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x07", display_prefix = "Focus Speed")]
-    pub struct FocusSpeed(u8);
-}
+/// Variable focus speed, from zero (slowest movement) through seven (fastest).
+#[crate::value(min = 0x00, max = 0x07, display = "Focus Speed {}")]
+pub struct FocusSpeed(u8);
 
 impl FocusSpeed {
-    /// The slowest variable focus speed; use the focus STOP request to stop motion.
-    pub const ZERO: Self = Self(0x00);
+    /// Slowest variable movement; stopping uses the focus STOP request.
+    pub const ZERO: Self = Self(0);
 }
 
-impl From<SpeedLevel> for FocusSpeed {
-    fn from(level: SpeedLevel) -> Self {
-        Self(level.to_focus_speed())
-    }
-}
-
-crate::__grafton_visca_newtype! {
-    /// Motion sync speed value for synchronized camera movements.
-    ///
-    /// Valid range: 1 to 24 (0x01 to 0x18)
-    /// Used with PtzOptics cameras to control the speed of synchronized
-    /// pan, tilt, and zoom movements during preset recalls.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x01", max = "0x18", display_prefix = "Motion Sync Speed")]
-    pub struct MotionSyncSpeed(u8);
-}
+/// Synchronized movement speed code from one through twenty-four.
+#[crate::value(min = 0x01, max = 0x18, display = "Motion Sync Speed {}")]
+pub struct MotionSyncSpeed(u8);
 
 impl MotionSyncSpeed {
-    /// Slow motion sync speed (typically 8).
+    /// Slow synchronized movement.
     pub const SLOW: Self = Self(8);
-
-    /// Normal motion sync speed (typically 16).
+    /// Normal synchronized movement.
     pub const NORMAL: Self = Self(16);
-
-    /// Fast motion sync speed (typically 24).
+    /// Fast synchronized movement.
     pub const FAST: Self = Self(24);
 }
 
-impl From<crate::MotionSyncPreset> for MotionSyncSpeed {
-    /// The one preset → speed mapping: slow 8, normal 16, fast 24.
-    fn from(speed: crate::MotionSyncPreset) -> Self {
-        match speed {
-            crate::MotionSyncPreset::Slow => Self::SLOW,
-            crate::MotionSyncPreset::Normal => Self::NORMAL,
-            crate::MotionSyncPreset::Fast => Self::FAST,
-        }
-    }
+/// Saved ND filter preset number.
+#[crate::value(min = 0x00, max = 0x03, display = "ND Filter Preset {}")]
+pub struct NdFilterPreset(u8);
+
+/// Tally indication mode.
+#[crate::value_enum]
+pub enum TallyMode {
+    /// Turn the tally off.
+    Off = 0x03,
+    /// Keep the tally on continuously.
+    On = 0x02,
+    /// Flash the tally.
+    Flash = 0x01,
 }
 
-/// Exposure compensation position value (high-resolution EV adjustment).
-///
-/// This is a higher-resolution representation of exposure compensation
-/// compared to ExposureCompensationLevel. The actual range and mapping
-/// to EV values depends on the camera model.
-///
-/// Valid range: Typically 0 to 0x0E (0 to 14)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub struct ExposureCompensationPosition(u16);
-
-impl ExposureCompensationPosition {
-    /// Creates a new exposure compensation position value.
-    ///
-    /// # Arguments
-    /// * `value` - The raw position value from the camera
-    pub const fn new(value: u16) -> Self {
-        Self(value)
-    }
-
-    /// Gets the raw position value.
-    pub const fn value(self) -> u16 {
-        self.0
-    }
-}
-
-crate::__grafton_visca_newtype! {
-    /// ND filter preset selection for cameras with multiple ND filter configurations.
-    ///
-    /// This allows switching between different saved ND filter settings
-    /// on cameras that support preset ND configurations.
-    ///
-    /// Valid range: Typically 0 to 3
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x03", display_prefix = "ND Filter Preset")]
-    pub struct NdFilterPreset(u8);
+/// Tally brightness setting.
+#[crate::value_enum]
+pub enum TallyBrightness {
+    /// Lower tally brightness.
+    Low = 0x04,
+    /// Higher tally brightness.
+    High = 0x05,
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_socket_id() {
-        use crate::ViscaSocket;
-        // Test that we can create sockets from indices
-        assert_eq!(ViscaSocket::from_index(0), Some(ViscaSocket::S1));
-        assert_eq!(ViscaSocket::from_index(1), Some(ViscaSocket::S2));
-        assert_eq!(ViscaSocket::from_index(2), None);
-
-        // Test socket numbering
-        assert_eq!(ViscaSocket::S1.as_socket_number(), 1);
-        assert_eq!(ViscaSocket::S2.as_socket_number(), 2);
-        assert_eq!(ViscaSocket::default(), ViscaSocket::S1);
-    }
-
-    #[test]
-    fn test_gain_value() {
-        assert!(GainLevel::new(0x00).is_ok());
-        assert!(GainLevel::new(0x0F).is_ok());
-        assert!(GainLevel::new(0x19).is_ok());
-        assert!(GainLevel::new(0x1A).is_err());
-
-        assert_eq!(GainLevel::MIN.value(), 0x00);
-        assert_eq!(GainLevel::MAX.value(), 0x19);
-    }
-
-    #[test]
-    fn test_gain_limit() {
-        assert!(GainLimit::new(0x0).is_ok());
-        assert!(GainLimit::new(0xF).is_ok());
-        assert!(GainLimit::new(0x10).is_err());
-
-        assert_eq!(GainLimit::MIN.value(), 0x0);
-        assert_eq!(GainLimit::MAX.value(), 0xF);
-    }
-
-    #[test]
-    fn test_noise_reduction_levels() {
-        assert!(NoiseReduction2DLevel::new(0).is_err());
-        assert!(NoiseReduction2DLevel::new(5).is_ok());
-        assert!(NoiseReduction2DLevel::new(6).is_err());
-
-        assert!(NoiseReduction3DLevel::new(0).is_err());
-        assert!(NoiseReduction3DLevel::new(8).is_ok());
-        assert!(NoiseReduction3DLevel::new(9).is_err());
-    }
-
-    #[test]
-    fn test_speed_level_conversions() {
-        assert_eq!(SpeedLevel::Slowest.to_pan_speed(), 1);
-        assert_eq!(SpeedLevel::Fastest.to_pan_speed(), 24);
-
-        assert_eq!(SpeedLevel::Slowest.to_tilt_speed(), 1);
-        assert_eq!(SpeedLevel::Fastest.to_tilt_speed(), 20);
-
-        assert_eq!(SpeedLevel::Slowest.to_zoom_speed(), 0);
-        assert_eq!(SpeedLevel::Fastest.to_zoom_speed(), 7);
-
-        assert_eq!(SpeedLevel::Slowest.to_focus_speed(), 0);
-        assert_eq!(SpeedLevel::Fastest.to_focus_speed(), 7);
-    }
-
-    #[test]
-    fn fstop_names_are_descriptive_only() {
-        assert_eq!(FStop::F5_6.to_string(), "F5.6");
-        assert_eq!(FStop::Closed.to_string(), "Closed");
-    }
-
-    #[test]
-    #[allow(clippy::unwrap_used)]
-    fn test_motion_sync_speed_value() {
-        // Test valid range (ViscaValue macro provides new() method)
-        assert!(MotionSyncSpeed::new(1).is_ok());
-        assert!(MotionSyncSpeed::new(12).is_ok());
-        assert!(MotionSyncSpeed::new(24).is_ok());
-
-        // Test invalid range
-        assert!(MotionSyncSpeed::new(0).is_err());
-        assert!(MotionSyncSpeed::new(25).is_err());
-
-        // Test constants (ViscaValue macro provides value() method)
-        assert_eq!(MotionSyncSpeed::SLOW.value(), 8);
-        assert_eq!(MotionSyncSpeed::NORMAL.value(), 16);
-        assert_eq!(MotionSyncSpeed::FAST.value(), 24);
-
-        // Test from preset
-        assert_eq!(
-            MotionSyncSpeed::from(crate::MotionSyncPreset::Slow).value(),
-            8
-        );
-        assert_eq!(
-            MotionSyncSpeed::from(crate::MotionSyncPreset::Normal).value(),
-            16
-        );
-        assert_eq!(
-            MotionSyncSpeed::from(crate::MotionSyncPreset::Fast).value(),
-            24
-        );
-
-        // Test TryFrom (ViscaValue macro provides TryFrom<u8>)
-        assert_eq!(MotionSyncSpeed::try_from(15).unwrap().value(), 15);
-        assert!(MotionSyncSpeed::try_from(0).is_err());
-        assert!(MotionSyncSpeed::try_from(30).is_err());
-    }
-
-    #[test]
-    fn test_speed_types() {
-        assert!(PanSpeed::new(0).is_ok());
-        assert!(PanSpeed::new(1).is_ok());
-        assert!(PanSpeed::new(24).is_ok());
-        assert!(PanSpeed::new(25).is_ok());
-        assert!(PanSpeed::new(50).is_ok());
-        assert!(PanSpeed::new(51).is_err());
-
-        assert!(TiltSpeed::new(0).is_ok());
-        assert!(TiltSpeed::new(1).is_ok());
-        assert!(TiltSpeed::new(20).is_ok());
-        assert!(TiltSpeed::new(21).is_ok());
-        assert!(TiltSpeed::new(24).is_ok());
-        assert!(TiltSpeed::new(25).is_ok());
-        assert!(TiltSpeed::new(50).is_ok());
-        assert!(TiltSpeed::new(51).is_err());
-
-        let pan_speed = PanSpeed::from(SpeedLevel::Fast);
-        assert_eq!(pan_speed.value(), 18);
-        let tilt_speed = TiltSpeed::from(SpeedLevel::Fast);
-        assert_eq!(tilt_speed.value(), 15);
-    }
-
-    #[test]
-    #[allow(clippy::unwrap_used)]
-    fn test_ergonomic_conversions() {
-        let zoom_half = ZoomPosition::new(0x4000).unwrap();
-        assert_eq!(zoom_half.value(), 0x4000);
-
-        // ZoomPosition and FocusPosition normalized command conversions are profile-aware.
-        // Use the control APIs or profile-aware helpers instead of raw value conversions.
-
-        assert_eq!(IrisLevel::new(9).unwrap().value(), 9);
-    }
-}
+#[path = "types/value_tests.rs"]
+mod value_tests;

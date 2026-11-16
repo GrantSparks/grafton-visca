@@ -37,3 +37,8 @@ pub fn partial_ord(_input: TokenStream) -> TokenStream {
 pub fn ord(_input: TokenStream) -> TokenStream {
     TokenStream::new()
 }
+
+#[proc_macro_derive(Hash)]
+pub fn hash(_input: TokenStream) -> TokenStream {
+    TokenStream::new()
+}

@@ -194,8 +194,8 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
     );
 
     let absolute = PanTiltAbsolute::for_target(
-        Degrees(10.0),
-        Degrees(-5.0),
+        Degrees::new(10.0).expect("valid degrees"),
+        Degrees::new(-5.0).expect("valid degrees"),
         pan_speed(0x0A),
         tilt_speed(0x05),
         &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
@@ -209,8 +209,8 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
     );
 
     let relative = PanTiltRelative::for_target(
-        Degrees(10.0),
-        Degrees(-5.0),
+        Degrees::new(10.0).expect("valid degrees"),
+        Degrees::new(-5.0).expect("valid degrees"),
         pan_speed(0x0A),
         tilt_speed(0x05),
         &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
@@ -232,8 +232,8 @@ fn g2_relative_negative_45_degrees_matches_the_signed_offset_literal() {
     let target = grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, ptz_optics_profile())
         .expect("G2 registration");
     let relative = PanTiltRelative::for_target(
-        Degrees(0.0),
-        Degrees(-45.0),
+        Degrees::new(0.0).expect("valid degrees"),
+        Degrees::new(-45.0).expect("valid degrees"),
         pan_speed(9),
         tilt_speed(7),
         &target,
@@ -246,8 +246,8 @@ fn g2_relative_negative_45_degrees_matches_the_signed_offset_literal() {
     );
     assert!(matches!(
         PanTiltAbsolute::for_target(
-            Degrees(0.0),
-            Degrees(-45.0),
+            Degrees::new(0.0).expect("valid degrees"),
+            Degrees::new(-45.0).expect("valid degrees"),
             pan_speed(9),
             tilt_speed(7),
             &target,
@@ -297,8 +297,8 @@ fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
     ] {
         let set = PanTiltLimitSet::for_target(
             corner,
-            Degrees(10.0),
-            Degrees(-5.0),
+            Degrees::new(10.0).expect("valid degrees"),
+            Degrees::new(-5.0).expect("valid degrees"),
             &grafton_visca::TargetRegistration::new(
                 grafton_visca::CameraId::CAMERA_1,
                 profile.clone(),
@@ -337,8 +337,8 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
     assert_eq!(SonyBRC300::TILT_DEGREES_TO_UNITS, 208.0);
 
     let absolute_error = PanTiltAbsolute::for_target(
-        Degrees(45.0),
-        Degrees(15.0),
+        Degrees::new(45.0).expect("valid degrees"),
+        Degrees::new(15.0).expect("valid degrees"),
         pan_speed(0x18),
         tilt_speed(0x14),
         &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
@@ -351,8 +351,8 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
     ));
 
     let relative_error = PanTiltRelative::for_target(
-        Degrees(45.0),
-        Degrees(15.0),
+        Degrees::new(45.0).expect("valid degrees"),
+        Degrees::new(15.0).expect("valid degrees"),
         pan_speed(0x18),
         tilt_speed(0x14),
         &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
@@ -365,8 +365,8 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
     ));
 
     let absolute = PanTiltAbsolute::for_target(
-        Degrees(45.0),
-        Degrees(15.0),
+        Degrees::new(45.0).expect("valid degrees"),
+        Degrees::new(15.0).expect("valid degrees"),
         pan_speed(0x09),
         tilt_speed(0x09),
         &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
@@ -383,8 +383,8 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
     );
 
     let relative = PanTiltRelative::for_target(
-        Degrees(45.0),
-        Degrees(15.0),
+        Degrees::new(45.0).expect("valid degrees"),
+        Degrees::new(15.0).expect("valid degrees"),
         pan_speed(0x09),
         tilt_speed(0x09),
         &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
@@ -401,8 +401,8 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
     );
 
     let fastest = PanTiltAbsolute::for_target(
-        Degrees(45.0),
-        Degrees(15.0),
+        Degrees::new(45.0).expect("valid degrees"),
+        Degrees::new(15.0).expect("valid degrees"),
         pan_speed(0x18),
         tilt_speed(0x18),
         &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
@@ -420,8 +420,8 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let limit = PanTiltLimitSet::for_target(
         PanTiltLimitCorner::UpRight,
-        Degrees(45.0),
-        Degrees(15.0),
+        Degrees::new(45.0).expect("valid degrees"),
+        Degrees::new(15.0).expect("valid degrees"),
         &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
             .expect("target registration"),
     )
@@ -520,7 +520,7 @@ fn focus_drive_and_direct_target_match_golden_frames() {
 
     assert_golden(
         "focus direct",
-        &FocusTarget::new(FocusPosition::new(0x2345)),
+        &FocusTarget::new(FocusPosition::new(0x2345).expect("valid value")),
         patterns::focus::DIRECT_0X2345,
     );
 }

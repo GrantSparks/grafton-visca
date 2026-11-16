@@ -67,7 +67,7 @@ macro_rules! shared_prelude {
     ($($facade:ident)::+) => {
         pub use crate::{
             AutoWhiteBalanceSensitivity, CancellationOutcome, Error, ExposureMode,
-            MetricsSnapshot, MotionSyncMode, NdFilterMode, PanTiltDirection,
+            MetricsSnapshot, NdFilterMode, PanTiltDirection,
             PanTiltLimitCorner, PanTiltLimitUpdate, PowerStatus, PresetNumber, Recovery,
             SessionStatus, StateCache, StateEntry, StateKey, KnownState, WhiteBalanceMode,
         };
@@ -80,7 +80,7 @@ macro_rules! shared_prelude {
             crate::camera::profiles::profile_registry::reexport_builtin_profiles
         );
         pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-        pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
+        pub use crate::types::{Degrees, UnitInterval, Kelvin, ExposureTime};
     };
 }
 

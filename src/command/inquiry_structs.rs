@@ -27,12 +27,11 @@
 use super::exposure::{AntiFlickerMode, ExposureMode};
 use super::focus::{AutoFocusSensitivity, FocusMode, FocusZone};
 use super::image::{ImageFlipMode, NoiseReduction2DMode, SharpnessMode};
-use super::nd_filter::NdFilterValue;
+use super::nd_filter::NdFilterDensity;
 use super::pan_tilt::PanTiltFraming;
 use super::power::PowerStatus;
 use super::resolution::PictureEffectMode;
 use super::response::{BoolConvention, Nibbles, Payload, Response};
-use super::system::{MotionSyncMode, MotionSyncPreset};
 use super::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
 use crate::command::bytes::constants::{
     color, exposure, flip, focus, gain, image, menu, motion_sync, nd_filter, pan_tilt, power,
@@ -41,11 +40,10 @@ use crate::command::bytes::constants::{
 };
 use crate::command::bytes::FrameWriter;
 use crate::command::surface::{BuiltinInquiryGate, RowGate};
-use crate::command::{encode::WireEncode, FlipState, ResponseParser};
+use crate::command::{encode::WireEncode, ResponseParser};
 use crate::source_evidence::{source, Source};
-use crate::types::{
-    BlueTuning, ExposureCompensationLevel, ExposureCompensationPosition, NdFilterPreset, RedTuning,
-};
+use crate::types::{ExposureCompensationLevel, NdFilterPreset, RgbTuning};
+use crate::wire::WireValue;
 use crate::{CameraId, Error};
 
 // This is deliberately thread-local so unit tests can prove the profile gate
@@ -139,13 +137,13 @@ trait InquiryArgument {
     fn validate(self, profile: &crate::ProfileSpec) -> crate::Result<()>;
 }
 
-impl InquiryArgument for crate::types::Fr7PresetNumber {
+impl InquiryArgument for crate::types::PresetNumber {
     fn validate(self, profile: &crate::ProfileSpec) -> crate::Result<()> {
         crate::request::builtin::validate_preset(profile, self.value())
     }
 }
 
-impl InquiryArgument for crate::command::Fr7KneeParameter {
+impl InquiryArgument for crate::command::KneeParameter {
     fn validate(self, _profile: &crate::ProfileSpec) -> crate::Result<()> {
         // This closed selector has no narrower profile-dependent value domain.
         Ok(())
@@ -229,6 +227,23 @@ macro_rules! builtin_inquiry_lift {
     };
 }
 
+/// A profile-bound temperature response already contains physical Kelvin.
+/// The ordinary response parser retains the profile-less PTZOptics decoder.
+macro_rules! builtin_profile_lift {
+    (ColorTemperatureInquiry) => {
+        fn lift_for_profile(response: Response) -> Result<Self::Response, Error> {
+            match response {
+                Response::Inquiry(InquiryData::ColorTemperature { temperature }) => {
+                    crate::types::Kelvin::new(temperature)
+                }
+                Response::Error(error) => Err(error),
+                _ => Err(Error::UnexpectedResponseType),
+            }
+        }
+    };
+    ($struct:ident) => {};
+}
+
 /// Runtime admission for a generated inquiry under its noun row's gate.
 ///
 /// The erased dynamic surface carries no compile-time bound, so it reproduces
@@ -288,6 +303,11 @@ pub(crate) trait GeneratedInquiry: crate::Inquiry {
 
     /// Lifts the decoded response into the typed response.
     fn lift(response: Response) -> Result<Self::Response, Error>;
+
+    /// Lifts a response after the bound profile has converted its wire values.
+    fn lift_for_profile(response: Response) -> Result<Self::Response, Error> {
+        Self::lift(response)
+    }
 }
 
 /// Decodes a payload as `C`'s response with the profile-less pan/tilt
@@ -299,17 +319,21 @@ fn decode_payload<C: GeneratedInquiry>(payload: &[u8]) -> Result<C::Response, Er
 
 /// The decoder a generated inquiry uses for a validated profile.
 ///
-/// Only the pan/tilt position reply depends on the profile, so every other
-/// inquiry keeps the allocation-free profile-less decoder.
+/// Pan/tilt framing and color-temperature steps depend on the profile. Other
+/// inquiries keep the allocation-free profile-less decoder.
 fn profile_decoder<C>(profile: &crate::ProfileSpec) -> crate::ResponseDecoder<C::Response>
 where
     C: GeneratedInquiry,
     C::Response: 'static,
 {
-    if C::KIND == InquiryKind::PanTiltPosition {
-        crate::ResponseDecoder::for_builtin_profile(C::KIND, profile, C::lift)
-    } else {
-        crate::ResponseDecoder::from_fn(decode_payload::<C>)
+    match C::KIND {
+        InquiryKind::PanTiltPosition => {
+            crate::ResponseDecoder::for_builtin_profile(C::KIND, profile, C::lift_for_profile)
+        }
+        InquiryKind::ColorTemperature => {
+            crate::ResponseDecoder::for_color_temperature(profile, C::lift_for_profile)
+        }
+        _ => crate::ResponseDecoder::from_fn(decode_payload::<C>),
     }
 }
 
@@ -522,7 +546,13 @@ macro_rules! define_builtin_inquiries {
                             assert!(shape.admits(payload), "shape rejected built-in {kind:?} payload {payload:02x?}");
                         }
                     }
-                    assert!(accepted || (kind == InquiryKind::PanTiltPosition && profile.pan_tilt_coordinates().is_none()),
+                    let missing_conversion = match kind {
+                        InquiryKind::PanTiltPosition => profile.pan_tilt_coordinates().is_none(),
+                        InquiryKind::ColorTemperature => profile.capabilities().white_balance.as_ref()
+                            .is_none_or(|domain| domain.color_temperature_steps.is_empty()),
+                        _ => false,
+                    };
+                    assert!(accepted || missing_conversion,
                         "no built-in {kind:?} canonical payload accepted for {}", profile.name());
                 }
             }
@@ -591,6 +621,8 @@ macro_rules! define_builtin_inquiries {
                 fn lift(response: Response) -> Result<Self::Response, Error> {
                     builtin_inquiry_lift!($typed, $struct, response)
                 }
+
+                builtin_profile_lift!($struct);
             }
 
             const _: () = assert!(
@@ -800,8 +832,8 @@ define_builtin_inquiries! {
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-pantiltposition-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-pantiltposition-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-pantiltposition-query"), (R7, [SonyFr7], "r7-sonyfr7-pantiltposition-query"), (R11, [SonyBrcH900], "r11-sonybrch900-pantiltposition-query"), (R8, [SonyEviH100], "r8-sonyevih100-pantiltposition-query"), (R12, [SonyBrc300], "r12-sonybrc300-pantiltposition-query"), (R21, [NearusBrc300], "r21-nearusbrc300-pantiltposition-query"), (R8, [GenericVisca], "r8-genericvisca-pantiltposition-query"), (R12, [GenericVisca], "r12-genericvisca-pantiltposition-query"), (R21, [GenericVisca], "r21-genericvisca-pantiltposition-query")]),
                 boolean: None,
                 typed: (
-                    crate::camera::PanTiltPosition,
-                    { pan, tilt } => Ok(crate::camera::PanTiltPosition { pan, tilt })
+                    crate::camera::PanTiltUnits,
+                    { pan, tilt } => Ok(crate::camera::PanTiltUnits { pan, tilt })
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -849,7 +881,7 @@ define_builtin_inquiries! {
                 boolean: None,
                 typed: (
                     crate::types::FocusPosition,
-                    { position } => Ok(crate::types::FocusPosition::new(position))
+                    { position } => crate::types::FocusPosition::new(position)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -883,7 +915,7 @@ define_builtin_inquiries! {
             /// Exposure compensation value (-7 to +7).
             value: i8,
         } => |payload| Ok(InquiryData::ExposureCompensation {
-            value: ExposureCompensationLevel::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?.value(),
+            value: ExposureCompensationLevel::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?.value(),
         });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -965,7 +997,7 @@ define_builtin_inquiries! {
                 boolean: None,
                 typed: (
                     crate::types::ShutterSpeed,
-                    { position } => Ok(crate::types::ShutterSpeed::new(position))
+                    { position } => crate::types::ShutterSpeed::new(position)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -989,7 +1021,7 @@ define_builtin_inquiries! {
                 boolean: None,
                 typed: (
                     crate::types::BrightnessLevel,
-                    { position } => Ok(crate::types::BrightnessLevel::new(position))
+                    { position } => crate::types::BrightnessLevel::new(position)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1023,7 +1055,7 @@ define_builtin_inquiries! {
         /// Decoded with the one-byte `y0 50 pq FF` reply layout the PTZOptics G2
         /// bench returns (#498); see `ColorTemperatureInquiry`.
         ColorTemperature {
-            /// Color temperature wire step; `ColorTemp::to_kelvin` converts it to Kelvin.
+            /// Color-temperature wire step; the target profile converts it to Kelvin.
             temperature: u16,
         } => |payload| Ok(InquiryData::ColorTemperature {
             temperature: u16::from(decode_byte(&payload)?),
@@ -1036,8 +1068,8 @@ define_builtin_inquiries! {
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperature-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-colortemperature-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-colortemperature-query")]),
                 boolean: None,
                 typed: (
-                    crate::types::ColorTemp,
-                    { temperature } => crate::types::ColorTemp::new(temperature)
+                    crate::types::Kelvin,
+                    { temperature } => crate::command::color::decode_color_temperature(temperature)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1060,8 +1092,8 @@ define_builtin_inquiries! {
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-redgain-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-redgain-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-redgain-query"), (R8, [SonyEviH100], "r8-sonyevih100-redgain-query"), (R12, [SonyBrc300], "r12-sonybrc300-redgain-query"), (R21, [NearusBrc300], "r21-nearusbrc300-redgain-query"), (R8, [GenericVisca], "r8-genericvisca-redgain-query"), (R12, [GenericVisca], "r12-genericvisca-redgain-query"), (R21, [GenericVisca], "r21-genericvisca-redgain-query")]),
                 boolean: None,
                 typed: (
-                    crate::types::RedChannel,
-                    { gain } => crate::types::RedChannel::new(gain)
+                    crate::types::RgbGain,
+                    { gain } => crate::types::RgbGain::new(gain)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1084,8 +1116,8 @@ define_builtin_inquiries! {
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-bluegain-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-bluegain-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-bluegain-query"), (R8, [SonyEviH100], "r8-sonyevih100-bluegain-query"), (R12, [SonyBrc300], "r12-sonybrc300-bluegain-query"), (R21, [NearusBrc300], "r21-nearusbrc300-bluegain-query"), (R8, [GenericVisca], "r8-genericvisca-bluegain-query"), (R12, [GenericVisca], "r12-genericvisca-bluegain-query"), (R21, [GenericVisca], "r21-genericvisca-bluegain-query")]),
                 boolean: None,
                 typed: (
-                    crate::types::BlueChannel,
-                    { gain } => crate::types::BlueChannel::new(gain)
+                    crate::types::RgbGain,
+                    { gain } => crate::types::RgbGain::new(gain)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1235,12 +1267,9 @@ define_builtin_inquiries! {
         /// The vertical image-flip state, independent of horizontal mirroring.
         ImageFlip {
             /// Vertical flip state; horizontal mirroring is not queried.
-            state: FlipState,
+            state: bool,
         } => |payload| Ok(InquiryData::ImageFlip {
-            state: FlipState {
-                vertical: decode_builtin_bool::<ImageFlipInquiry>(&payload, "vertical image flip")?,
-                horizontal: false,
-            },
+            state: decode_builtin_bool::<ImageFlipInquiry>(&payload, "vertical image flip")?,
         });
         shape: crate::PayloadShape::Bytes(1);
         commands [
@@ -1249,7 +1278,7 @@ define_builtin_inquiries! {
                 bytes: flip::VERTICAL_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-imageflip-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-imageflip-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-imageflip-query"), (R12, [SonyBrc300], "r12-sonybrc300-imageflip-query"), (R21, [NearusBrc300], "r21-nearusbrc300-imageflip-query")]),
                 boolean: Some(BoolConvention::OnIs02),
-                typed: (FlipState, { state } => Ok(state)),
+                typed: (bool, { state } => Ok(state)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
                 rationale: Some("CAM_ImgFlipInq 09 04 66: R12 BRC-300 and R21 Nearus; R1 legacy PTZOptics picture flip, and R7/R11 Sony sources."),
@@ -1259,9 +1288,9 @@ define_builtin_inquiries! {
         /// The combined horizontal and vertical flip state.
         FlipState {
             /// Combined horizontal and vertical flip state.
-            state: FlipState,
+            state: ImageFlipMode,
         } => |payload| Ok(InquiryData::FlipState {
-            state: FlipState::from(decode_enum::<ImageFlipMode>(&payload)?),
+            state: decode_enum::<ImageFlipMode>(&payload)?,
         });
         shape: crate::PayloadShape::Bytes(1);
         commands [
@@ -1270,7 +1299,7 @@ define_builtin_inquiries! {
                 bytes: image::FLIP_COMBINED_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-flipstate-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-flipstate-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-flipstate-query")]),
                 boolean: None,
-                typed: (FlipState, { state } => Ok(state)),
+                typed: (ImageFlipMode, { state } => Ok(state)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R1 PTZOptics CAM_FlipInq returns combined horizontal/vertical flip state; docs/visca_reference.md section 7.10."),
@@ -1314,7 +1343,7 @@ define_builtin_inquiries! {
                 boolean: None,
                 typed: (
                     crate::command::NoiseReduction2D,
-                    { level } => crate::command::NoiseReduction2D::from_byte(level)
+                    { level } => crate::command::NoiseReduction2D::from_wire(level)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1342,7 +1371,7 @@ define_builtin_inquiries! {
                 boolean: None,
                 typed: (
                     crate::command::NoiseReduction3D,
-                    { level } => crate::command::NoiseReduction3D::from_byte(level)
+                    { level } => crate::command::NoiseReduction3D::from_wire(level)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1413,7 +1442,7 @@ define_builtin_inquiries! {
                 boolean: None,
                 typed: (
                     crate::types::FocusPosition,
-                    { position } => Ok(crate::types::FocusPosition::new(position))
+                    { position } => crate::types::FocusPosition::new(position)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1469,9 +1498,9 @@ define_builtin_inquiries! {
         /// The Sony FR7 variable ND-filter density.
         NdFilter {
             /// Variable-ND code, `00` (1/4) through `14` (1/128).
-            position: NdFilterValue,
+            position: NdFilterDensity,
         } => |payload| Ok(InquiryData::NdFilter {
-            position: NdFilterValue::new(u16::from(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?))
+            position: NdFilterDensity::new(u16::from(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?))
                 .map_err(|error| Error::invalid_response(error.to_string(), payload.as_slice().to_vec()))?,
         });
         shape: crate::PayloadShape::Nibbles(4);
@@ -1481,7 +1510,7 @@ define_builtin_inquiries! {
                 bytes: nd_filter::POSITION_INQUIRY,
                 source: source!([(R7, [SonyFr7], "r7-sonyfr7-ndfilter-query")]),
                 boolean: None,
-                typed: (NdFilterValue, { position } => Ok(position)),
+                typed: (NdFilterDensity, { position } => Ok(position)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 Sony ILME-FR7/FR7K VISCA Command List v4.00, p.21 ND FILTER VARIABLE: 8x 09 7E 04 42 FF -> y0 50 00 00 0p 0p FF; p.25 codes 00..14 (1/4..1/128). https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf"),
@@ -1493,7 +1522,7 @@ define_builtin_inquiries! {
             /// Current picture effect (Off or Black & White for built-in profiles).
             effect: PictureEffectMode,
         } => |payload| Ok(InquiryData::PictureEffect {
-            effect: PictureEffectMode::from_byte(decode_byte(&payload)?),
+            effect: crate::command::resolution::decode_picture_effect_code(decode_byte(&payload)?)?,
         });
         shape: crate::PayloadShape::Bytes(1);
         commands [
@@ -1538,9 +1567,9 @@ define_builtin_inquiries! {
         /// The exposure compensation position.
         ExposureCompensationPosition {
             /// Exposure compensation position value (high-resolution EV adjustment).
-            position: ExposureCompensationPosition,
+            position: ExposureCompensationLevel,
         } => |payload| Ok(InquiryData::ExposureCompensationPosition {
-            position: ExposureCompensationPosition::new(u16::from(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)),
+            position: ExposureCompensationLevel::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -1550,7 +1579,7 @@ define_builtin_inquiries! {
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensationposition-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensationposition-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-exposurecompensationposition-query"), (R8, [SonyEviH100], "r8-sonyevih100-exposurecompensationposition-query"), (R12, [SonyBrc300], "r12-sonybrc300-exposurecompensationposition-query"), (R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensationposition-query"), (R8, [GenericVisca], "r8-genericvisca-exposurecompensationposition-query"), (R12, [GenericVisca], "r12-genericvisca-exposurecompensationposition-query"), (R21, [GenericVisca], "r21-genericvisca-exposurecompensationposition-query")]),
                 boolean: None,
                 typed: (
-                    ExposureCompensationPosition,
+                    ExposureCompensationLevel,
                     { position } => Ok(position)
                 ),
                 query: BuiltinInquiryQuery::AlternateTypedInterpretation {
@@ -1566,7 +1595,7 @@ define_builtin_inquiries! {
             /// Red channel tuning level (-10 to +10).
             level: i8,
         } => |payload| Ok(InquiryData::RedTuning {
-            level: RedTuning::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?.value(),
+            level: RgbTuning::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?.value(),
         });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -1576,8 +1605,8 @@ define_builtin_inquiries! {
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-redtuning-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-redtuning-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-redtuning-query")]),
                 boolean: None,
                 typed: (
-                    RedTuning,
-                    { level } => RedTuning::new(level)
+                    RgbTuning,
+                    { level } => RgbTuning::new(level)
                 ),
                 query: BuiltinInquiryQuery::AlternateTypedInterpretation {
                     canonical: <RedGainInquiry as BuiltinInquiryCommandMarker>::METADATA,
@@ -1592,7 +1621,7 @@ define_builtin_inquiries! {
             /// Blue channel tuning level (-10 to +10).
             level: i8,
         } => |payload| Ok(InquiryData::BlueTuning {
-            level: BlueTuning::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?.value(),
+            level: RgbTuning::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?.value(),
         });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -1602,8 +1631,8 @@ define_builtin_inquiries! {
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-bluetuning-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-bluetuning-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-bluetuning-query")]),
                 boolean: None,
                 typed: (
-                    BlueTuning,
-                    { level } => BlueTuning::new(level)
+                    RgbTuning,
+                    { level } => RgbTuning::new(level)
                 ),
                 query: BuiltinInquiryQuery::AlternateTypedInterpretation {
                     canonical: <BlueGainInquiry as BuiltinInquiryCommandMarker>::METADATA,
@@ -1670,9 +1699,9 @@ define_builtin_inquiries! {
         /// The motion sync mode setting.
         MotionSyncMode {
             /// Current motion sync mode setting.
-            mode: MotionSyncMode,
+            mode: bool,
         } => |payload| Ok(InquiryData::MotionSyncMode {
-            mode: decode_enum(&payload)?,
+            mode: payload.parse_bool("motion sync mode", BoolConvention::OnIs02)?,
         });
         shape: crate::PayloadShape::Bytes(1);
         commands [
@@ -1681,28 +1710,7 @@ define_builtin_inquiries! {
                 bytes: motion_sync::MODE_INQUIRY,
                 source: Source::Unsourced,
                 boolean: None,
-                typed: (MotionSyncMode, { mode } => Ok(mode)),
-                query: BuiltinInquiryQuery::Queryable,
-                vendor_specific: true,
-                rationale: None,
-            }
-        ]
-
-        /// The motion sync speed setting.
-        MotionSyncPreset {
-            /// Current motion sync speed setting.
-            speed: MotionSyncPreset,
-        } => |payload| Ok(InquiryData::MotionSyncPreset {
-            speed: decode_enum(&payload)?,
-        });
-        shape: crate::PayloadShape::Bytes(1);
-        commands [
-            /// Inquiry command to get the motion sync speed setting.
-            MotionSyncPresetInquiry {
-                bytes: motion_sync::PRESET_INQUIRY,
-                source: Source::Unsourced,
-                boolean: None,
-                typed: (MotionSyncPreset, { speed } => Ok(speed)),
+                typed: (bool, { mode } => Ok(mode)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: None,
@@ -1938,7 +1946,7 @@ define_builtin_inquiries! {
 
         /// Sony FR7 preset white (R7 p. 21).
         Fr7PresetWhite { /// Source-backed typed readback.
-            value: crate::types::WhiteKelvin,
+            value: crate::types::Kelvin,
         } => |payload| Ok(InquiryData::Fr7PresetWhite { value: crate::command::sony_fr7_white_balance::decode_white_kelvin(payload)? });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -1947,7 +1955,7 @@ define_builtin_inquiries! {
                 bytes: sony_fr7_white_balance::PRESET_WHITE_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7presetwhiteinquiry"),
                 boolean: None,
-                typed: (crate::types::WhiteKelvin, { value } => Ok(value)),
+                typed: (crate::types::Kelvin, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -1956,7 +1964,7 @@ define_builtin_inquiries! {
 
         /// Sony FR7 memory temperature (R7 p. 21).
         Fr7MemoryColorTemperature { /// Source-backed typed readback.
-            value: crate::types::WhiteKelvin,
+            value: crate::types::Kelvin,
         } => |payload| Ok(InquiryData::Fr7MemoryColorTemperature { value: crate::command::sony_fr7_white_balance::decode_white_kelvin(payload)? });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -1965,7 +1973,7 @@ define_builtin_inquiries! {
                 bytes: sony_fr7_white_balance::MEMORY_COLOR_TEMPERATURE_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7memorycolortemperatureinquiry"),
                 boolean: None,
-                typed: (crate::types::WhiteKelvin, { value } => Ok(value)),
+                typed: (crate::types::Kelvin, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -2010,7 +2018,7 @@ define_builtin_inquiries! {
 
         /// Sony FR7 memory tint (R7 p. 21).
         Fr7MemoryTint { /// Source-backed typed readback.
-            value: crate::types::TintOffset,
+            value: crate::types::WhiteBalanceOffset,
         } => |payload| Ok(InquiryData::Fr7MemoryTint { value: crate::command::sony_fr7_white_balance::decode_tint_offset(payload)? });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -2019,7 +2027,7 @@ define_builtin_inquiries! {
                 bytes: sony_fr7_white_balance::MEMORY_TINT_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7memorytintinquiry"),
                 boolean: None,
-                typed: (crate::types::TintOffset, { value } => Ok(value)),
+                typed: (crate::types::WhiteBalanceOffset, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -2028,7 +2036,7 @@ define_builtin_inquiries! {
 
         /// Sony FR7 atw temperature offset (R7 p. 21).
         Fr7AtwColorTemperatureOffset { /// Source-backed typed readback.
-            value: crate::types::TintOffset,
+            value: crate::types::WhiteBalanceOffset,
         } => |payload| Ok(InquiryData::Fr7AtwColorTemperatureOffset { value: crate::command::sony_fr7_white_balance::decode_tint_offset(payload)? });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -2037,7 +2045,7 @@ define_builtin_inquiries! {
                 bytes: sony_fr7_white_balance::ATW_COLOR_TEMPERATURE_OFFSET_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7atwcolortemperatureoffsetinquiry"),
                 boolean: None,
-                typed: (crate::types::TintOffset, { value } => Ok(value)),
+                typed: (crate::types::WhiteBalanceOffset, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -2046,7 +2054,7 @@ define_builtin_inquiries! {
 
         /// Sony FR7 atw tint offset (R7 p. 21).
         Fr7AtwTintOffset { /// Source-backed typed readback.
-            value: crate::types::TintOffset,
+            value: crate::types::WhiteBalanceOffset,
         } => |payload| Ok(InquiryData::Fr7AtwTintOffset { value: crate::command::sony_fr7_white_balance::decode_tint_offset(payload)? });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -2055,7 +2063,7 @@ define_builtin_inquiries! {
                 bytes: sony_fr7_white_balance::ATW_TINT_OFFSET_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7atwtintoffsetinquiry"),
                 boolean: None,
-                typed: (crate::types::TintOffset, { value } => Ok(value)),
+                typed: (crate::types::WhiteBalanceOffset, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -2154,7 +2162,7 @@ define_builtin_inquiries! {
 
         /// Sony FR7 knee mode (R7 p. 22).
         Fr7KneeMode { /// Source-backed typed readback.
-            value: crate::command::Fr7KneeMode,
+            value: crate::command::KneeMode,
         } => |payload| Ok(InquiryData::Fr7KneeMode { value: crate::command::sony_fr7_image::decode_fr7_knee_mode(payload)? });
         shape: crate::PayloadShape::Bytes(1);
         commands [
@@ -2163,7 +2171,7 @@ define_builtin_inquiries! {
                 bytes: sony_fr7_image::KNEE_MODE_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7kneemodeinquiry"),
                 boolean: None,
-                typed: (crate::command::Fr7KneeMode, { value } => Ok(value)),
+                typed: (crate::command::KneeMode, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -2208,17 +2216,17 @@ define_builtin_inquiries! {
 
         /// Sony FR7 knee permission (R7 p. 22).
         Fr7KneePermission { /// Source-backed typed readback.
-            value: crate::command::Fr7KneePermission,
+            value: crate::command::KneePermission,
         } => |payload| Ok(InquiryData::Fr7KneePermission { value: crate::command::sony_fr7_image::decode_fr7_knee_permission(payload)? });
         shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Reads Sony FR7 knee permission (R7 p. 22).
             Fr7KneePermissionInquiry {
                 bytes: sony_fr7_image::KNEE_PERMISSION_INQUIRY,
-                parameter: { parameter: crate::command::Fr7KneeParameter = crate::command::Fr7KneeParameter::Setting, byte: to_protocol_value },
+                parameter: { parameter: crate::command::KneeParameter = crate::command::KneeParameter::Setting, byte: to_wire },
                 source: source!(R7, [SonyFr7], "r7-fr7kneepermissioninquiry"),
                 boolean: None,
-                typed: (crate::command::Fr7KneePermission, { value } => Ok(value)),
+                typed: (crate::command::KneePermission, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -2244,9 +2252,9 @@ define_builtin_inquiries! {
         ]
 
         /// Sony FR7 speed selection (R7 p. 22).
-        Fr7PresetSpeedSelection { /// Source-backed typed readback.
-            value: crate::command::Fr7PresetSpeedSelection,
-        } => |payload| Ok(InquiryData::Fr7PresetSpeedSelection { value: crate::command::sony_fr7_presets::decode_preset_speed_selection(payload)? });
+        PresetSpeedSelection { /// Source-backed typed readback.
+            value: crate::command::PresetSpeedSelection,
+        } => |payload| Ok(InquiryData::PresetSpeedSelection { value: crate::command::sony_fr7_presets::decode_preset_speed_selection(payload)? });
         shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Reads Sony FR7 speed selection (R7 p. 22).
@@ -2254,7 +2262,7 @@ define_builtin_inquiries! {
                 bytes: sony_fr7_presets::PRESET_SPEED_SELECTION_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7presetspeedselectioninquiry"),
                 boolean: None,
-                typed: (crate::command::Fr7PresetSpeedSelection, { value } => Ok(value)),
+                typed: (crate::command::PresetSpeedSelection, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -2281,17 +2289,17 @@ define_builtin_inquiries! {
 
         /// Sony FR7 separate mode (R7 p. 22).
         Fr7SeparatePresetMode { /// Source-backed typed readback.
-            value: crate::command::Fr7PresetSeparateMode,
+            value: crate::command::PresetSeparateMode,
         } => |payload| Ok(InquiryData::Fr7SeparatePresetMode { value: crate::command::sony_fr7_presets::decode_separate_preset_mode(payload)? });
         shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Reads Sony FR7 separate mode (R7 p. 22).
             Fr7SeparatePresetModeInquiry {
                 bytes: sony_fr7_presets::SEPARATE_PRESET_MODE_INQUIRY,
-                parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
+                parameter: { preset: crate::types::PresetNumber = crate::types::PresetNumber::MIN, byte: value },
                 source: source!(R7, [SonyFr7], "r7-fr7separatepresetmodeinquiry"),
                 boolean: None,
-                typed: (crate::command::Fr7PresetSeparateMode, { value } => Ok(value)),
+                typed: (crate::command::PresetSeparateMode, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -2307,7 +2315,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 separate speed (R7 p. 22).
             Fr7SeparatePresetSpeedInquiry {
                 bytes: sony_fr7_presets::SEPARATE_PRESET_SPEED_INQUIRY,
-                parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
+                parameter: { preset: crate::types::PresetNumber = crate::types::PresetNumber::MIN, byte: value },
                 source: source!(R7, [SonyFr7], "r7-fr7separatepresetspeedinquiry"),
                 boolean: None,
                 typed: (crate::types::PresetSpeed, { value } => Ok(value)),
@@ -2319,17 +2327,17 @@ define_builtin_inquiries! {
 
         /// Sony FR7 separate duration (R7 p. 22).
         Fr7SeparatePresetDuration { /// Source-backed typed readback.
-            value: crate::types::PresetDuration,
+            value: std::time::Duration,
         } => |payload| Ok(InquiryData::Fr7SeparatePresetDuration { value: crate::command::sony_fr7_presets::decode_separate_preset_duration(payload)? });
         shape: crate::PayloadShape::Nibbles(3);
         commands [
             /// Reads Sony FR7 separate duration (R7 p. 22).
             Fr7SeparatePresetDurationInquiry {
                 bytes: sony_fr7_presets::SEPARATE_PRESET_DURATION_INQUIRY,
-                parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
+                parameter: { preset: crate::types::PresetNumber = crate::types::PresetNumber::MIN, byte: value },
                 source: source!(R7, [SonyFr7], "r7-fr7separatepresetdurationinquiry"),
                 boolean: None,
-                typed: (crate::types::PresetDuration, { value } => Ok(value)),
+                typed: (std::time::Duration, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
                 rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
@@ -2404,12 +2412,12 @@ fn decode_byte(payload: &Payload<'_>) -> Result<u8, Error> {
     Ok(payload.as_slice()[0])
 }
 
-/// Decodes a one-byte code reply through the `ViscaEnum` byte table of `T`.
+/// Decodes a one-byte code reply through the value enum's `WireValue` table.
 ///
 /// Every discrete code reply decodes through the enum's own discriminants, so
 /// an unknown code is [`Error::InvalidResponse`] for every inquiry (#809).
-fn decode_enum<T: TryFrom<u8, Error = Error>>(payload: &Payload<'_>) -> Result<T, Error> {
-    T::try_from(decode_byte(payload)?)
+fn decode_enum<T: WireValue<Wire = u8>>(payload: &Payload<'_>) -> Result<T, Error> {
+    T::from_wire(decode_byte(payload)?)
 }
 
 /// Decodes a pan/tilt position reply with `framing`.
@@ -2600,29 +2608,11 @@ mod generated_invariant_tests {
         Request::write_into(&FlipStateInquiry, CameraId::CAMERA_1, &mut buffer).unwrap();
         assert_eq!(buffer, [0x81, 0x09, 0x04, 0xA4, 0xFF]);
         let vertical = ImageFlipInquiry.decoder().decode(&[0x02]).unwrap();
-        assert_eq!(
-            vertical,
-            FlipState {
-                vertical: true,
-                horizontal: false
-            }
-        );
+        assert!(vertical);
         let off = ImageFlipInquiry.decoder().decode(&[0x03]).unwrap();
-        assert_eq!(
-            off,
-            FlipState {
-                vertical: false,
-                horizontal: false
-            }
-        );
+        assert!(!off);
         let both = FlipStateInquiry.decoder().decode(&[0x03]).unwrap();
-        assert_eq!(
-            both,
-            FlipState {
-                vertical: true,
-                horizontal: true
-            }
-        );
+        assert_eq!(both, ImageFlipMode::Both);
     }
 
     #[test]
@@ -2630,7 +2620,7 @@ mod generated_invariant_tests {
         for camera_num in 1..=8 {
             let camera_id = CameraId::new(camera_num).expect("valid camera id");
             let frames = encode_each_generated_inquiry(camera_id);
-            assert_eq!(frames.len(), 74);
+            assert_eq!(frames.len(), 73);
             for (name, body, frame) in frames {
                 let frame = frame.unwrap_or_else(|error| panic!("{name} must encode: {error:?}"));
                 let mut expected = vec![camera_id.to_address_byte()];
@@ -2652,8 +2642,8 @@ mod generated_invariant_tests {
             .map(core::mem::discriminant)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(distinct.len(), FUZZ_INQUIRY_KINDS.len());
-        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 74);
-        assert_eq!(BUILTIN_INQUIRIES.len(), 74);
+        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 73);
+        assert_eq!(BUILTIN_INQUIRIES.len(), 73);
         for meta in BUILTIN_INQUIRIES {
             assert!(
                 FUZZ_INQUIRY_KINDS.contains(&meta.kind),
@@ -2833,14 +2823,15 @@ mod wire_decoder_regression_tests {
 
     #[test]
     fn centered_level_decoders_reject_out_of_range_nibbles_without_panicking() {
-        for (kind, parameter, maximum) in [
+        for (kind, parameter, maximum, centre) in [
             (
                 InquiryKind::ExposureCompensation,
-                "exposure_compensation",
+                "ExposureCompensationLevel",
                 14,
+                7,
             ),
-            (InquiryKind::RedTuning, "red_tuning", 20),
-            (InquiryKind::BlueTuning, "blue_tuning", 20),
+            (InquiryKind::RedTuning, "RgbTuning", 20, 10),
+            (InquiryKind::BlueTuning, "RgbTuning", 20, 10),
         ] {
             // One encoded value just above the range and one that does not
             // fit `i8` take the same out-of-range path.
@@ -2857,7 +2848,7 @@ mod wire_decoder_regression_tests {
                         &response,
                         Err(Error::InvalidResponse { expected, actual })
                             if actual.as_slice() == payload && expected.contains(parameter)
-                                && expected.contains(&raw.to_string())
+                                && expected.contains(&format!(" = {} ", i16::from(raw) - centre))
                     ),
                     "{parameter} {payload:02X?}: {response:?}"
                 );
@@ -2947,20 +2938,20 @@ mod wire_decoder_regression_tests {
 
     #[test]
     fn image_flip_requires_one_known_combined_mode() {
-        for (wire, horizontal, vertical) in [
-            (0x00, false, false),
-            (0x01, true, false),
-            (0x02, false, true),
-            (0x03, true, true),
+        for (wire, expected) in [
+            (0x00, ImageFlipMode::Off),
+            (0x01, ImageFlipMode::Horizontal),
+            (0x02, ImageFlipMode::Vertical),
+            (0x03, ImageFlipMode::Both),
         ] {
             let response = parse_inquiry_payload(&[wire], &InquiryKind::FlipState);
             assert!(
                 matches!(
                     &response,
                     Ok(Response::Inquiry(InquiryData::FlipState { state }))
-                        if *state == FlipState { horizontal, vertical }
+                        if *state == expected
                 ),
-                "documented flip mode {wire:#04X} must decode as ({horizontal}, {vertical}), got {response:?}"
+                "documented flip mode {wire:#04X} must decode as {expected:?}, got {response:?}"
             );
         }
 
@@ -3029,7 +3020,6 @@ mod wire_decoder_regression_tests {
             InquiryKind::MenuOpenClose,
             InquiryKind::AutoWhiteBalanceSensitivity,
             InquiryKind::MotionSyncMode,
-            InquiryKind::MotionSyncPreset,
             InquiryKind::UsbAudio,
             InquiryKind::TallyRed,
             InquiryKind::TallyGreen,

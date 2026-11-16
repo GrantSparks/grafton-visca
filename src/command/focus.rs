@@ -10,7 +10,7 @@
 //! - `FocusLock` - PtzOptics specific
 //! - `PushAF` - Sony FR7 specific
 
-use grafton_visca_macros::ViscaEnum;
+use crate::wire::WireValue;
 
 use crate::{
     command::{
@@ -23,11 +23,7 @@ use crate::{
 };
 
 /// Focus mode setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum FocusMode {
     /// Automatic focus mode.
     Auto = 0x02,
@@ -91,8 +87,8 @@ impl WireEncode for Focus {
                 .bytes(&focus::DRIVE)
                 .byte(Step::Down.at_speed(speed.value())),
             Self::Position(position) => frame.bytes(&focus::DIRECT).nibbles::<4>(position.value()),
-            Self::Auto => frame.bytes(&focus::MODE).byte(u8::from(FocusMode::Auto)),
-            Self::Manual => frame.bytes(&focus::MODE).byte(u8::from(FocusMode::Manual)),
+            Self::Auto => frame.bytes(&focus::MODE).byte(FocusMode::Auto.to_wire()),
+            Self::Manual => frame.bytes(&focus::MODE).byte(FocusMode::Manual.to_wire()),
             Self::Snap => frame.bytes(&focus::MODE).byte(0x04),
             Self::Toggle => frame.bytes(&focus::MODE).byte(0x10),
             Self::OnePushTrigger => frame.bytes(&focus::ONE_PUSH).byte(0x01),
@@ -119,11 +115,7 @@ impl WireEncode for Focus {
 /// profile: the typed setter refuses a value outside
 /// [`FocusCaps::zones`](crate::capabilities::FocusCaps::zones)
 /// before any I/O.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 #[non_exhaustive]
 pub enum FocusZone {
     /// Weight auto focus toward the top area of the image (`p = 0`).
@@ -150,7 +142,7 @@ visca_command! {
         zone: FocusZone,
     };
     prefix = focus::ZONE;
-    param = u8::from(*zone);
+    param = (*zone).to_wire();
     max_param_size = 1;
 }
 
@@ -164,11 +156,7 @@ impl FocusZoneCommand {
 /// Auto Focus Sensitivity levels.
 ///
 /// Controls how responsive the auto focus system is to changes in the scene.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum AutoFocusSensitivity {
     /// Low sensitivity - slower focus response, more stable in changing scenes.
     Low = 0x03,
@@ -184,7 +172,7 @@ visca_command! {
         sensitivity: AutoFocusSensitivity,
     };
     prefix = focus::AF_SENSITIVITY;
-    param = u8::from(*sensitivity);
+    param = (*sensitivity).to_wire();
     max_param_size = 1;
 }
 
@@ -215,35 +203,28 @@ impl FocusNearLimitCommand {
     }
 }
 
-/// Focus Lock command.
-///
-/// Controls whether the camera locks focus at the current position.
-///
-/// **Vendor-Specific**: This command is specific to PtzOptics cameras.
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum FocusLock {
-    /// Enable focus lock
-    On,
-    /// Disable focus lock
-    Off,
+/// Enables or disables focus lock using the documented camera register.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FocusLockCommand {
+    enabled: bool,
 }
 
-impl WireEncode for FocusLock {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
+impl FocusLockCommand {
+    /// Creates a focus-lock setting.
+    pub const fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+    /// Returns the requested focus-lock state.
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
+}
+
+impl WireEncode for FocusLockCommand {
+    fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&focus::LOCK)
-            .byte(match self {
-                Self::On => 0x02,
-                Self::Off => 0x03,
-            })
+            .byte(if self.enabled { 0x02 } else { 0x03 })
             .finish()
     }
 }
@@ -365,7 +346,7 @@ mod tests {
 
     #[test]
     fn test_focus_command_position() {
-        let cmd = Focus::Position(FocusPosition::new(0x1234));
+        let cmd = Focus::Position(FocusPosition::new(0x1234).unwrap());
         assert_eq!(
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![
@@ -381,7 +362,7 @@ mod tests {
             ]
         );
 
-        let cmd = Focus::Position(FocusPosition::new(0xF000));
+        let cmd = Focus::Position(FocusPosition::new(0xF000).unwrap());
         assert_eq!(
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![
@@ -500,7 +481,7 @@ mod tests {
     #[test]
     fn test_focus_near_limit_command() {
         let cmd = FocusNearLimitCommand {
-            position: FocusPosition::new(0x1234),
+            position: FocusPosition::new(0x1234).unwrap(),
         };
         assert_eq!(
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
@@ -518,7 +499,7 @@ mod tests {
         );
 
         let cmd = FocusNearLimitCommand {
-            position: FocusPosition::new(0x1000),
+            position: FocusPosition::new(0x1000).unwrap(),
         };
         assert_eq!(
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),

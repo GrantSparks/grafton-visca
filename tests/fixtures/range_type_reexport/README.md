@@ -1,7 +1,7 @@
 # Re-exported range-macro compile contract
 
 `provider` depends on `grafton-visca` and re-exports only
-`visca_range_type!`. `consumer` depends only on `provider` and invokes that
+the `value` attribute. `consumer` depends only on `provider` and invokes that
 macro, so the final expansion cannot discover `grafton-visca`, `serde`,
 `schemars`, or `ts-rs` in the consumer's manifest.
 
@@ -15,3 +15,7 @@ This is a compile contract under the "Public API Snapshots" section
 of `CONTRIBUTING.md`. The hidden adapter is intentionally absent from
 rustdoc API snapshots, while the downstream behavior of its expansion remains
 release-gated.
+
+The provider also re-exports the defining crate as `visca`. Attribute macros
+use `#[value(crate = range_macro_provider::visca, ...)]` to identify that
+public support path without adding a direct dependency in the consumer.

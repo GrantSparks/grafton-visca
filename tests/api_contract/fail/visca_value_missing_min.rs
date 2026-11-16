@@ -1,7 +1,6 @@
-use grafton_visca::ViscaValue;
+use grafton_visca::value;
 
-#[derive(ViscaValue)]
-#[visca_value(max = "4")]
+#[value(max = 4)]
 struct MissingMin(u8);
 
 fn main() {}

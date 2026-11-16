@@ -1,5 +1,5 @@
 use grafton_visca::{
-    command::{NdFilterValue, PowerInquiry},
+    command::{NdFilterDensity, PowerInquiry},
     completion::{AppliedOnly, Targeted},
     request::builtin::{
         IrisDirect, IrisDown, IrisReset, IrisUp, NdFilterDirect, NdFilterStepDown, NdFilterStepUp,
@@ -40,7 +40,7 @@ fn main() -> Result<(), grafton_visca::Error> {
     let _ = IrisUp::new();
     let _ = IrisDown::new();
     let _ = IrisDirect::new(IrisLevel::new(1)?);
-    let _ = NdFilterDirect::new(NdFilterValue::new(1)?);
+    let _ = NdFilterDirect::new(NdFilterDensity::new(1)?);
     let _ = NdFilterStepUp::new();
     let _ = NdFilterStepDown::new();
     let _ = PushAfPress::new();

@@ -1,13 +1,7 @@
-grafton_visca::visca_range_type! {
-    /// `ParameterOutOfRange` reports `i32` bounds, so a wider inner type is rejected.
-    WideRange: u32 {
-        min: 0,
-        max: 70_000
-    }
-}
+#[grafton_visca::value(min = 0, max = 70_000)]
+/// `ParameterOutOfRange` reports `i32` bounds, so a wider inner type is rejected.
+pub struct WideRange(u32);
 
 fn main() {}
 
-//~ E0277
-//~ "`u32` cannot be the inner type of a range-checked VISCA newtype"
-//~ "use `u8`, `u16`, `i8`, `i16` or `i32` as the inner type"
+//~ "range bounds are reported as `i32`; use `u8`, `u16`, `i8`, `i16` or `i32`"

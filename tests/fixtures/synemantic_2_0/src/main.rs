@@ -1,3 +1,4 @@
+use grafton_visca::wire::WireValue;
 use std::{future::Future, marker::PhantomData};
 
 use grafton_visca::{
@@ -93,11 +94,11 @@ mod tests {
 
     #[test]
     fn picture_effect_contract_keeps_only_source_backed_values() {
-        assert_eq!(PictureEffectMode::Off.as_byte(), 0x00);
-        assert_eq!(PictureEffectMode::BlackAndWhite.as_byte(), 0x04);
+        assert_eq!(PictureEffectMode::Off.to_wire(), 0x00);
+        assert_eq!(PictureEffectMode::BlackAndWhite.to_wire(), 0x04);
         assert!(matches!(
-            PictureEffectMode::from_byte(0x7f),
-            PictureEffectMode::Unknown(value) if value.value() == 0x7f
+            PictureEffectMode::from_wire(0x7f),
+            Ok(PictureEffectMode::Unknown(value)) if value.value() == 0x7f
         ));
     }
 }

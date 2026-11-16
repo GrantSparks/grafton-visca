@@ -3,6 +3,7 @@
 
 #![allow(clippy::expect_used)]
 
+use grafton_visca::wire::WireValue;
 use grafton_visca::{
     capabilities::TypedSupportSurface,
     command::{
@@ -34,7 +35,7 @@ fn r8_noise_reduction_is_the_2d_level_family() {
     let profile = profile();
     // `CAM_NR` `8x 01 04 53 0p FF`, p = 0 (off) and 1..5.
     for level in 0..=5 {
-        let command = NoiseReduction2D::from_byte(level).expect("level or Off");
+        let command = NoiseReduction2D::from_wire(level).expect("level or Off");
         command
             .validate_for_target(
                 &grafton_visca::TargetRegistration::new(

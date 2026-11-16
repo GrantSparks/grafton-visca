@@ -10,8 +10,6 @@
 //! - `MotionSyncMode` and `MotionSyncSpeed` - PtzOptics specific (firmware 1.1.6+)
 //!   These features coordinate pan, tilt, and zoom movements for smoother preset recalls.
 
-use grafton_visca_macros::ViscaEnum;
-
 use crate::{
     command::{
         bytes::{constants::system, write_frame},
@@ -70,34 +68,6 @@ impl WireEncode for InterfaceClearCommand {
     fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         write_frame(CameraId::BROADCAST, &[&system::INTERFACE_CLEAR], buffer)
     }
-}
-
-/// Motion sync modes for coordinated camera movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum MotionSyncMode {
-    /// Motion sync enabled.
-    On = 0x02,
-    /// Motion sync disabled.
-    Off = 0x03,
-}
-
-/// Motion sync preset speed settings for camera movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum MotionSyncPreset {
-    /// Slow motion sync speed.
-    Slow = 0x00,
-    /// Normal motion sync speed.
-    Normal = 0x01,
-    /// Fast motion sync speed.
-    Fast = 0x02,
 }
 
 /// Command to cancel pending commands on a specific socket.

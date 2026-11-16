@@ -1,11 +1,10 @@
-use grafton_visca::ViscaEnum;
+use grafton_visca::value_enum;
 
-#[derive(Debug, Clone, Copy, ViscaEnum)]
-#[visca_enum(exhaustive = true)]
+#[value_enum(exhaustive = true)]
 enum ExhaustiveFlag {
-    First = 0x01,
+    First = 1,
 }
 
 fn main() {}
 
-//~ "unknown `visca_enum` attribute `exhaustive`; expected `error_type`"
+//~ "unknown `value_enum` attribute `exhaustive`; expected `wire` or `crate`"

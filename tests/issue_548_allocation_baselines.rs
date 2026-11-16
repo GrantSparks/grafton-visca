@@ -80,7 +80,7 @@ macro_rules! assert_generated_inquiry_inventory {
         #[test]
         fn all_queryable_generated_inquiries_encode_without_heap_allocation() {
             const QUERYABLE_GENERATED_INQUIRY_COUNT: usize = [$(stringify!($inquiry)),+].len();
-            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 74);
+            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 73);
             $(
                 let inquiry = $inquiry;
                 assert_request_encoding_does_not_allocate($label, &inquiry);
@@ -201,10 +201,6 @@ assert_generated_inquiry_inventory!(
         "MotionSyncModeInquiry",
         grafton_visca::command::MotionSyncModeInquiry
     ),
-    (
-        "MotionSyncPresetInquiry",
-        grafton_visca::command::MotionSyncPresetInquiry
-    ),
     ("UsbAudioInquiry", grafton_visca::command::UsbAudioInquiry),
     (
         "NdFilterPresetInquiry",
@@ -294,7 +290,7 @@ assert_generated_inquiry_inventory!(
     (
         "Fr7KneePermissionInquiry",
         grafton_visca::command::Fr7KneePermissionInquiry::new(
-            grafton_visca::command::Fr7KneeParameter::Setting
+            grafton_visca::command::KneeParameter::Setting
         )
     ),
     (
@@ -312,19 +308,19 @@ assert_generated_inquiry_inventory!(
     (
         "Fr7SeparatePresetModeInquiry",
         grafton_visca::command::Fr7SeparatePresetModeInquiry::new(
-            grafton_visca::types::Fr7PresetNumber::MIN
+            grafton_visca::types::PresetNumber::MIN
         )
     ),
     (
         "Fr7SeparatePresetSpeedInquiry",
         grafton_visca::command::Fr7SeparatePresetSpeedInquiry::new(
-            grafton_visca::types::Fr7PresetNumber::MIN
+            grafton_visca::types::PresetNumber::MIN
         )
     ),
     (
         "Fr7SeparatePresetDurationInquiry",
         grafton_visca::command::Fr7SeparatePresetDurationInquiry::new(
-            grafton_visca::types::Fr7PresetNumber::MIN
+            grafton_visca::types::PresetNumber::MIN
         )
     ),
 );

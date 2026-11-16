@@ -870,7 +870,7 @@ eight-byte envelope itself.
 | --- | --- | --- |
 | Automatic ND | `8x 01 7E 04 53 0p FF` | `p = 2` on; `p = 3` off. |
 | ND variable direct | `8x 01 7E 04 42 00 00 0p 0p FF` | R7 v4 p. 14 uses two zero padding nibbles before the two-digit density code. |
-| ND variable inquiry | `8x 09 7E 04 42 FF` | Reply `y0 50 00 00 0p 0p FF`; variable-density code `00..14` hex, from 1/4 to 1/128. R7 v4 p. 21 gives the packet and p. 25 the value table. `NdFilterValue` represents this code; it is distinct from clear/preset selection. |
+| ND variable inquiry | `8x 09 7E 04 42 FF` | Reply `y0 50 00 00 0p 0p FF`; variable-density code `00..14` hex, from 1/4 to 1/128. R7 v4 p. 21 gives the packet and p. 25 the value table. `NdFilterDensity` represents this code; it is distinct from clear/preset selection. |
 | ND preset inquiry | `8x 09 7E 01 53 FF` | Reply `y0 50 0p FF`; `p = 0` clear, `1..=3` preset 1–3. The legacy `09 04 66` register in §7.10 is picture-flip state, not this inquiry. |
 | Red tally | `8x 01 7E 01 0A 00 0p FF` | `p = 2` on; `p = 3` off. Inquiry: `8x 09 7E 01 0A FF`. |
 | Green tally | `8x 01 7E 04 1A 00 0p FF` | `p = 2` on; `p = 3` off. Inquiry: `8x 09 7E 04 1A FF`. |
@@ -883,7 +883,7 @@ eight-byte envelope itself.
 
 The variable-density query is not the unsourced legacy `09 04 64` packet.
 Its four-nibble reply requires zero padding and a code in `00..14` hex; typed
-readback and settlement compare `NdFilterValue` density codes (#844). A setter
+readback and settlement compare `NdFilterDensity` density codes (#844). A setter
 or a preset query does not establish a different inquiry register.
 
 These rows do not grant FR7 the shared `04 39` exposure-mode or standard
@@ -2599,8 +2599,8 @@ raw/custom extensions; autonomous PTZ needs its own motion-safety design.
 
 Parameterized FR7 preset queries validate the selected preset against the target
 profile’s advertised highest packet number before serialization, just as preset
-setting commands do. The checked `Fr7PresetNumber` also enforces R7’s wire
-range independently of any custom profile’s narrower inventory.
+setting commands do. `PresetNumber` covers the union of supported preset
+numbers; the FR7 profile enforces R7’s `00..63` packet-number range.
 
 Built-in zoom and focus drive values select their own exact ledger row before
 source validation: standard Tele/Far (`02`), standard Wide/Near (`03`), and the

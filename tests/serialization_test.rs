@@ -35,13 +35,13 @@ fn test_unit_interval_serialization() {
 fn test_degrees_serialization() {
     use grafton_visca::units::Degrees;
 
-    let degrees = Degrees::new(45.5_f32);
+    let degrees = Degrees::new(45.5_f32).expect("finite degrees");
 
     let json = serde_json::to_string(&degrees).expect("Serialization failed");
     assert_eq!(json, "45.5");
 
-    let deserialized: Degrees<f32> = serde_json::from_str(&json).expect("Deserialization failed");
-    assert_eq!(deserialized.value(), &45.5_f32);
+    let deserialized: Degrees = serde_json::from_str(&json).expect("Deserialization failed");
+    assert_eq!(deserialized.value(), 45.5_f32);
 }
 
 #[cfg(all(feature = "serde", feature = "schemars"))]
@@ -56,5 +56,5 @@ fn test_schema_generation() {
     // Verify schema can be generated
     let _preset_schema = schema_for!(PresetNumber);
     let _normalized_schema = schema_for!(UnitInterval);
-    let _degrees_schema = schema_for!(Degrees<f32>);
+    let _degrees_schema = schema_for!(Degrees);
 }

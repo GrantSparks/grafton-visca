@@ -1,7 +1,10 @@
 //! Typed values returned by inquiry commands.
 
 /// Camera version information returned by the version inquiry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
 pub struct VersionInfo {
     /// Vendor identifier.
     pub vendor: u16,
@@ -11,13 +14,4 @@ pub struct VersionInfo {
     pub rom_version: u32,
     /// Maximum supported socket index.
     pub max_socket: u8,
-}
-
-/// Flip state configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FlipState {
-    /// Whether horizontal flip is enabled.
-    pub horizontal: bool,
-    /// Whether vertical flip is enabled.
-    pub vertical: bool,
 }

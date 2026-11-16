@@ -1,11 +1,9 @@
-use grafton_visca::ViscaValue;
+use grafton_visca::value;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaValue)]
-#[visca_value(min = "1", max = "4", display_format = "hex", display_prefix = "Value")]
+#[value(min = 1, max = 4, display = "Value {:#04x}")]
 struct ValidRange(u8);
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaValue)]
-#[visca_value(valid_values = "[0x01, 0x03]")]
+#[value(valid_values = [0x01, 0x03])]
 struct ValidSet(u8);
 
 fn main() {

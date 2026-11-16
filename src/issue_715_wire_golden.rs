@@ -33,7 +33,9 @@ use crate::command::*;
 use crate::request::builtin;
 use crate::source_evidence::PacketPattern;
 use crate::types::*;
+use crate::wire::WireValue;
 use crate::{CameraId, Error, ViscaSocket};
+use std::time::Duration;
 
 fn hex(bytes: &[u8]) -> String {
     bytes
@@ -153,7 +155,6 @@ inquiry_cases! {
     LuminanceInquiry,
     MenuOpenCloseInquiry,
     MotionSyncModeInquiry,
-    MotionSyncPresetInquiry,
     NdFilterInquiry,
     NdFilterPresetInquiry,
     NoiseReduction2DInquiry,
@@ -236,7 +237,7 @@ wire_cases! {
         PresetAction::Reset => static_request_identity::<builtin::PresetReset>(),
         PresetAction::Recall => static_request_identity::<builtin::PresetRecall>(),
     };
-    NdFilterValue => |_value| static_request_identity::<builtin::NdFilterDirect>();
+    NdFilterDensity => |_value| static_request_identity::<builtin::NdFilterDirect>();
     flip::ImageFlip => |value| request_identity(&builtin::ImageFlipCommand::new(value.flip));
     flip::HorizontalFlip => |value| request_identity(&builtin::ImageMirrorCommand::new(value.on));
 }
@@ -369,6 +370,10 @@ fn assert_selector_arm_coverage(seen: &HashSet<(TypeId, BuiltinCommand)>) {
     crate::noun_table::noun_table!(selector_arm_coverage, [seen]);
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "reviewed literal fixtures use valid checked values"
+)]
 pub(crate) fn rows() -> Vec<String> {
     let mut o = WireInventory::default();
     // power
@@ -520,12 +525,12 @@ pub(crate) fn rows() -> Vec<String> {
         row!(
             o,
             format!("Focus::Position[{p:04X}]"),
-            Focus::Position(FocusPosition::new(p))
+            Focus::Position(FocusPosition::new(p).expect("union focus position"))
         );
         row!(
             o,
             format!("FocusNearLimitCommand[{p:04X}]"),
-            FocusNearLimitCommand::new(FocusPosition::new(p))
+            FocusNearLimitCommand::new(FocusPosition::new(p).expect("union focus position"))
         );
     }
     row!(o, "Focus::Auto", Focus::Auto);
@@ -565,8 +570,8 @@ pub(crate) fn rows() -> Vec<String> {
         "AFSensitivity[Low]",
         AutoFocusSensitivityCommand::new(AutoFocusSensitivity::Low)
     );
-    row!(o, "FocusLock::On", FocusLock::On);
-    row!(o, "FocusLock::Off", FocusLock::Off);
+    row!(o, "FocusLock::On", FocusLockCommand::new(true));
+    row!(o, "FocusLock::Off", FocusLockCommand::new(false));
     row!(o, "PushAF::Press", PushAF::Press);
     row!(o, "PushAF::Release", PushAF::Release);
     // presets
@@ -591,7 +596,7 @@ pub(crate) fn rows() -> Vec<String> {
             o,
             format!("PresetRecallSpeed[{s}]"),
             Ok(PresetRecallSpeedCommand {
-                speed: PresetRecallSpeed::new(s)?
+                speed: PresetSpeed::new(s)?
             })
         );
     }
@@ -623,7 +628,7 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("DynamicRange[{l}]"),
-            Ok(DynamicRange::new(DynamicRangeLevel::new(l)?))
+            Ok(DynamicRange::new(WideDynamicRangeLevel::new(l)?))
         );
     }
     row!(o, "Iris::Reset", Iris::Reset);
@@ -643,7 +648,7 @@ pub(crate) fn rows() -> Vec<String> {
         row!(
             o,
             format!("Shutter::SetSpeed[{l:04X}]"),
-            Shutter::SetSpeed(ShutterSpeed::new(l))
+            Shutter::SetSpeed(ShutterSpeed::new(l).expect("union shutter code"))
         );
     }
     row!(o, "Brightness::Reset", Brightness::Reset);
@@ -697,7 +702,7 @@ pub(crate) fn rows() -> Vec<String> {
         ("Indoor", WhiteBalanceMode::Indoor),
         ("Outdoor", WhiteBalanceMode::Outdoor),
         ("OnePush", WhiteBalanceMode::OnePush),
-        ("ATW", WhiteBalanceMode::ATW),
+        ("ATW", WhiteBalanceMode::Atw),
         ("Manual", WhiteBalanceMode::Manual),
         ("ColorTemperature", WhiteBalanceMode::ColorTemperature),
     ] {
@@ -728,12 +733,12 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("RedTuning[{l}]"),
-            Ok(RedTuningCommand::new(RedTuning::new(l)?))
+            Ok(RedTuningCommand::new(RgbTuning::new(l)?))
         );
         rowr!(
             o,
             format!("BlueTuning[{l}]"),
-            Ok(BlueTuningCommand::new(BlueTuning::new(l)?))
+            Ok(BlueTuningCommand::new(RgbTuning::new(l)?))
         );
     }
     for l in [0u8, 5, 0x0E, 0x0F, 0x10, 0xFF] {
@@ -770,7 +775,9 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("ColorTemperature::Set[{l:04X}]"),
-            Ok(ColorTemperature::SetTemperature(ColorTemp::new(l)?))
+            Ok(ColorTemperature::SetTemperature(decode_color_temperature(
+                l
+            )?))
         );
     }
     row!(o, "RedGain::Reset", RedGain::Reset);
@@ -783,12 +790,12 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("RedGain::Set[{l:02X}]"),
-            Ok(RedGain::SetValue(RedChannel::new(l)?))
+            Ok(RedGain::SetValue(RgbGain::new(l)?))
         );
         rowr!(
             o,
             format!("BlueGain::Set[{l:02X}]"),
-            Ok(BlueGain::SetValue(BlueChannel::new(l)?))
+            Ok(BlueGain::SetValue(RgbGain::new(l)?))
         );
     }
     // image
@@ -877,8 +884,8 @@ pub(crate) fn rows() -> Vec<String> {
             mode: PictureEffectMode::Unknown(UnknownPictureEffect::new(0x05)?)
         })
     );
-    row!(o, "ImageFlip[On]", flip::ImageFlip { flip: Flip::On });
-    row!(o, "ImageFlip[Off]", flip::ImageFlip { flip: Flip::Off });
+    row!(o, "ImageFlip[On]", flip::ImageFlip { flip: true });
+    row!(o, "ImageFlip[Off]", flip::ImageFlip { flip: false });
     row!(o, "HorizontalFlip[on]", flip::HorizontalFlip { on: true });
     row!(o, "HorizontalFlip[off]", flip::HorizontalFlip { on: false });
     row!(o, "ImageFreeze[on]", ImageFreeze { on: true });
@@ -895,7 +902,11 @@ pub(crate) fn rows() -> Vec<String> {
         NdFilterModeCommand::new(NdFilterMode::Variable)
     );
     for v in [0u16, 5, 0x14, 0x15, 0xFFFF] {
-        rowr!(o, format!("NdFilterValue[{v:04X}]"), NdFilterValue::new(v));
+        rowr!(
+            o,
+            format!("NdFilterValue[{v:04X}]"),
+            NdFilterDensity::new(v)
+        );
     }
     row!(
         o,
@@ -953,8 +964,8 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(o, format!("DirectMenu[{a:02X},{b:02X}]"), dmc(a, b));
     }
     // streaming
-    row!(o, "Multicast::On", MulticastStreaming::On);
-    row!(o, "Multicast::Off", MulticastStreaming::Off);
+    row!(o, "Multicast::On", MulticastStreamingCommand::new(true));
+    row!(o, "Multicast::Off", MulticastStreamingCommand::new(false));
     for (qn, q) in [
         ("High", NdiQuality::High),
         ("Medium", NdiQuality::Medium),
@@ -963,8 +974,8 @@ pub(crate) fn rows() -> Vec<String> {
     ] {
         row!(o, format!("NdiQuality[{qn}]"), SetNdiQuality::new(q));
     }
-    row!(o, "UsbAudio::On", UsbAudio::On);
-    row!(o, "UsbAudio::Off", UsbAudio::Off);
+    row!(o, "UsbAudio::On", UsbAudioCommand::new(true));
+    row!(o, "UsbAudio::Off", UsbAudioCommand::new(false));
     // system
     row!(o, "AddressSet", AddressSetCommand::new());
     row!(
@@ -1010,16 +1021,8 @@ pub(crate) fn rows() -> Vec<String> {
     );
     row!(o, "SettingsSave", SettingsSaveCommand::new());
     // motion sync / variable speed
-    row!(
-        o,
-        "MotionSyncMode[On]",
-        SetMotionSyncMode::new(MotionSyncMode::On)
-    );
-    row!(
-        o,
-        "MotionSyncMode[Off]",
-        SetMotionSyncMode::new(MotionSyncMode::Off)
-    );
+    row!(o, "MotionSyncMode[On]", SetMotionSyncMode::new(true));
+    row!(o, "MotionSyncMode[Off]", SetMotionSyncMode::new(false));
     for s in [0u8, 1, 2, 3, 0x18, 0xFF] {
         rowr!(
             o,
@@ -1030,12 +1033,12 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "VariableSpeed[Standard24]",
-        SetVariableSpeedMode::new(VariableSpeedMode::Standard24)
+        SetVariableSpeedMode::new(PanTiltSpeedMode::Standard24)
     );
     row!(
         o,
         "VariableSpeed[Fine50]",
-        SetVariableSpeedMode::new(VariableSpeedMode::Fine50)
+        SetVariableSpeedMode::new(PanTiltSpeedMode::Fine50)
     );
     // Sony FR7 R7 v4 controls and boundary values.
     row!(o, "Fr7AeLevelUp[R7]", Fr7AeLevel::Up);
@@ -1059,7 +1062,7 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7PresetWhiteDirect[R7]",
-        Fr7PresetWhite::Direct(WhiteKelvin::MAX)
+        Fr7PresetWhite::Direct(Kelvin::MAX)
     );
     row!(
         o,
@@ -1074,7 +1077,7 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7MemoryColorTemperatureDirect[R7]",
-        Fr7MemoryColorTemperature::Direct(WhiteKelvin::MAX)
+        Fr7MemoryColorTemperature::Direct(Kelvin::MAX)
     );
     row!(
         o,
@@ -1119,7 +1122,7 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7MemoryTintDirect[R7]",
-        Fr7MemoryTint::Direct(TintOffset::MAX)
+        Fr7MemoryTint::Direct(WhiteBalanceOffset::MAX)
     );
     row!(
         o,
@@ -1134,7 +1137,7 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7AtwColorTemperatureOffsetDirect[R7]",
-        Fr7AtwColorTemperatureOffset::Direct(TintOffset::MAX)
+        Fr7AtwColorTemperatureOffset::Direct(WhiteBalanceOffset::MAX)
     );
     row!(
         o,
@@ -1149,7 +1152,7 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7AtwTintOffsetDirect[R7]",
-        Fr7AtwTintOffset::Direct(TintOffset::MAX)
+        Fr7AtwTintOffset::Direct(WhiteBalanceOffset::MAX)
     );
     row!(
         o,
@@ -1189,7 +1192,7 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7SetKneeMode[R7]",
-        Fr7SetKneeMode::new(Fr7KneeMode::Manual)
+        Fr7SetKneeMode::new(KneeMode::Manual)
     );
     row!(
         o,
@@ -1219,7 +1222,7 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7SetPresetSpeedSelection[R7]",
-        Fr7SetPresetSpeedSelection::new(Fr7PresetSpeedSelection::Common)
+        Fr7SetPresetSpeedSelection::new(PresetSpeedSelection::Common)
     );
     row!(
         o,
@@ -1229,17 +1232,27 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7SetSeparatePresetMode[R7]",
-        Fr7SetSeparatePresetMode::new(Fr7PresetNumber::MAX, Fr7PresetSeparateMode::Duration)
+        Fr7SetSeparatePresetMode::new(
+            PresetNumber::new(99).expect("FR7 maximum"),
+            PresetSeparateMode::Duration
+        )
     );
     row!(
         o,
         "Fr7SetSeparatePresetSpeed[R7]",
-        Fr7SetSeparatePresetSpeed::new(Fr7PresetNumber::MAX, PresetSpeed::MAX)
+        Fr7SetSeparatePresetSpeed::new(
+            PresetNumber::new(99).expect("FR7 maximum"),
+            PresetSpeed::MAX
+        )
     );
     row!(
         o,
         "Fr7SetSeparatePresetDuration[R7]",
-        Fr7SetSeparatePresetDuration::new(Fr7PresetNumber::MAX, PresetDuration::MAX)
+        Fr7SetSeparatePresetDuration::new(
+            PresetNumber::new(99).expect("FR7 maximum"),
+            Duration::from_secs(99)
+        )
+        .expect("exact duration")
     );
     row!(
         o,
@@ -1276,7 +1289,7 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7KneePermissionInquiry",
-        Fr7KneePermissionInquiry::new(Fr7KneeParameter::Setting)
+        Fr7KneePermissionInquiry::new(KneeParameter::Setting)
     );
     row!(
         o,
@@ -1296,17 +1309,17 @@ pub(crate) fn rows() -> Vec<String> {
     row!(
         o,
         "Fr7SeparatePresetModeInquiry",
-        Fr7SeparatePresetModeInquiry::new(Fr7PresetNumber::MIN)
+        Fr7SeparatePresetModeInquiry::new(PresetNumber::MIN)
     );
     row!(
         o,
         "Fr7SeparatePresetSpeedInquiry",
-        Fr7SeparatePresetSpeedInquiry::new(Fr7PresetNumber::MIN)
+        Fr7SeparatePresetSpeedInquiry::new(PresetNumber::MIN)
     );
     row!(
         o,
         "Fr7SeparatePresetDurationInquiry",
-        Fr7SeparatePresetDurationInquiry::new(Fr7PresetNumber::MIN)
+        Fr7SeparatePresetDurationInquiry::new(PresetNumber::MIN)
     );
     // inquiries (common set)
     macro_rules! inq { ($($t:ident),* $(,)?) => { $( row!(o, stringify!($t), $t); )* } }
@@ -1338,7 +1351,6 @@ pub(crate) fn rows() -> Vec<String> {
         LuminanceInquiry,
         MenuOpenCloseInquiry,
         MotionSyncModeInquiry,
-        MotionSyncPresetInquiry,
         NdFilterInquiry,
         NdFilterPresetInquiry,
         NoiseReduction2DInquiry,
@@ -1469,8 +1481,8 @@ fn assert_inquiry_coverage(rows: &[String]) {
 use crate::command::encode::WireEncode as Enc;
 fn dmc(a: u8, b: u8) -> Result<DirectMenuControl, Error> {
     Ok(DirectMenuControl::new(
-        DirectMenuTarget::try_from(a)?,
-        MenuButton::try_from(b)?,
+        DirectMenuTarget::from_wire(a)?,
+        MenuButton::from_wire(b)?,
     ))
 }
 fn extra_rows(o: &mut WireInventory) {
@@ -1659,8 +1671,8 @@ fn registered_profile_rows() -> Vec<String> {
                 $label,
                 prepared_position(
                     &builtin::$kind::for_target(
-                        Degrees($pan),
-                        Degrees($tilt),
+                        Degrees::new($pan)?,
+                        Degrees::new($tilt)?,
                         PanSpeed::new($speed)?,
                         TiltSpeed::new($other)?,
                         &$target,
@@ -1729,8 +1741,8 @@ fn registered_profile_rows() -> Vec<String> {
         prepared_limit(
             &builtin::PanTiltLimitSet::for_target(
                 PanTiltLimitCorner::UpRight,
-                Degrees(170.0),
-                Degrees(195.0),
+                Degrees::new(170.0)?,
+                Degrees::new(195.0)?,
                 &desktop,
             )?,
             &desktop
@@ -1741,8 +1753,8 @@ fn registered_profile_rows() -> Vec<String> {
         prepared_limit(
             &builtin::PanTiltLimitSet::for_target(
                 PanTiltLimitCorner::DownLeft,
-                Degrees(-170.0),
-                Degrees(-30.0),
+                Degrees::new(-170.0)?,
+                Degrees::new(-30.0)?,
                 &desktop,
             )?,
             &desktop

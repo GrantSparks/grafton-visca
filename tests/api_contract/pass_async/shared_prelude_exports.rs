@@ -4,6 +4,6 @@ fn main() {
     let _: Option<CameraSession<PtzOpticsG2>> = None;
     let _ = std::mem::size_of::<MetricsSnapshot>();
     let _ = std::mem::size_of::<SessionStatus>();
-    let _ = std::mem::size_of::<MotionSyncMode>();
+    let _ = std::mem::size_of::<bool>();
     let _ = PowerStatus::On;
 }

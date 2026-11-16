@@ -5,6 +5,8 @@
 
 #![allow(clippy::expect_used)]
 
+use grafton_visca::wire::WireValue;
+
 use grafton_visca::{
     capabilities::TypedSupportSurface,
     command::{
@@ -13,7 +15,7 @@ use grafton_visca::{
         NoiseReduction2DInquiry, NoiseReduction2DMode, NoiseReduction2DModeCommand,
         NoiseReduction2DModeInquiry, NoiseReduction3D, NoiseReduction3DInquiry,
         PictureEffectInquiry, PictureEffectMode, Response, ResponseParser, SharpnessModeInquiry,
-        UsbAudio, UsbAudioInquiry, VersionInfo, VersionInquiry,
+        UsbAudioCommand, UsbAudioInquiry, VersionInfo, VersionInquiry,
     },
     profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -149,7 +151,7 @@ fn fixed_one_byte_inquiries_accept_one_byte_and_reject_trailing_payload() {
 
 #[test]
 fn brightness_set_and_inquiry_match_the_04_4d_family() {
-    let level = BrightnessLevel::new(0x11);
+    let level = BrightnessLevel::new(0x11).expect("valid value");
     let direct = [0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF];
 
     assert_eq!(wire(&Brightness::SetLevel(level)), direct);
@@ -233,8 +235,8 @@ fn every_focus_zone_round_trips_between_inquiry_and_setter() {
     ] {
         let read = decode::<FocusZoneInquiry>(InquiryKind::FocusZone, &[0x90, 0x50, byte, 0xFF]);
         assert_eq!(read, zone);
-        assert_eq!(u8::from(read), byte);
-        assert_eq!(FocusZone::try_from(byte).expect("known zone"), zone);
+        assert_eq!(read.to_wire(), byte);
+        assert_eq!(FocusZone::from_wire(byte).expect("known zone"), zone);
         assert_eq!(
             wire(&FocusZoneCommand::new(read)),
             [0x81, 0x01, 0x04, 0xAA, byte, 0xFF],
@@ -548,11 +550,11 @@ fn picture_effect_inquiry_uses_the_direct_command_opcode_and_decodes_modes() {
 fn usb_audio_inquiry_matches_uac_wire_and_its_02_on_03_off_polarity() {
     assert_eq!(wire(&UsbAudioInquiry), [0x81, 0x2A, 0x02, 0xA0, 0x04, 0xFF]);
     assert_eq!(
-        wire(&UsbAudio::On),
+        wire(&UsbAudioCommand::new(true)),
         [0x81, 0x2A, 0x02, 0xA0, 0x04, 0x02, 0xFF]
     );
     assert_eq!(
-        wire(&UsbAudio::Off),
+        wire(&UsbAudioCommand::new(false)),
         [0x81, 0x2A, 0x02, 0xA0, 0x04, 0x03, 0xFF]
     );
     assert!(decode::<UsbAudioInquiry>(
@@ -624,7 +626,7 @@ fn noise_reduction_inquiries_match_the_documented_2d_mode_and_level_registers() 
             InquiryKind::NoiseReduction3D,
             &[0x90, 0x50, 0x00, 0xFF],
         )
-        .value(),
+        .to_wire(),
         0,
     );
     assert_eq!(
@@ -632,7 +634,7 @@ fn noise_reduction_inquiries_match_the_documented_2d_mode_and_level_registers() 
             InquiryKind::NoiseReduction3D,
             &[0x90, 0x50, 0x05, 0xFF],
         )
-        .value(),
+        .to_wire(),
         5,
     );
     // This public parser has no profile context, so it accepts the value
@@ -643,7 +645,7 @@ fn noise_reduction_inquiries_match_the_documented_2d_mode_and_level_registers() 
             InquiryKind::NoiseReduction3D,
             &[0x90, 0x50, 0x08, 0xFF],
         )
-        .value(),
+        .to_wire(),
         8,
     );
     let response =
@@ -909,12 +911,12 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
 #[test]
 fn fr7_variable_nd_direct_preserves_both_padding_bytes_and_exact_bound() {
     use grafton_visca::{
-        command::NdFilterValue, request::builtin::NdFilterDirect, CameraId, Request,
+        command::NdFilterDensity, request::builtin::NdFilterDirect, CameraId, Request,
     };
 
     assert_eq!(NdFilterDirect::MAX_SIZE, 10);
     for density in 0..=0x14 {
-        let request = NdFilterDirect::new(NdFilterValue::new(density).expect("sourced density"));
+        let request = NdFilterDirect::new(NdFilterDensity::new(density).expect("sourced density"));
         let mut frame = [0; 10];
         assert_eq!(
             request

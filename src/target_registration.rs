@@ -119,10 +119,7 @@ impl TargetRegistration {
                     feature: "pan/tilt",
                 })?;
         let position = domain.coordinates.checked_units(
-            crate::inquiry_conversions::PanTiltPositionDeg::new(
-                crate::units::Degrees(pan),
-                crate::units::Degrees(tilt),
-            ),
+            crate::types::PanTiltPosition::from_degrees(pan, tilt)?,
             crate::profile::PanTiltRanges {
                 pan_units: domain.pan_range,
                 tilt_units: domain.tilt_ranges.range(self.mount),
@@ -191,8 +188,8 @@ mod tests {
 
     fn absolute(target: &TargetRegistration, pan: f32, tilt: f32) -> Result<PanTiltAbsolute> {
         PanTiltAbsolute::for_target(
-            Degrees(pan),
-            Degrees(tilt),
+            Degrees::new(pan)?,
+            Degrees::new(tilt)?,
             PanSpeed::new(9).expect("pan speed"),
             TiltSpeed::new(5).expect("tilt speed"),
             target,
@@ -273,8 +270,8 @@ mod tests {
         assert!(request.validate_for_target(&ceiling).is_ok());
         assert!(request.validate_for_target(&desktop).is_err());
         let relative = PanTiltRelative::for_target(
-            Degrees(200.0),
-            Degrees(-35.0),
+            Degrees::new(200.0).expect("finite pan offset"),
+            Degrees::new(-35.0).expect("finite tilt offset"),
             PanSpeed::new(9).expect("pan"),
             TiltSpeed::new(9).expect("tilt"),
             &desktop,

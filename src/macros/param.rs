@@ -11,7 +11,7 @@
 //!   that return `Result<ParamBuf, Error>` instead of panicking
 //!
 //! This design eliminates release-mode panics and aligns with the crate's
-//! type-driven validation approach (like `visca_range_type!`).
+//! type-driven validation approach used by the `value` attribute.
 
 use crate::error::Error;
 use std::borrow::Cow;

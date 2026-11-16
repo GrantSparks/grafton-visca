@@ -71,7 +71,7 @@ mod paused {
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
         fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-            out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
+            out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
             Ok(3)
         }
     }
@@ -95,7 +95,7 @@ mod paused {
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
         fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-            out[..3].copy_from_slice(&[target.to_address_byte(), 0x09, 0xff]);
+            out[..3].copy_from_slice(&[(0x80 | target.value()), 0x09, 0xff]);
             Ok(3)
         }
     }

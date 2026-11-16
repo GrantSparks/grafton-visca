@@ -63,16 +63,15 @@ mod paused {
     use grafton_visca::{
         camera::MotionQuery,
         command::{
-            Fr7AeLevelInquiry, Fr7AutoGain, Fr7AutoGainInquiry, Fr7IrisUp, Fr7KneeMode,
-            Fr7KneeParameter, Fr7KneePermission, Fr7PresetSeparateMode, Fr7PresetSpeedSelection,
-            Fr7SetKneeMode, Fr7ZoomHighResolution, Fr7ZoomHighResolutionStop, WhiteBalanceMode,
+            Fr7AeLevelInquiry, Fr7AutoGain, Fr7AutoGainInquiry, Fr7IrisUp, Fr7SetKneeMode,
+            Fr7ZoomHighResolution, Fr7ZoomHighResolutionStop, KneeMode, KneeParameter,
+            KneePermission, PresetSeparateMode, PresetSpeedSelection, WhiteBalanceMode,
         },
         completion::AppliedOnly,
         profiles::{PtzOpticsG2, SonyFR7},
         types::{
-            AeLevel, BlackLevel, ClearImageZoomPosition, Fr7PresetNumber, HighResolutionZoomSpeed,
-            IrisStep, KneePoint, KneeSlope, PresetDuration, PresetSpeed, TintOffset,
-            WhiteBalanceGain, WhiteKelvin,
+            AeLevel, BlackLevel, ClearImageZoomPosition, HighResolutionZoomSpeed, IrisStep, Kelvin,
+            KneePoint, KneeSlope, PresetNumber, PresetSpeed, WhiteBalanceGain, WhiteBalanceOffset,
         },
         AffectedAxes, Certainty, ControlClass, Error, FailureStage, HaltOutcome, OperationCommand,
         OperationalTuning, Request, SessionConfig,
@@ -207,21 +206,21 @@ mod paused {
             assert_eq!(wait!(white.mode()).expect("WB mode"), WhiteBalanceMode::Preset);
             wait!(white.set_from_scene()).expect("WB SET");
             assert_eq!(wait!(white.mode()).expect("Memory A mode readback"), WhiteBalanceMode::Manual);
-            wait!(white.set_preset_white(WhiteKelvin::MIN)).expect("preset white minimum");
-            assert_eq!(wait!(white.preset_white()).expect("preset white readback"), WhiteKelvin::MIN);
-            wait!(white.set_memory_temperature(WhiteKelvin::MAX)).expect("Memory A temperature");
-            assert_eq!(wait!(white.memory_temperature()).expect("Memory A temperature readback"), WhiteKelvin::MAX);
+            wait!(white.set_preset_white(Kelvin::MIN)).expect("preset white minimum");
+            assert_eq!(wait!(white.preset_white()).expect("preset white readback"), Kelvin::MIN);
+            wait!(white.set_memory_temperature(Kelvin::MAX)).expect("Memory A temperature");
+            assert_eq!(wait!(white.memory_temperature()).expect("Memory A temperature readback"), Kelvin::MAX);
             wait!(white.set_memory_red_gain(WhiteBalanceGain::MIN)).expect("Memory A red gain");
             assert_eq!(wait!(white.memory_red_gain()).expect("red gain readback"), WhiteBalanceGain::MIN);
             wait!(white.set_memory_blue_gain(WhiteBalanceGain::MAX)).expect("Memory A blue gain");
             assert_eq!(wait!(white.memory_blue_gain()).expect("blue gain readback"), WhiteBalanceGain::MAX);
-            wait!(white.set_memory_tint(TintOffset::MAX)).expect("Memory A tint");
-            assert_eq!(wait!(white.memory_tint()).expect("Memory A tint readback"), TintOffset::MAX);
-            let neutral = TintOffset::new(0).expect("neutral tint");
+            wait!(white.set_memory_tint(WhiteBalanceOffset::MAX)).expect("Memory A tint");
+            assert_eq!(wait!(white.memory_tint()).expect("Memory A tint readback"), WhiteBalanceOffset::MAX);
+            let neutral = WhiteBalanceOffset::new(0).expect("neutral tint");
             wait!(white.set_atw_temperature_offset(neutral)).expect("ATW temperature offset");
             assert_eq!(wait!(white.atw_temperature_offset()).expect("ATW temperature readback"), neutral);
-            wait!(white.set_atw_tint_offset(TintOffset::MIN)).expect("ATW tint offset");
-            assert_eq!(wait!(white.atw_tint_offset()).expect("ATW tint readback"), TintOffset::MIN);
+            wait!(white.set_atw_tint_offset(WhiteBalanceOffset::MIN)).expect("ATW tint offset");
+            assert_eq!(wait!(white.atw_tint_offset()).expect("ATW tint readback"), WhiteBalanceOffset::MIN);
             assert_sony_writes(&fake, expected);
             wait!(session.close()).expect("close FR7 session");
         }
@@ -272,25 +271,25 @@ mod paused {
             assert!(wait!(image.detail()).expect("detail state"));
             wait!(image.set_knee(true)).expect("knee on");
             assert!(wait!(image.knee()).expect("knee state"));
-            wait!(image.set_knee_mode(Fr7KneeMode::Manual)).expect("manual knee");
-            assert_eq!(wait!(image.knee_mode()).expect("knee mode readback"), Fr7KneeMode::Manual);
+            wait!(image.set_knee_mode(KneeMode::Manual)).expect("manual knee");
+            assert_eq!(wait!(image.knee_mode()).expect("knee mode readback"), KneeMode::Manual);
             wait!(image.set_knee_slope(KneeSlope::MIN)).expect("knee slope");
             assert_eq!(wait!(image.knee_slope()).expect("knee slope readback"), KneeSlope::MIN);
             wait!(image.set_knee_point(KneePoint::MAX)).expect("knee point");
             assert_eq!(wait!(image.knee_point()).expect("knee point readback"), KneePoint::MAX);
-            assert_eq!(wait!(image.knee_permission(Fr7KneeParameter::Slope)).expect("knee permission"), Fr7KneePermission::DisplayOnly);
+            assert_eq!(wait!(image.knee_permission(KneeParameter::Slope)).expect("knee permission"), KneePermission::DisplayOnly);
             let presets = view.presets();
-            wait!(presets.select_speed(Fr7PresetSpeedSelection::Separate)).expect("separate preset timing");
-            assert_eq!(wait!(presets.speed_selection()).expect("preset timing readback"), Fr7PresetSpeedSelection::Separate);
+            wait!(presets.select_speed(PresetSpeedSelection::Separate)).expect("separate preset timing");
+            assert_eq!(wait!(presets.speed_selection()).expect("preset timing readback"), PresetSpeedSelection::Separate);
             wait!(presets.set_common_speed(PresetSpeed::MAX)).expect("common preset speed");
             assert_eq!(wait!(presets.common_speed()).expect("common speed readback"), PresetSpeed::MAX);
-            let preset = Fr7PresetNumber::MAX;
-            wait!(presets.set_separate_mode(preset, Fr7PresetSeparateMode::Duration)).expect("separate duration mode");
-            assert_eq!(wait!(presets.separate_mode(preset)).expect("separate mode readback"), Fr7PresetSeparateMode::Duration);
+            let preset = PresetNumber::new(99).expect("FR7 preset maximum");
+            wait!(presets.set_separate_mode(preset, PresetSeparateMode::Duration)).expect("separate duration mode");
+            assert_eq!(wait!(presets.separate_mode(preset)).expect("separate mode readback"), PresetSeparateMode::Duration);
             wait!(presets.set_separate_speed(preset, PresetSpeed::MAX)).expect("separate preset speed");
             assert_eq!(wait!(presets.separate_speed(preset)).expect("separate speed readback"), PresetSpeed::MAX);
-            wait!(presets.set_separate_duration(preset, PresetDuration::MAX)).expect("separate preset duration");
-            assert_eq!(wait!(presets.separate_duration(preset)).expect("separate duration readback"), PresetDuration::MAX);
+            wait!(presets.set_separate_duration(preset, Duration::from_secs(99))).expect("separate preset duration");
+            assert_eq!(wait!(presets.separate_duration(preset)).expect("separate duration readback"), Duration::from_secs(99));
             assert_sony_writes(&fake, expected);
             wait!(session.close()).expect("close FR7 session");
         }
@@ -371,7 +370,7 @@ mod paused {
             let session = open!(fake, SessionConfig::from_compile_time::<PtzOpticsG2>().expect("G2 config")).expect("G2 session");
             let view = session.camera::<PtzOpticsG2>().expect("G2 camera");
             rejected_before_io(wait!(view.execute(&Fr7AutoGain::new(true))));
-            rejected_before_io(wait!(view.execute(&Fr7SetKneeMode::new(Fr7KneeMode::Manual))));
+            rejected_before_io(wait!(view.execute(&Fr7SetKneeMode::new(KneeMode::Manual))));
             rejected_before_io(wait!(view.inquire(&Fr7AeLevelInquiry)));
             rejected_before_io(wait!(view.inquire(&Fr7AutoGainInquiry)));
             rejected_before_io(wait!(view.submit::<AppliedOnly, _>(&Fr7IrisUp::new(IrisStep::MIN))));
@@ -390,14 +389,12 @@ mod paused {
 mod async_dynamic {
     use super::{other_builtin_profiles, rejected_before_io};
     use grafton_visca::{
-        command::{Fr7KneeMode, Fr7KneeParameter},
-        types::{
-            BlackLevel, Fr7PresetNumber, HighResolutionZoomSpeed, IrisStep, PresetDuration,
-            PresetSpeed, WhiteKelvin,
-        },
+        command::{KneeMode, KneeParameter},
+        types::{BlackLevel, HighResolutionZoomSpeed, IrisStep, Kelvin, PresetNumber, PresetSpeed},
         Executor, Session, SessionConfig,
     };
     use grafton_visca_test_support::{fake_camera::FakeCamera, runtime_matrix};
+    use std::time::Duration;
 
     async fn dynamic_nouns_refuse_fr7_permissions_on_every_other_builtin_before_io<E: Executor>(
         executor: E,
@@ -415,18 +412,14 @@ mod async_dynamic {
             rejected_before_io(view.exposure().set_auto_gain(true).await);
             rejected_before_io(view.exposure().ae_level().await);
             rejected_before_io(view.exposure().iris_up_by(IrisStep::MIN).await);
-            rejected_before_io(
-                view.white_balance()
-                    .set_preset_white(WhiteKelvin::MIN)
-                    .await,
-            );
+            rejected_before_io(view.white_balance().set_preset_white(Kelvin::MIN).await);
             rejected_before_io(view.white_balance().preset_white().await);
             rejected_before_io(view.image().set_master_black(BlackLevel::MIN).await);
             rejected_before_io(view.image().master_black().await);
             rejected_before_io(view.image().set_detail(true).await);
             rejected_before_io(view.image().detail().await);
-            rejected_before_io(view.image().set_knee_mode(Fr7KneeMode::Manual).await);
-            rejected_before_io(view.image().knee_permission(Fr7KneeParameter::Slope).await);
+            rejected_before_io(view.image().set_knee_mode(KneeMode::Manual).await);
+            rejected_before_io(view.image().knee_permission(KneeParameter::Slope).await);
             rejected_before_io(
                 view.zoom()
                     .tele_high_resolution(HighResolutionZoomSpeed::MIN)
@@ -437,10 +430,10 @@ mod async_dynamic {
             rejected_before_io(view.presets().common_speed().await);
             rejected_before_io(
                 view.presets()
-                    .set_separate_duration(Fr7PresetNumber::MIN, PresetDuration::MIN)
+                    .set_separate_duration(PresetNumber::MIN, Duration::from_secs(1))
                     .await,
             );
-            rejected_before_io(view.presets().separate_duration(Fr7PresetNumber::MIN).await);
+            rejected_before_io(view.presets().separate_duration(PresetNumber::MIN).await);
             assert_eq!(
                 fake.write_count(),
                 0,
@@ -458,8 +451,8 @@ mod async_dynamic {
 fn blocking_runtime_profile_requests_refuse_fr7_permissions_before_io() {
     use grafton_visca::{
         command::{
-            Fr7AeLevelInquiry, Fr7AutoGain, Fr7AutoGainInquiry, Fr7IrisUp, Fr7KneeMode,
-            Fr7SetKneeMode, Fr7ZoomHighResolution,
+            Fr7AeLevelInquiry, Fr7AutoGain, Fr7AutoGainInquiry, Fr7IrisUp, Fr7SetKneeMode,
+            Fr7ZoomHighResolution, KneeMode,
         },
         completion::AppliedOnly,
         testing::testkit::ManualClock,
@@ -479,7 +472,7 @@ fn blocking_runtime_profile_requests_refuse_fr7_permissions_before_io() {
             .expect("runtime-profile blocking session");
         let view = session.camera_dyn().expect("runtime profile view");
         rejected_before_io(view.execute(&Fr7AutoGain::new(true)));
-        rejected_before_io(view.execute(&Fr7SetKneeMode::new(Fr7KneeMode::Manual)));
+        rejected_before_io(view.execute(&Fr7SetKneeMode::new(KneeMode::Manual)));
         rejected_before_io(view.inquire(&Fr7AeLevelInquiry));
         rejected_before_io(view.inquire(&Fr7AutoGainInquiry));
         rejected_before_io(view.submit::<AppliedOnly, _>(&Fr7IrisUp::new(IrisStep::MIN)));

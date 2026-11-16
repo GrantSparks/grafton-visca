@@ -9,19 +9,15 @@ mod profile_constants {
     use crate::{
         capabilities::ShutterSpeedEntry,
         command::{exposure::ExposureMode, FocusZone},
-        units::Fraction,
+        units::ExposureTime,
         WhiteBalanceMode,
     };
 
     /// A `1/denominator` second table entry. Only the `const` tables below
     /// call it, so a zero denominator is a compile error, never a runtime
     /// panic.
-    #[allow(clippy::panic)]
     const fn entry(denominator: u32, value: u8) -> ShutterSpeedEntry {
-        match Fraction::new(1, denominator) {
-            Some(exposure) => ShutterSpeedEntry::new(exposure, value),
-            None => panic!("shutter denominators are nonzero"),
-        }
+        ShutterSpeedEntry::new(ExposureTime::reciprocal(denominator), value)
     }
 
     /// PTZOptics G2-family shutter codes. The source register in
@@ -205,22 +201,31 @@ mod tests {
     /// profile-less helper applied the G2 scale to every camera, which made
     /// GenericVisca `2880` NaN.
     #[test]
-    fn raw_positions_convert_with_the_profiles_own_scale() {
+    fn raw_positions_convert_with_the_profiles_own_scale() -> crate::Result<()> {
+        fn position<P: crate::CompileTimeProfile>(
+            pan: i32,
+            tilt: i32,
+        ) -> crate::Result<crate::types::PanTiltPosition> {
+            crate::ProfileSpec::from_compile_time::<P>()?
+                .pan_tilt_coordinates()
+                .ok_or(crate::Error::FeatureNotSupported {
+                    feature: "pan/tilt coordinate conversion",
+                })?
+                .to_degrees(crate::camera::PanTiltUnits::new(pan, tilt))
+        }
+
         // R8's position table: pan `1E1B` is +170°, tilt `FC75` -20° and
         // `0FF0` +90°.
-        let evi = crate::camera::PanTiltPosition::new(0x1E1B, -0x038B)
-            .as_degrees_with_profile(&SonyEVIH100);
-        assert!((evi.pan.0 - 170.0).abs() < 0.01, "{}", evi.pan.0);
-        assert!((evi.tilt.0 + 20.0).abs() < 0.01, "{}", evi.tilt.0);
-        let evi_up =
-            crate::camera::PanTiltPosition::new(0, 0x0FF0).as_degrees_with_profile(&SonyEVIH100);
-        assert!((evi_up.tilt.0 - 90.0).abs() < 0.01, "{}", evi_up.tilt.0);
-        let generic =
-            crate::camera::PanTiltPosition::new(2880, -1440).as_degrees_with_profile(&GenericVisca);
-        assert_eq!((generic.pan.0, generic.tilt.0), (180.0, -90.0));
-        let g2 =
-            crate::camera::PanTiltPosition::new(2448, 1296).as_degrees_with_profile(&PtzOpticsG2);
-        assert_eq!((g2.pan.0, g2.tilt.0), (170.0, 90.0));
+        let evi = position::<SonyEVIH100>(0x1E1B, -0x038B)?;
+        assert!((evi.pan.value() - 170.0).abs() < 0.01, "{}", evi.pan);
+        assert!((evi.tilt.value() + 20.0).abs() < 0.01, "{}", evi.tilt);
+        let evi_up = position::<SonyEVIH100>(0, 0x0FF0)?;
+        assert!((evi_up.tilt.value() - 90.0).abs() < 0.01, "{}", evi_up.tilt);
+        let generic = position::<GenericVisca>(2880, -1440)?;
+        assert_eq!((generic.pan.value(), generic.tilt.value()), (180.0, -90.0));
+        let g2 = position::<PtzOpticsG2>(2448, 1296)?;
+        assert_eq!((g2.pan.value(), g2.tilt.value()), (170.0, 90.0));
+        Ok(())
     }
 
     /// #807: a shutter fraction maps through the profile's own table. The
@@ -231,10 +236,11 @@ mod tests {
     /// and their shared codes for Generic VISCA.
     #[test]
     fn shutter_fractions_resolve_through_each_profile_table() {
-        use crate::{capabilities::Capabilities, units::Fraction};
+        use crate::{capabilities::Capabilities, units::ExposureTime};
 
         let code = |caps: &Capabilities, n, d| {
-            Fraction::new(n, d)
+            ExposureTime::new(n, d)
+                .ok()
                 .and_then(|exposure| caps.shutter_speed_for(exposure).ok())
                 .map(|s| s.value())
         };

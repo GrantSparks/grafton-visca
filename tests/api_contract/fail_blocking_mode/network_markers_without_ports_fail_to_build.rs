@@ -30,7 +30,7 @@ impl ProfileMetadata for SerialOnly {
 
     const MODEL_NAME: &'static str = "SerialOnly";
     const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId =
-        grafton_visca::IndividualCameraId::new(1).expect("individual profile default");
+        grafton_visca::IndividualCameraId::CAMERA_1;
     type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = <Base as ProfileMetadata>::ACK_TIMEOUT;
     const COMMAND_TIMEOUTS: CommandTimeouts = CommandTimeouts::DEFAULT;

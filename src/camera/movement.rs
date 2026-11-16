@@ -6,6 +6,10 @@ use crate::AffectedAxes;
 
 /// Per-axis tolerance used while comparing two position snapshots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub struct MovementTolerance {
     /// Pan/tilt tolerance in raw VISCA units.
@@ -53,6 +57,10 @@ impl Default for MovementTolerance {
 /// The type is `#[non_exhaustive]`: build it with [`MotionQuery::new`],
 /// [`Default`] or [`From<AffectedAxes>`], then the `with_*` methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub struct MotionQuery {
     /// Axes to sample. Unselected axes are never queried.
@@ -61,6 +69,7 @@ pub struct MotionQuery {
     pub tolerance: MovementTolerance,
     /// Minimum owner-clock time between the end of the first snapshot and the
     /// start of the second. Must be greater than zero.
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
     pub window: Duration,
 }
 
@@ -126,6 +135,10 @@ impl From<AffectedAxes> for MotionQuery {
 /// `for_*` presets, [`Default`] or [`From<Duration>`], then the `with_*`
 /// methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub struct IdleWait {
     /// Axes to sample. Unselected axes are never queried.
@@ -133,10 +146,12 @@ pub struct IdleWait {
     /// Absolute observation budget. It bounds every sample, the first
     /// included: a wait whose budget elapses before its first inquiry is
     /// admitted sends nothing and fails with the same observation timeout.
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
     pub timeout: Duration,
     /// Maximum stable delta for each selected axis.
     pub tolerance: MovementTolerance,
     /// Minimum interval between complete snapshots.
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
     pub interval: Duration,
 }
 
@@ -228,49 +243,59 @@ impl From<Duration> for IdleWait {
     }
 }
 
-/// Raw pan/tilt position returned by the VISCA inquiry.
+/// Camera-independent pan/tilt position in degrees.
 ///
-/// This is the crate's one raw position type. Raw units per degree differ by
-/// camera, so angles are obtained only through a profile:
-/// [`Self::as_degrees_with_profile`] for a compile-time profile, or
-/// [`PanTiltCoordinateConversion::to_degrees`] with
-/// [`ProfileSpec::pan_tilt_coordinates`] for a runtime profile.
-///
-/// [`PanTiltCoordinateConversion::to_degrees`]: crate::PanTiltCoordinateConversion::to_degrees
-/// [`ProfileSpec::pan_tilt_coordinates`]: crate::ProfileSpec::pan_tilt_coordinates
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Positive pan is right and positive tilt is up. The same value represents an
+/// absolute position or a relative offset. Construction checks finiteness;
+/// preparation applies the target's coordinate conversion and physical limits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PanTiltPosition {
+    /// Pan angle in degrees; positive is right.
+    pub pan: crate::units::Degrees,
+    /// Tilt angle in degrees; positive is up.
+    pub tilt: crate::units::Degrees,
+}
+
+impl PanTiltPosition {
+    /// Creates a position or offset, rejecting non-finite angles.
+    pub fn from_degrees(pan: f32, tilt: f32) -> crate::Result<Self> {
+        Ok(Self {
+            pan: crate::units::Degrees::new(pan)?,
+            tilt: crate::units::Degrees::new(tilt)?,
+        })
+    }
+}
+
+/// Raw pan/tilt position returned by a low-level VISCA inquiry.
+///
+/// Units and axis polarity are profile-specific. Use the target profile's
+/// coordinate conversion to obtain a physical [`PanTiltPosition`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub struct PanTiltUnits {
     /// Pan position in raw VISCA units.
     pub pan: i32,
     /// Tilt position in raw VISCA units.
     pub tilt: i32,
 }
 
-impl PanTiltPosition {
+impl PanTiltUnits {
     /// Creates a raw pan/tilt position.
+    #[must_use]
     pub const fn new(pan: i32, tilt: i32) -> Self {
         Self { pan, tilt }
     }
 
-    /// Converts the position to degrees with a compile-time profile's signed
-    /// units-per-degree scales.
-    ///
-    /// This preserves profile-specific coordinates such as Sony BRC-300's
-    /// signed 20-bit pan position, including a profile whose raw axis
-    /// polarity is reverse to the library convention.
-    #[must_use]
-    pub fn as_degrees_with_profile<P: crate::capabilities::Profile>(
-        &self,
-        _profile: &P,
-    ) -> crate::inquiry_conversions::PanTiltPositionDeg {
-        crate::PanTiltCoordinateConversion::for_profile::<P>().to_degrees(*self)
-    }
-
     /// Returns the raw `(pan, tilt)` values.
     #[must_use]
-    pub const fn raw_values(&self) -> (i32, i32) {
+    pub const fn raw_values(self) -> (i32, i32) {
         (self.pan, self.tilt)
     }
 }
@@ -279,7 +304,7 @@ impl PanTiltPosition {
 mod tests {
     use std::time::Duration;
 
-    use super::{IdleWait, MotionQuery, MovementTolerance, PanTiltPosition};
+    use super::{IdleWait, MotionQuery, MovementTolerance, PanTiltPosition, PanTiltUnits};
     use crate::AffectedAxes;
 
     #[test]
@@ -316,23 +341,17 @@ mod tests {
     }
 
     #[test]
-    fn pan_tilt_position_profile_conversion_preserves_brc300_axis_polarity() {
-        use crate::profiles::SonyBRC300;
-
-        // Positive degrees are right and up; BRC-300 raw pan is reversed.
-        let left_up = PanTiltPosition::new(0x08A58, 0x493D);
-        let degrees = left_up.as_degrees_with_profile(&SonyBRC300);
-        assert!(degrees.pan.0 < 0.0);
-        assert!(degrees.tilt.0 > 0.0);
-        assert_eq!(degrees.pan.0, -(0x08A58 as f32) / 208.0);
-        assert_eq!(degrees.tilt.0, 0x493D as f32 / 208.0);
-
-        let right_down = PanTiltPosition::new(-0x08A58, -0x186A);
-        let degrees = right_down.as_degrees_with_profile(&SonyBRC300);
-        assert!(degrees.pan.0 > 0.0);
-        assert!(degrees.tilt.0 < 0.0);
-        assert_eq!(degrees.pan.0, 0x08A58 as f32 / 208.0);
-        assert_eq!(degrees.tilt.0, -(0x186A as f32) / 208.0);
+    fn positions_separate_checked_degrees_from_raw_units() -> crate::Result<()> {
+        let position = PanTiltPosition::from_degrees(45.0, -15.0)?;
+        assert_eq!(position.pan.value(), 45.0);
+        assert_eq!(position.tilt.value(), -15.0);
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(PanTiltPosition::from_degrees(invalid, 0.0).is_err());
+            assert!(PanTiltPosition::from_degrees(0.0, invalid).is_err());
+        }
+        let raw = PanTiltUnits::new(-0x02490, 0x0C30);
+        assert_eq!(raw.raw_values(), (-0x02490, 0x0C30));
+        Ok(())
     }
 
     #[test]

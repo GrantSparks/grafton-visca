@@ -6,10 +6,10 @@ use grafton_visca::{
     camera::{IdleWait, MotionQuery},
     capabilities::Capabilities,
     command::{
-        AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, FocusLock, FocusMode,
-        FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset,
-        NdFilterMode, NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode,
-        PresetNumber, SharpnessMode, VariableSpeedMode, WhiteBalanceMode,
+        AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, FocusMode, FocusZone,
+        ImageFlipMode, MenuDirection, NdFilterDensity, NdFilterMode, PanTiltDirection,
+        PanTiltLimitCorner, PanTiltSpeedMode, PictureEffectMode, PresetNumber, SharpnessMode,
+        WhiteBalanceMode,
     },
     dynapi::{
         DynAppliedOperation, DynAppliedRequest, DynFuture, DynMotion, DynPower, DynSessionCamera,
@@ -17,12 +17,10 @@ use grafton_visca::{
     },
     state_cache::StateCache,
     types::{
-        BlueChannel, BlueTuning, BrightnessLevel, ColorTemp, ContrastLevel,
-        DynamicRangeLevel, ExposureCompensationLevel, ExposureCompensationPosition, FocusPosition,
-        GainLevel, GainLimit, IrisLevel, LuminanceLevel, MotionSyncSpeed, NdFilterPreset,
-        NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, RedChannel, RedTuning,
-        SaturationLevel, SharpnessLevel, ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition,
-        ZoomSpeed,
+        BrightnessLevel, ContrastLevel, ExposureCompensationLevel, FocusPosition, GainLevel,
+        GainLimit, IrisLevel, Kelvin, LuminanceLevel, MotionSyncSpeed, NdFilterPreset, PanSpeed,
+        RgbGain, RgbTuning, SaturationLevel, SharpnessLevel, ShutterSpeed, SpeedLevel, TiltSpeed,
+        WideDynamicRangeLevel, ZoomPosition, ZoomSpeed,
     },
     units::{Degrees, UnitInterval},
     AffectedAxes, CameraId, CancellationOutcome, Error, Session, ZoomDomain,
@@ -63,7 +61,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
         zoom.set_position(ZoomPosition::MIN);
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        zoom.set_normalized(UnitInterval::ONE, ZoomDomain::Optical);
+        zoom.set_normalized(UnitInterval::MAX, ZoomDomain::Optical);
     let _: DynFuture<'_, Result<(), Error>> = zoom.set_digital_zoom(false);
 
     let system = camera.system();
@@ -71,8 +69,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = system.save_settings();
 
     let pan_tilt = camera.pan_tilt();
-    let _: DynFuture<'_, Result<grafton_visca::camera::PanTiltPosition, Error>> =
-        pan_tilt.position();
+    let _: DynFuture<'_, Result<grafton_visca::camera::PanTiltUnits, Error>> = pan_tilt.position();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = pan_tilt.home();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = pan_tilt.reset();
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = pan_tilt.move_direction(
@@ -81,14 +78,20 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
         TiltSpeed::new(1).unwrap(),
     );
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = pan_tilt.stop();
-    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        pan_tilt.absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Medium);
-    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        pan_tilt.relative(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Medium);
+    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = pan_tilt.absolute(
+        Degrees::new(0.0).expect("finite degrees"),
+        Degrees::new(0.0).expect("finite degrees"),
+        SpeedLevel::Medium,
+    );
+    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = pan_tilt.relative(
+        Degrees::new(0.0).expect("finite degrees"),
+        Degrees::new(0.0).expect("finite degrees"),
+        SpeedLevel::Medium,
+    );
     let _: DynFuture<'_, Result<(), Error>> = pan_tilt.limit_set(
         PanTiltLimitCorner::UpRight,
-        Degrees::new(0.0),
-        Degrees::new(0.0),
+        Degrees::new(0.0).expect("finite degrees"),
+        Degrees::new(0.0).expect("finite degrees"),
     );
     let _: DynFuture<'_, Result<(), Error>> = pan_tilt.limit_clear(PanTiltLimitCorner::UpRight);
 
@@ -103,7 +106,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
         focus.near_variable(grafton_visca::FocusSpeed::new(1).unwrap());
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.stop();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        focus.set_position(FocusPosition::new(0));
+        focus.set_position(FocusPosition::new(0).expect("valid value"));
     let _: DynFuture<'_, Result<(), Error>> = focus.auto();
     let _: DynFuture<'_, Result<(), Error>> = focus.manual();
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.one_push();
@@ -112,8 +115,9 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.snap();
     let _: DynFuture<'_, Result<(), Error>> = focus.set_zone(FocusZone::Center);
     let _: DynFuture<'_, Result<(), Error>> = focus.set_sensitivity(AutoFocusSensitivity::Normal);
-    let _: DynFuture<'_, Result<(), Error>> = focus.set_near_limit(FocusPosition::new(0));
-    let _: DynFuture<'_, Result<(), Error>> = focus.set_lock(FocusLock::On);
+    let _: DynFuture<'_, Result<(), Error>> =
+        focus.set_near_limit(FocusPosition::new(0).expect("valid value"));
+    let _: DynFuture<'_, Result<(), Error>> = focus.set_lock(true);
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.push_af_press();
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.push_af_release();
     let _: DynFuture<'_, Result<FocusPosition, Error>> = focus.near_limit();
@@ -124,7 +128,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let preset = PresetNumber::new(1).unwrap();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = presets.recall(preset);
     let _: DynFuture<'_, Result<(), Error>> =
-        presets.set_recall_speed(grafton_visca::command::PresetRecallSpeed::new(1).unwrap());
+        presets.set_recall_speed(grafton_visca::command::PresetSpeed::new(1).unwrap());
     let _: DynFuture<'_, Result<(), Error>> = presets.set(preset);
     let _: DynFuture<'_, Result<(), Error>> = presets.reset(preset);
 
@@ -136,10 +140,11 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_reset();
     let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_up();
     let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_down();
-    let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_direct(ShutterSpeed::new(0));
+    let _: DynFuture<'_, Result<(), Error>> =
+        exposure.shutter_direct(ShutterSpeed::new(0).expect("valid value"));
     let _: DynFuture<'_, Result<ExposureCompensationLevel, Error>> = exposure.compensation();
     let _: DynFuture<'_, Result<bool, Error>> = exposure.compensation_enabled();
-    let _: DynFuture<'_, Result<ExposureCompensationPosition, Error>> =
+    let _: DynFuture<'_, Result<ExposureCompensationLevel, Error>> =
         exposure.compensation_position();
     let _: DynFuture<'_, Result<(), Error>> = exposure.compensation_on();
     let _: DynFuture<'_, Result<(), Error>> = exposure.compensation_off();
@@ -148,7 +153,8 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = exposure.compensation_down();
     let _: DynFuture<'_, Result<(), Error>> =
         exposure.compensation_direct(ExposureCompensationLevel::new(0).unwrap());
-    let _: DynFuture<'_, Result<(), Error>> = exposure.set_dynamic_range(DynamicRangeLevel::MIN);
+    let _: DynFuture<'_, Result<(), Error>> =
+        exposure.set_dynamic_range(WideDynamicRangeLevel::MIN);
     let _: DynFuture<'_, Result<IrisLevel, Error>> = exposure.iris();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = exposure.iris_reset();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = exposure.iris_up();
@@ -159,7 +165,8 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_reset();
     let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_up();
     let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_down();
-    let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_set(BrightnessLevel::new(0));
+    let _: DynFuture<'_, Result<(), Error>> =
+        exposure.brightness_set(BrightnessLevel::new(0).expect("valid value"));
     let _: DynFuture<'_, Result<GainLevel, Error>> = exposure.gain();
     let _: DynFuture<'_, Result<(), Error>> = exposure.gain_reset();
     let _: DynFuture<'_, Result<(), Error>> = exposure.gain_up();
@@ -187,25 +194,25 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
         white_balance.set_sensitivity(AutoWhiteBalanceSensitivity::Normal);
     let _: DynFuture<'_, Result<AutoWhiteBalanceSensitivity, Error>> = white_balance.sensitivity();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.one_push_trigger();
-    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_red_tuning(RedTuning::MIN);
-    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_blue_tuning(BlueTuning::MIN);
-    let _: DynFuture<'_, Result<ColorTemp, Error>> = white_balance.color_temperature();
+    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_red_tuning(RgbTuning::MIN);
+    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_blue_tuning(RgbTuning::MIN);
+    let _: DynFuture<'_, Result<Kelvin, Error>> = white_balance.color_temperature();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.reset_color_temperature();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.increase_color_temperature();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.decrease_color_temperature();
-    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_color_temperature(ColorTemp::MIN);
-    let _: DynFuture<'_, Result<RedChannel, Error>> = white_balance.red_gain();
+    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_color_temperature(Kelvin::MIN);
+    let _: DynFuture<'_, Result<RgbGain, Error>> = white_balance.red_gain();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.reset_red_gain();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.increase_red_gain();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.decrease_red_gain();
-    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_red_gain(RedChannel::MIN);
-    let _: DynFuture<'_, Result<BlueChannel, Error>> = white_balance.blue_gain();
+    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_red_gain(RgbGain::MIN);
+    let _: DynFuture<'_, Result<RgbGain, Error>> = white_balance.blue_gain();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.reset_blue_gain();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.increase_blue_gain();
     let _: DynFuture<'_, Result<(), Error>> = white_balance.decrease_blue_gain();
-    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_blue_gain(BlueChannel::MIN);
-    let _: DynFuture<'_, Result<RedTuning, Error>> = white_balance.red_tuning();
-    let _: DynFuture<'_, Result<BlueTuning, Error>> = white_balance.blue_tuning();
+    let _: DynFuture<'_, Result<(), Error>> = white_balance.set_blue_gain(RgbGain::MIN);
+    let _: DynFuture<'_, Result<RgbTuning, Error>> = white_balance.red_tuning();
+    let _: DynFuture<'_, Result<RgbTuning, Error>> = white_balance.blue_tuning();
 
     let image = camera.image();
     let _: DynFuture<'_, Result<SaturationLevel, Error>> = image.saturation();
@@ -242,8 +249,8 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = image.set_flip_mode(ImageFlipMode::Both);
     let _: DynFuture<'_, Result<(), Error>> = image.freeze_on();
     let _: DynFuture<'_, Result<(), Error>> = image.freeze_off();
-    let _: DynFuture<'_, Result<grafton_visca::command::FlipState, Error>> = image.flip();
-    let _: DynFuture<'_, Result<grafton_visca::command::FlipState, Error>> = image.flip_mode();
+    let _: DynFuture<'_, Result<bool, Error>> = image.flip();
+    let _: DynFuture<'_, Result<grafton_visca::command::ImageFlipMode, Error>> = image.flip_mode();
     let _: DynFuture<'_, Result<PictureEffectMode, Error>> = image.picture_effect();
     let _: DynFuture<'_, Result<(), Error>> = image.set_picture_effect(PictureEffectMode::Off);
 
@@ -265,22 +272,21 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<bool, Error>> = tally.green_status();
 
     let nd = camera.nd_filter();
-    let _: DynFuture<'_, Result<grafton_visca::command::NdFilterValue, Error>> = nd.position();
+    let _: DynFuture<'_, Result<grafton_visca::command::NdFilterDensity, Error>> = nd.position();
     let _: DynFuture<'_, Result<NdFilterPreset, Error>> = nd.preset();
     let _: DynFuture<'_, Result<(), Error>> = nd.set_mode(NdFilterMode::Preset);
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        nd.set_value(NdFilterValue::new(1).unwrap());
+        nd.set_value(NdFilterDensity::new(1).unwrap());
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        nd.set_value(NdFilterValue::from_stops(2.0).unwrap());
+        nd.set_value(NdFilterDensity::from_stops(2.0).unwrap());
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.step_up();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.step_down();
     let _: DynFuture<'_, Result<(), Error>> = nd.auto_on();
     let _: DynFuture<'_, Result<(), Error>> = nd.auto_off();
 
     let sync = camera.motion_sync();
-    let _: DynFuture<'_, Result<MotionSyncMode, Error>> = sync.mode();
-    let _: DynFuture<'_, Result<MotionSyncPreset, Error>> = sync.preset();
-    let _: DynFuture<'_, Result<(), Error>> = sync.set_mode(MotionSyncMode::On);
+    let _: DynFuture<'_, Result<bool, Error>> = sync.mode();
+    let _: DynFuture<'_, Result<(), Error>> = sync.set_mode(true);
     let _: DynFuture<'_, Result<(), Error>> = sync.set_speed(MotionSyncSpeed::new(1).unwrap());
 
     let menu = camera.menu();
@@ -304,7 +310,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = advanced.usb_audio_on();
     let _: DynFuture<'_, Result<(), Error>> = advanced.usb_audio_off();
     let _: DynFuture<'_, Result<(), Error>> =
-        advanced.set_variable_speed_mode(VariableSpeedMode::Standard24);
+        advanced.set_variable_speed_mode(PanTiltSpeedMode::Standard24);
 }
 
 fn assert_custom_requests(

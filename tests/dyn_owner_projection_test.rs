@@ -129,7 +129,7 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
             0, 1,
         )),
         shutter_speeds: vec![ShutterSpeedEntry {
-            exposure: grafton_visca::units::Fraction::new(1, 60).expect("nonzero denominator"),
+            exposure: grafton_visca::units::ExposureTime::new(1, 60).expect("nonzero denominator"),
             value: 1,
         }],
         brightness_range: None,
@@ -231,7 +231,7 @@ where
     // Both values map within the documented numeric range; the midpoint also
     // falls inside the optical range. Neither may infer permission from that
     // overlap when the noun selected the combined domain.
-    for position in [midpoint, UnitInterval::ONE] {
+    for position in [midpoint, UnitInterval::MAX] {
         let error = partial_camera
             .zoom()
             .set_normalized(position, ZoomDomain::OpticalPlusDigital)
@@ -292,7 +292,7 @@ where
     let supported_camera = supported_session
         .camera_dyn()
         .expect("supported dynamic camera");
-    for position in [midpoint, UnitInterval::ONE] {
+    for position in [midpoint, UnitInterval::MAX] {
         supported_camera
             .zoom()
             .set_normalized(position, ZoomDomain::OpticalPlusDigital)
@@ -509,7 +509,9 @@ where
             .capabilities()
             .supports_typed(TypedSupportSurface::ShutterDirect)
         {
-            refused!(camera.exposure().shutter_direct(ShutterSpeed::new(0)));
+            refused!(camera
+                .exposure()
+                .shutter_direct(ShutterSpeed::new(0).expect("valid value")));
         }
         if !profile
             .capabilities()

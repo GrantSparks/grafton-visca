@@ -1,7 +1,6 @@
-use grafton_visca::ViscaValue;
+use grafton_visca::value;
 
-#[derive(ViscaValue)]
-#[visca_value(valid_values = "[]")]
+#[value(valid_values = [])]
 struct EmptyValidValues(u8);
 
 fn main() {}

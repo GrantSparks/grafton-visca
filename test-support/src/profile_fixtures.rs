@@ -26,9 +26,19 @@ const EXPOSURE_MODES: &[ExposureMode] = &[
     ExposureMode::Bright,
 ];
 const SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[ShutterSpeedEntry::new(
-    match grafton_visca::units::Fraction::new(1, 60) {
-        Some(exposure) => exposure,
-        None => panic!("nonzero denominator"),
+    {
+        let checked = grafton_visca::units::ExposureTime::new(1, 60);
+        match &checked {
+            Ok(exposure) => {
+                let exposure = *exposure;
+                core::mem::forget(checked);
+                exposure
+            }
+            Err(_) => {
+                core::mem::forget(checked);
+                panic!("nonzero denominator")
+            }
+        }
     },
     0x01,
 )];
@@ -71,7 +81,7 @@ macro_rules! synthetic_profile_impl {
             const SUPPORTS_COMMAND_CANCEL: bool = true;
 
             const MODEL_NAME: &'static str = $model;
-            const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId = grafton_visca::IndividualCameraId::new(1).expect("individual profile default");
+            const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId = grafton_visca::IndividualCameraId::MIN;
             type Envelope = RawVisca;
             const ACK_TIMEOUT: Duration = Duration::from_millis(100);
             const COMMAND_TIMEOUTS: CommandTimeouts = synthetic_command_timeouts!($($command_timeouts)?);

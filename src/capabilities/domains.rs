@@ -274,6 +274,10 @@ pub struct WhiteBalanceCaps {
     )]
     #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub color_temp_range: Option<CapabilityRange<u16>>,
+    /// Physical Kelvin value selected by each color-temperature wire code.
+    ///
+    /// An empty table declares no shared direct color-temperature encoding.
+    pub color_temperature_steps: std::sync::Arc<[u16]>,
     /// Manual gain exists only with both channels.
     #[cfg_attr(
         feature = "serde",
@@ -288,6 +292,39 @@ pub struct WhiteBalanceCaps {
     )]
     #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub rgb_tuning: Option<RgbTuningRanges>,
+}
+
+impl WhiteBalanceCaps {
+    /// Lowers a supported physical temperature through this profile's step table.
+    pub fn color_temperature_wire(&self, temperature: crate::types::Kelvin) -> crate::Result<u16> {
+        self.color_temperature_steps
+            .iter()
+            .position(|value| *value == temperature.value())
+            .and_then(|index| u16::try_from(index).ok())
+            .ok_or_else(|| {
+                crate::Error::invalid_parameter(
+                    "color_temperature",
+                    temperature.value().to_string(),
+                    "temperature must be a documented profile step",
+                )
+            })
+    }
+
+    /// Decodes a documented wire step to its physical temperature.
+    pub fn color_temperature_from_wire(&self, code: u16) -> crate::Result<crate::types::Kelvin> {
+        let temperature = self
+            .color_temperature_steps
+            .get(usize::from(code))
+            .copied()
+            .ok_or_else(|| {
+                crate::Error::invalid_parameter(
+                    "color_temperature_wire",
+                    code.to_string(),
+                    "unknown profile temperature step",
+                )
+            })?;
+        crate::types::Kelvin::new(temperature)
+    }
 }
 
 /// Image-processing source facts and optional adjustment domains.
@@ -370,7 +407,7 @@ pub struct PresetCaps {
         serde(deserialize_with = "crate::profile::required_option")
     )]
     #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
-    pub speed_range: Option<CapabilityRange<u8>>,
+    pub recall_speed_range: Option<CapabilityRange<u8>>,
     /// Whether preset tours are supported.
     pub tour: bool,
     /// Whether preset thumbnails are supported.
@@ -640,30 +677,49 @@ impl super::Capabilities {
             optional!(
                 "capabilities.white_balance.color_temp_range",
                 white_balance.color_temp_range,
-                |value| crate::types::ColorTemp::from_kelvin(value).is_ok()
+                |value| crate::types::Kelvin::new(value).is_ok()
             );
+            let steps = &white_balance.color_temperature_steps;
+            let valid_steps = match white_balance.color_temp_range {
+                None => steps.is_empty(),
+                Some(range) => {
+                    !steps.is_empty()
+                        && steps.len() <= 256
+                        && steps.iter().enumerate().all(|(index, value)| {
+                            range.contains(*value)
+                                && crate::types::Kelvin::new(*value).is_ok()
+                                && !steps[..index].contains(value)
+                        })
+                }
+            };
+            if !valid_steps {
+                return Err(invalid(
+                    &["capabilities.white_balance.color_temperature_steps"],
+                    "temperature steps must uniquely map byte codes into the declared Kelvin range",
+                ));
+            }
             if let Some(gain) = &white_balance.rgb_gain {
                 domain(
                     "capabilities.white_balance.rgb_gain.red",
                     [gain.red.min(), gain.red.max()],
-                    |value| crate::types::RedChannel::new(value).is_ok(),
+                    |value| crate::types::RgbGain::new(value).is_ok(),
                 )?;
                 domain(
                     "capabilities.white_balance.rgb_gain.blue",
                     [gain.blue.min(), gain.blue.max()],
-                    |value| crate::types::BlueChannel::new(value).is_ok(),
+                    |value| crate::types::RgbGain::new(value).is_ok(),
                 )?;
             }
             if let Some(tuning) = &white_balance.rgb_tuning {
                 domain(
                     "capabilities.white_balance.rgb_tuning.red",
                     [tuning.red.min(), tuning.red.max()],
-                    |value| crate::types::RedTuning::new(value).is_ok(),
+                    |value| crate::types::RgbTuning::new(value).is_ok(),
                 )?;
                 domain(
                     "capabilities.white_balance.rgb_tuning.blue",
                     [tuning.blue.min(), tuning.blue.max()],
-                    |value| crate::types::BlueTuning::new(value).is_ok(),
+                    |value| crate::types::RgbTuning::new(value).is_ok(),
                 )?;
             }
         }
@@ -705,9 +761,9 @@ impl super::Capabilities {
         }
         if let Some(presets) = &self.presets {
             optional!(
-                "capabilities.presets.speed_range",
-                presets.speed_range,
-                |value| crate::command::PresetRecallSpeed::new(value).is_ok()
+                "capabilities.presets.recall_speed_range",
+                presets.recall_speed_range,
+                |value| crate::command::PresetSpeed::new(value).is_ok()
             );
         }
         if let Some(power) = &self.power {

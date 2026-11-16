@@ -1,11 +1,10 @@
-use grafton_visca::ViscaEnum;
+use grafton_visca::value_enum;
 
-#[derive(Debug, Clone, Copy, ViscaEnum)]
+#[value_enum]
 enum WideDiscriminant {
     First = 256,
 }
 
 fn main() {}
 
-//~ "discriminant must be an unsuffixed integer literal in 0..=255"
-//~ ":5:13"
+//~ "wire code must be an unsuffixed integer literal in 0..=255"

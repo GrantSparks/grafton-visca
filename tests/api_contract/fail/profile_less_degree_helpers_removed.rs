@@ -3,7 +3,9 @@
 use grafton_visca::{camera::PanTiltPosition, types::PanPosition};
 
 fn main() {
-    let _ = PanTiltPosition::new(0, 0).as_degrees();
+    let _ = PanTiltPosition::from_degrees(0.0, 0.0)
+        .unwrap()
+        .as_degrees();
 }
 
 // rustc may print `PanTiltPosition` path-qualified; each line still pins the

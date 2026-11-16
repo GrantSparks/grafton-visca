@@ -3,10 +3,12 @@
 //! This module provides commands for controlling color-related settings
 //! including white balance tuning, saturation, and hue adjustments.
 
+use crate::wire::WireValue;
+
 use crate::{
     command::bytes::{constants::color, constants::white_balance, step_command_encoder},
     macros::consolidated::visca_command,
-    types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
+    types::{HueLevel, RgbTuning, SaturationLevel},
 };
 
 visca_command! {
@@ -25,15 +27,15 @@ visca_command! {
     /// Fine-tunes the red channel gain for white balance adjustment.
     /// This is typically used after setting a base white balance mode
     /// to make small corrections.
-    pub struct RedTuningCommand { level: RedTuning };
+    pub struct RedTuningCommand { level: RgbTuning };
     prefix = color::RED_TUNING_DIRECT;
-    param = level.to_protocol_value();
+    param = level.to_wire();
     max_param_size = 1;
 }
 
 impl RedTuningCommand {
     /// Create a new red tuning command.
-    pub fn new(level: RedTuning) -> Self {
+    pub fn new(level: RgbTuning) -> Self {
         Self { level }
     }
 }
@@ -44,15 +46,15 @@ visca_command! {
     /// Fine-tunes the blue channel gain for white balance adjustment.
     /// This is typically used after setting a base white balance mode
     /// to make small corrections.
-    pub struct BlueTuningCommand { level: BlueTuning };
+    pub struct BlueTuningCommand { level: RgbTuning };
     prefix = color::BLUE_TUNING_DIRECT;
-    param = level.to_protocol_value();
+    param = level.to_wire();
     max_param_size = 1;
 }
 
 impl BlueTuningCommand {
     /// Create a new blue tuning command.
-    pub fn new(level: BlueTuning) -> Self {
+    pub fn new(level: RgbTuning) -> Self {
         Self { level }
     }
 }
@@ -119,15 +121,43 @@ pub enum ColorTemperature {
     ///
     /// Lower values produce warmer (more orange/red) colors,
     /// higher values produce cooler (more blue) colors.
-    SetTemperature(crate::types::ColorTemp),
+    SetTemperature(crate::types::Kelvin),
 }
 
 step_command_encoder! {
     ColorTemperature {
         control: color::TEMPERATURE,
         direct: color::TEMPERATURE,
-        SetTemperature(temperature) => nibbles::<2>(temperature.value()),
+        SetTemperature(temperature) => nibbles::<2>(ptzoptics_color_temperature_wire(*temperature)?),
     }
+}
+
+/// Lowers physical Kelvin through the existing PTZOptics 100 K register table.
+pub(crate) fn ptzoptics_color_temperature_wire(
+    temperature: crate::types::Kelvin,
+) -> crate::Result<u16> {
+    let kelvin = temperature.value();
+    if !(2500..=8000).contains(&kelvin) || !(kelvin - 2500).is_multiple_of(100) {
+        return Err(crate::Error::invalid_parameter(
+            "color_temperature",
+            kelvin.to_string(),
+            "this encoding requires 2500 through 8000 Kelvin in exact 100 Kelvin steps",
+        ));
+    }
+    Ok((kelvin - 2500) / 100)
+}
+
+/// Decodes a PTZOptics temperature-table index into physical Kelvin.
+pub(crate) fn decode_color_temperature(value: u16) -> crate::Result<crate::types::Kelvin> {
+    if value > 55 {
+        return Err(crate::Error::parameter_out_of_range(
+            "color_temperature_wire",
+            i32::from(value),
+            0,
+            55,
+        ));
+    }
+    crate::types::Kelvin::new(2500 + value * 100)
 }
 
 /// Red Channel Direct command (different from tuning).
@@ -149,7 +179,7 @@ pub enum RedGain {
     /// Set red gain to a specific value.
     ///
     /// Higher values increase the intensity of red in the image.
-    SetValue(crate::types::RedChannel),
+    SetValue(crate::types::RgbGain),
 }
 
 step_command_encoder! {
@@ -179,7 +209,7 @@ pub enum BlueGain {
     /// Set blue gain to a specific value.
     ///
     /// Higher values increase the intensity of blue in the image.
-    SetValue(crate::types::BlueChannel),
+    SetValue(crate::types::RgbGain),
 }
 
 step_command_encoder! {
@@ -211,7 +241,7 @@ mod tests {
     fn test_red_tuning_command() {
         // Test valid range
         for level in -10..=10 {
-            let tuning = RedTuning::new(level).unwrap();
+            let tuning = RgbTuning::new(level).unwrap();
             let cmd = RedTuningCommand::new(tuning);
             let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
@@ -222,16 +252,16 @@ mod tests {
             assert_eq!(bytes[8], 0xFF);
         }
 
-        // Test invalid values - can't create invalid RedTuning
-        assert!(RedTuning::new(-11).is_err());
-        assert!(RedTuning::new(11).is_err());
+        // Test invalid values - can't create invalid RgbTuning
+        assert!(RgbTuning::new(-11).is_err());
+        assert!(RgbTuning::new(11).is_err());
     }
 
     #[test]
     fn test_blue_tuning_command() {
         // Test valid range
         for level in -10..=10 {
-            let tuning = BlueTuning::new(level).unwrap();
+            let tuning = RgbTuning::new(level).unwrap();
             let cmd = BlueTuningCommand::new(tuning);
             let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
@@ -242,9 +272,9 @@ mod tests {
             assert_eq!(bytes[8], 0xFF);
         }
 
-        // Test invalid values - can't create invalid BlueTuning
-        assert!(BlueTuning::new(-11).is_err());
-        assert!(BlueTuning::new(11).is_err());
+        // Test invalid values - can't create invalid RgbTuning
+        assert!(RgbTuning::new(-11).is_err());
+        assert!(RgbTuning::new(11).is_err());
     }
 
     #[test]
@@ -329,7 +359,7 @@ mod tests {
         // Test Direct with valid values
         let test_values = vec![0x00, 0x10, 0x20, 0x37];
         for temp in test_values {
-            let color_temp = crate::types::ColorTemp::new(temp).unwrap();
+            let color_temp = crate::types::Kelvin::new(2500 + temp * 100).unwrap();
             let cmd = ColorTemperature::SetTemperature(color_temp);
             let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
@@ -341,7 +371,9 @@ mod tests {
         }
 
         // Test Direct with invalid value - can't create invalid ColorTemperature
-        assert!(crate::types::ColorTemp::new(0x38).is_err());
+        assert!(
+            ptzoptics_color_temperature_wire(crate::types::Kelvin::new(8100).unwrap()).is_err()
+        );
     }
 
     #[test]
@@ -370,7 +402,7 @@ mod tests {
         // Test Direct with various values
         let test_values = vec![0x00, 0x55, 0xAA, VISCA_TERMINATOR];
         for gain in test_values {
-            let red_gain = crate::types::RedChannel::new(gain).unwrap();
+            let red_gain = crate::types::RgbGain::new(gain).unwrap();
             let cmd = RedGain::SetValue(red_gain);
             let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
@@ -409,7 +441,7 @@ mod tests {
         // Test Direct with various values
         let test_values = vec![0x00, 0x55, 0xAA, VISCA_TERMINATOR];
         for gain in test_values {
-            let blue_gain = crate::types::BlueChannel::new(gain).unwrap();
+            let blue_gain = crate::types::RgbGain::new(gain).unwrap();
             let cmd = BlueGain::SetValue(blue_gain);
             let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
@@ -427,8 +459,8 @@ mod tests {
         // Test that all commands implement Debug and Clone
         let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
             Box::new(OnePushTriggerCommand::new()),
-            Box::new(RedTuningCommand::new(RedTuning::NEUTRAL)),
-            Box::new(BlueTuningCommand::new(BlueTuning::NEUTRAL)),
+            Box::new(RedTuningCommand::new(RgbTuning::NEUTRAL)),
+            Box::new(BlueTuningCommand::new(RgbTuning::NEUTRAL)),
             Box::new(SaturationCommand::new(SaturationLevel::MIN)),
             Box::new(HueCommand::new(HueLevel::MIN)),
             Box::new(ColorTemperature::Reset),
@@ -441,7 +473,7 @@ mod tests {
         }
 
         // Test Clone
-        let red_cmd1 = RedTuningCommand::new(RedTuning::new(5).unwrap());
+        let red_cmd1 = RedTuningCommand::new(RgbTuning::new(5).unwrap());
         let red_cmd2 = red_cmd1;
         assert_eq!(
             crate::command::test_wire_bytes(&red_cmd1, crate::camera_id::CameraId::CAMERA_1)
@@ -454,7 +486,7 @@ mod tests {
     #[test]
     fn test_edge_cases() {
         // Test boundary values for tuning commands
-        let red_min = RedTuningCommand::new(RedTuning::new(-10).unwrap());
+        let red_min = RedTuningCommand::new(RgbTuning::new(-10).unwrap());
         assert!(
             crate::command::test_wire_bytes(&red_min, crate::camera_id::CameraId::CAMERA_1).is_ok()
         );
@@ -464,7 +496,7 @@ mod tests {
             0x00
         );
 
-        let red_max = RedTuningCommand::new(RedTuning::MAX);
+        let red_max = RedTuningCommand::new(RgbTuning::MAX);
         assert!(
             crate::command::test_wire_bytes(&red_max, crate::camera_id::CameraId::CAMERA_1).is_ok()
         );
@@ -474,7 +506,7 @@ mod tests {
             0x14
         );
 
-        let blue_min = BlueTuningCommand::new(BlueTuning::new(-10).unwrap());
+        let blue_min = BlueTuningCommand::new(RgbTuning::new(-10).unwrap());
         assert!(
             crate::command::test_wire_bytes(&blue_min, crate::camera_id::CameraId::CAMERA_1)
                 .is_ok()
@@ -485,7 +517,7 @@ mod tests {
             0x00
         );
 
-        let blue_max = BlueTuningCommand::new(BlueTuning::MAX);
+        let blue_max = BlueTuningCommand::new(RgbTuning::MAX);
         assert!(
             crate::command::test_wire_bytes(&blue_max, crate::camera_id::CameraId::CAMERA_1)
                 .is_ok()
@@ -518,15 +550,14 @@ mod tests {
         );
 
         // Test boundary value for color temperature
-        let temp_min =
-            ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x00).unwrap());
+        let temp_min = ColorTemperature::SetTemperature(crate::types::Kelvin::new(2500).unwrap());
         assert!(
             crate::command::test_wire_bytes(&temp_min, crate::camera_id::CameraId::CAMERA_1)
                 .is_ok()
         );
 
         let temp_max =
-            ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x37).unwrap());
+            ColorTemperature::SetTemperature(crate::types::Kelvin::new(2500 + 0x37 * 100).unwrap());
         assert!(
             crate::command::test_wire_bytes(&temp_max, crate::camera_id::CameraId::CAMERA_1)
                 .is_ok()
@@ -536,19 +567,20 @@ mod tests {
     #[test]
     fn test_nibble_encoding() {
         // Test that Direct commands properly encode values as nibbles
-        let cmd = ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x25).unwrap());
+        let cmd =
+            ColorTemperature::SetTemperature(crate::types::Kelvin::new(2500 + 0x25 * 100).unwrap());
         let bytes =
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap();
         assert_eq!(bytes[4], 0x02);
         assert_eq!(bytes[5], 0x05);
 
-        let cmd = RedGain::SetValue(crate::types::RedChannel::new(0xAB).unwrap());
+        let cmd = RedGain::SetValue(crate::types::RgbGain::new(0xAB).unwrap());
         let bytes =
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap();
         assert_eq!(bytes[6], 0x0A);
         assert_eq!(bytes[7], 0x0B);
 
-        let cmd = BlueGain::SetValue(crate::types::BlueChannel::new(0xF0).unwrap());
+        let cmd = BlueGain::SetValue(crate::types::RgbGain::new(0xF0).unwrap());
         let bytes =
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap();
         assert_eq!(bytes[6], 0x0F);
@@ -562,13 +594,13 @@ mod tests {
         for level in -10..=10 {
             let expected = (level + 10) as u8;
 
-            let red_cmd = RedTuningCommand::new(RedTuning::new(level).unwrap());
+            let red_cmd = RedTuningCommand::new(RgbTuning::new(level).unwrap());
             let red_bytes =
                 crate::command::test_wire_bytes(&red_cmd, crate::camera_id::CameraId::CAMERA_1)
                     .unwrap();
             assert_eq!(red_bytes[7], expected);
 
-            let blue_cmd = BlueTuningCommand::new(BlueTuning::new(level).unwrap());
+            let blue_cmd = BlueTuningCommand::new(RgbTuning::new(level).unwrap());
             let blue_bytes =
                 crate::command::test_wire_bytes(&blue_cmd, crate::camera_id::CameraId::CAMERA_1)
                     .unwrap();

@@ -468,8 +468,8 @@ including operational tuning, and the JSON Schema requires the same complete
 set of nullable fact keys. Standalone `ProfileTiming` deserialization runs
 the builder's validation (#875).
 
-`ViscaInquiry`, `ViscaEnum`, and `ViscaValue` are the supported downstream
-derive entry points. `test-utils` alone exposes `testkit::{Step, helpers}` for
+`value` and `value_enum` are the supported downstream value attributes;
+`ViscaInquiry` remains the inquiry derive. `test-utils` alone exposes `testkit::{Step, helpers}` for
 tests. Add `blocking` for `ScriptedBlockingTransport`; add `async` for
 `ScriptedTransport`, `LocalExecutor` and `ManualClockExecutor`; either facade exposes
 `ManualClock`, `ClockParticipant`, and `ClockJoinHandle`. Add

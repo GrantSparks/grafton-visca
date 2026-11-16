@@ -35,7 +35,7 @@ fn acking_camera() -> FakeCamera {
 mod blocking_surface {
     use grafton_visca::{
         blocking::{Session, SessionConfig},
-        command::{FlipState, ImageFlipMode},
+        command::ImageFlipMode,
         profile::ProfileSpec,
         profiles::PtzOpticsG2,
         state_cache::StateEntry,
@@ -82,13 +82,7 @@ mod blocking_surface {
             .set_flip_mode(ImageFlipMode::Both)
             .expect("combined flip");
         let _ = fake.take_only_payload();
-        assert_eq!(
-            camera.state_cache().flip_state(),
-            Some(FlipState {
-                horizontal: true,
-                vertical: true,
-            }),
-        );
+        assert_eq!(camera.state_cache().flip_state(), Some(ImageFlipMode::Both),);
 
         // The mirror opcode moves one axis and says nothing about the other,
         // so the pair stops being known — in both directions.
@@ -167,7 +161,7 @@ mod async_surface {
 #[cfg(all(feature = "dyn-api", feature = "runtime-tokio"))]
 mod dyn_surface {
     use grafton_visca::{
-        command::FlipState, dynapi::DynSessionCameraNouns, profile::ProfileSpec,
+        command::ImageFlipMode, dynapi::DynSessionCameraNouns, profile::ProfileSpec,
         profiles::PtzOpticsG2, state_cache::StateEntry, StateKey,
     };
 
@@ -206,13 +200,7 @@ mod dyn_surface {
 
         nouns.image().set_flip_both().await.expect("combined flip");
         let _ = fake.take_only_payload();
-        assert_eq!(
-            camera.state_cache().flip_state(),
-            Some(FlipState {
-                horizontal: true,
-                vertical: true,
-            }),
-        );
+        assert_eq!(camera.state_cache().flip_state(), Some(ImageFlipMode::Both),);
 
         nouns
             .image()

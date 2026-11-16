@@ -14,14 +14,11 @@ use crate::{
     CameraId, Error,
 };
 
-crate::__grafton_visca_newtype! {
-    /// FR7 high-resolution zoom speed, from `0000` through `7FFE` (R7 p. 16).
-    ///
-    /// Zero selects the slowest drive speed; it does not stop the lens.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0", max = "0x7FFE", display_prefix = "High Resolution Zoom Speed")]
-    pub struct HighResolutionZoomSpeed(u16);
-}
+/// FR7 high-resolution zoom speed, from `0000` through `7FFE` (R7 p. 16).
+///
+/// Zero selects the slowest drive speed; it does not stop the lens.
+#[crate::value(min = 0, max = 0x7FFE, display = "High Resolution Zoom Speed {}")]
+pub struct HighResolutionZoomSpeed(u16);
 
 /// Drives the FR7 zoom lens at a validated high-resolution speed (R7 p. 16).
 ///
@@ -76,16 +73,13 @@ impl WireEncode for Fr7ZoomHighResolutionStop {
     }
 }
 
-crate::__grafton_visca_newtype! {
-    /// FR7 optical and Clear Image Zoom position readback (R7 pp. 13 and 22).
-    ///
-    /// `0000` is optical wide, `4000` is optical tele, `5556` is the 1.5x
-    /// Clear Image Zoom endpoint at 3840x2160 or higher, and `6000` is the
-    /// 2.0x endpoint. This is a readback value, with no direct-set command.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0", max = "0x6000", display_prefix = "Clear Image Zoom Position")]
-    pub struct ClearImageZoomPosition(u16);
-}
+/// FR7 optical and Clear Image Zoom position readback (R7 pp. 13 and 22).
+///
+/// `0000` is optical wide, `4000` is optical tele, `5556` is the 1.5x
+/// Clear Image Zoom endpoint at 3840x2160 or higher, and `6000` is the
+/// 2.0x endpoint. This is a readback value, with no direct-set command.
+#[crate::value(min = 0, max = 0x6000, display = "Clear Image Zoom Position {}")]
+pub struct ClearImageZoomPosition(u16);
 
 pub(crate) fn decode_clear_image_zoom_position(
     payload: Payload<'_>,

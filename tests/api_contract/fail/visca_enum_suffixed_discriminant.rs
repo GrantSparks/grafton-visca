@@ -1,6 +1,6 @@
-use grafton_visca::ViscaEnum;
+use grafton_visca::value_enum;
 
-#[derive(Debug, Clone, Copy, ViscaEnum)]
+#[value_enum]
 #[repr(u8)]
 enum SuffixedDiscriminant {
     First = 0x01u8,
@@ -8,4 +8,4 @@ enum SuffixedDiscriminant {
 
 fn main() {}
 
-//~ "discriminant must be an unsuffixed integer literal in 0..=255"
+//~ "wire codes must be unsuffixed integer literals"

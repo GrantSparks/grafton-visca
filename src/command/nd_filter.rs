@@ -10,34 +10,23 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
+use crate::wire::WireValue;
+
 use crate::{
     command::{
-        bytes::{constants::nd_filter, FrameWriter, Step},
+        bytes::{constants::nd_filter, FrameWriter},
         encode::WireEncode,
     },
     error::Error,
 };
 
 /// ND filter mode for Sony FR7.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum NdFilterMode {
     /// Preset mode - ND is set to discrete levels (user-defined presets).
-    Preset,
+    Preset = 0,
     /// Variable mode - ND can be adjusted in fine steps.
-    Variable,
-}
-
-impl From<NdFilterMode> for u8 {
-    fn from(mode: NdFilterMode) -> u8 {
-        match mode {
-            NdFilterMode::Preset => 0x00,
-            NdFilterMode::Variable => 0x01,
-        }
-    }
+    Variable = 1,
 }
 
 /// Set the ND filter mode (preset or variable).
@@ -59,7 +48,7 @@ impl WireEncode for NdFilterModeCommand {
     ) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&nd_filter::MODE)
-            .byte(u8::from(self.mode))
+            .byte(self.mode.to_wire())
             .finish()
     }
 }
@@ -84,12 +73,10 @@ impl NdFilterModeCommand {
 /// - Value 0x0000 = ND 1/4 (2 stops, minimum ND)
 /// - Value 0x0014 = ND 1/128 (7 stops, maximum density)
 /// - Density codes advance in quarter-stop steps
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NdFilterValue {
-    value: u16,
-}
+#[crate::value(min = 0, max = 0x0014, display = "ND Density {}")]
+pub struct NdFilterDensity(u16);
 
-impl WireEncode for NdFilterValue {
+impl WireEncode for NdFilterDensity {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -97,30 +84,14 @@ impl WireEncode for NdFilterValue {
     ) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&nd_filter::DIRECT)
-            .nibbles::<2>(self.value)
+            .nibbles::<2>(self.value())
             .finish()
     }
 }
 
-impl NdFilterValue {
+impl NdFilterDensity {
     /// The densest variable-ND position.
     pub(crate) const MAX_VALUE: u16 = 0x0014;
-
-    /// Create a new ND filter value.
-    ///
-    /// # Arguments
-    /// * `value` - ND filter value (0x0000 to 0x0014)
-    pub fn new(value: u16) -> Result<Self, Error> {
-        if value > Self::MAX_VALUE {
-            return Err(Error::parameter_out_of_range(
-                "ND filter value",
-                i32::from(value),
-                0,
-                i32::from(Self::MAX_VALUE),
-            ));
-        }
-        Ok(Self { value })
-    }
 
     /// Create from a stop value (2.0 to 7.0 stops).
     ///
@@ -139,37 +110,23 @@ impl NdFilterValue {
         // Convert stops to value: 2 stops = 0x0000, 7 stops = 0x0014
         // Linear mapping: (stops - 2) * 4 = value
         let value = ((stops - 2.0) * 4.0).round() as u16;
-        Ok(Self { value })
+        Self::new(value)
     }
 
-    /// Returns the raw VISCA ND-filter value.
+    /// Returns the optical attenuation in stops, from 2 through 7.
     #[must_use]
-    pub const fn value(self) -> u16 {
-        self.value
+    pub fn to_stops(self) -> f32 {
+        2.0 + f32::from(self.value()) / 4.0
     }
 }
 
 /// ND filter step adjustment direction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum NdFilterStep {
     /// Increase ND by one step (more density).
-    Up,
+    Up = 2,
     /// Decrease ND by one step (less density).
-    Down,
-}
-
-impl From<NdFilterStep> for u8 {
-    fn from(step: NdFilterStep) -> u8 {
-        match step {
-            NdFilterStep::Up => Step::Up,
-            NdFilterStep::Down => Step::Down,
-        }
-        .byte()
-    }
+    Down = 3,
 }
 
 /// ND filter step adjustment command.
@@ -192,7 +149,7 @@ impl WireEncode for NdFilterStepCommand {
     ) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&nd_filter::STEP)
-            .byte(u8::from(self.direction))
+            .byte(self.direction.to_wire())
             .finish()
     }
 }
@@ -265,9 +222,9 @@ mod tests {
     );
 
     visca_test!(
-        NdFilterValue,
+        NdFilterDensity,
         test_nd_filter_value_min,
-        NdFilterValue::new(0x0000).expect("Failed to create NdFilterValue with valid value"),
+        NdFilterDensity::new(0x0000).expect("Failed to create NdFilterDensity with valid value"),
         &[
             0x81,
             0x01,
@@ -283,9 +240,9 @@ mod tests {
     );
 
     visca_test!(
-        NdFilterValue,
+        NdFilterDensity,
         test_nd_filter_value_max,
-        NdFilterValue::new(0x0014).expect("Failed to create NdFilterValue with valid value"),
+        NdFilterDensity::new(0x0014).expect("Failed to create NdFilterDensity with valid value"),
         &[
             0x81,
             0x01,
@@ -302,25 +259,37 @@ mod tests {
 
     #[test]
     fn test_nd_filter_value_out_of_range() {
-        assert!(NdFilterValue::new(0x0015).is_err());
+        assert!(NdFilterDensity::new(0x0015).is_err());
     }
 
     #[test]
     fn test_nd_filter_from_stops() {
-        let cmd = NdFilterValue::from_stops(2.0)
-            .expect("Failed to create NdFilterValue from valid stops");
-        assert_eq!(cmd.value, 0x0000);
+        let cmd = NdFilterDensity::from_stops(2.0)
+            .expect("Failed to create NdFilterDensity from valid stops");
+        assert_eq!(cmd.value(), 0x0000);
 
-        let cmd = NdFilterValue::from_stops(7.0)
-            .expect("Failed to create NdFilterValue from valid stops");
-        assert_eq!(cmd.value, 0x0014);
+        let cmd = NdFilterDensity::from_stops(7.0)
+            .expect("Failed to create NdFilterDensity from valid stops");
+        assert_eq!(cmd.value(), 0x0014);
 
-        let cmd = NdFilterValue::from_stops(4.5)
-            .expect("Failed to create NdFilterValue from valid stops");
-        assert_eq!(cmd.value, 0x000A); // (4.5 - 2) * 4 = 10
+        let cmd = NdFilterDensity::from_stops(4.5)
+            .expect("Failed to create NdFilterDensity from valid stops");
+        assert_eq!(cmd.value(), 0x000A); // (4.5 - 2) * 4 = 10
 
-        assert!(NdFilterValue::from_stops(1.5).is_err());
-        assert!(NdFilterValue::from_stops(8.0).is_err());
+        assert!(NdFilterDensity::from_stops(1.5).is_err());
+        assert!(NdFilterDensity::from_stops(8.0).is_err());
+        assert_eq!(NdFilterDensity::MIN.to_stops(), 2.0);
+        assert_eq!(NdFilterDensity::MAX.to_stops(), 7.0);
+        for code in 0..=20 {
+            let density = NdFilterDensity::new(code).expect("source-backed quarter-stop code");
+            assert_eq!(
+                NdFilterDensity::from_stops(density.to_stops()).expect("exact stop step"),
+                density
+            );
+        }
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(NdFilterDensity::from_stops(invalid).is_err());
+        }
     }
 
     #[test]
@@ -328,24 +297,28 @@ mod tests {
         for unit in 0..20 {
             let half = 2.0 + (f32::from(unit) + 0.5) / 4.0;
             assert_eq!(
-                NdFilterValue::from_stops(half)
+                NdFilterDensity::from_stops(half)
                     .expect("half-quarter in range")
                     .value(),
                 unit + 1
             );
             assert_eq!(
-                NdFilterValue::from_stops(half - 0.001)
+                NdFilterDensity::from_stops(half - 0.001)
                     .expect("below half-quarter in range")
                     .value(),
                 unit
             );
         }
         assert_eq!(
-            NdFilterValue::from_stops(6.99).expect("6.99 stops").value(),
+            NdFilterDensity::from_stops(6.99)
+                .expect("6.99 stops")
+                .value(),
             0x14
         );
         assert_eq!(
-            NdFilterValue::from_stops(2.24).expect("2.24 stops").value(),
+            NdFilterDensity::from_stops(2.24)
+                .expect("2.24 stops")
+                .value(),
             0x01
         );
     }
@@ -387,7 +360,7 @@ mod float_range_tests {
     #[allow(clippy::expect_used)]
     fn invalid_stop_errors_preserve_the_float_input() {
         for stops in [1.5, 7.5, f32::INFINITY, f32::NAN] {
-            let error = NdFilterValue::from_stops(stops).expect_err("outside range");
+            let error = NdFilterDensity::from_stops(stops).expect_err("outside range");
             assert!(
                 matches!(error, Error::InvalidParameter { value, .. } if value == stops.to_string())
             );

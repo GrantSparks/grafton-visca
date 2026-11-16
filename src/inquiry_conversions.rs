@@ -1,62 +1,6 @@
-//! Inquiry conversion utilities for converting raw VISCA values to user-friendly formats.
-//!
-//! This module provides helpers for converting raw inquiry responses (raw VISCA values)
-//! to more intuitive representations like degrees and normalized values, as part of the
-//! runtime-agnostic modernization of `grafton-visca`.
+//! Normalization domain and private profile-lowering helpers.
 
-use crate::{
-    camera::PanTiltPosition,
-    capabilities::Profile,
-    types::ZoomPosition,
-    units::{Degrees, UnitInterval},
-    PanTiltCoordinateConversion,
-};
-
-/// Represents a pan/tilt position in degrees.
-///
-/// Degrees are the library's camera-independent convention: positive pan is
-/// right and positive tilt is up. Each profile's coordinate conversion maps
-/// them to its own raw units and range.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct PanTiltPositionDeg {
-    /// Pan position in degrees (positive is right).
-    pub pan: Degrees<f32>,
-    /// Tilt position in degrees (positive is up).
-    pub tilt: Degrees<f32>,
-}
-
-impl PanTiltPositionDeg {
-    /// Creates a new pan/tilt position in degrees.
-    pub const fn new(pan: Degrees<f32>, tilt: Degrees<f32>) -> Self {
-        Self { pan, tilt }
-    }
-
-    /// Converts degrees to raw units with a compile-time profile's signed
-    /// scales, checking the profile's degree and unit ranges exactly as
-    /// request preparation does.
-    ///
-    /// # Errors
-    /// Returns [`crate::Error::InvalidParameter`] if an angle is not finite, is
-    /// outside the profile's degree range, or converts to units outside the
-    /// profile's unit range.
-    pub fn to_raw_with_profile<P: Profile>(
-        &self,
-        _profile: &P,
-    ) -> Result<PanTiltPosition, crate::Error> {
-        let conversion = PanTiltCoordinateConversion::for_profile::<P>();
-        conversion.checked_units(
-            *self,
-            crate::profile::PanTiltRanges {
-                pan_units: P::PAN_RANGE,
-                tilt_units: P::TILT_RANGES.range(None),
-                endpoint_quantization: P::ENDPOINT_QUANTIZATION,
-            },
-            crate::profile::CoordinateKind::Position,
-        )
-    }
-}
+use crate::{types::ZoomPosition, units::UnitInterval};
 
 /// Zoom domain for normalization.
 ///
@@ -64,9 +8,14 @@ impl PanTiltPositionDeg {
 /// The actual max values are profile-specific (e.g., 0x4000 optical for
 /// PTZOptics raw VISCA profiles, higher endpoints only for profiles with
 /// validated digital zoom ranges).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum ZoomDomain {
     /// Optical zoom only.
@@ -81,6 +30,7 @@ pub enum ZoomDomain {
     OpticalPlusDigital,
 }
 
+#[cfg(test)]
 impl ZoomPosition {
     /// Normalizes the zoom position to `0.0..=1.0` within a profile's zoom
     /// domain; [`zoom_from_normalized`] is the inverse.
@@ -93,7 +43,7 @@ impl ZoomPosition {
     /// # Errors
     /// Returns an error if the requested domain has no documented maximum, or
     /// if the raw position exceeds the selected domain maximum.
-    pub fn normalize_with_max(
+    pub(crate) fn normalize_with_max(
         &self,
         domain: ZoomDomain,
         optical_max: u16,
@@ -102,7 +52,7 @@ impl ZoomPosition {
         let max = zoom_domain_max(domain, optical_max, digital_max)?;
 
         if max == 0 {
-            return Ok(UnitInterval::ZERO);
+            return Ok(UnitInterval::MIN);
         }
 
         if self.value() > max {
@@ -123,7 +73,7 @@ impl ZoomPosition {
 /// Optical normalization always uses the profile optical maximum. Digital-domain
 /// normalization requires an explicit digital maximum and never falls back to
 /// the optical range.
-pub fn zoom_domain_max(
+pub(crate) fn zoom_domain_max(
     domain: ZoomDomain,
     optical_max: u16,
     digital_max: Option<u16>,
@@ -137,11 +87,11 @@ pub fn zoom_domain_max(
 }
 
 /// Creates a zoom position from a normalized value within a profile's zoom
-/// domain; [`ZoomPosition::normalize_with_max`] is the inverse.
+/// domain. Dividing a raw position by that domain's maximum is the inverse.
 ///
 /// Like every unit conversion in the crate, the arithmetic is `f32`, rounding
 /// to the nearest unit with halves away from zero.
-pub fn zoom_from_normalized(
+pub(crate) fn zoom_from_normalized(
     normalized: UnitInterval,
     domain: ZoomDomain,
     optical_max: u16,
@@ -157,25 +107,6 @@ pub fn zoom_from_normalized(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sony_brc300_profile_conversion_preserves_documented_reverse_axis_polarity(
-    ) -> Result<(), crate::Error> {
-        use crate::profiles::SonyBRC300;
-
-        let degrees = PanTiltPositionDeg::new(Degrees(45.0), Degrees(15.0));
-        let raw = degrees.to_raw_with_profile(&SonyBRC300)?;
-        assert_eq!(raw, PanTiltPosition::new(-0x02490, 0x0C30));
-        assert_eq!(raw.as_degrees_with_profile(&SonyBRC300), degrees);
-
-        assert!(PanTiltPositionDeg::new(Degrees(f32::NAN), Degrees(0.0))
-            .to_raw_with_profile(&SonyBRC300)
-            .is_err());
-        assert!(PanTiltPositionDeg::new(Degrees(400.0), Degrees(0.0))
-            .to_raw_with_profile(&SonyBRC300)
-            .is_err());
-        Ok(())
-    }
 
     #[test]
     fn test_zoom_normalization() -> Result<(), crate::Error> {
@@ -277,7 +208,7 @@ mod tests {
     #[test]
     fn test_zoom_from_normalized_rejects_undocumented_digital_domain() -> Result<(), crate::Error> {
         let result = zoom_from_normalized(
-            UnitInterval::ONE,
+            UnitInterval::MAX,
             ZoomDomain::OpticalPlusDigital,
             0x4000,
             None,
@@ -305,7 +236,7 @@ mod tests {
         assert!(UnitInterval::new(f32::NEG_INFINITY).is_err());
 
         let norm = UnitInterval::new(0.75)?;
-        assert_eq!(norm.to_percentage(), 75);
+        assert_eq!(norm.value(), 0.75);
         Ok(())
     }
 }

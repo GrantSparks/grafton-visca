@@ -4,11 +4,10 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
+use crate::wire::WireValue;
+
 use crate::{
-    command::{
-        bytes::{constants::menu, FrameWriter},
-        pan_tilt::PanTiltDirection,
-    },
+    command::bytes::{constants::menu, FrameWriter},
     macros::consolidated::visca_command,
     Error,
 };
@@ -35,32 +34,20 @@ impl SetMenuDisplay {
 }
 
 /// Menu navigation direction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum(wire=(u8,u8))]
 pub enum MenuDirection {
     /// Move cursor up
+    #[wire((3, 1))]
     Up,
     /// Move cursor down
+    #[wire((3, 2))]
     Down,
     /// Move cursor left
+    #[wire((1, 3))]
     Left,
     /// Move cursor right
+    #[wire((2, 3))]
     Right,
-}
-
-impl MenuDirection {
-    /// The pan/tilt drive direction that moves the OSD cursor this way.
-    const fn pan_tilt(self) -> PanTiltDirection {
-        match self {
-            Self::Up => PanTiltDirection::Up,
-            Self::Down => PanTiltDirection::Down,
-            Self::Left => PanTiltDirection::Left,
-            Self::Right => PanTiltDirection::Right,
-        }
-    }
 }
 
 /// OSD navigation is the pan/tilt drive at the fixed `0E 0E` speed pair, so the
@@ -71,7 +58,7 @@ impl crate::command::encode::WireEncode for MenuNavigate {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        let (pan, tilt) = self.direction.pan_tilt().to_bytes();
+        let (pan, tilt) = self.direction.to_wire();
         FrameWriter::new(camera_id, buffer)
             .bytes(&menu::NAVIGATE)
             .byte(pan)
@@ -106,25 +93,12 @@ impl MenuNavigate {
 }
 
 /// Menu action type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum MenuAction {
     /// Select/Enter the current menu item
-    Select,
+    Select = 5,
     /// Cancel/Back to previous menu
-    Cancel,
-}
-
-impl From<MenuAction> for u8 {
-    fn from(action: MenuAction) -> u8 {
-        match action {
-            MenuAction::Select => 0x05,
-            MenuAction::Cancel => 0x04,
-        }
-    }
+    Cancel = 4,
 }
 
 visca_command! {
@@ -137,7 +111,7 @@ visca_command! {
         action: MenuAction,
     };
     prefix = menu::MENU;
-    param = u8::from(*action);
+    param = (*action).to_wire();
     max_param_size = 1;
 }
 
@@ -149,11 +123,7 @@ impl PerformMenuAction {
 }
 
 /// Sony FR7 direct-menu target (R7 v4.00, page 20).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, crate::ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum DirectMenuTarget {
     /// Neutral-density filter control.
     NdFilter = 0x00,
@@ -170,11 +140,7 @@ pub enum DirectMenuTarget {
 }
 
 /// Sony FR7 direct-menu button state (R7 v4.00, page 20).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, crate::ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum MenuButton {
     /// Release the selected control.
     Release = 0x00,
@@ -201,8 +167,8 @@ impl crate::command::encode::WireEncode for DirectMenuControl {
     ) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&menu::DIRECT)
-            .byte(u8::from(self.target))
-            .byte(u8::from(self.button))
+            .byte(self.target.to_wire())
+            .byte(self.button.to_wire())
             .finish()
     }
 }
@@ -354,15 +320,15 @@ mod tests {
     fn direct_menu_domains_round_trip_and_encode_exactly() {
         use crate::command::encode::WireEncode;
         for byte in 0..=u8::MAX {
-            let target = DirectMenuTarget::try_from(byte);
+            let target = DirectMenuTarget::from_wire(byte);
             assert_eq!(target.is_ok(), matches!(byte, 0..=4 | 0x7F));
-            let button = MenuButton::try_from(byte);
+            let button = MenuButton::from_wire(byte);
             assert_eq!(button.is_ok(), byte <= 1);
             if let Ok(button) = button {
-                assert_eq!(u8::from(button), byte);
+                assert_eq!(button.to_wire(), byte);
             }
             if let Ok(target) = target {
-                assert_eq!(u8::from(target), byte);
+                assert_eq!(target.to_wire(), byte);
                 for button in [MenuButton::Release, MenuButton::Press] {
                     let command = DirectMenuControl::new(target, button);
                     let mut buffer = [0; 8];
@@ -379,7 +345,7 @@ mod tests {
                             4,
                             0x72,
                             byte,
-                            u8::from(button),
+                            button.to_wire(),
                             VISCA_TERMINATOR
                         ]
                     );

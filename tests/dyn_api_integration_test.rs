@@ -27,7 +27,6 @@ use std::{
 
 use grafton_visca::{
     capabilities::TypedSupportSurface,
-    command::MulticastStreaming,
     dynapi::{
         DynAppliedRequest, DynSessionCamera, DynSessionCameraControl, DynSessionCameraNouns,
         DynTargetedRequest,
@@ -598,4 +597,4 @@ runtime_matrix!(
 // Keep the command imported in this binary so the cache test proves the
 // canonical state effect through the same public request type used by static
 // callers, even though the dynamic noun invokes it internally.
-fn _multicast_streaming_type_is_public(_: MulticastStreaming) {}
+fn _multicast_streaming_setting_is_boolean(_: bool) {}

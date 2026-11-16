@@ -598,7 +598,7 @@ builtin_command_ledger! {
     // Motion-related configuration.
     MotionSyncMode => { class: plain, packet: None, source: crate::source_evidence::Source::Unsourced },
     MotionSyncPreset => { class: plain, packet: None, source: crate::source_evidence::Source::Unsourced },
-    VariableSpeedMode => { class: plain(Set(VariableSpeedMode)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::variable_speed::STEP_RANGE)), source: crate::source_evidence::source!([(R7, [SonyFr7], "r7-variablespeedmode-command")]) },
+    VariableSpeedMode => { class: plain(Set(PanTiltSpeedMode)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::variable_speed::STEP_RANGE)), source: crate::source_evidence::source!([(R7, [SonyFr7], "r7-variablespeedmode-command")]) },
     // Sony FR7 cinema controls, R7 v4.
     Fr7AeLevelUp => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::COMPENSATION_STEP).then(&[0x02], &[0xFF])), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7aelevelup") },
     Fr7AeLevelDown => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::COMPENSATION_STEP).then(&[0x03], &[0xFF])), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7aeleveldown") },

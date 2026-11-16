@@ -12,13 +12,13 @@ NoSocket	src/error.rs	0x05 => Self::NoSocket,
 CommandNotExecutable	src/error.rs	0x41 => Self::CommandNotExecutable,
 InvalidResponseFormat	src/command/response/payload.rs	let Some(padding) = N.checked_sub(digits) else { return Err(Error::InvalidResponseFormat);
 InvalidResponseLength	src/error.rs	Self::InvalidResponseLength { expected, actual: payload.len(),
-UnexpectedResponseType	src/command/inquiry_structs.rs	_ => Err(Error::UnexpectedResponseType),
+UnexpectedResponseType	src/command/inquiry_structs.rs	Response::Error(e) => Err(e), _ => Err(Error::UnexpectedResponseType),
 Unknown	src/error.rs	_ => Self::Unknown(code),
 InvalidRequest	src/raw.rs	if bytes.len() < 2 { return Err(Error::InvalidRequest(
 MessageLengthError	src/error.rs	0x01 => Self::MessageLengthError,
 ParseError	src/error.rs	Self::ParseError(Cow::Owned(err.to_string()))
 TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
-InvalidParameter	src/units.rs	if !value.is_finite() { return Err(Error::InvalidParameter {
+InvalidParameter	src/macros/public.rs	crate::Error::InvalidParameter { parameter, value: ::std::borrow::Cow::Borrowed(
 BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))
 ParameterOutOfRange	src/error.rs	Self::ParameterOutOfRange { parameter, value, min, max, }
 Timeout	src/error.rs	Self::Timeout { context: FailureContext::new(stage, certainty), }
@@ -42,7 +42,7 @@ CommandFailedAfterAck	src/runtime/engine/mod.rs	Error::command_failed_after_ack(
 RuntimeIdentityExhausted	src/runtime/engine/mod.rs	let Some(id) = self.allocate_request_id() else { return Err(Error::RuntimeIdentityExhausted); };
 RuntimeQueueFull	src/runtime/engine/mod.rs	return Err(Error::RuntimeQueueFull {
 StreamPoisoned	src/error.rs	Self::StreamPoisoned { source }
-InvalidCameraId	src/camera_id.rs	_ => Err(Error::InvalidCameraId { id }),
+InvalidCameraId	src/camera_id.rs	error = Error::InvalidCameraId { id: value }
 ResponseTooLarge	src/error.rs	Self::ResponseTooLarge { max_size }
 InquiryNotCancelable	src/runtime/engine/mod.rs	CancellationDecision::Refused(Error::InquiryNotCancelable)
 InvalidAddress	src/transport/address.rs	Error::InvalidAddress { reason: reason.into(), }

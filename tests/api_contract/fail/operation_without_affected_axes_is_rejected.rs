@@ -14,7 +14,7 @@ impl Request for MissingAffectedAxes {
     const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
     fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        buffer[..2].copy_from_slice(&[target.to_address_byte(), 0xff]);
+        buffer[..2].copy_from_slice(&[(0x80 | target.value()), 0xff]);
         Ok(2)
     }
 }

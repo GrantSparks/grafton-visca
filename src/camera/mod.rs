@@ -14,4 +14,4 @@ pub mod profiles;
 pub use config::{CameraConfig, TransportKind, TransportOptions};
 #[cfg(feature = "async")]
 pub use construction::Connect;
-pub use movement::{IdleWait, MotionQuery, MovementTolerance, PanTiltPosition};
+pub use movement::{IdleWait, MotionQuery, MovementTolerance, PanTiltPosition, PanTiltUnits};

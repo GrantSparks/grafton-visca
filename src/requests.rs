@@ -495,6 +495,8 @@ enum DecoderInner<R> {
     Builtin {
         kind: crate::command::InquiryKind,
         framing: Option<crate::command::pan_tilt::PanTiltFraming>,
+        physical_color_temperature: bool,
+        color_temperature_steps: Option<Arc<[u16]>>,
         lift: fn(crate::command::Response) -> Result<R>,
     },
     Shared(Arc<SharedDecoder<R>>),
@@ -518,7 +520,7 @@ impl<R> ResponseDecoder<R> {
         }
     }
 
-    /// Store the canonical table decoder and its profile framing inline.
+    /// Stores the canonical raw response decoder and its profile framing inline.
     pub(crate) fn for_builtin_profile(
         kind: crate::command::InquiryKind,
         profile: &crate::ProfileSpec,
@@ -530,6 +532,29 @@ impl<R> ResponseDecoder<R> {
                 framing: profile
                     .pan_tilt_coordinates()
                     .map(crate::command::pan_tilt::PanTiltFraming::for_conversion),
+                physical_color_temperature: false,
+                color_temperature_steps: None,
+                lift,
+            },
+        }
+    }
+
+    /// Shares the profile's existing table for the typed Kelvin readback.
+    pub(crate) fn for_color_temperature(
+        profile: &crate::ProfileSpec,
+        lift: fn(crate::command::Response) -> Result<R>,
+    ) -> Self {
+        Self {
+            inner: DecoderInner::Builtin {
+                kind: crate::command::InquiryKind::ColorTemperature,
+                framing: None,
+                physical_color_temperature: true,
+                color_temperature_steps: profile
+                    .capabilities()
+                    .white_balance
+                    .as_ref()
+                    .filter(|domain| !domain.color_temperature_steps.is_empty())
+                    .map(|domain| Arc::clone(&domain.color_temperature_steps)),
                 lift,
             },
         }
@@ -554,10 +579,13 @@ impl<R> ResponseDecoder<R> {
             DecoderInner::Builtin {
                 kind,
                 framing,
+                physical_color_temperature,
+                color_temperature_steps,
                 lift,
             } => {
                 use crate::command::{
-                    inquiry_structs, pan_tilt::PanTiltFraming, InquiryKind, Payload,
+                    inquiry_structs, pan_tilt::PanTiltFraming, InquiryData, InquiryKind, Payload,
+                    Response,
                 };
                 let framing = match (kind, framing) {
                     (InquiryKind::PanTiltPosition, None) => {
@@ -569,6 +597,32 @@ impl<R> ResponseDecoder<R> {
                     _ => PanTiltFraming::STANDARD,
                 };
                 inquiry_structs::dispatch_with_framing(*kind, Payload::new(payload), framing)
+                    .and_then(|response| match response {
+                        Response::Inquiry(InquiryData::ColorTemperature { temperature })
+                            if *physical_color_temperature =>
+                        {
+                            let steps = color_temperature_steps.as_ref().ok_or(
+                                Error::FeatureNotSupported {
+                                    feature: "color-temperature conversion",
+                                },
+                            )?;
+                            let temperature = steps
+                                .get(usize::from(temperature))
+                                .copied()
+                                .ok_or_else(|| {
+                                    Error::invalid_response(
+                                        format!(
+                                            "unknown profile color-temperature step {temperature}"
+                                        ),
+                                        payload.to_vec(),
+                                    )
+                                })?;
+                            Ok(Response::Inquiry(InquiryData::ColorTemperature {
+                                temperature,
+                            }))
+                        }
+                        response => Ok(response),
+                    })
                     .and_then(lift)
                     .map_err(|error| inquiry_structs::reply_value_error(error, payload))
             }
@@ -584,10 +638,14 @@ impl<R> Clone for ResponseDecoder<R> {
             DecoderInner::Builtin {
                 kind,
                 framing,
+                physical_color_temperature,
+                color_temperature_steps,
                 lift,
             } => DecoderInner::Builtin {
                 kind: *kind,
                 framing: *framing,
+                physical_color_temperature: *physical_color_temperature,
+                color_temperature_steps: color_temperature_steps.as_ref().map(Arc::clone),
                 lift: *lift,
             },
             DecoderInner::Shared(decode) => DecoderInner::Shared(Arc::clone(decode)),
@@ -607,6 +665,124 @@ impl<R> fmt::Debug for ResponseDecoder<R> {
             .debug_struct("ResponseDecoder")
             .field("storage", &storage)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod bound_temperature_decoder_tests {
+    use super::{DecoderInner, Inquiry, ResponseDecoder};
+    use crate::{
+        capabilities::CapabilityRange,
+        command::{ColorTemperatureInquiry, InquiryData, InquiryKind, Payload, Response},
+        profiles::{GenericVisca, PtzOpticsG2},
+        types::Kelvin,
+        Error, ProfileSpec, Result,
+    };
+    use std::sync::Arc;
+
+    #[derive(crate::ViscaInquiry)]
+    #[visca(opcode = 0, response = ColorTemperature)]
+    struct RawTemperatureInquiry;
+
+    fn custom_profile(steps: Arc<[u16]>) -> Result<ProfileSpec> {
+        let baseline = ProfileSpec::from_compile_time::<PtzOpticsG2>()?;
+        let mut capabilities = baseline.capabilities().clone();
+        capabilities.profile_id = None;
+        let white_balance =
+            capabilities
+                .white_balance
+                .as_mut()
+                .ok_or(Error::FeatureNotSupported {
+                    feature: "test white balance",
+                })?;
+        white_balance.color_temp_range = Some(CapabilityRange::<u16>::new(3100, 6300));
+        white_balance.color_temperature_steps = steps;
+        ProfileSpec::builder(capabilities)
+            .transports(baseline.transports())
+            .envelope(baseline.envelope())
+            .timing(baseline.timing())
+            .maximum_command_sockets(baseline.maximum_command_sockets())
+            .position_inquiries(baseline.position_inquiries())
+            .supports_operation_complete(baseline.supports_operation_complete())
+            .supports_command_cancel(baseline.supports_command_cancel())
+            .build()
+    }
+
+    fn shares_steps(decoder: &ResponseDecoder<Kelvin>, steps: &Arc<[u16]>) -> bool {
+        matches!(
+            &decoder.inner,
+            DecoderInner::Builtin {
+                color_temperature_steps: Some(stored),
+                ..
+            } if Arc::ptr_eq(stored, steps)
+        )
+    }
+
+    #[test]
+    fn bound_temperature_decoder_uses_owned_profile_steps_without_double_conversion() -> Result<()>
+    {
+        let steps: Arc<[u16]> = Arc::from([3100, 4200, 6300]);
+        let profile = custom_profile(Arc::clone(&steps))?;
+        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile);
+        let cloned = decoder.clone();
+
+        assert!(shares_steps(&decoder, &steps));
+        assert!(shares_steps(&cloned, &steps));
+        assert_eq!(decoder.decode(&[1])?.value(), 4200);
+        assert_eq!(
+            ColorTemperatureInquiry.decoder().decode(&[1])?.value(),
+            2600
+        );
+        assert!(matches!(
+            crate::command::inquiry_structs::dispatch(
+                InquiryKind::ColorTemperature,
+                Payload::new(&[1]),
+            )?,
+            Response::Inquiry(InquiryData::ColorTemperature { temperature: 1 })
+        ));
+        assert!(matches!(
+            RawTemperatureInquiry
+                .decoder_for_profile(&profile)
+                .decode(&[1])?,
+            Response::Inquiry(InquiryData::ColorTemperature { temperature: 1 })
+        ));
+
+        drop(profile);
+        drop(steps);
+        assert_eq!(cloned.decode(&[2])?.value(), 6300);
+        Ok(())
+    }
+
+    #[test]
+    fn bound_temperature_decoder_requires_a_declared_table() -> Result<()> {
+        let profile = ProfileSpec::from_compile_time::<GenericVisca>()?;
+        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile);
+        assert!(matches!(
+            decoder.decode(&[0]),
+            Err(Error::FeatureNotSupported {
+                feature: "color-temperature conversion"
+            })
+        ));
+        assert!(matches!(
+            RawTemperatureInquiry
+                .decoder_for_profile(&profile)
+                .decode(&[0])?,
+            Response::Inquiry(InquiryData::ColorTemperature { temperature: 0 })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn bound_temperature_decoder_rejects_unknown_steps_with_original_payload() -> Result<()> {
+        let profile = custom_profile(Arc::from([3100, 4200, 6300]))?;
+        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile);
+        assert!(matches!(
+            decoder.decode(&[3]),
+            Err(Error::InvalidResponse { actual, .. }) if actual == [3]
+        ));
+        assert!(decoder.decode(&[]).is_err());
+        assert!(decoder.decode(&[0, 1]).is_err());
+        Ok(())
     }
 }
 

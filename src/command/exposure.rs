@@ -3,13 +3,13 @@
 //! This module provides commands for controlling various exposure-related settings
 //! including exposure mode, exposure compensation, iris, shutter, and brightness.
 
-use grafton_visca_macros::ViscaEnum;
+use crate::wire::WireValue;
 
 use crate::{
     command::bytes::{constants::exposure, step_command_encoder},
     macros::consolidated::visca_command,
     types::{
-        BrightnessLevel, DynamicRangeLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed,
+        BrightnessLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed, WideDynamicRangeLevel,
     },
 };
 
@@ -18,11 +18,7 @@ use crate::{
 pub(crate) const SHARED_EXPOSURE_MODE_FEATURE: &str = "shared exposure-mode family";
 
 /// Camera exposure control modes.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum ExposureMode {
     /// Automatic exposure control - camera adjusts all exposure parameters automatically
     Auto = 0x00,
@@ -45,7 +41,7 @@ visca_command! {
         mode: ExposureMode,
     };
     prefix = exposure::MODE;
-    param = u8::from(*mode);
+    param = (*mode).to_wire();
     max_param_size = 1;
 }
 
@@ -80,7 +76,7 @@ step_command_encoder! {
     ExposureCompensation {
         control: exposure::COMPENSATION_STEP,
         direct: exposure::COMPENSATION_DIRECT,
-        SetLevel(level) => nibbles::<2>(level.to_protocol_value()),
+        SetLevel(level) => nibbles::<2>(level.to_wire()),
         Self::On => |frame| frame.bytes(&exposure::COMPENSATION_SWITCH).byte(0x02),
         Self::Off => |frame| frame.bytes(&exposure::COMPENSATION_SWITCH).byte(0x03),
     }
@@ -94,7 +90,7 @@ visca_command! {
     /// increase the dynamic range, allowing better detail retention in scenes
     /// with high contrast.
     pub struct DynamicRange {
-        level: DynamicRangeLevel,
+        level: WideDynamicRangeLevel,
     };
     prefix = exposure::DYNAMIC_RANGE;
     param = level.value();
@@ -103,7 +99,7 @@ visca_command! {
 
 impl DynamicRange {
     /// Create a new dynamic range command.
-    pub fn new(level: DynamicRangeLevel) -> Self {
+    pub fn new(level: WideDynamicRangeLevel) -> Self {
         Self { level }
     }
 }
@@ -185,11 +181,7 @@ step_command_encoder! {
 ///
 /// Controls the camera's flicker reduction to match the local AC power frequency.
 /// Using the wrong setting can cause visible banding/flickering in the image.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum AntiFlickerMode {
     /// Anti-flicker disabled.
     Off = 0x00,
@@ -208,7 +200,7 @@ visca_command! {
         mode: AntiFlickerMode,
     };
     prefix = exposure::ANTI_FLICKER;
-    param = u8::from(*mode);
+    param = (*mode).to_wire();
     max_param_size = 1;
 }
 
@@ -311,26 +303,26 @@ mod tests {
     #[test]
     fn test_exposure_mode_try_from() {
         assert!(matches!(
-            ExposureMode::try_from(0x00),
+            ExposureMode::from_wire(0x00),
             Ok(ExposureMode::Auto)
         ));
         assert!(matches!(
-            ExposureMode::try_from(0x03),
+            ExposureMode::from_wire(0x03),
             Ok(ExposureMode::Manual)
         ));
         assert!(matches!(
-            ExposureMode::try_from(0x0A),
+            ExposureMode::from_wire(0x0A),
             Ok(ExposureMode::Shutter)
         ));
         assert!(matches!(
-            ExposureMode::try_from(0x0B),
+            ExposureMode::from_wire(0x0B),
             Ok(ExposureMode::Iris)
         ));
         assert!(matches!(
-            ExposureMode::try_from(0x0D),
+            ExposureMode::from_wire(0x0D),
             Ok(ExposureMode::Bright)
         ));
-        assert!(ExposureMode::try_from(0xFF).is_err());
+        assert!(ExposureMode::from_wire(0xFF).is_err());
     }
 
     #[test]
@@ -339,7 +331,7 @@ mod tests {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             assert_eq!(
-                level.to_protocol_value(),
+                level.to_wire(),
                 u8::try_from(value + 7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             );
         }
@@ -446,7 +438,7 @@ mod tests {
     visca_test!(
         DynamicRange,
         test_dynamic_range_level_0,
-        DynamicRange::new(DynamicRangeLevel::new(0).unwrap()),
+        DynamicRange::new(WideDynamicRangeLevel::new(0).unwrap()),
         &[
             0x81,
             0x01,
@@ -463,7 +455,7 @@ mod tests {
     visca_test!(
         DynamicRange,
         test_dynamic_range_level_4,
-        DynamicRange::new(DynamicRangeLevel::new(4).unwrap()),
+        DynamicRange::new(WideDynamicRangeLevel::new(4).unwrap()),
         &[
             0x81,
             0x01,
@@ -480,7 +472,7 @@ mod tests {
     visca_test!(
         DynamicRange,
         test_dynamic_range_level_8,
-        DynamicRange::new(DynamicRangeLevel::new(8).unwrap()),
+        DynamicRange::new(WideDynamicRangeLevel::new(8).unwrap()),
         &[
             0x81,
             0x01,
@@ -497,7 +489,7 @@ mod tests {
     #[test]
     fn test_dynamic_range_valid_values() {
         for value in 0..=8 {
-            let level = DynamicRangeLevel::new(value)
+            let level = WideDynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let _cmd = DynamicRange::new(level);
         }
@@ -625,7 +617,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_01,
-        Shutter::SetSpeed(ShutterSpeed::new(0x01)),
+        Shutter::SetSpeed(ShutterSpeed::new(0x01).unwrap()),
         &[
             0x81,
             0x01,
@@ -642,7 +634,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_05,
-        Shutter::SetSpeed(ShutterSpeed::new(0x05)),
+        Shutter::SetSpeed(ShutterSpeed::new(0x05).unwrap()),
         &[
             0x81,
             0x01,
@@ -659,7 +651,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_10,
-        Shutter::SetSpeed(ShutterSpeed::new(0x10)),
+        Shutter::SetSpeed(ShutterSpeed::new(0x10).unwrap()),
         &[
             0x81,
             0x01,
@@ -676,7 +668,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_11,
-        Shutter::SetSpeed(ShutterSpeed::new(0x11)),
+        Shutter::SetSpeed(ShutterSpeed::new(0x11).unwrap()),
         &[
             0x81,
             0x01,
@@ -693,7 +685,7 @@ mod tests {
     #[test]
     fn test_shutter_valid_values() {
         for value in 0x01..=0x11 {
-            let _cmd = Shutter::SetSpeed(ShutterSpeed::new(value));
+            let _cmd = Shutter::SetSpeed(ShutterSpeed::new(value).unwrap());
         }
     }
 
@@ -721,7 +713,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_00,
-        Brightness::SetLevel(BrightnessLevel::new(0x00)),
+        Brightness::SetLevel(BrightnessLevel::new(0x00).unwrap()),
         &[
             0x81,
             0x01,
@@ -738,7 +730,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_08,
-        Brightness::SetLevel(BrightnessLevel::new(0x08)),
+        Brightness::SetLevel(BrightnessLevel::new(0x08).unwrap()),
         &[
             0x81,
             0x01,
@@ -755,7 +747,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_10,
-        Brightness::SetLevel(BrightnessLevel::new(0x10)),
+        Brightness::SetLevel(BrightnessLevel::new(0x10).unwrap()),
         &[
             0x81,
             0x01,
@@ -772,7 +764,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_11,
-        Brightness::SetLevel(BrightnessLevel::new(0x11)),
+        Brightness::SetLevel(BrightnessLevel::new(0x11).unwrap()),
         &[
             0x81,
             0x01,
@@ -790,7 +782,7 @@ mod tests {
     fn every_bright_position_is_a_wire_byte() {
         let mut buffer = [0; 16];
         for value in u8::MIN..=u8::MAX {
-            let written = Brightness::SetLevel(BrightnessLevel::new(value))
+            let written = Brightness::SetLevel(BrightnessLevel::new(value).unwrap())
                 .write_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             assert_eq!(
@@ -855,17 +847,17 @@ mod tests {
     #[test]
     fn test_anti_flicker_mode_try_from() {
         assert!(matches!(
-            AntiFlickerMode::try_from(0x00),
+            AntiFlickerMode::from_wire(0x00),
             Ok(AntiFlickerMode::Off)
         ));
         assert!(matches!(
-            AntiFlickerMode::try_from(0x01),
+            AntiFlickerMode::from_wire(0x01),
             Ok(AntiFlickerMode::Hz50)
         ));
         assert!(matches!(
-            AntiFlickerMode::try_from(0x02),
+            AntiFlickerMode::from_wire(0x02),
             Ok(AntiFlickerMode::Hz60)
         ));
-        assert!(AntiFlickerMode::try_from(0x03).is_err());
+        assert!(AntiFlickerMode::from_wire(0x03).is_err());
     }
 }

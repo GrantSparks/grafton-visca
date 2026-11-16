@@ -1,34 +1,25 @@
-use grafton_visca::ViscaEnum;
+use grafton_visca::{value_enum, wire::WireValue, Error, Result};
 
-mod named_error {
-    #[derive(Debug, PartialEq)]
-    pub struct Error(pub String, pub Vec<u8>);
-    impl Error {
-        pub fn invalid_response(expected: impl Into<std::borrow::Cow<'static, str>>, actual: Vec<u8>) -> Self {
-            Self(expected.into().into_owned(), actual)
-        }
-    }
+#[value_enum]
+enum Closed {
+    Valid = 1,
 }
-#[derive(Debug, PartialEq, ViscaEnum)]
-#[visca_enum(error_type = named_error::Error)]
-enum Named { Valid = 1 }
 
-#[derive(Debug, PartialEq)]
-struct MyError(String);
-impl From<String> for MyError {
-    fn from(message: String) -> Self { Self(message) }
+#[value_enum]
+enum Extensible {
+    Valid = 1,
+    Unknown(u8),
 }
-#[derive(Debug, PartialEq, ViscaEnum)]
-#[visca_enum(error_type = MyError)]
-enum Custom { Valid = 1 }
 
-#[derive(Debug, PartialEq, ViscaEnum)]
-#[visca_enum(error_type = grafton_visca::Error)]
-enum Explicit { Valid = 1 }
-
-fn main() {
-    assert_eq!(Named::try_from(1).unwrap(), Named::Valid);
-    assert_eq!(Named::try_from(2).unwrap_err().1, vec![2]);
-    assert!(Custom::try_from(2).unwrap_err().0.contains("Invalid value"));
-    assert!(matches!(Explicit::try_from(2), Err(grafton_visca::Error::InvalidResponse { actual, .. }) if actual == vec![2]));
+fn main() -> Result<()> {
+    let closed: Result<Closed> = Closed::from_wire(1);
+    assert_eq!(closed?, Closed::Valid);
+    let error: Error = Closed::from_wire(2).expect_err("closed enum rejects unknown code");
+    assert!(
+        matches!(error, Error::InvalidParameter { parameter: "Closed", value, reason, .. }
+        if value == "2" && reason == "unknown wire value")
+    );
+    assert_eq!(Extensible::from_wire(2)?, Extensible::Unknown(2));
+    assert_eq!(Extensible::Unknown(2).to_wire(), 2);
+    Ok(())
 }

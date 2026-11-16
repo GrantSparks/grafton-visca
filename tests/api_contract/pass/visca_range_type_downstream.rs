@@ -5,7 +5,7 @@
 // so that leg keeps only the shadows compatible with the upstream derive; the
 // renamed phase-4 fixture separately pins the real derive's exact behavior.
 mod visca_range_hygiene {
-    use grafton_visca::visca_range_type;
+    use grafton_visca::value;
 
     #[cfg(not(feature = "ts-rs"))]
     #[allow(dead_code)]
@@ -40,7 +40,7 @@ mod visca_range_hygiene {
     #[allow(unused_macros)]
     macro_rules! format {
         ($($tokens:tt)*) => {
-            compile_error!("visca_range_type! expansion captured `format!`")
+            compile_error!("value expansion captured `format!`")
         };
     }
 
@@ -48,7 +48,7 @@ mod visca_range_hygiene {
     #[allow(unused_macros)]
     macro_rules! write {
         ($($tokens:tt)*) => {
-            compile_error!("visca_range_type! expansion captured `write!`")
+            compile_error!("value expansion captured `write!`")
         };
     }
 
@@ -56,7 +56,7 @@ mod visca_range_hygiene {
     #[allow(unused_macros)]
     macro_rules! stringify {
         ($($tokens:tt)*) => {
-            compile_error!("visca_range_type! expansion captured `stringify!`")
+            compile_error!("value expansion captured `stringify!`")
         };
     }
 
@@ -64,83 +64,55 @@ mod visca_range_hygiene {
     #[allow(unused_macros)]
     macro_rules! module_path {
         ($($tokens:tt)*) => {
-            compile_error!("visca_range_type! expansion captured `module_path!`")
+            compile_error!("value expansion captured `module_path!`")
         };
     }
 
-    visca_range_type! {
-        /// Downstream-defined value with a finite valid range.
-        HygienicRange: u8 {
-            min: 2,
-            max: 4
-        }
-    }
+    #[value(min = 2, max = 4)]
+    /// Downstream-defined value with a finite valid range.
+    pub struct HygienicRange(u8);
 
     // Availability applies to the entire generated item family. In
     // particular, the two declarations must not leave colliding helper
     // modules behind when serde/schemars/ts-rs support is enabled.
-    visca_range_type! {
-        #[cfg(all())]
-        ConditionalRange: u8 {
-            min: 5,
-            max: 6
-        }
-    }
+    #[value(min = 5, max = 6)]
+    #[cfg(all())]
+    pub struct ConditionalRange(u8);
 
-    visca_range_type! {
-        #[cfg(not(all()))]
-        ConditionalRange: u8 {
-            min: 50,
-            max: 60
-        }
-    }
+    #[value(min = 50, max = 60)]
+    #[cfg(not(all()))]
+    pub struct ConditionalRange(u8);
 
     // Only availability predicates may be copied onto the generated module
     // and impls. The helper attributes remain attached solely to the struct.
-    visca_range_type! {
-        #[cfg_attr(all(), cfg(all()))]
-        #[cfg_attr(feature = "serde", serde(rename = "ConditionalAttrRange"))]
-        #[cfg_attr(feature = "schemars", schemars(rename = "ConditionalAttrRange"))]
-        #[cfg_attr(feature = "ts-rs", ts(rename = "ConditionalAttrRange"))]
-        ConditionalAttrRange: u8 {
-            min: 7,
-            max: 8
-        }
-    }
+    #[value(min = 7, max = 8)]
+    #[cfg_attr(all(), cfg(all()))]
+    #[cfg_attr(feature = "serde", serde(rename = "ConditionalAttrRange"))]
+    #[cfg_attr(feature = "schemars", schemars(rename = "ConditionalAttrRange"))]
+    #[cfg_attr(feature = "ts-rs", ts(rename = "ConditionalAttrRange"))]
+    pub struct ConditionalAttrRange(u8);
 
     // A disabled declaration must leave no helper module, type, or impl
     // residue. These caller-owned items deliberately reuse both names.
-    visca_range_type! {
-        #[cfg(any())]
-        DisabledRange: u8 {
-            min: 1,
-            max: 2
-        }
-    }
+    #[value(min = 1, max = 2)]
+    #[cfg(any())]
+    pub struct DisabledRange(u8);
 
     #[allow(non_snake_case)]
-    mod __grafton_visca_newtype_support_DisabledRange {}
+    mod __grafton_visca_value_support_DisabledRange {}
 
     #[allow(dead_code)]
     struct DisabledRange;
 
     // This second disabled declaration intentionally has no replacement type:
     // an ungated generated impl therefore fails with an unresolved-type error.
-    visca_range_type! {
-        #[cfg(any())]
-        MissingTypeRange: u8 {
-            min: 1,
-            max: 2
-        }
-    }
+    #[value(min = 1, max = 2)]
+    #[cfg(any())]
+    pub struct MissingTypeRange(u8);
 
-    visca_range_type! {
-        #[allow(non_camel_case_types)]
-        r#match: u8 {
-            min: 9,
-            max: 10
-        }
-    }
+    #[value(min = 9, max = 10)]
+    #[allow(non_camel_case_types)]
+    pub struct r#match(u8);
 
     fn assert_derive_traits<T>()
     where
@@ -150,7 +122,8 @@ mod visca_range_hygiene {
             + ::core::cmp::PartialEq
             + ::core::cmp::Eq
             + ::core::cmp::PartialOrd
-            + ::core::cmp::Ord,
+            + ::core::cmp::Ord
+            + ::core::hash::Hash,
     {
     }
 

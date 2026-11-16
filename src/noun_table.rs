@@ -233,7 +233,7 @@ macro_rules! noun_table {
                 doc: "Pan/tilt movement, limits, and the position inquiry.",
             };
             /// Returns the current pan/tilt position.
-            inquiry [] position() -> crate::camera::PanTiltPosition
+            inquiry [] position() -> crate::camera::PanTiltUnits
                 = [command::PanTiltPositionInquiry];
             /// Moves the pan/tilt mechanism to its home position.
             targeted [PanTiltHome] home() -> builtin::PanTiltHome = [builtin::PanTiltHome];
@@ -249,14 +249,14 @@ macro_rules! noun_table {
             applied [PanTiltStop] stop() -> builtin::PanTiltStop
                 = [with_profile |profile| crate::stop_request::pan_tilt_stop_request(profile)];
             /// Moves to an absolute degree position at the selected speed.
-            targeted [PanTiltAbsolute] absolute(pan: Degrees<f32>, tilt: Degrees<f32>, speed: types::SpeedLevel)
+            targeted [PanTiltAbsolute] absolute(pan: Degrees, tilt: Degrees, speed: types::SpeedLevel)
                 -> builtin::PanTiltAbsolute
                 = [with_target |target| builtin::PanTiltAbsolute::for_target_speed_level(
                     pan, tilt, speed, target,
                 )];
             /// Moves by a relative degree offset at the selected speed. Each axis accepts
             /// the full span between the profile's absolute limits in either direction.
-            targeted [PanTiltRelative] relative(pan: Degrees<f32>, tilt: Degrees<f32>, speed: types::SpeedLevel)
+            targeted [PanTiltRelative] relative(pan: Degrees, tilt: Degrees, speed: types::SpeedLevel)
                 -> builtin::PanTiltRelative
                 = [with_target |target| builtin::PanTiltRelative::for_target_speed_level(
                     pan, tilt, speed, target,
@@ -264,8 +264,8 @@ macro_rules! noun_table {
             /// Sets one pan/tilt movement-limit corner.
             plain [PanTiltLimitSet] limit_set(
                 corner: command::PanTiltLimitCorner,
-                pan: Degrees<f32>,
-                tilt: Degrees<f32>
+                pan: Degrees,
+                tilt: Degrees
             ) -> builtin::PanTiltLimitSet = [with_target |target| builtin::PanTiltLimitSet::for_target(
                 corner,
                 pan,
@@ -339,8 +339,8 @@ macro_rules! noun_table {
                 -> command::FocusNearLimitCommand where HasFocusNearLimitInquiry
                 = [command::FocusNearLimitCommand::new(position)];
             /// Sets the focus-lock mode.
-            plain [FocusLock] set_lock(mode: command::FocusLock) -> command::FocusLock
-                where HasFocusLock = [mode];
+            plain [FocusLock] set_lock(mode: bool) -> command::FocusLockCommand
+                where HasFocusLock = [command::FocusLockCommand::new(mode)];
             /// Presses the vendor Push-AF control.
             applied [PushAfPress] push_af_press() -> builtin::PushAfPress where HasPushAutoFocus
                 = [builtin::PushAfPress::new()];
@@ -372,7 +372,7 @@ macro_rules! noun_table {
                 -> builtin::PresetRecall
                 = [with_profile |profile| builtin::PresetRecall::for_profile(preset, profile)];
             /// Sets the preset-recall speed.
-            plain [PresetRecallSpeed] set_recall_speed(speed: command::PresetRecallSpeed)
+            plain [PresetRecallSpeed] set_recall_speed(speed: types::PresetSpeed)
                 -> command::PresetRecallSpeedCommand
                 where HasPtzOpticsPresetRecallSpeed
                 = [command::PresetRecallSpeedCommand::new(speed)];
@@ -385,11 +385,11 @@ macro_rules! noun_table {
 
 
             /// Sony FR7 select speed (R7).
-            plain [Fr7SetPresetSpeedSelection] select_speed(mode: command::Fr7PresetSpeedSelection) -> command::Fr7SetPresetSpeedSelection
+            plain [Fr7SetPresetSpeedSelection] select_speed(mode: command::PresetSpeedSelection) -> command::Fr7SetPresetSpeedSelection
                 where HasSonyFr7PresetSpeed
                 = [command::Fr7SetPresetSpeedSelection::new(mode)];
             /// Reads Sony FR7 speed selection (R7).
-            inquiry [] speed_selection() -> command::Fr7PresetSpeedSelection
+            inquiry [] speed_selection() -> command::PresetSpeedSelection
                 where HasSonyFr7PresetSpeed
                 = [command::Fr7PresetSpeedSelectionInquiry];
             /// Sony FR7 set common speed (R7).
@@ -401,27 +401,27 @@ macro_rules! noun_table {
                 where HasSonyFr7PresetSpeed
                 = [command::Fr7CommonPresetSpeedInquiry];
             /// Sony FR7 set separate mode (R7).
-            plain [Fr7SetSeparatePresetMode] set_separate_mode(preset: types::Fr7PresetNumber, mode: command::Fr7PresetSeparateMode) -> command::Fr7SetSeparatePresetMode
+            plain [Fr7SetSeparatePresetMode] set_separate_mode(preset: types::PresetNumber, mode: command::PresetSeparateMode) -> command::Fr7SetSeparatePresetMode
                 where HasSonyFr7PresetSpeed
                 = [command::Fr7SetSeparatePresetMode::new(preset, mode)];
             /// Reads Sony FR7 separate mode (R7).
-            inquiry [] separate_mode(preset: types::Fr7PresetNumber) -> command::Fr7PresetSeparateMode
+            inquiry [] separate_mode(preset: types::PresetNumber) -> command::PresetSeparateMode
                 where HasSonyFr7PresetSpeed
                 = [command::Fr7SeparatePresetModeInquiry::new(preset)];
             /// Sony FR7 set separate speed (R7).
-            plain [Fr7SetSeparatePresetSpeed] set_separate_speed(preset: types::Fr7PresetNumber, speed: types::PresetSpeed) -> command::Fr7SetSeparatePresetSpeed
+            plain [Fr7SetSeparatePresetSpeed] set_separate_speed(preset: types::PresetNumber, speed: types::PresetSpeed) -> command::Fr7SetSeparatePresetSpeed
                 where HasSonyFr7PresetSpeed
                 = [command::Fr7SetSeparatePresetSpeed::new(preset, speed)];
             /// Reads Sony FR7 separate speed (R7).
-            inquiry [] separate_speed(preset: types::Fr7PresetNumber) -> types::PresetSpeed
+            inquiry [] separate_speed(preset: types::PresetNumber) -> types::PresetSpeed
                 where HasSonyFr7PresetSpeed
                 = [command::Fr7SeparatePresetSpeedInquiry::new(preset)];
             /// Sony FR7 set separate duration (R7).
-            plain [Fr7SetSeparatePresetDuration] set_separate_duration(preset: types::Fr7PresetNumber, duration: types::PresetDuration) -> command::Fr7SetSeparatePresetDuration
+            plain [Fr7SetSeparatePresetDuration] set_separate_duration(preset: types::PresetNumber, duration: std::time::Duration) -> command::Fr7SetSeparatePresetDuration
                 where HasSonyFr7PresetDuration
-                = [command::Fr7SetSeparatePresetDuration::new(preset, duration)];
+                = [checked command::Fr7SetSeparatePresetDuration::new(preset, duration)];
             /// Reads Sony FR7 separate duration (R7).
-            inquiry [] separate_duration(preset: types::Fr7PresetNumber) -> types::PresetDuration
+            inquiry [] separate_duration(preset: types::PresetNumber) -> std::time::Duration
                 where HasSonyFr7PresetDuration
                 = [command::Fr7SeparatePresetDurationInquiry::new(preset)];
 
@@ -451,7 +451,7 @@ macro_rules! noun_table {
             plain [ShutterDown] shutter_down() -> command::Shutter where HasShutterControl = [command::Shutter::Down];
             /// Sets an explicit shutter speed.
             plain [ShutterDirect] shutter_direct(speed: types::ShutterSpeed)
-                -> command::Shutter where HasShutterDirect = [by_value [command::Shutter::SetSpeed(types::ShutterSpeed::new(0))] command::Shutter::SetSpeed(speed)];
+                -> command::Shutter where HasShutterDirect = [by_value [command::Shutter::SetSpeed(types::ShutterSpeed::MIN)] command::Shutter::SetSpeed(speed)];
             /// Returns the exposure compensation value.
             inquiry [] compensation()
                 -> types::ExposureCompensationLevel
@@ -463,7 +463,7 @@ macro_rules! noun_table {
                 = [command::ExposureCompensationModeInquiry];
             /// Returns the camera's exposure compensation position.
             inquiry [] compensation_position()
-                -> types::ExposureCompensationPosition
+                -> types::ExposureCompensationLevel
                 where HasExposureCompensation
                 = [command::ExposureCompensationPositionInquiry];
             /// Enables exposure compensation.
@@ -494,7 +494,7 @@ macro_rules! noun_table {
                 = [command::ExposureCompensation::SetLevel(level)];
 
             /// Sets the wide-dynamic-range level.
-            plain [DynamicRange] set_dynamic_range(level: types::DynamicRangeLevel)
+            plain [DynamicRange] set_dynamic_range(level: types::WideDynamicRangeLevel)
                 -> command::DynamicRange where HasWideDynamicRange
                 = [command::DynamicRange::new(level)];
             /// Returns the iris level.
@@ -655,7 +655,7 @@ macro_rules! noun_table {
             plain [WhiteBalanceAutoTracking] atw() -> command::WhiteBalanceCommand
                 where HasAutoTrackingWhiteBalance
                 = [by_value command::WhiteBalanceCommand {
-                    mode: command::WhiteBalanceMode::ATW,
+                    mode: command::WhiteBalanceMode::Atw,
                 }];
             /// Selects manual white balance.
             plain [WhiteBalanceManual] manual() -> command::WhiteBalanceCommand
@@ -683,15 +683,15 @@ macro_rules! noun_table {
                 -> command::OnePushTriggerCommand where HasOnePushWhiteBalance
                 = [command::OnePushTriggerCommand::new()];
             /// Sets red-channel white-balance tuning.
-            plain [RedTuning] set_red_tuning(level: types::RedTuning)
+            plain [RedTuning] set_red_tuning(level: types::RgbTuning)
                 -> command::RedTuningCommand where HasRgbTuning
                 = [command::RedTuningCommand::new(level)];
             /// Sets blue-channel white-balance tuning.
-            plain [BlueTuning] set_blue_tuning(level: types::BlueTuning)
+            plain [BlueTuning] set_blue_tuning(level: types::RgbTuning)
                 -> command::BlueTuningCommand where HasRgbTuning
                 = [command::BlueTuningCommand::new(level)];
             /// Returns the color temperature.
-            inquiry [] color_temperature() -> types::ColorTemp
+            inquiry [] color_temperature() -> types::Kelvin
                 where HasColorTemperatureInquiry
                 = [command::ColorTemperatureInquiry];
             /// Resets color temperature.
@@ -707,11 +707,11 @@ macro_rules! noun_table {
                 where HasColorTemperature
                 = [command::ColorTemperature::Down];
             /// Sets a direct color-temperature value.
-            plain [ColorTemperatureDirect] set_color_temperature(temperature: types::ColorTemp)
+            plain [ColorTemperatureDirect] set_color_temperature(temperature: types::Kelvin)
                 -> command::ColorTemperature where HasColorTemperature
                 = [command::ColorTemperature::SetTemperature(temperature)];
             /// Returns the red-channel gain.
-            inquiry [] red_gain() -> types::RedChannel where HasRgbGain
+            inquiry [] red_gain() -> types::RgbGain where HasRgbGain
                 = [command::RedGainInquiry];
             /// Resets red-channel gain.
             plain [RedGainReset] reset_red_gain() -> command::RedGain where HasRgbGain
@@ -723,11 +723,11 @@ macro_rules! noun_table {
             plain [RedGainDown] decrease_red_gain() -> command::RedGain where HasRgbGain
                 = [command::RedGain::Down];
             /// Sets direct red-channel gain.
-            plain [RedGainDirect] set_red_gain(value: types::RedChannel) -> command::RedGain
+            plain [RedGainDirect] set_red_gain(value: types::RgbGain) -> command::RedGain
                 where HasRgbGain
                 = [command::RedGain::SetValue(value)];
             /// Returns the blue-channel gain.
-            inquiry [] blue_gain() -> types::BlueChannel where HasRgbGain
+            inquiry [] blue_gain() -> types::RgbGain where HasRgbGain
                 = [command::BlueGainInquiry];
             /// Resets blue-channel gain.
             plain [BlueGainReset] reset_blue_gain() -> command::BlueGain where HasRgbGain
@@ -739,14 +739,14 @@ macro_rules! noun_table {
             plain [BlueGainDown] decrease_blue_gain() -> command::BlueGain where HasRgbGain
                 = [command::BlueGain::Down];
             /// Sets direct blue-channel gain.
-            plain [BlueGainDirect] set_blue_gain(value: types::BlueChannel) -> command::BlueGain
+            plain [BlueGainDirect] set_blue_gain(value: types::RgbGain) -> command::BlueGain
                 where HasRgbGain
                 = [command::BlueGain::SetValue(value)];
             /// Returns red-channel tuning.
-            inquiry [] red_tuning() -> types::RedTuning where HasRgbTuning
+            inquiry [] red_tuning() -> types::RgbTuning where HasRgbTuning
                 = [command::RedTuningInquiry];
             /// Returns blue-channel tuning.
-            inquiry [] blue_tuning() -> types::BlueTuning where HasRgbTuning
+            inquiry [] blue_tuning() -> types::RgbTuning where HasRgbTuning
                 = [command::BlueTuningInquiry];
 
 
@@ -767,11 +767,11 @@ macro_rules! noun_table {
                 where HasSonyFr7PresetWhite
                 = [command::Fr7PresetWhite::Down(steps)];
             /// Sony FR7 set preset white (R7).
-            plain [Fr7PresetWhiteDirect] set_preset_white(value: types::WhiteKelvin) -> command::Fr7PresetWhite
+            plain [Fr7PresetWhiteDirect] set_preset_white(value: types::Kelvin) -> command::Fr7PresetWhite
                 where HasSonyFr7PresetWhite
                 = [command::Fr7PresetWhite::Direct(value)];
             /// Reads Sony FR7 preset white (R7).
-            inquiry [] preset_white() -> types::WhiteKelvin
+            inquiry [] preset_white() -> types::Kelvin
                 where HasSonyFr7PresetWhite
                 = [command::Fr7PresetWhiteInquiry];
             /// Sony FR7 memory temperature up (R7).
@@ -783,11 +783,11 @@ macro_rules! noun_table {
                 where HasSonyFr7MemoryColorTemperature
                 = [command::Fr7MemoryColorTemperature::Down(steps)];
             /// Sony FR7 set memory temperature (R7).
-            plain [Fr7MemoryColorTemperatureDirect] set_memory_temperature(value: types::WhiteKelvin) -> command::Fr7MemoryColorTemperature
+            plain [Fr7MemoryColorTemperatureDirect] set_memory_temperature(value: types::Kelvin) -> command::Fr7MemoryColorTemperature
                 where HasSonyFr7MemoryColorTemperature
                 = [command::Fr7MemoryColorTemperature::Direct(value)];
             /// Reads Sony FR7 memory temperature (R7).
-            inquiry [] memory_temperature() -> types::WhiteKelvin
+            inquiry [] memory_temperature() -> types::Kelvin
                 where HasSonyFr7MemoryColorTemperature
                 = [command::Fr7MemoryColorTemperatureInquiry];
             /// Sony FR7 memory red gain up (R7).
@@ -831,11 +831,11 @@ macro_rules! noun_table {
                 where HasSonyFr7MemoryTint
                 = [command::Fr7MemoryTint::Down(steps)];
             /// Sony FR7 set memory tint (R7).
-            plain [Fr7MemoryTintDirect] set_memory_tint(value: types::TintOffset) -> command::Fr7MemoryTint
+            plain [Fr7MemoryTintDirect] set_memory_tint(value: types::WhiteBalanceOffset) -> command::Fr7MemoryTint
                 where HasSonyFr7MemoryTint
                 = [command::Fr7MemoryTint::Direct(value)];
             /// Reads Sony FR7 memory tint (R7).
-            inquiry [] memory_tint() -> types::TintOffset
+            inquiry [] memory_tint() -> types::WhiteBalanceOffset
                 where HasSonyFr7MemoryTint
                 = [command::Fr7MemoryTintInquiry];
             /// Sony FR7 atw temperature offset up (R7).
@@ -847,11 +847,11 @@ macro_rules! noun_table {
                 where HasSonyFr7AtwOffsets
                 = [command::Fr7AtwColorTemperatureOffset::Down(steps)];
             /// Sony FR7 set atw temperature offset (R7).
-            plain [Fr7AtwColorTemperatureOffsetDirect] set_atw_temperature_offset(value: types::TintOffset) -> command::Fr7AtwColorTemperatureOffset
+            plain [Fr7AtwColorTemperatureOffsetDirect] set_atw_temperature_offset(value: types::WhiteBalanceOffset) -> command::Fr7AtwColorTemperatureOffset
                 where HasSonyFr7AtwOffsets
                 = [command::Fr7AtwColorTemperatureOffset::Direct(value)];
             /// Reads Sony FR7 atw temperature offset (R7).
-            inquiry [] atw_temperature_offset() -> types::TintOffset
+            inquiry [] atw_temperature_offset() -> types::WhiteBalanceOffset
                 where HasSonyFr7AtwOffsets
                 = [command::Fr7AtwColorTemperatureOffsetInquiry];
             /// Sony FR7 atw tint offset up (R7).
@@ -863,11 +863,11 @@ macro_rules! noun_table {
                 where HasSonyFr7AtwOffsets
                 = [command::Fr7AtwTintOffset::Down(steps)];
             /// Sony FR7 set atw tint offset (R7).
-            plain [Fr7AtwTintOffsetDirect] set_atw_tint_offset(value: types::TintOffset) -> command::Fr7AtwTintOffset
+            plain [Fr7AtwTintOffsetDirect] set_atw_tint_offset(value: types::WhiteBalanceOffset) -> command::Fr7AtwTintOffset
                 where HasSonyFr7AtwOffsets
                 = [command::Fr7AtwTintOffset::Direct(value)];
             /// Reads Sony FR7 atw tint offset (R7).
-            inquiry [] atw_tint_offset() -> types::TintOffset
+            inquiry [] atw_tint_offset() -> types::WhiteBalanceOffset
                 where HasSonyFr7AtwOffsets
                 = [command::Fr7AtwTintOffsetInquiry];
 
@@ -980,10 +980,10 @@ macro_rules! noun_table {
                 where HasNoiseReduction3DControl = [by_value command::NoiseReduction3D::off()];
             /// Disables vertical image flip.
             plain [ImageFlipOff] disable_flip() -> builtin::ImageFlipCommand where HasImageFlip
-                = [builtin::ImageFlipCommand::new(command::Flip::Off)];
+                = [builtin::ImageFlipCommand::new(false)];
             /// Enables vertical image flip.
             plain [ImageFlipVertical] enable_flip() -> builtin::ImageFlipCommand where HasImageFlip
-                = [builtin::ImageFlipCommand::new(command::Flip::On)];
+                = [builtin::ImageFlipCommand::new(true)];
             /// Enables horizontal image mirroring.
             plain [ImageFlipHorizontal] enable_horizontal_flip() -> builtin::ImageMirrorCommand
                 where HasImageMirror
@@ -1009,11 +1009,11 @@ macro_rules! noun_table {
             /// Resumes live image output on profiles with explicitly validated support.
             plain [ImageFreezeOff] freeze_off() -> command::ImageFreeze where HasImageFreeze
                 = [command::ImageFreeze::off()];
-            /// Returns vertical image-flip state (`09 04 66`); horizontal is false.
-            inquiry [] flip() -> command::FlipState where HasImageFlip
+            /// Returns whether vertical image flip is enabled (`09 04 66`).
+            inquiry [] flip() -> bool where HasImageFlip
                 = [command::ImageFlipInquiry];
             /// Returns the combined image-flip mode.
-            inquiry [] flip_mode() -> command::FlipState where HasCombinedImageFlip
+            inquiry [] flip_mode() -> command::ImageFlipMode where HasCombinedImageFlip
                 = [command::FlipStateInquiry];
             /// Returns picture-effect mode.
             inquiry [] picture_effect()
@@ -1090,11 +1090,11 @@ macro_rules! noun_table {
                 where HasSonyFr7Knee
                 = [command::Fr7KneeInquiry];
             /// Sony FR7 set knee mode (R7).
-            plain [Fr7SetKneeMode] set_knee_mode(value: command::Fr7KneeMode) -> command::Fr7SetKneeMode
+            plain [Fr7SetKneeMode] set_knee_mode(value: command::KneeMode) -> command::Fr7SetKneeMode
                 where HasSonyFr7Knee
                 = [command::Fr7SetKneeMode::new(value)];
             /// Reads Sony FR7 knee mode (R7).
-            inquiry [] knee_mode() -> command::Fr7KneeMode
+            inquiry [] knee_mode() -> command::KneeMode
                 where HasSonyFr7Knee
                 = [command::Fr7KneeModeInquiry];
             /// Sony FR7 set knee slope (R7).
@@ -1114,7 +1114,7 @@ macro_rules! noun_table {
                 where HasSonyFr7Knee
                 = [command::Fr7KneePointInquiry];
             /// Reads Sony FR7 knee permission (R7).
-            inquiry [] knee_permission(parameter: command::Fr7KneeParameter) -> command::Fr7KneePermission
+            inquiry [] knee_permission(parameter: command::KneeParameter) -> command::KneePermission
                 where HasSonyFr7Knee
                 = [command::Fr7KneePermissionInquiry::new(parameter)];
 
@@ -1163,7 +1163,7 @@ macro_rules! noun_table {
                 doc: "Neutral-density filter commands and inquiries.",
             };
             /// Returns the Sony FR7 variable ND-filter density code (`00..=14`).
-            inquiry [] position() -> command::NdFilterValue
+            inquiry [] position() -> command::NdFilterDensity
                 = [command::NdFilterInquiry];
             /// Returns the current ND-filter preset.
             inquiry [] preset() -> types::NdFilterPreset
@@ -1173,11 +1173,11 @@ macro_rules! noun_table {
                 -> command::NdFilterModeCommand = [command::NdFilterModeCommand::new(mode)];
             /// Sets a direct variable ND-filter value.
             ///
-            /// Build the value with [`NdFilterValue::new`](command::NdFilterValue::new)
+            /// Build the value with [`NdFilterDensity::new`](types::NdFilterDensity::new)
             /// from a raw density or
-            /// [`NdFilterValue::from_stops`](command::NdFilterValue::from_stops)
+            /// [`NdFilterDensity::from_stops`](types::NdFilterDensity::from_stops)
             /// from photographic stops.
-            targeted [NdFilterDirect] set_value(value: command::NdFilterValue)
+            targeted [NdFilterDirect] set_value(value: command::NdFilterDensity)
                 -> builtin::NdFilterDirect = [builtin::NdFilterDirect::new(value)];
             /// Increases ND-filter density by one step.
             targeted [NdFilterStepUp] step_up() -> builtin::NdFilterStepUp
@@ -1200,20 +1200,17 @@ macro_rules! noun_table {
                 doc: "Motion-sync commands and inquiries.",
             };
             /// Returns the motion-sync mode.
-            inquiry [] mode() -> command::MotionSyncMode
+            inquiry [] mode() -> bool
                 = [command::MotionSyncModeInquiry];
-            /// Returns the motion-sync preset speed.
-            inquiry [] preset() -> command::MotionSyncPreset
-                = [command::MotionSyncPresetInquiry];
             /// Enables or disables motion synchronization.
-            plain [MotionSyncMode] set_mode(mode: command::MotionSyncMode)
+            plain [MotionSyncMode] set_mode(mode: bool)
                 -> command::SetMotionSyncMode
                 = [command::SetMotionSyncMode::new(mode)];
             /// Sets the motion-sync speed.
             ///
             /// [`MotionSyncSpeed`](crate::types::MotionSyncSpeed) owns the
-            /// `1..=24` range, and `MotionSyncSpeed::from(MotionSyncPreset)`
-            /// maps the slow/normal/fast presets.
+            /// `1..=24` range; the selected target profile validates its supported
+            /// speed range before I/O.
             plain [MotionSyncPreset] set_speed(speed: types::MotionSyncSpeed)
                 -> command::SetMotionSyncPreset
                 = [command::SetMotionSyncPreset::new(speed)];
@@ -1278,26 +1275,26 @@ macro_rules! noun_table {
 
 
             /// Enables multicast streaming.
-            plain [MulticastStreamingOn] multicast_on() -> command::MulticastStreaming
+            plain [MulticastStreamingOn] multicast_on() -> command::MulticastStreamingCommand
                 where HasPtzOpticsMulticastStreaming
-                = [command::MulticastStreaming::On];
+                = [by_value command::MulticastStreamingCommand::new(true)];
             /// Disables multicast streaming.
-            plain [MulticastStreamingOff] multicast_off() -> command::MulticastStreaming
+            plain [MulticastStreamingOff] multicast_off() -> command::MulticastStreamingCommand
                 where HasPtzOpticsMulticastStreaming
-                = [command::MulticastStreaming::Off];
+                = [by_value command::MulticastStreamingCommand::new(false)];
             /// Sets NDI streaming quality.
             plain [NdiQuality] set_ndi_quality(quality: types::NdiQuality)
                 -> command::SetNdiQuality
                 where HasPtzOpticsNdiQuality
                 = [command::SetNdiQuality::new(quality)];
             /// Enables USB audio.
-            plain [UsbAudioOn] usb_audio_on() -> command::UsbAudio where HasUsbAudio
-                = [command::UsbAudio::On];
+            plain [UsbAudioOn] usb_audio_on() -> command::UsbAudioCommand where HasUsbAudio
+                = [by_value command::UsbAudioCommand::new(true)];
             /// Disables USB audio.
-            plain [UsbAudioOff] usb_audio_off() -> command::UsbAudio where HasUsbAudio
-                = [command::UsbAudio::Off];
+            plain [UsbAudioOff] usb_audio_off() -> command::UsbAudioCommand where HasUsbAudio
+                = [by_value command::UsbAudioCommand::new(false)];
             /// Sets pan/tilt variable-speed mode.
-            plain [VariableSpeedMode] set_variable_speed_mode(mode: command::VariableSpeedMode)
+            plain [VariableSpeedMode] set_variable_speed_mode(mode: command::PanTiltSpeedMode)
                 -> command::SetVariableSpeedMode where HasVariableSpeed
                 = [command::SetVariableSpeedMode::new(mode)];
 

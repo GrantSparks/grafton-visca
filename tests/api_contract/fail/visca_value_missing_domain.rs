@@ -1,9 +1,8 @@
-use grafton_visca::ViscaValue;
+use grafton_visca::value;
 
-#[derive(ViscaValue)]
-#[visca_value(display_format = "hex")]
+#[value(display = "{:#04x}")]
 struct Unchecked(u8);
 
 fn main() {}
 
-//~ "`visca_value` requires `min` and `max`, or `valid_values`"
+//~ "`value` requires `min` and `max`, or `valid_values`"

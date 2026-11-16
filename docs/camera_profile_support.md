@@ -106,7 +106,7 @@ than this marked region.
 | Menu | `HasDirectMenuControl` | `menu().direct`, `menu().toggle_display` |
 | ND filter | `HasNdFilter` | `nd_filter().position`, `nd_filter().preset`, `nd_filter().set_mode`, `nd_filter().set_value`, `nd_filter().step_up`, `nd_filter().step_down`, `nd_filter().auto_on`, `nd_filter().auto_off` |
 | Variable speed | `HasVariableSpeed` | `advanced().set_variable_speed_mode` |
-| Motion Sync | `HasMotionSync` | `motion_sync().mode`, `motion_sync().preset`, `motion_sync().set_mode`, `motion_sync().set_speed` |
+| Motion Sync | `HasMotionSync` | `motion_sync().mode`, `motion_sync().set_mode`, `motion_sync().set_speed` |
 | Focus | `HasFocusZoneInquiry` | `focus().zone` |
 | Streaming | `HasUsbAudio` | `advanced().usb_audio_enabled`, `advanced().usb_audio_on`, `advanced().usb_audio_off` |
 | Exposure | `HasPtzOpticsAntiFlicker` | `exposure().set_anti_flicker`, `exposure().flicker_mode` |
@@ -158,16 +158,16 @@ than this marked region.
 
 The image inquiry registers are separate evidence boundaries. `image().flip()`
 uses the sourced vertical `09 04 66` register under `HasImageFlip` and returns
-`FlipState { vertical, horizontal: false }`. `image().flip_mode()` queries
-combined `09 04 A4` state under `HasCombinedImageFlip`; only the PTZOptics
-profiles grant that combined family. A flip setter does not establish a
+a boolean vertical state. `image().flip_mode()` queries
+combined `09 04 A4` state as `ImageFlipMode` under `HasCombinedImageFlip`;
+only the PTZOptics profiles grant that combined family. A flip setter does not establish a
 combined inquiry on another model (#844).
 
 Sony FR7 variable-ND readback uses the sourced `09 7E 04 42` inquiry and
-returns `NdFilterValue` (`00..14` hex), with strict four-nibble zero-padded
-replies. It is a variable-density code, distinct from the `NdFilterPosition`
-clear/preset selector. Motion and settlement use that same density readback;
-R7 v4 pp. 21 and 25 are the packet/value evidence (#844).
+returns `NdFilterDensity` (`00..14` hex), with strict four-nibble zero-padded
+replies. It is a variable-density code, distinct from clear/preset selection.
+Motion and settlement use that same density readback; R7 v4 pp. 21 and 25
+are the packet/value evidence (#844).
 
 Every typed inquiry admitted by a built-in profile must have a source rationale
 in the inquiry inventory. The typed surface excludes unsourced focus-range,

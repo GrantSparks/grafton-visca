@@ -52,7 +52,7 @@ impl Request for SetVendorTone {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         // Illustrative vendor payload: 8x 01 04 7E 01 0p FF.
         let bytes = [
-            camera_id.to_address_byte(),
+            0x80 | camera_id.value(),
             0x01,
             0x04,
             0x7E,
@@ -81,7 +81,7 @@ impl Request for VendorNudge {
     const CONTROL_CLASS: ControlClass = ControlClass::User;
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        let bytes = [camera_id.to_address_byte(), 0x01, 0x06, 0x7F, 0x03, 0xFF];
+        let bytes = [0x80 | camera_id.value(), 0x01, 0x06, 0x7F, 0x03, 0xFF];
         if buffer.len() < bytes.len() {
             return Err(Error::buffer_too_small(bytes.len(), buffer.len()));
         }

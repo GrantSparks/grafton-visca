@@ -1,5 +1,7 @@
 //! Documented camera statuses and notifications remain distinguishable from corruption.
 
+use grafton_visca::wire::WireValue;
+
 use grafton_visca::{
     command::{InquiryData, InquiryKind, Response},
     Error, ErrorKind, PowerStatus,
@@ -12,8 +14,8 @@ fn power_status_decodes_all_documented_values_and_rejects_corruption() {
         (0x03, PowerStatus::Standby),
         (0x04, PowerStatus::CircuitError),
     ] {
-        assert_eq!(PowerStatus::try_from(byte).unwrap(), expected);
-        assert_eq!(u8::from(expected), byte);
+        assert_eq!(PowerStatus::from_wire(byte).unwrap(), expected);
+        assert_eq!(expected.to_wire(), byte);
         assert_eq!(expected.is_on(), byte == 0x02);
         assert!(matches!(
             Response::parse_with_type(&[0x90, 0x50, byte, 0xff], &InquiryKind::Power),
@@ -67,7 +69,7 @@ mod facades {
     facade_matrix! {
         fn power_status_survives_the_owner_and_static_facades() {
             for expected in [PowerStatus::On, PowerStatus::Standby, PowerStatus::CircuitError] {
-                let fake = camera(u8::from(expected));
+                let fake = camera(expected.to_wire());
                 let session = open!(fake, SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap()).unwrap();
                 let view = session.camera::<PtzOpticsG2>().unwrap();
                 assert_eq!(wait!(view.power().state()).unwrap(), expected);
@@ -87,7 +89,7 @@ mod facades {
             PowerStatus::Standby,
             PowerStatus::CircuitError,
         ] {
-            let fake = camera(u8::from(expected));
+            let fake = camera(expected.to_wire());
             let session = grafton_visca::Session::open(
                 fake.async_wire(),
                 SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),

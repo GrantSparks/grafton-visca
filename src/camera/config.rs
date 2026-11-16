@@ -697,7 +697,7 @@ mod tests {
 
                     const MODEL_NAME: &'static str = stringify!($name);
                     const DEFAULT_CAMERA_ID: crate::IndividualCameraId =
-                        crate::IndividualCameraId::new(1).expect("individual profile default");
+                        crate::IndividualCameraId::CAMERA_1;
                     type Envelope = crate::transport::RawVisca;
                     const ACK_TIMEOUT: Duration = <Base as ProfileMetadata>::ACK_TIMEOUT;
                     const COMMAND_TIMEOUTS: crate::CommandTimeouts =

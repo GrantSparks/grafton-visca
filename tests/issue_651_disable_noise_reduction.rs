@@ -69,6 +69,7 @@ fn one_raw_frame(fake: &FakeCamera) -> Vec<u8> {
 
 #[cfg(feature = "blocking")]
 mod blocking_surface {
+    use grafton_visca::wire::WireValue;
     use grafton_visca::{
         blocking::{Session, SessionConfig},
         capabilities::{HasImageProcessing, HasNoiseReduction3D, HasNoiseReduction3DControl},
@@ -99,7 +100,7 @@ mod blocking_surface {
         .expect("session");
         let camera = session.camera::<P>().expect("matching camera profile");
         let value =
-            NoiseReduction3D::from_byte(level).expect("level or Off is in the register domain");
+            NoiseReduction3D::from_wire(level).expect("level or Off is in the register domain");
         let set = match value {
             NoiseReduction3D::Off => camera.image().disable_noise_reduction_3d(),
             NoiseReduction3D::Level(level) => camera.image().set_noise_reduction_3d(level),
@@ -165,7 +166,7 @@ mod blocking_surface {
                         .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
                     assert_eq!(
                         result.expect("every admissible 3D NR setter value decodes on readback"),
-                        NoiseReduction3D::from_byte(level)
+                        NoiseReduction3D::from_wire(level)
                             .expect("level or Off is in the register domain")
                     );
                 }
@@ -176,6 +177,7 @@ mod blocking_surface {
 
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod async_surface {
+    use grafton_visca::wire::WireValue;
     use grafton_visca::{
         capabilities::{HasImageProcessing, HasNoiseReduction3D, HasNoiseReduction3DControl},
         command::{NoiseReduction2DMode, NoiseReduction3D},
@@ -224,7 +226,7 @@ mod async_surface {
         .await;
         let camera = session.camera::<P>().expect("matching camera profile");
         let value =
-            NoiseReduction3D::from_byte(level).expect("level or Off is in the register domain");
+            NoiseReduction3D::from_wire(level).expect("level or Off is in the register domain");
         let set = match value {
             NoiseReduction3D::Off => camera.image().disable_noise_reduction_3d().await,
             NoiseReduction3D::Level(level) => camera.image().set_noise_reduction_3d(level).await,
@@ -299,7 +301,7 @@ mod async_surface {
                     .unwrap_or_else(|failure| std::panic::resume_unwind(failure.into_panic()));
                 assert_eq!(
                     result.expect("every admissible 3D NR setter value decodes on readback"),
-                    NoiseReduction3D::from_byte(level)
+                    NoiseReduction3D::from_wire(level)
                         .expect("level or Off is in the register domain")
                 );
             }
@@ -309,6 +311,7 @@ mod async_surface {
 
 #[cfg(all(feature = "async", feature = "dyn-api", feature = "runtime-tokio"))]
 mod dyn_surface {
+    use grafton_visca::wire::WireValue;
     use grafton_visca::{
         capabilities::TypedSupportSurface,
         command::{NoiseReduction2DMode, NoiseReduction3D},
@@ -432,7 +435,7 @@ mod dyn_surface {
                 .noise_reduction_3d()
                 .await
                 .expect("inquiry remains permitted")
-                .value(),
+                .to_wire(),
             5,
         );
         assert_eq!(fake.write_count(), 1);

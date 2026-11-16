@@ -8,7 +8,6 @@ use crate::{
     command::{
         bytes::{constants::motion_sync, FrameWriter},
         encode::WireEncode,
-        MotionSyncMode,
     },
     error::Error,
     types::MotionSyncSpeed,
@@ -20,12 +19,12 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SetMotionSyncMode {
     /// The motion sync mode to set.
-    pub mode: MotionSyncMode,
+    pub mode: bool,
 }
 
 impl SetMotionSyncMode {
     /// Creates a new motion sync mode command.
-    pub const fn new(mode: MotionSyncMode) -> Self {
+    pub const fn new(mode: bool) -> Self {
         Self { mode }
     }
 }
@@ -38,7 +37,7 @@ impl WireEncode for SetMotionSyncMode {
     ) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&motion_sync::MODE)
-            .byte(u8::from(self.mode))
+            .byte(if self.mode { 0x02 } else { 0x03 })
             .finish()
     }
 }
@@ -47,7 +46,7 @@ impl WireEncode for SetMotionSyncMode {
 ///
 /// PtzOptics-specific command that sets the maximum speed for synchronized
 /// movements. [`MotionSyncSpeed`] owns the `1..=24` range and the
-/// [`MotionSyncPreset`](crate::MotionSyncPreset) mapping; the selected profile's maximum is applied
+/// speed constants; the selected profile's maximum is applied
 /// during request preparation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SetMotionSyncPreset {
@@ -87,31 +86,30 @@ mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
-    use crate::MotionSyncPreset;
 
     visca_test!(
-        MotionSyncMode,
+        SetMotionSyncMode,
         test_motion_sync_mode_on,
-        SetMotionSyncMode::new(MotionSyncMode::On),
+        SetMotionSyncMode::new(true),
         &[0x81, 0x0A, 0x11, 0x13, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MotionSyncMode,
+        SetMotionSyncMode,
         test_motion_sync_mode_off,
-        SetMotionSyncMode::new(MotionSyncMode::Off),
+        SetMotionSyncMode::new(false),
         &[0x81, 0x0A, 0x11, 0x13, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MotionSyncPreset,
+        SetMotionSyncPreset,
         test_motion_sync_speed_min,
         SetMotionSyncPreset::new(MotionSyncSpeed::new(1).unwrap()),
         &[0x81, 0x0A, 0x11, 0x14, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MotionSyncPreset,
+        SetMotionSyncPreset,
         test_motion_sync_speed_max,
         SetMotionSyncPreset::new(MotionSyncSpeed::new(24).unwrap()),
         &[0x81, 0x0A, 0x11, 0x14, 0x18, VISCA_TERMINATOR]
@@ -124,23 +122,23 @@ mod tests {
     }
 
     visca_test!(
-        MotionSyncPreset,
+        SetMotionSyncPreset,
         test_motion_sync_speed_slow,
-        SetMotionSyncPreset::new(MotionSyncPreset::Slow.into()),
+        SetMotionSyncPreset::new(MotionSyncSpeed::SLOW),
         &[0x81, 0x0A, 0x11, 0x14, 0x08, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MotionSyncPreset,
+        SetMotionSyncPreset,
         test_motion_sync_speed_normal,
-        SetMotionSyncPreset::new(MotionSyncPreset::Normal.into()),
+        SetMotionSyncPreset::new(MotionSyncSpeed::NORMAL),
         &[0x81, 0x0A, 0x11, 0x14, 0x10, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MotionSyncPreset,
+        SetMotionSyncPreset,
         test_motion_sync_speed_fast,
-        SetMotionSyncPreset::new(MotionSyncPreset::Fast.into()),
+        SetMotionSyncPreset::new(MotionSyncSpeed::FAST),
         &[0x81, 0x0A, 0x11, 0x14, 0x18, VISCA_TERMINATOR]
     );
 }

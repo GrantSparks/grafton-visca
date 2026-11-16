@@ -20,6 +20,6 @@ fn main() {
     };
     assert_eq!(
         SetMotionSyncPreset::new(MotionSyncSpeed::SLOW).speed(),
-        MotionSyncSpeed::from(grafton_visca::MotionSyncPreset::Slow)
+        MotionSyncSpeed::SLOW
     );
 }
