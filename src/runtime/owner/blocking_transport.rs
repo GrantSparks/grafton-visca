@@ -179,20 +179,30 @@ mod tests {
         }
     }
 
-    fn adapter(transport: ScriptedTransport) -> BlockingTransportAdapter<ScriptedTransport> {
+    fn adapter(
+        transport: ScriptedTransport,
+    ) -> (
+        BlockingTransportAdapter<ScriptedTransport>,
+        super::super::OwnerPolicy,
+    ) {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
             .unwrap()
     }
 
-    fn sony_adapter(transport: ScriptedTransport) -> BlockingTransportAdapter<ScriptedTransport> {
+    fn sony_adapter(
+        transport: ScriptedTransport,
+    ) -> (
+        BlockingTransportAdapter<ScriptedTransport>,
+        super::super::OwnerPolicy,
+    ) {
         let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
         BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
             .unwrap()
     }
 
     fn buffers(adapter: &BlockingTransportAdapter<ScriptedTransport>) -> OwnerBuffers {
-        OwnerBuffers::new(adapter.policy().limits).unwrap()
+        OwnerBuffers::new(adapter.receive_limits).unwrap()
     }
 
     /// One receive with a short timeout and the default frame limit.
@@ -225,19 +235,15 @@ mod tests {
         transport_config.write_timeout = Duration::from_millis(37);
         let transport = ScriptedTransport::with_config(transport_config, []);
         let write_timeouts = Arc::clone(&transport.write_timeouts);
-        let adapter = adapter(transport);
+        let (adapter, policy) = adapter(transport);
         assert_eq!(
-            adapter.policy().protocol.wire.kind(),
+            policy.protocol.wire.kind(),
             crate::runtime::engine::EnvelopeKind::Raw
         );
-        assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
-        assert_eq!(
-            adapter.policy().protocol.inquiry_capacity,
-            adapter.policy().protocol.capacity
-        );
+        assert_eq!(policy.protocol.transport, TransportKind::Datagram);
+        assert_eq!(policy.protocol.inquiry_capacity, policy.protocol.capacity);
 
-        let owner =
-            BlockingOwnerHandle::spawn(adapter.policy().clone(), adapter, Clock::System).unwrap();
+        let owner = BlockingOwnerHandle::spawn(policy.clone(), adapter, Clock::System).unwrap();
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let prepared = prepare_command(
             &crate::request::builtin::FocusModeCommand::Manual,
@@ -268,7 +274,7 @@ mod tests {
     fn startup_sony_sequence_reset_writes_the_control_frame() {
         let transport = ScriptedTransport::new([]);
         let sent = Arc::clone(&transport.sent);
-        let mut adapter = sony_adapter(transport);
+        let (mut adapter, _) = sony_adapter(transport);
 
         adapter.send_sony_sequence_reset().unwrap();
 
@@ -280,7 +286,7 @@ mod tests {
 
     #[test]
     fn a_read_timeout_is_no_data_and_a_failed_read_is_a_fault() {
-        let mut adapter = adapter(ScriptedTransport::new([
+        let (mut adapter, _) = adapter(ScriptedTransport::new([
             Err(Error::io_timeout()),
             Err(Error::transport_error(std::io::Error::other("boom"))),
             Ok(Vec::new()),
@@ -315,7 +321,7 @@ mod tests {
                 source: Arc::new(std::io::Error::from(kind)),
             })
         };
-        let mut adapter = adapter(ScriptedTransport::new([
+        let (mut adapter, _) = adapter(ScriptedTransport::new([
             io(std::io::ErrorKind::WouldBlock),
             io(std::io::ErrorKind::Interrupted),
             io(std::io::ErrorKind::TimedOut),
@@ -353,7 +359,7 @@ mod tests {
     fn an_oversized_datagram_is_a_decode_error_and_later_frames_still_decode() {
         let mut oversized = vec![0x90, 0x41, 0xff];
         oversized.resize(config().buffer_config.recv_buffer_size + 1, 0);
-        let mut adapter = adapter(ScriptedTransport::new([
+        let (mut adapter, _) = adapter(ScriptedTransport::new([
             Ok(oversized),
             Ok(vec![0x90, 0x41, 0xff]),
         ]));
@@ -422,7 +428,7 @@ mod tests {
         let mut oversized = vec![0x90, 0x41, 0xff];
         oversized.resize(capacity + 1, 0);
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
-        let mut adapter = BlockingTransportAdapter::new(
+        let (mut adapter, _) = BlockingTransportAdapter::new(
             UnobservedTruncation {
                 config: config(),
                 datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
@@ -431,7 +437,7 @@ mod tests {
             crate::target::TargetSlot::CAMERA_1,
         )
         .unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter.receive_limits).unwrap();
         let receive = |adapter: &mut BlockingTransportAdapter<UnobservedTruncation>,
                        buffers: &mut OwnerBuffers| {
             adapter.receive(buffers, 4, Duration::from_millis(1))
@@ -465,7 +471,7 @@ mod tests {
         let mut config = config();
         config.buffer_config.recv_buffer_size =
             crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE;
-        let mut adapter = sony_adapter(ScriptedTransport::with_config(config, [Ok(framed)]));
+        let (mut adapter, _) = sony_adapter(ScriptedTransport::with_config(config, [Ok(framed)]));
         let mut buffers = buffers(&adapter);
         let frames = frames(receive(&mut adapter, &mut buffers));
         assert!(matches!(
@@ -479,7 +485,7 @@ mod tests {
 
     #[test]
     fn one_read_decodes_every_basic_frame_it_carries() {
-        let mut adapter = adapter(ScriptedTransport::new([Ok(vec![
+        let (mut adapter, _) = adapter(ScriptedTransport::new([Ok(vec![
             0x90, 0x41, 0xff, 0x90, 0x51, 0xff,
         ])]));
         let mut buffers = buffers(&adapter);
@@ -496,7 +502,7 @@ mod tests {
     /// returned by the next receive without another read (#674).
     #[test]
     fn frames_beyond_the_receive_limit_are_drained_before_the_next_read() {
-        let mut adapter = adapter(
+        let (mut adapter, _) = adapter(
             ScriptedTransport::new([Ok(vec![0x90, 0x41, 0xff, 0x90, 0x51, 0xff])]).stream(),
         );
         let mut buffers = buffers(&adapter);
@@ -539,7 +545,7 @@ mod tests {
             bytes.extend_from_slice(&[0x90, 0x41, 0xff]);
             bytes.extend_from_slice(&[0x90, 0x51, 0xff]);
 
-            let mut adapter = adapter(ScriptedTransport::new([Ok(bytes)]).stream());
+            let (mut adapter, _) = adapter(ScriptedTransport::new([Ok(bytes)]).stream());
             let mut buffers = buffers(&adapter);
             let frames = frames(receive(&mut adapter, &mut buffers));
             assert_eq!(frames.len(), 2, "{payload_type:02x?}");
@@ -554,7 +560,7 @@ mod tests {
 
     #[test]
     fn stream_framer_discards_an_orphaned_prefix_before_a_later_tail() {
-        let mut adapter = adapter(
+        let (mut adapter, _) = adapter(
             ScriptedTransport::new([
                 Ok(vec![0x90, 0x50]),
                 Ok(vec![0x02, 0xff]),
@@ -605,7 +611,7 @@ mod tests {
             (vec![0x00], AddressingMode::Ip),
         ] {
             let stream_config = config();
-            let mut adapter = adapter(
+            let (mut adapter, _) = adapter(
                 ScriptedTransport::with_config(stream_config, [Ok(prefix.clone())])
                     .stream()
                     .addressing(addressing),
@@ -622,7 +628,7 @@ mod tests {
 
     #[test]
     fn sony_decoder_preserves_full_sequence_metadata() {
-        let mut adapter = sony_adapter(ScriptedTransport::new([Ok(sony_reply(0x1234_5678))]));
+        let (mut adapter, _) = sony_adapter(ScriptedTransport::new([Ok(sony_reply(0x1234_5678))]));
         let mut buffers = buffers(&adapter);
         let frames = frames(receive(&mut adapter, &mut buffers));
         assert_eq!(
@@ -638,7 +644,7 @@ mod tests {
     #[test]
     fn sony_framer_buffers_a_fragmented_header_and_payload_by_declared_length() {
         let framed = sony_reply(0xff00_ff00);
-        let mut adapter = sony_adapter(
+        let (mut adapter, _) = sony_adapter(
             ScriptedTransport::new([Ok(framed[..6].to_vec()), Ok(framed[6..].to_vec())]).stream(),
         );
         let mut buffers = buffers(&adapter);
@@ -660,7 +666,7 @@ mod tests {
         // A zero upper half is deliberately classified as potentially
         // truncated by the production envelope parser, even though 42 also
         // fits in a genuine full-width Sony sequence.
-        let mut adapter = sony_adapter(ScriptedTransport::new([Ok(sony_reply(42))]));
+        let (mut adapter, _) = sony_adapter(ScriptedTransport::new([Ok(sony_reply(42))]));
         let mut buffers = buffers(&adapter);
         let frames = frames(receive(&mut adapter, &mut buffers));
         assert_eq!(
@@ -674,7 +680,7 @@ mod tests {
 
     #[test]
     fn malformed_visca_is_an_invalid_response() {
-        let mut adapter = adapter(ScriptedTransport::new([Ok(vec![0x80, 0x41, 0xff])]));
+        let (mut adapter, _) = adapter(ScriptedTransport::new([Ok(vec![0x80, 0x41, 0xff])]));
         let mut buffers = buffers(&adapter);
         assert!(matches!(
             receive(&mut adapter, &mut buffers),

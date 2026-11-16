@@ -139,7 +139,7 @@ impl Session {
     {
         config.validate_opened_transport(&transport)?;
         let profiles = config.profile_registry();
-        let mut adapter = BlockingTransportAdapter::new_with_targets(
+        let (mut adapter, policy) = BlockingTransportAdapter::new_with_targets(
             transport,
             &profiles,
             config.validated_tuning(),
@@ -149,7 +149,6 @@ impl Session {
         if config.sony_sequence_reset_on_connect() {
             adapter.send_sony_sequence_reset()?;
         }
-        let policy = adapter.policy().clone();
         Ok(Self {
             owner: BlockingOwnerHandle::spawn(policy, adapter, clock)?,
             config: Arc::new(config),

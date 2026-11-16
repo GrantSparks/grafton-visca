@@ -1076,7 +1076,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
         .expect("generic raw profile");
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
@@ -1087,7 +1087,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    let mut actor_policy = adapter.policy().clone();
+    let mut actor_policy = adapter_policy.clone();
     actor_policy.limits.frames_per_receive = 1;
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
     let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
@@ -1153,7 +1153,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
             .expect("generic raw profile");
         let (chunk_tx, chunks) = flume::bounded(16);
         let (sent, sent_rx) = flume::bounded(16);
-        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+        let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
             ChunkedStreamTransport {
                 addressing: crate::transport::AddressingMode::Ip,
                 config: crate::transport::builder::TransportConfig::default(),
@@ -1164,7 +1164,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
             TargetSlot::CAMERA_1,
         )
         .unwrap();
-        let mut actor_policy = adapter.policy().clone();
+        let mut actor_policy = adapter_policy.clone();
         actor_policy.limits.frames_per_receive = 1;
         actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
         let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
@@ -1243,7 +1243,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
         .expect("generic raw profile");
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
@@ -1254,7 +1254,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime.clone()).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
     let (x, _y, _z) = establish_production_two_socket_boundary(&handle, &chunk_tx, &sent_rx).await;
 
@@ -1297,7 +1297,7 @@ async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
         .expect("generic raw profile");
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
@@ -1308,7 +1308,7 @@ async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime.clone()).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
     let (x, _y, _z) = establish_production_two_socket_boundary(&handle, &chunk_tx, &sent_rx).await;
 
@@ -1344,7 +1344,7 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
         .expect("generic raw profile");
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
@@ -1355,7 +1355,7 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime.clone()).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
     let (x, _y, _z) = establish_production_two_socket_boundary(&handle, &chunk_tx, &sent_rx).await;
 
@@ -1405,17 +1405,18 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
     let config = crate::transport::builder::TransportConfig {
         ..crate::transport::builder::TransportConfig::default()
     };
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Serial,
             config,
             chunks,
             sent,
         },
-        &[
-            (TargetSlot::CAMERA_1, &profile),
-            (TargetSlot::CAMERA_3, &profile),
-        ],
+        &crate::target::PerTarget::from_fn(|target| {
+            [TargetSlot::CAMERA_1, TargetSlot::CAMERA_3]
+                .contains(&target)
+                .then_some(&profile)
+        }),
         crate::session_config::ValidatedTuning::validate(
             crate::OperationalTuning::new(),
             [&profile],
@@ -1425,7 +1426,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
         false,
     )
     .unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime.clone()).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = handle
@@ -1510,17 +1511,18 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         },
         ..crate::transport::builder::TransportConfig::default()
     };
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Serial,
             config,
             chunks,
             sent,
         },
-        &[
-            (TargetSlot::CAMERA_1, &profile),
-            (TargetSlot::CAMERA_3, &profile),
-        ],
+        &crate::target::PerTarget::from_fn(|target| {
+            [TargetSlot::CAMERA_1, TargetSlot::CAMERA_3]
+                .contains(&target)
+                .then_some(&profile)
+        }),
         crate::session_config::ValidatedTuning::validate(
             crate::OperationalTuning::new(),
             [&profile],
@@ -1530,8 +1532,8 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         false,
     )
     .unwrap();
-    let frame_limit = adapter.policy().limits.frames_per_receive;
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+    let frame_limit = adapter_policy.limits.frames_per_receive;
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime.clone()).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = handle
@@ -1615,7 +1617,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
         .expect("generic raw profile");
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing,
             config: crate::transport::builder::TransportConfig {
@@ -1628,7 +1630,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    let mut actor_policy = adapter.policy().clone();
+    let mut actor_policy = adapter_policy.clone();
     actor_policy.limits.frames_per_receive = 1;
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
     let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
@@ -1746,7 +1748,7 @@ async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
         .expect("the generic profile is valid");
     let (chunk_tx, chunks) = flume::bounded(8);
     let (sent, sent_rx) = flume::bounded(8);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
@@ -1757,8 +1759,8 @@ async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    assert_eq!(adapter_policy.protocol.transport, TransportKind::Stream);
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();
@@ -2079,7 +2081,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
         .expect("generic raw profile");
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
@@ -2090,7 +2092,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    let mut actor_policy = adapter.policy().clone();
+    let mut actor_policy = adapter_policy.clone();
     actor_policy.limits.frames_per_receive = 1;
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
     let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();

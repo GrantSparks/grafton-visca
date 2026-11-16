@@ -302,10 +302,10 @@ impl Setup {
     fn spawn(self) -> (BlockingOwnerHandle, Peer) {
         let clock = self.clock.clone();
         let (transport, peer, profile, hold) = self.transport();
-        let adapter =
+        let (adapter, adapter_policy) =
             BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
-        let mut policy = adapter.policy().clone();
+        let mut policy = adapter_policy.clone();
         if let Some(hold) = hold {
             policy.protocol.raw_inquiry_release_hold = hold;
         }
@@ -1222,11 +1222,11 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     let _driver = clock.enter();
     let (mut transport, peer, profile, _) = Setup::stream().on(&clock).transport();
     transport.config.read_timeout = Duration::from_secs(5);
-    let adapter =
+    let (adapter, adapter_policy) =
         BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
             .unwrap();
     let owner = BlockingOwnerHandle::spawn(
-        adapter.policy().clone(),
+        adapter_policy.clone(),
         adapter,
         Clock::Manual(clock.clone()),
     )
@@ -1258,4 +1258,102 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     ));
     assert_eq!(owner.metrics().unwrap().completion_timeouts, 0);
     owner.close().unwrap();
+}
+
+/// Park the serialized shell while calling the real blocking handle. This
+/// deterministically exercises caller-owned expiry, both before enqueue and
+/// while waiting for the owner to claim the queued halt.
+#[test]
+fn caller_halt_timeouts_record_each_stop_before_enqueue_or_owner_claim() {
+    use super::super::{
+        boundary::{AdmissionValidity, CancellationBoundary, OwnerHandleCore},
+        halt::HaltBoundary,
+        shell::{OwnerEvent, OwnerShellCore, TurnStep},
+        OwnerState, RetainedStreamInput,
+    };
+    struct Idle;
+    impl RetainedStreamInput for Idle {}
+
+    for saturated in [false, true] {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let now = clock.now();
+        let profile = generic_profile();
+        let policy = super::super::adapter::owner_policy_for_targets(
+            &[(crate::target::TargetSlot::CAMERA_1, &profile)],
+            &TransportConfig::default(),
+            SendSemantics::Stream,
+        )
+        .unwrap();
+        let mut state = OwnerState::new(policy, now).unwrap();
+        let diagnostics = super::super::tests::DiagnosticRecorder::new(&mut state);
+        let (core, ends) = OwnerHandleCore::new(&state);
+        let mut shell = OwnerShellCore::new(state, ends);
+        let worker_id = thread::spawn(|| thread::current().id()).join().unwrap();
+        let owner = BlockingOwnerHandle {
+            core,
+            clock: Clock::Manual(clock.clone()),
+            worker_id,
+            worker: Arc::new(Mutex::new(None)),
+        };
+        if saturated {
+            for _ in 0..owner.core.cancellations.capacity().unwrap() {
+                let (reply, _receiver) = flume::bounded(1);
+                owner
+                    .core
+                    .cancellations
+                    .try_send(CancellationBoundary::Halt(HaltBoundary {
+                        prepared: crate::prepared::PreparedHalt {
+                            target: crate::target::TargetSlot::CAMERA_1,
+                            axes: None,
+                            requests: [None, None, None],
+                            budget: PROMPTLY,
+                        },
+                        validity: AdmissionValidity::until(now + PROMPTLY),
+                        reply,
+                    }))
+                    .unwrap();
+            }
+        }
+        let tuning =
+            crate::session_config::ValidatedTuning::validate(OperationalTuning::new(), [&profile])
+                .unwrap();
+        let mut prepared = crate::prepared::prepare_halt(
+            &crate::TargetRegistration::from_profile(crate::target::TargetSlot::CAMERA_1, profile),
+            tuning,
+        );
+        prepared.budget = Duration::from_millis(10);
+        let stop_count = prepared.requests.iter().flatten().count();
+        assert!(stop_count > 0);
+        let error = owner.halt(prepared, now).unwrap_err();
+        assert_eq!(error.kind(), Error::admission_timeout().kind());
+        assert_eq!(clock.now() - now, Duration::from_millis(10));
+        shell.flush_pre_admission_rejections(true);
+        if !saturated {
+            let halt = shell.receivers.cancellations.recv().unwrap();
+            assert!(matches!(
+                shell.handle(
+                    OwnerEvent::Cancellation(halt),
+                    &mut Idle,
+                    clock.now(),
+                    false,
+                ),
+                TurnStep::Done(_)
+            ));
+        }
+        assert_eq!(shell.state.metrics().admission_rejected, stop_count as u64);
+        assert_eq!(shell.state.metrics().admitted, 0);
+        assert_eq!(shell.state.metrics().writes, 0);
+        assert_eq!(
+            diagnostics
+                .events()
+                .iter()
+                .filter(|event| matches!(event,
+                    DiagnosticEvent::AdmissionRejected { error, .. }
+                        if *error == Error::admission_timeout().kind()
+                ))
+                .count(),
+            stop_count,
+        );
+    }
 }

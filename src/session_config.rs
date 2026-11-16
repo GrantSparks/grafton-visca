@@ -448,15 +448,12 @@ impl SessionConfig {
 
     /// Borrow all registrations in the shape consumed by the owner adapter.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn profile_registry(&self) -> Vec<(TargetSlot, &ProfileSpec)> {
-        self.targets
-            .iter()
-            .filter_map(|(target, profile)| {
-                profile
-                    .as_deref()
-                    .map(|registration| (target, registration.profile()))
-            })
-            .collect()
+    pub(crate) fn profile_registry(&self) -> PerTarget<Option<&ProfileSpec>> {
+        PerTarget::from_fn(|target| {
+            self.targets[target]
+                .as_deref()
+                .map(crate::TargetRegistration::profile)
+        })
     }
 
     /// The registered profile of `target`, shared with an owned camera view.

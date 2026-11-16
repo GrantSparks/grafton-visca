@@ -514,6 +514,21 @@ impl ProtocolEngine {
         EngineMethods::retune(self, command_spacing, inquiry_spacing, command_sockets, now)
     }
 
+    #[cfg(test)]
+    pub(crate) fn operational_limits_for_test(
+        &self,
+    ) -> (Duration, Duration, PerTarget<Option<u8>>) {
+        (
+            self.core.policy.command_spacing,
+            self.core.policy.inquiry_spacing,
+            PerTarget::from_fn(|target| {
+                self.core.targets[target]
+                    .policy
+                    .map(|policy| policy.command_sockets)
+            }),
+        )
+    }
+
     pub(crate) const fn state(&self) -> SessionState {
         self.core.session.state()
     }

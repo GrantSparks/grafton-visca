@@ -165,15 +165,15 @@ mod tests {
             receives: [Ok(vec![0x90, 0x41, 0xff])].into_iter().collect(),
             semantics: SendSemantics::Datagram,
         };
-        let mut adapter =
+        let (mut adapter, adapter_policy) =
             AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
         assert_eq!(
-            adapter.policy().protocol.transport,
+            adapter_policy.protocol.transport,
             crate::runtime::engine::TransportKind::Datagram
         );
 
-        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
         let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
         let OwnerReceive::Frames(frames) = received else {
             panic!("a nonzero read must not report the transport as closed");
@@ -194,7 +194,7 @@ mod tests {
             semantics: SendSemantics::Datagram,
         };
         let profile = ProfileSpec::from_compile_time::<SonyFr7>().unwrap();
-        let mut adapter =
+        let (mut adapter, _) =
             AsyncTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
 
@@ -219,10 +219,10 @@ mod tests {
             receives: [Ok(oversized)].into_iter().collect(),
             semantics: SendSemantics::Datagram,
         };
-        let mut adapter =
+        let (mut adapter, adapter_policy) =
             AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
 
         let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
 
@@ -242,7 +242,7 @@ mod tests {
         let capacity = config.buffer_config.recv_buffer_size;
         let mut oversized = vec![0x90, 0x41, 0xff];
         oversized.resize(capacity + 1, 0);
-        let mut adapter = AsyncTransportAdapter::new(
+        let (mut adapter, adapter_policy) = AsyncTransportAdapter::new(
             UnobservedTruncation {
                 config,
                 datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
@@ -251,7 +251,7 @@ mod tests {
             crate::target::TargetSlot::CAMERA_1,
         )
         .unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
 
         let discarded = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
         assert!(matches!(
@@ -283,15 +283,15 @@ mod tests {
             receives: std::collections::VecDeque::new(),
             semantics: SendSemantics::Datagram,
         };
-        let adapter =
+        let (_adapter, adapter_policy) =
             AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
         assert_eq!(
-            adapter.policy().read_timeout,
+            adapter_policy.read_timeout,
             std::time::Duration::from_millis(111)
         );
         assert_eq!(
-            adapter.policy().write_timeout,
+            adapter_policy.write_timeout,
             std::time::Duration::from_millis(222)
         );
     }
@@ -307,10 +307,10 @@ mod tests {
                 .collect(),
             semantics: SendSemantics::Stream,
         };
-        let mut adapter =
+        let (mut adapter, adapter_policy) =
             AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
 
         let first = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
         let OwnerReceive::Frames(frames) = first else {
@@ -388,13 +388,13 @@ mod tests {
                 receives: [Ok(prefix)].into_iter().collect(),
                 semantics: SendSemantics::Stream,
             };
-            let mut adapter = AsyncTransportAdapter::new(
+            let (mut adapter, adapter_policy) = AsyncTransportAdapter::new(
                 transport,
                 &profile(),
                 crate::target::TargetSlot::CAMERA_1,
             )
             .unwrap();
-            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
             let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
             assert!(matches!(received, OwnerReceive::Frames(ref frames) if frames.is_empty()));
             assert_eq!(
@@ -418,13 +418,13 @@ mod tests {
                 receives: [Ok(prefix.clone())].into_iter().collect(),
                 semantics: SendSemantics::Stream,
             };
-            let mut adapter = AsyncTransportAdapter::new(
+            let (mut adapter, adapter_policy) = AsyncTransportAdapter::new(
                 transport,
                 &profile(),
                 crate::target::TargetSlot::CAMERA_1,
             )
             .unwrap();
-            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
             let _ = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
             assert_eq!(
                 adapter.retained().and_then(|input| input.evidence.raw()),
@@ -454,13 +454,13 @@ mod tests {
                 receives: [Err(idle)].into_iter().collect(),
                 semantics: SendSemantics::Datagram,
             };
-            let mut adapter = AsyncTransportAdapter::new(
+            let (mut adapter, adapter_policy) = AsyncTransportAdapter::new(
                 transport,
                 &profile(),
                 crate::target::TargetSlot::CAMERA_1,
             )
             .unwrap();
-            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
             let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
             assert!(
                 matches!(
@@ -488,13 +488,13 @@ mod tests {
                 receives: [Err(fault)].into_iter().collect(),
                 semantics: SendSemantics::Datagram,
             };
-            let mut adapter = AsyncTransportAdapter::new(
+            let (mut adapter, adapter_policy) = AsyncTransportAdapter::new(
                 transport,
                 &profile(),
                 crate::target::TargetSlot::CAMERA_1,
             )
             .unwrap();
-            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
             let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
             assert!(matches!(
                 received,
@@ -520,7 +520,7 @@ mod tests {
             receives: std::collections::VecDeque::new(),
             semantics: SendSemantics::Datagram,
         };
-        let adapter = AsyncTransportAdapter::new_with_tuning(
+        let (_adapter, adapter_policy) = AsyncTransportAdapter::new_with_tuning(
             transport,
             &profile,
             crate::target::TargetSlot::CAMERA_1,
@@ -528,15 +528,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            adapter.policy().protocol.command_spacing,
+            adapter_policy.protocol.command_spacing,
             tuning.command_spacing_override().unwrap()
         );
         assert_eq!(
-            adapter.policy().protocol.inquiry_spacing,
+            adapter_policy.protocol.inquiry_spacing,
             tuning.inquiry_spacing_override().unwrap()
         );
         assert_eq!(
-            adapter.policy().targets[crate::target::TargetSlot::CAMERA_1]
+            adapter_policy.targets[crate::target::TargetSlot::CAMERA_1]
                 .unwrap()
                 .command_sockets,
             1
