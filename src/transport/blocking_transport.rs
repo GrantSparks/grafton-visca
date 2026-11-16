@@ -120,6 +120,8 @@ impl HasTransportConfig for BlockingTransportHandle {
 /// A transport must not call into its own session from a read or write.
 /// Calls that would wait for the owner fail immediately with
 /// [`Error::InvalidState`], since the worker cannot answer its own request.
+/// This includes waiting receives on a diagnostic subscription created before
+/// the callback; `try_recv` and receives with a zero timeout remain available.
 /// Calling `close` also requests shutdown before returning that error; an
 /// external caller can then join the worker and release the transport.
 pub trait BlockingTransport: Send {

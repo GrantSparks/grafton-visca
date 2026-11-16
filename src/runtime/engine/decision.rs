@@ -78,7 +78,7 @@ impl<'a> Decision<'a> {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::runtime::engine::{stream_ledger::Evidence, GenerationTicket};
+    use crate::runtime::engine::stream_ledger::Evidence;
 
     #[test]
     fn all_target_disputes_and_socketless_candidates_remain_inline() {
@@ -89,7 +89,6 @@ mod tests {
                 request: RequestId::from_nonzero(
                     std::num::NonZeroU64::new(index as u64).expect("bounded nonzero index"),
                 ),
-                generation: GenerationTicket(1),
                 evidence: Evidence::Error(0x41),
             });
         }

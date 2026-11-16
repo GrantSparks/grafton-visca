@@ -555,7 +555,7 @@ where
     let mut context = request_context(command, registration, tuning, class, false)?;
     context.motion = command
         .motion_axes()
-        .map(|axes| crate::runtime::engine::MotionEffect { axes, stop: false });
+        .map(|axes| crate::runtime::engine::MotionEffect { axes });
     Ok(PreparedCommand {
         wire,
         context,
@@ -670,11 +670,9 @@ where
     operation.validate_for_target(registration)?;
     let affected_axes = operation.affected_axes();
     let mut context = request_context(operation, registration, tuning, class, false)?;
-    let stop = context.control.class == crate::runtime::engine::ControlClass::Urgent;
+    let stop = context.is_stop();
     context.motion = Some(crate::runtime::engine::MotionEffect {
         axes: affected_axes,
-        // Urgent admission authority comes only from the sealed built-in STOP hook.
-        stop,
     });
     if stop {
         // A STOP the camera finds not executable (`0x41`, for example a focus
@@ -1953,6 +1951,13 @@ mod tests {
         let mut no_inquiry = baseline.capabilities().clone();
         no_inquiry.profile_id = None;
         no_inquiry.inquiry_support = InquirySupport::None;
+        no_inquiry.typed_support = no_inquiry
+            .typed_support
+            .iter()
+            .filter(|surface| !crate::command::surface::is_inquiry_only_surface(*surface))
+            .fold(TypedSupportSet::EMPTY, |grants, surface| {
+                grants.union(TypedSupportSet::from_surface(surface))
+            });
         let no_inquiry = runtime_profile(&baseline, no_inquiry, true, None, AffectedAxes::PAN_TILT);
         assert!(prepare_inquiry(
             &CountingInquiry,
@@ -3746,6 +3751,51 @@ mod tests {
         assert_eq!(never.max_retries, 0);
     }
 
+    #[test]
+    fn selected_noun_commands_validate_once_per_prepared_call() {
+        use crate::request::builtin::{
+            request_validation_count, request_value_validation_count,
+            reset_request_validation_count,
+        };
+        for profile in [
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2"),
+            ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7"),
+        ] {
+            let target =
+                crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+            reset_request_validation_count();
+            let request = crate::command::presets::SetRecallSpeed::selected_for_target(
+                &target,
+                crate::types::PresetSpeed::new(12).expect("speed"),
+            )
+            .expect("selected encoding");
+            prepare_builtin_command(&request, &target, OperationalTuning::new())
+                .expect("recall speed");
+            assert_eq!(
+                request_validation_count(),
+                1,
+                "preset selector validates its selected request once"
+            );
+            assert_eq!(
+                request_value_validation_count(),
+                1,
+                "one profile range check across wrapper and selected request"
+            );
+            reset_request_validation_count();
+            prepare_builtin_command(
+                &crate::command::white_balance::OnePush,
+                &target,
+                OperationalTuning::new(),
+            )
+            .expect("white balance");
+            assert_eq!(
+                request_validation_count(),
+                1,
+                "one-push selector validates its selected request once"
+            );
+        }
+    }
+
     /// Issue #566: `0x41` (`CommandNotExecutable`) stays a movement/preset
     /// distinction. The classes differ in the terminal error a camera-refused
     /// command produces, so this must not be widened along with the timeout
@@ -3799,7 +3849,7 @@ mod tests {
             .expect("zoom stop"),
         ];
         for prepared in &stop_policies {
-            assert!(prepared.context.motion.is_some_and(|motion| motion.stop));
+            assert!(prepared.context.is_stop());
             assert!(!prepared.context.retry.movement_not_executable);
             assert!(prepared.context.retry.buffer_full);
         }
@@ -3810,7 +3860,7 @@ mod tests {
             OperationalTuning::new(),
         )
         .expect("zoom drive");
-        assert!(drive.context.motion.is_some_and(|motion| !motion.stop));
+        assert!(!drive.context.is_stop());
         assert!(drive.context.retry.movement_not_executable);
     }
 
@@ -4492,7 +4542,6 @@ mod tests {
             declared.context.motion,
             Some(crate::runtime::engine::MotionEffect {
                 axes: AffectedAxes::ZOOM,
-                stop: false
             })
         );
         assert_eq!(
@@ -4610,7 +4659,6 @@ mod tests {
                         .expect("reference policy");
                         expected.motion = Some(crate::runtime::engine::MotionEffect {
                             axes: AffectedAxes::ZOOM,
-                            stop: false,
                         });
                         let policy =
                             OperationPolicy::new(timeout, retry, class).with_reply_shape(shape);

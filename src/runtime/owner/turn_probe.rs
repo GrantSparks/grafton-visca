@@ -55,7 +55,7 @@ impl ProbeShell {
 }
 
 trait ProbeDriver: RetainedStreamInput {
-    fn record_write(&mut self, metadata: TransmissionMeta);
+    fn record_write(&mut self, metadata: TransmissionMeta, bytes: &[u8]);
 }
 
 // Local fake: only the device write is replaced; framing, engine decisions,
@@ -66,6 +66,7 @@ struct ProbeTransport {
     semantics: SendSemantics,
     metadata: Option<TransmissionMeta>,
     writes: usize,
+    last_write: smallvec::SmallVec<[u8; 32]>,
 }
 
 impl HasTransportConfig for ProbeTransport {
@@ -84,9 +85,11 @@ impl HasTransportConfig for ProbeTransport {
 impl RetainedStreamInput for ProbeTransport {}
 
 impl ProbeDriver for ProbeTransport {
-    fn record_write(&mut self, metadata: TransmissionMeta) {
+    fn record_write(&mut self, metadata: TransmissionMeta, bytes: &[u8]) {
         self.metadata = Some(metadata);
         self.writes += 1;
+        self.last_write.clear();
+        self.last_write.extend_from_slice(bytes);
     }
 }
 
@@ -120,7 +123,7 @@ impl ProbeIo {
     ) -> WriteOutcome {
         match write.frame() {
             Ok(metadata) => {
-                driver.record_write(metadata);
+                driver.record_write(metadata, write.frame_buffer);
                 WriteOutcome::Sent(metadata)
             }
             Err(error) => WriteOutcome::NotSent(error),
@@ -139,6 +142,7 @@ impl TurnProbe {
             semantics,
             metadata: None,
             writes: 0,
+            last_write: smallvec::SmallVec::new(),
         };
         let tuning = OperationalTuning::new();
         let (_framing, policy) = AdapterFraming::for_targets(
@@ -169,6 +173,14 @@ impl TurnProbe {
 
     /// Allocate and admit one request before measuring its protocol turns.
     pub(crate) fn stage_command(&mut self) -> Result<(), Error> {
+        self.stage_command_with_retry(false)
+    }
+
+    pub(crate) fn stage_retry(&mut self) -> Result<(), Error> {
+        self.stage_command_with_retry(true)
+    }
+
+    fn stage_command_with_retry(&mut self, retry: bool) -> Result<(), Error> {
         if self.pending.is_some() {
             return Err(Error::InvalidState {
                 reason: "probe command already staged".into(),
@@ -192,14 +204,14 @@ impl TurnProbe {
             target: TargetSlot::ALL[0],
             timeout: TimeoutPolicy::default(),
             retry: RetryPolicy {
-                max_retries: 0,
-                initial_backoff: Duration::ZERO,
-                maximum_backoff: Duration::ZERO,
+                max_retries: u32::from(retry),
+                initial_backoff: Duration::from_millis(u64::from(retry)),
+                maximum_backoff: Duration::from_millis(u64::from(retry)),
                 total_budget: None,
                 ack_timeout: false,
                 completion_timeout: false,
                 inquiry_timeout: false,
-                buffer_full: false,
+                buffer_full: retry,
                 movement_not_executable: false,
                 builtin_inquiry_syntax: false,
             },
@@ -246,6 +258,46 @@ impl TurnProbe {
 
     /// Run dispatch, exact write completion, ACK and protocol completion.
     pub(crate) fn command_turn(&mut self) -> Result<(), Error> {
+        self.write_command()?;
+        self.complete_command()
+    }
+
+    /// Prove a conclusive pre-ACK rejection reuses the exact framed attempt.
+    pub(crate) fn retry_turn(&mut self) -> Result<(), Error> {
+        self.write_command()?;
+        let original = self.driver.last_write.clone();
+        let metadata = self.driver.metadata;
+        let buffer = &self.shell.core.state.buffers.transmit;
+        let storage = (buffer.as_ptr(), buffer.capacity());
+        self.receive(
+            &[DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            }],
+            self.sequence(),
+        );
+        self.shell.io.now += self
+            .shell
+            .core
+            .state
+            .policy()
+            .protocol
+            .command_spacing
+            .max(Duration::from_millis(10));
+        self.write_command()?;
+        let buffer = &self.shell.core.state.buffers.transmit;
+        if original != self.driver.last_write
+            || metadata != self.driver.metadata
+            || storage != (buffer.as_ptr(), buffer.capacity())
+        {
+            return Err(Error::InvalidState {
+                reason: "safe retry changed the original frame, sequence or framing buffer".into(),
+            });
+        }
+        self.complete_command()
+    }
+
+    fn write_command(&mut self) -> Result<(), Error> {
         if self.pending.is_none() {
             return Err(Error::InvalidState {
                 reason: "probe command was not staged".into(),
@@ -259,6 +311,10 @@ impl TurnProbe {
                 reason: "probe command did not write exactly once".into(),
             });
         }
+        Ok(())
+    }
+
+    fn complete_command(&mut self) -> Result<(), Error> {
         self.receive(
             &[
                 DecodedResponse::Ack {

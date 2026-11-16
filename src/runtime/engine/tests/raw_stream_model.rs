@@ -14,9 +14,10 @@
 //! that caused it.
 //!
 //! Camera kinds vary what the documented assumptions allow: whether
-//! completions name their sockets (always, never, or sometimes; ACKs and
-//! errors always name theirs), and whether a `CompletionOnly` command's
-//! completion is sometimes never sent. A *dropping* camera also leaves some
+//! completions name their sockets (always, never, or sometimes), whether ACKs
+//! omit theirs (selecting the first free socket), and whether a
+//! `CompletionOnly` command's completion is sometimes never sent. Execution
+//! errors always name their sockets. A *dropping* camera also leaves some
 //! requests unanswered, outside the assumptions.
 //!
 //! Every step checks every engine invariant (including the ledger bound),
@@ -66,6 +67,8 @@ struct Link {
     /// Each successful one holds its camera's ordinary work, but never a
     /// STOP, for an ambiguity interval (#700).
     no_reply_per_mille: u64,
+    /// Keep requests flowing while camera-to-host delivery stalls.
+    responses_only: bool,
 }
 
 /// A deliberately hostile link: stalls hold it about 45% of the time, and
@@ -92,6 +95,7 @@ const HOSTILE: Link = Link {
     stop_budget: Duration::from_millis(250),
     hostile: true,
     no_reply_per_mille: 100,
+    responses_only: false,
 };
 
 /// A PTZOptics-G2-like link: stalls hold it under 5% of the time, and the
@@ -125,6 +129,7 @@ const REALISTIC: Link = Link {
     stop_budget: Duration::from_secs(30),
     hostile: false,
     no_reply_per_mille: 5,
+    responses_only: false,
 };
 
 /// What a camera does within (or, for `dropping`, outside) the documented
@@ -136,6 +141,9 @@ struct Kind {
     link: Link,
     /// Percent of a socketed command's completions that name its socket.
     named_completions: u64,
+    /// A compatibility camera assigns its first free socket but omits its
+    /// nibble from the ACK. Both physical sockets remain available.
+    socketless_acks: bool,
     /// Percent of `CompletionOnly` commands whose completion is never sent.
     lost_completion_only: u64,
     /// Percent of requests left unanswered (outside the assumptions).
@@ -165,13 +173,34 @@ const fn kind(name: &'static str, seeds: u64, link: Link) -> Kind {
         seeds,
         link,
         named_completions: 100,
+        socketless_acks: false,
         lost_completion_only: 0,
         dropped: 0,
         due_interval: 1,
     }
 }
 
-const KINDS: [Kind; 8] = [
+const KINDS: [Kind; 10] = [
+    kind(
+        "only camera-to-host delivery stalls",
+        48,
+        Link {
+            responses_only: true,
+            ..HOSTILE
+        },
+    ),
+    Kind {
+        socketless_acks: true,
+        named_completions: 0,
+        ..kind(
+            "socketless ACKs and completions with inbound stalls",
+            48,
+            Link {
+                responses_only: true,
+                ..HOSTILE
+            },
+        )
+    },
     kind("names sockets, hostile link", 96, HOSTILE),
     kind("names sockets, G2-like link", 96, REALISTIC),
     Kind {
@@ -693,7 +722,7 @@ impl Session {
                 self.halt(target);
             }
         }
-        if self.now >= self.stalled_until {
+        if self.kind.link.responses_only || self.now >= self.stalled_until {
             self.read_all();
         }
         self.complete_due();
@@ -1065,7 +1094,13 @@ impl Session {
                 let code = [0x02, 0x03, 0x41][usize::try_from(self.roll(3)).unwrap()];
                 let camera = &mut self.cameras[usize::from(target - 1)];
                 let free = (0..2)
-                    .map(|offset| (camera.rotation + offset) % 2)
+                    .map(|offset| {
+                        if self.kind.socketless_acks {
+                            offset
+                        } else {
+                            (camera.rotation + offset) % 2
+                        }
+                    })
                     .find(|index| camera.sockets[*index].is_none());
                 let response = match free {
                     None => {
@@ -1097,7 +1132,7 @@ impl Session {
                             error,
                         });
                         DecodedResponse::Ack {
-                            socket: Some(socket_at(index)),
+                            socket: (!self.kind.socketless_acks).then(|| socket_at(index)),
                         }
                     }
                 };

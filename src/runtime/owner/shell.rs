@@ -74,6 +74,8 @@ pub(super) struct ClassifiedEvent {
 }
 
 /// What a shell does next to carry one owner turn forward.
+// A halt continuation retains its prepared STOPs inline, avoiding a boundary allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub(super) enum TurnStep {
     /// Drive `effects` to completion, writing each staged transmit in order,
@@ -106,6 +108,8 @@ pub(super) enum ReceivePause {
 #[derive(Debug)]
 pub(super) struct Resume(Continuation);
 
+// The halt owns three inline requests; boxing would allocate at this boundary.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum Continuation {
     Done(TurnOutcome),
@@ -114,6 +118,13 @@ enum Continuation {
     ConcludeCancellation {
         answer: Result<(), Error>,
         reply: flume::Sender<Result<(), Error>>,
+    },
+    /// Admit all STOPs after the supersession effects released their permits.
+    AdmitHalt {
+        turn: OwnerInputTurn,
+        halt: super::halt::HaltBoundary,
+        cutoff: u64,
+        remaining: crate::runtime::engine::NonZeroDuration,
     },
     /// Feed the next frame of an input turn.
     NextFrame(FrameTurn),
@@ -136,6 +147,7 @@ impl Resume {
     pub(super) const fn input_turn(&self) -> Option<&OwnerInputTurn> {
         match &self.0 {
             Continuation::NextFrame(frames) => Some(&frames.turn),
+            Continuation::AdmitHalt { turn, .. } => Some(turn),
             _ => None,
         }
     }
@@ -366,17 +378,16 @@ impl OwnerShellCore {
                             halt.prepared.axes,
                         ) {
                             Ok(cutoff) => {
-                                let receipt = self.state.accept_halt(
-                                    halt.prepared,
-                                    halt.validity.deadline(),
-                                    cutoff,
-                                    remaining,
-                                    selected_at,
-                                );
-                                let _ = halt.reply.try_send(Ok(receipt));
+                                let (turn, effects) =
+                                    self.state.begin_halt(&halt.prepared, cutoff, selected_at);
                                 TurnStep::Drive {
-                                    effects: self.state.advance(selected_at),
-                                    then: Resume::done(TurnOutcome::Continue),
+                                    effects,
+                                    then: Resume(Continuation::AdmitHalt {
+                                        turn,
+                                        halt,
+                                        cutoff,
+                                        remaining,
+                                    }),
                                 }
                             }
                             Err(error) => {
@@ -385,8 +396,18 @@ impl OwnerShellCore {
                             }
                         }
                     }
-                    AdmissionClaim::ExpiredHere | AdmissionClaim::ExpiredElsewhere => {
-                        let _ = halt.reply.try_send(Err(Error::admission_timeout()));
+                    claim @ (AdmissionClaim::ExpiredHere | AdmissionClaim::ExpiredElsewhere) => {
+                        let error = Error::admission_timeout();
+                        if matches!(claim, AdmissionClaim::ExpiredHere) {
+                            for _ in halt.prepared.requests.iter().flatten() {
+                                self.state.record_admission_rejection(
+                                    halt.prepared.target,
+                                    super::Lane::Command,
+                                    &error,
+                                );
+                            }
+                        }
+                        let _ = halt.reply.try_send(Err(error));
                         TurnStep::Done(TurnOutcome::Continue)
                     }
                 }
@@ -437,6 +458,25 @@ impl OwnerShellCore {
             Continuation::ConcludeCancellation { answer, reply } => {
                 let _ = reply.try_send(answer);
                 TurnStep::Done(TurnOutcome::Continue)
+            }
+            Continuation::AdmitHalt {
+                turn,
+                halt,
+                cutoff,
+                remaining,
+            } => {
+                let (receipt, effects) = self.state.accept_halt(
+                    turn,
+                    halt.prepared,
+                    halt.validity.deadline(),
+                    cutoff,
+                    remaining,
+                );
+                let _ = halt.reply.try_send(Ok(receipt));
+                TurnStep::Drive {
+                    effects,
+                    then: Resume::done(TurnOutcome::Continue),
+                }
             }
             Continuation::NextFrame(frames) => self.next_frame(frames, driver),
         }
@@ -1285,7 +1325,6 @@ mod tests {
                 requires_extended_pan_tilt_speed: false,
                 motion: Some(MotionEffect {
                     axes: crate::AffectedAxes::ZOOM,
-                    stop,
                 }),
                 submission_order: 0,
                 dispatch_deadline: None,
@@ -1469,6 +1508,79 @@ mod tests {
             handle.disconnected_error(),
             Error::ConnectionClosed { .. }
         ));
+    }
+
+    #[test]
+    fn saturated_halt_boundary_counts_each_expired_stop_and_its_diagnostic_once() {
+        use super::super::{boundary::AdmissionValidity, halt::HaltBoundary};
+        let now = Instant::now();
+        let deadline = now + Duration::from_millis(10);
+        let (handle, mut core) = owner();
+        let diagnostics = super::super::tests::DiagnosticRecorder::new(&mut core.state);
+        let capacity = handle.cancellations.capacity().unwrap();
+        let mut replies = Vec::new();
+        for index in 0..capacity {
+            let validity = AdmissionValidity::until(deadline);
+            // Alternate which side wins the expiry race. The handle reports
+            // its winner through ingress; the owner must not count it twice.
+            if index % 2 != 0 {
+                assert!(validity.expire_before_admission());
+                for _ in 0..2 {
+                    handle.record_pre_admission_rejection(
+                        TargetSlot::CAMERA_1,
+                        super::super::Lane::Command,
+                        &Error::admission_timeout(),
+                    );
+                }
+            }
+            let (reply, receiver) = flume::bounded(1);
+            handle
+                .cancellations
+                .try_send(CancellationBoundary::Halt(HaltBoundary {
+                    prepared: crate::prepared::PreparedHalt {
+                        target: TargetSlot::CAMERA_1,
+                        axes: Some(crate::AffectedAxes::MOVEMENT),
+                        requests: [
+                            Some(Ok(declared_request(true).into())),
+                            Some(Ok(declared_request(true).into())),
+                            None,
+                        ],
+                        budget: Duration::from_millis(10),
+                    },
+                    validity,
+                    reply,
+                }))
+                .unwrap();
+            replies.push(receiver);
+        }
+        assert!(handle.cancellations.is_full());
+        for _ in 0..capacity {
+            let halt = core.receivers.cancellations.recv().unwrap();
+            let step = core.handle(
+                OwnerEvent::Cancellation(halt),
+                &mut Datagrams,
+                deadline,
+                false,
+            );
+            run_turn(&mut core, step);
+        }
+        core.flush_pre_admission_rejections(true);
+        for reply in replies {
+            assert_eq!(
+                reply.recv().unwrap().unwrap_err().kind(),
+                Error::admission_timeout().kind()
+            );
+        }
+        assert_eq!(
+            core.state.metrics().admission_rejected,
+            (capacity * 2) as u64
+        );
+        assert_eq!(core.state.metrics().admitted, 0);
+        assert_eq!(core.state.metrics().writes, 0);
+        assert_eq!(diagnostics.events().iter().filter(|event| matches!(event,
+            DiagnosticEvent::AdmissionRejected { target: crate::CameraId::CAMERA_1, error, .. }
+                if *error == Error::admission_timeout().kind()
+        )).count(), capacity * 2);
     }
 
     #[test]

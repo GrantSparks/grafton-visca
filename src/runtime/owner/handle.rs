@@ -189,6 +189,8 @@ macro_rules! owner_handle_methods {
                 self.off_worker("halt")?;
                 let deadline = super::receipt::observer_deadline(started, prepared.budget)?;
                 let validity = super::boundary::AdmissionValidity::until(deadline);
+                let rejected_target = prepared.target;
+                let rejected_count = prepared.requests.iter().flatten().count();
                 let (reply, receiver) = flume::bounded(1);
                 let boundary =
                     super::boundary::CancellationBoundary::Halt(super::halt::HaltBoundary {
@@ -210,7 +212,11 @@ macro_rules! owner_handle_methods {
                     Some(answer) => answer??,
                     None => {
                         if validity.expire_before_admission() {
-                            return Err(crate::Error::admission_timeout());
+                            let error = crate::Error::admission_timeout();
+                            for _ in 0..rejected_count {
+                                self.core.record_pre_admission_rejection(rejected_target, super::Lane::Command, &error);
+                            }
+                            return Err(error);
                         }
                         self.boundary_reply(&receiver) $($await)* ??
                     }

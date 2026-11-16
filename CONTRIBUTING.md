@@ -90,7 +90,7 @@ We maintain high code quality standards:
 
 ## Public API Conventions
 
-These conventions are normative for public changes. `tests/api_conventions.rs`
+These conventions are normative for public changes. `tests/integration/api_conventions.rs`
 and the public-path, facade-parity, value and compile-contract gates enforce
 this grammar; update the declarations and their reviewed contracts together.
 
@@ -106,7 +106,7 @@ this grammar; update the declarations and their reviewed contracts together.
    `mode()` / `set_mode(Mode)`; a sub-feature uses `p_mode()` /
    `set_p_mode(PMode)`. Single steps are `p_up`, `p_down`, `p_reset`; counted
    steps are `p_up_by(steps)` and `p_down_by(steps)`; toggles are `toggle_p`.
-   Other actions use the closed verb list in `tests/api_conventions.rs`, such
+   Other actions use the closed verb list in `tests/integration/api_conventions.rs`, such
    as `on`, `standby`, `home`, `stop`, `drive`, `recall`, `store`, `clear`,
    `one_push`, `navigate`, `enter`, `back` and `stop_all`. Do not introduce
    `enable_*`, `disable_*`, `*_on`, `*_off`, `increase_*`, `decrease_*`,
@@ -319,13 +319,13 @@ profile first grants them.
 
 ### 4. Adding a Built-in Command
 
-A built-in command is declared in four places, and every other projection is
+A built-in command is declared in five places, and every other projection is
 generated from them:
 
 1. **Ledger row** (`src/command/semantics.rs`): one `builtin_command_ledger!`
    row gives the command its `BuiltinCommand` identity and its class
-   (`plain`, `applied(<AXES>)` or `targeted(<AXES>)`), plus any write-only
-   state effect. Its `packet:` column owns one `PacketPattern` built from
+   (`plain`, `applied(<AXES>)`, `applied_stop(<AXES>)` or `targeted(<AXES>)`), plus any
+   write-only state effect. Its `packet:` column owns one `PacketPattern` built from
    `command::bytes::constants`, with explicit selector bytes or nibble masks
    where needed. Sourced rows require a nonempty `Some(pattern)`; use `None`
    only for unsourced rows. `source!` references contain the source ID, model
@@ -346,19 +346,22 @@ generated from them:
    match whose patterns are variant paths (a wildcard is rejected), and its
    generated request hook gates each value on the row it selects,
    `self.ledger_row()`, before per-value validation.
-4. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
+4. **Noun wrapper** (`src/command/nouns/<noun>.rs`): use `forward_request!`
+   to forward every request hook and derive its reviewed state projection.
+   A value-selecting wrapper declares `rows = [Row, ...]`; a wrapper that
+   selects different inner requests uses the generator's `select` form,
+   which checks each arm's class, allocation bound and policy.
+   Use `forward_inquiry!` for inquiry wrappers.
+5. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
    gives the method name, arguments, rustdoc, capability `where` marker and
    request. The blocking and async methods, the semantic surface entry
    and the typed-request inventory are all expanded from it.
 
 The compiler rejects a ledger row without a noun row, a noun row whose kind
 disagrees with the ledger class, and a request type without a `rows:` entry
-whose noun rows disagree on their capability gate. For a type with a `rows:`
-entry, every noun row that
-sends it must use `[by_value <const expr>]`, or
-`[by_value [<const witness>] <runtime expr>]` for an argument-bearing constructor.
-The constant must select the noun row's ledger row; generated preparation tests
-also check the ledger row selected by the evaluated runtime request. A typed built-in inquiry is added to
+whose noun rows disagree on their capability gate. For a value-selecting
+type, declare every possible ledger row on its noun wrapper; generated preparation tests check the row selected by each
+evaluated noun request. A typed built-in inquiry is added to
 `define_builtin_inquiries!` in `src/command/inquiry_structs.rs` and gets its
 runtime gate from its noun row in the same way. Its `bytes:` references a
 catalogue-owned body, including for inquiry-only registers. Model-specific
@@ -459,6 +462,27 @@ with `blocking_wire()`/`async_wire()`, the shared reply frames and wait
 helpers); scenarios that run on several facades or runtimes use its
 `facade_matrix!`/`runtime_matrix!` macros. A hand-written transport stays
 local only with a `// Local fake:` comment.
+
+Behavioral suites live as modules under `tests/integration/`, so each feature
+leg links one behavioral test executable. `tests/allocation/` shares one
+thread-local counting allocator and stays in a separate process to isolate
+measurements. `tests/api_stability_test/` and `tests/no_default_smoke/` remain
+separate because dedicated matrix legs select exactly those workloads. The
+suite module name remains part of every libtest name:
+
+```bash
+cargo test --test integration issue_555_observability::
+cargo test --features test-utils --test allocation issue_548_allocation_baselines::
+```
+
+Keep new suites under the appropriate target and declare them in its
+`main.rs`; add a separate target only when its process state or matrix
+selection requires it. `tests/common/` helpers are compiled once per target.
+When moving suites, preserve each feature leg's executable test inventory:
+run `.github/scripts/check-integration-test-equivalence.py capture OUTPUT`
+on each checkout, then its `compare BEFORE/inventory.json AFTER/inventory.json`
+mode. The `measure` mode records cold and incremental build timings and
+integration executable bytes in an empty target directory for each checkout.
 
 ### Running Tests
 

@@ -618,6 +618,18 @@ write result is outstanding (#860).
 Either kind of ACK naming a socket the engine still indexes to an executing
 command proves that command's completion was lost: it ends unconfirmed and
 the socket is released (#721).
+A socketless ACK can use the first-free rule only while physical occupancy
+remains certain. An ambiguously retained completion, an unresolved completion
+from before socket learning, or an inert socket hold can mean the camera has
+already freed a socket still indexed locally. Such an ACK retains the union
+of possible sockets as anonymous holds instead of guessing. The possible
+sockets include earlier dispatched capacity and camera-proven socket keys,
+so lowering capacity cannot forget an older execution, while a one-socket
+session gains no phantom second hold. Existing socket owners and the newly
+accepted live request end unconfirmed through the usual
+strict-policy path; a paid debt or disputed ACK keeps the same execution
+holds. Socketless completions cannot release this anonymous union, while
+named socket evidence restores exact correlation. STOP delivery continues.
 
 A tracked dispute is also decided where the engine learns who sent nothing
 or who completed, and its frames are then assigned at once:
@@ -866,7 +878,7 @@ socket nibbles, RS-485 echoes, address-set replies, and truncated frames. The
 session stays `Running` and the frame's real reply still settles the outstanding
 command. An oversized raw frame ending in `FF` is discarded and counted too: its
 terminator preserves the next frame boundary. Cumulative input beyond the hard
-retention bound `max_buffer_size + recv_buffer_size`, or a Sony header declaring
+retention bound `max_buffer_size + recv_buffer_size`, a Sony header with an undecodable payload type, or one declaring
 a payload the framer cannot retain, is a genuine framing failure that still
 poisons a stream (#848). For the serial preset the bound is 8192 + 256 = 8448
 bytes, and overflow reports that configured bound. Raw and Sony framers are
@@ -945,7 +957,7 @@ configured `read_timeout` has elapsed
 without data, and the coordinator paces an eagerly idle or faulting transport
 while every other source stays selectable.
 
-Measured cost and latency (`tests/blocking_worker_resources.rs`, release
+Measured cost and latency (`tests/integration/blocking_worker_resources.rs`, release
 build, UDP loopback, 4-core Linux VM, October 2026; the harness is ignored by
 default because the figures depend on the host):
 
@@ -1093,7 +1105,7 @@ terminal verdict. Delivery moves the result into that slot (#903).
 | Admit while `Running`, within capacity, target registered, policy compatible | Allocate a non-colliding `RequestId`, create one `Ready` lifecycle with no cancellation substate, enqueue it, and return its `RequestId` directly. No write happens here. |
 | Admit over ordinary capacity | Reject with `Error::RuntimeQueueFull`; no id, entry, observer, or queue slot is created. |
 | Admit an urgent typed STOP into its target's control reserve | Admit while that target's reserved entries are below its reserve (one per supported typed STOP); otherwise reject with `Error::ControlReserveExhausted`. Only an urgent request may hold a reserved slot (D26, #778). |
-| Admit with the id/generation space exhausted | Reject with `Error::RuntimeIdentityExhausted`. |
+| Admit with the request identity space exhausted | Reject with `Error::RuntimeIdentityExhausted`. |
 | Admit to a non-`Running` session | Reject with the session's terminal error (or `Error::RuntimeShutdown`). |
 | Select a `Ready` request | Transition to `Sending`, allocate one `TransmissionId`, emit exactly one request `Transmit` (Sony carries its retained sequence; raw carries none). |
 | Ordinary dispatch behind a live raw `AwaitingAck` candidate or inert `PreAck` hold | Queue to the evidence boundary: the candidate's ACK or the hold's deadline; the old terminal request cannot be rescued (#714/#723/#724). |

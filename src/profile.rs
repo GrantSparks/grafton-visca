@@ -1299,14 +1299,30 @@ impl ProfileSpec {
     /// supports. Each one gets a control-reserve admission slot (D26, #778).
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn typed_stop_paths(&self) -> u8 {
-        [
-            AffectedAxes::PAN_TILT,
-            AffectedAxes::ZOOM,
-            AffectedAxes::FOCUS,
-        ]
-        .into_iter()
-        .filter(|axes| self.supports_axes(*axes))
-        .fold(0, |paths, _| paths + 1)
+        use crate::command::semantics::{
+            BuiltinAxisSelection, BuiltinCommand, BuiltinRequestClass,
+        };
+        let mut covered = 0;
+        let mut paths = 0;
+        for row in BuiltinCommand::ALL {
+            if let BuiltinRequestClass::AppliedOnly {
+                axes: BuiltinAxisSelection::Exact(stop_axes),
+                stop: true,
+            } = row.classification()
+            {
+                // Different encodings of the same STOP share one reserve
+                // path, so FR7's two zoom forms do not reserve twice.
+                if covered & stop_axes.bits() != stop_axes.bits()
+                    && crate::command::surface::row_gate(*row)
+                        .validate(self, "typed STOP")
+                        .is_ok()
+                {
+                    paths += 1;
+                    covered |= stop_axes.bits();
+                }
+            }
+        }
+        paths
     }
 
     /// Validates operational overrides without changing profile safety facts.
@@ -1593,6 +1609,24 @@ impl ProfileFacts {
         }
         self.capabilities.validate_domains()?;
         self.encodings.validate(self.capabilities.typed_support)?;
+        if self.capabilities.inquiry_support == capabilities::InquirySupport::None {
+            let inquiries = self
+                .capabilities
+                .typed_support
+                .iter()
+                .filter(|surface| crate::command::surface::is_inquiry_only_surface(*surface))
+                .map(|surface| format!("{surface:?}"))
+                .collect::<Vec<_>>();
+            if !inquiries.is_empty() {
+                return Err(invalid_profile_fields(
+                    &["capabilities.typed_support", "capabilities.inquiry_support"],
+                    format_args!(
+                        "inquiry-only typed support {} requires profile inquiry support",
+                        inquiries.join(", ")
+                    ),
+                ));
+            }
+        }
         for surface in self.capabilities.typed_support.iter() {
             if !self.capabilities.surface_metadata(surface).permits() {
                 return Err(invalid_profile_fields(
@@ -2888,6 +2922,104 @@ mod tests {
             .position_inquiries(None)
             .build()
             .is_ok());
+    }
+
+    #[test]
+    fn inquiry_only_grants_require_profile_inquiry_support() {
+        let mut caps = Capabilities::runtime_baseline("Version fixture", 1).expect("baseline");
+        caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::VersionInquiry);
+        assert!(!caps
+            .surface_metadata(TypedSupportSurface::VersionInquiry)
+            .permits());
+        let error = conservative_runtime_builder(caps.clone())
+            .build()
+            .expect_err("an inquiry grant cannot override no inquiry support")
+            .to_string();
+        for field in [
+            "capabilities.typed_support",
+            "capabilities.inquiry_support",
+            "VersionInquiry",
+        ] {
+            assert!(error.contains(field), "{error}");
+        }
+        for support in [
+            capabilities::InquirySupport::Partial,
+            capabilities::InquirySupport::Full,
+        ] {
+            caps.inquiry_support = support;
+            assert!(caps
+                .surface_metadata(TypedSupportSurface::VersionInquiry)
+                .permits());
+            conservative_runtime_builder(caps.clone())
+                .build()
+                .expect("inquiry support");
+        }
+    }
+
+    #[test]
+    fn a_shared_digital_zoom_range_grants_control_without_inquiries() {
+        let mut caps = Capabilities::runtime_baseline("Digital zoom control", 1).expect("baseline");
+        caps.zoom = Some(capabilities::ZoomCaps {
+            optical_max: 0x4000,
+            digital_max: Some(0x7000),
+            speed: capabilities::CapabilityRange::<u8>::new(0, 7),
+            direct: true,
+            variable: false,
+            optical_ratio: None,
+        });
+        caps.typed_support = TypedSupportSet::from_surfaces(&[
+            TypedSupportSurface::DirectZoom,
+            TypedSupportSurface::DigitalZoomRange,
+        ]);
+        assert_eq!(caps.inquiry_support, capabilities::InquirySupport::None);
+        assert!(caps
+            .surface_metadata(TypedSupportSurface::DigitalZoomRange)
+            .permits());
+        let profile = conservative_runtime_builder(caps)
+            .supports_operation_complete(true)
+            .build()
+            .expect("command-only digital zoom profile");
+        let target =
+            crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile).expect("target");
+        let request = crate::command::zoom::SetNormalized::for_target(
+            &target,
+            crate::units::UnitInterval::MAX,
+            crate::ZoomDomain::OpticalPlusDigital,
+        )
+        .expect("combined normalized control does not require inquiries");
+        crate::Request::validate_for_target(&request, &target).expect("control admission");
+    }
+
+    #[test]
+    fn discovery_requires_inquiry_support_for_every_inquiry_only_grant() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+        let mut caps = profile.capabilities().clone();
+        caps.inquiry_support = capabilities::InquirySupport::None;
+        for surface in caps.typed_support.iter() {
+            if crate::command::surface::is_inquiry_only_surface(surface) {
+                assert!(!caps.surface_metadata(surface).permits(), "{surface:?}");
+            }
+        }
+        assert!(caps.supports(TypedSupportSurface::DirectZoom));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn persisted_inquiry_only_grants_cannot_disable_profile_inquiry_support() {
+        let mut caps = Capabilities::runtime_baseline("Version fixture", 1).expect("baseline");
+        caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::VersionInquiry);
+        caps.inquiry_support = capabilities::InquirySupport::Full;
+        let profile = conservative_runtime_builder(caps)
+            .build()
+            .expect("valid inquiries");
+        let mut json = serde_json::to_value(profile).expect("serialize");
+        json["capabilities"]["inquiry_support"] =
+            serde_json::to_value(capabilities::InquirySupport::None).expect("none");
+        let error = serde_json::from_value::<ProfileSpec>(json)
+            .expect_err("contradictory persisted spec")
+            .to_string();
+        assert!(error.contains("capabilities.typed_support"), "{error}");
+        assert!(error.contains("capabilities.inquiry_support"), "{error}");
     }
 
     #[test]

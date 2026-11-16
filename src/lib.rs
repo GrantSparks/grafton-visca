@@ -1113,7 +1113,7 @@ pub(crate) mod noun_facade;
 pub(crate) mod noun_metadata;
 
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
-#[path = "../tests/api_conventions.rs"]
+#[path = "../tests/integration/api_conventions.rs"]
 mod api_conventions_source;
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 api_conventions_source::api_convention_tests!();

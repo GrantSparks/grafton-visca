@@ -318,12 +318,13 @@ fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
     let mut targets = PerTarget::default();
     targets[TargetSlot::CAMERA_1] = Some(target);
     targets[TargetSlot::CAMERA_2] = Some(target);
+    let baseline = super::super::TuningBaseline::for_test(&protocol, &targets);
     OwnerPolicy::with_targets(
         protocol,
         targets,
         crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new()).unwrap(),
+        baseline,
     )
-    .unwrap()
 }
 
 fn command() -> RuntimeRequest {

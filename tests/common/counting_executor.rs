@@ -11,10 +11,10 @@ use grafton_visca::{runtime::Executor, Error};
 
 /// Counts actor tasks and timer factories through the selected executor.
 #[derive(Clone)]
-pub(super) struct CountingExecutor<E> {
-    pub(super) inner: E,
-    pub(super) spawned: Arc<AtomicUsize>,
-    pub(super) timer_calls: Arc<AtomicUsize>,
+pub(crate) struct CountingExecutor<E> {
+    pub(crate) inner: E,
+    pub(crate) spawned: Arc<AtomicUsize>,
+    pub(crate) timer_calls: Arc<AtomicUsize>,
 }
 
 impl<E: Executor> Executor for CountingExecutor<E> {

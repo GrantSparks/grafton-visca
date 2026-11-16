@@ -17,7 +17,7 @@ use smallvec::SmallVec;
 use crate::{
     profiles::{ProfileEnvelope, ProfileSpec},
     protocol::{
-        framer::{Framer, FramingError, RawFramer, SonyFramer},
+        framer::{FrameScan, Framer, FramingError, RawFramer, SonyFramer},
         response::{decode_basic_for_source, BasicKind},
     },
     raw::INLINE_BYTES,
@@ -105,33 +105,21 @@ pub(crate) struct TargetRegistry {
 }
 
 impl TargetRegistry {
-    /// Creates a registry from individual camera targets.
-    pub(crate) fn from_targets(targets: &[TargetSlot]) -> Result<Self, Error> {
-        let mut registered = PerTarget::default();
-        let mut count = 0_u8;
-        if targets.is_empty() {
-            return Err(Error::InvalidRequest {
-                reason: "owner target registry must contain at least one camera".into(),
-            });
-        }
-        for target in targets {
-            let slot = &mut registered[*target];
-            if *slot {
-                return Err(Error::InvalidRequest {
-                    reason: "owner target registry contains a duplicate camera".into(),
-                });
-            }
-            *slot = true;
-            count = count.saturating_add(1);
-        }
-        Ok(Self { registered, count })
+    /// Projects an already validated fixed target table into routing membership.
+    pub(crate) fn from_registry<T>(targets: &PerTarget<Option<T>>) -> Self {
+        let registered = PerTarget::from_fn(|target| targets[target].is_some());
+        let count = registered
+            .iter()
+            .fold(0_u8, |count, (_, present)| count + u8::from(*present));
+        Self { registered, count }
     }
 
-    /// Creates a registry for one target, preserving the existing constructor
-    /// behavior.
-    // Single-target sessions are the common case, but only this module's own
-    // routing tests build a registry that way today; production construction
-    // goes through `from_targets` with the session's registered set (#636).
+    #[cfg(test)]
+    pub(crate) fn from_targets(targets: &[TargetSlot]) -> Result<Self, Error> {
+        let table = PerTarget::from_fn(|target| targets.contains(&target).then_some(()));
+        Ok(Self::from_registry(&table))
+    }
+
     #[cfg(test)]
     pub(crate) fn single(target: TargetSlot) -> Result<Self, Error> {
         Self::from_targets(&[target])
@@ -207,6 +195,7 @@ pub(crate) fn owner_policy_for_targets(
 /// Tuning-aware multi-target owner policy lowering. The target registry is
 /// validated before any owner state is created, so registration is immutable
 /// for the lifetime of the resulting owner.
+#[cfg(test)]
 pub(crate) fn owner_policy_for_targets_with_tuning(
     profiles: &[(TargetSlot, &ProfileSpec)],
     config: &TransportConfig,
@@ -215,69 +204,48 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     admission_capacity: NonZeroUsize,
     strict_unconfirmed_poison: bool,
 ) -> Result<OwnerPolicy, Error> {
-    if profiles.is_empty() {
-        return Err(Error::InvalidRequest {
-            reason: "owner target registry must contain at least one camera".into(),
-        });
-    }
-    if profiles.len() > 7 {
-        return Err(Error::InvalidRequest {
-            reason: "owner target registry cannot contain more than seven cameras".into(),
-        });
-    }
+    let profiles = PerTarget::from_fn(|target| {
+        profiles
+            .iter()
+            .find_map(|(key, profile)| (*key == target).then_some(*profile))
+    });
+    owner_policy_for_registry_with_tuning(
+        &profiles,
+        config,
+        identity,
+        tuning,
+        admission_capacity,
+        strict_unconfirmed_poison,
+    )
+}
 
-    let validated_tuning = tuning;
-    let tuning = tuning.get();
-    let first_profile = profiles[0].1;
-    let envelope = EnvelopeKind::from(first_profile.envelope());
+pub(crate) fn owner_policy_for_registry_with_tuning(
+    profiles: &PerTarget<Option<&ProfileSpec>>,
+    config: &TransportConfig,
+    identity: TransportIdentity<'_>,
+    tuning: crate::session_config::ValidatedTuning,
+    admission_capacity: NonZeroUsize,
+    strict_unconfirmed_poison: bool,
+) -> Result<OwnerPolicy, Error> {
+    let envelope = profiles
+        .iter()
+        .find_map(|(_, profile)| profile.map(ProfileSpec::envelope))
+        .unwrap_or(ProfileEnvelope::RawVisca)
+        .into();
+    let baseline = super::TuningBaseline::from_registry(profiles);
+    let (command_spacing, inquiry_spacing, command_sockets) = baseline.apply(tuning);
     let mut target_policies = PerTarget::default();
-    let mut command_spacing = std::time::Duration::ZERO;
-    let mut inquiry_spacing = std::time::Duration::ZERO;
     let mut inquiry_cooldown = std::time::Duration::ZERO;
     let mut raw_inquiry_release_hold = std::time::Duration::ZERO;
-    let mut seen = PerTarget::default();
-    // The profile-only facts, kept alongside the tuned ones so a later runtime
-    // reconfiguration can re-derive from the profile rather than ratcheting off
-    // the value a previous override installed (#631).
-    let mut baseline = super::TuningBaseline {
-        command_spacing: std::time::Duration::ZERO,
-        inquiry_spacing: std::time::Duration::ZERO,
-        command_sockets: PerTarget::default(),
-    };
-
-    for (target, profile) in profiles {
-        if seen[*target] {
-            return Err(Error::InvalidRequest {
-                reason: "owner target registry contains a duplicate camera".into(),
-            });
-        }
-        seen[*target] = true;
-        if profile.envelope() != first_profile.envelope() {
-            return Err(Error::InvalidRequest {
-                reason: "registered session profiles require one wire envelope".into(),
-            });
-        }
-
+    for (target, profile) in profiles.iter() {
+        let Some(profile) = profile else {
+            continue;
+        };
         let timing = profile.timing();
-        baseline.command_spacing = baseline.command_spacing.max(timing.command_spacing());
-        baseline.inquiry_spacing = baseline.inquiry_spacing.max(timing.inquiry_spacing());
-        baseline.command_sockets[*target] = Some(profile.maximum_command_sockets());
-        command_spacing = command_spacing.max(
-            tuning
-                .command_spacing_override()
-                .unwrap_or_else(|| timing.command_spacing()),
-        );
-        inquiry_spacing = inquiry_spacing.max(
-            tuning
-                .inquiry_spacing_override()
-                .unwrap_or_else(|| timing.inquiry_spacing()),
-        );
         inquiry_cooldown = inquiry_cooldown.max(timing.busy_timeout());
         raw_inquiry_release_hold = raw_inquiry_release_hold.max(timing.raw_inquiry_reply_skew());
-        target_policies[*target] = Some(TargetPolicy {
-            command_sockets: tuning
-                .maximum_command_sockets_override()
-                .unwrap_or_else(|| profile.maximum_command_sockets()),
+        target_policies[target] = command_sockets[target].map(|command_sockets| TargetPolicy {
+            command_sockets,
             cancellation: if profile.supports_command_cancel() {
                 CancellationPolicy::Supported
             } else {
@@ -322,8 +290,9 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             strict_unconfirmed_poison,
         },
         target_policies,
-        validated_tuning,
-    )?;
+        tuning,
+        baseline,
+    );
     policy.limits.receive_bytes = config.buffer_config.recv_buffer_size;
     // Lower the caller's advertised read/write timeouts onto the owner policy so
     // both owners enforce them (#675): the async owner around each read,
@@ -332,7 +301,6 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     // before reporting no data (#780).
     policy.read_timeout = config.read_timeout;
     policy.write_timeout = config.write_timeout;
-    policy.baseline = baseline;
     Ok(policy)
 }
 
@@ -358,7 +326,7 @@ pub(crate) enum AsyncIo {}
 pub(crate) struct TransportAdapter<T, F> {
     pub(super) transport: T,
     pub(super) framing: AdapterFraming,
-    policy: OwnerPolicy,
+    pub(super) receive_limits: super::OwnerLimits,
     facade: std::marker::PhantomData<fn() -> F>,
 }
 
@@ -376,28 +344,31 @@ where
     T: HasTransportConfig,
 {
     /// Build an adapter for several immutable target/profile pairs on one
-    /// physical transport; see [`AdapterFraming::for_targets`]. No transport
+    /// physical transport; see [`AdapterFraming::for_registry`]. No transport
     /// operation occurs here.
     pub(crate) fn new_with_targets(
         transport: T,
-        profiles: &[(TargetSlot, &ProfileSpec)],
+        profiles: &PerTarget<Option<&ProfileSpec>>,
         tuning: crate::session_config::ValidatedTuning,
         admission_capacity: NonZeroUsize,
         strict_unconfirmed_poison: bool,
-    ) -> Result<Self, Error> {
-        let (framing, policy) = AdapterFraming::for_targets(
+    ) -> Result<(Self, OwnerPolicy), Error> {
+        let (framing, policy) = AdapterFraming::for_registry(
             &transport,
             profiles,
             tuning,
             admission_capacity,
             strict_unconfirmed_poison,
         )?;
-        Ok(Self {
-            transport,
-            framing,
+        Ok((
+            Self {
+                transport,
+                framing,
+                receive_limits: policy.limits,
+                facade: std::marker::PhantomData,
+            },
             policy,
-            facade: std::marker::PhantomData,
-        })
+        ))
     }
 
     /// Test-only single-target convenience with default tuning.
@@ -406,7 +377,7 @@ where
         transport: T,
         profile: &ProfileSpec,
         target: TargetSlot,
-    ) -> Result<Self, Error> {
+    ) -> Result<(Self, OwnerPolicy), Error> {
         Self::new_with_tuning(transport, profile, target, OperationalTuning::new())
     }
 
@@ -417,10 +388,11 @@ where
         profile: &ProfileSpec,
         target: TargetSlot,
         tuning: OperationalTuning,
-    ) -> Result<Self, Error> {
+    ) -> Result<(Self, OwnerPolicy), Error> {
+        validate_profile_transport(profile, transport.identity())?;
         Self::new_with_targets(
             transport,
-            &[(target, profile)],
+            &PerTarget::from_fn(|key| (key == target).then_some(profile)),
             crate::session_config::ValidatedTuning::validate(tuning, [profile])?,
             crate::DEFAULT_ADMISSION_CAPACITY,
             false,
@@ -430,10 +402,6 @@ where
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl<T, F> TransportAdapter<T, F> {
-    pub(crate) fn policy(&self) -> &OwnerPolicy {
-        &self.policy
-    }
-
     /// Complete frames a prior receive left buffered, delivered before the
     /// adapter reads again; see [`AdapterFraming::drain_buffered`].
     pub(super) fn buffered(
@@ -443,7 +411,7 @@ impl<T, F> TransportAdapter<T, F> {
     ) -> Option<OwnerReceive> {
         match self.framing.drain_buffered(buffers, frame_limit) {
             Ok(frames) => frames.map(OwnerReceive::Frames),
-            Err(error) => Some(error.owner_receive(self.policy.protocol.transport)),
+            Err(error) => Some(error.owner_receive(self.framing.transport)),
         }
     }
 
@@ -473,7 +441,7 @@ impl<T, F> TransportAdapter<T, F> {
         let decoded = match read {
             Ok(outcome) if !outcome.is_complete() => Err(ReceiveDecodeFailure::Fatal {
                 error: Error::ResponseTooLarge {
-                    max_size: self.policy.limits.receive_bytes,
+                    max_size: self.receive_limits.receive_bytes,
                 },
                 discarded: 0,
             }),
@@ -487,7 +455,7 @@ impl<T, F> TransportAdapter<T, F> {
         };
         match decoded {
             Ok(frames) => OwnerReceive::Frames(frames),
-            Err(error) => error.owner_receive(self.policy.protocol.transport),
+            Err(error) => error.owner_receive(self.framing.transport),
         }
     }
 }
@@ -537,6 +505,7 @@ impl AdapterFraming {
     /// resulting owner policy. No transport I/O happens here.
     ///
     /// The shared required identity supplies every transport policy fact.
+    #[cfg(feature = "test-utils")]
     pub(crate) fn for_targets<T>(
         transport: &T,
         profiles: &[(TargetSlot, &ProfileSpec)],
@@ -547,15 +516,33 @@ impl AdapterFraming {
     where
         T: HasTransportConfig,
     {
-        // Identity is read before configuration or I/O. It is the single
-        // authority for profile compatibility, topology and failure policy.
+        let profiles = PerTarget::from_fn(|target| {
+            profiles
+                .iter()
+                .find_map(|(key, profile)| (*key == target).then_some(*profile))
+        });
+        Self::for_registry(
+            transport,
+            &profiles,
+            tuning,
+            admission_capacity,
+            strict_unconfirmed_poison,
+        )
+    }
+
+    pub(crate) fn for_registry<T>(
+        transport: &T,
+        profiles: &PerTarget<Option<&ProfileSpec>>,
+        tuning: crate::session_config::ValidatedTuning,
+        admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
+    ) -> Result<(Self, OwnerPolicy), Error>
+    where
+        T: HasTransportConfig,
+    {
         let identity = transport.identity();
-        for (_, profile) in profiles {
-            validate_profile_transport(profile, identity)?;
-        }
-        validate_profile_registry_topology(profiles, identity)?;
         let config = *transport.transport_config();
-        let policy = owner_policy_for_targets_with_tuning(
+        let policy = owner_policy_for_registry_with_tuning(
             profiles,
             &config,
             identity,
@@ -563,8 +550,7 @@ impl AdapterFraming {
             admission_capacity,
             strict_unconfirmed_poison,
         )?;
-        let targets: Vec<_> = profiles.iter().map(|(target, _)| *target).collect();
-        let registry = TargetRegistry::from_targets(&targets)?;
+        let registry = TargetRegistry::from_registry(profiles);
         let framing = match policy.protocol.wire.encoder() {
             crate::runtime::engine::ProtocolEncoder::Raw(encoder) => EnvelopeFraming::Raw {
                 envelope: encoder.envelope(),
@@ -768,9 +754,14 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
             let input = &buffers.receive_mut()[..received];
             let mut offset = 0;
             while offset < input.len() {
-                let length = framer
-                    .frame_len(&input[offset..])
-                    .ok_or(MalformedFrame::DatagramTrailingBytes)??;
+                let length = match framer.frame_len(&input[offset..]) {
+                    FrameScan::Complete(length) => length,
+                    FrameScan::NeedMore => return Err(MalformedFrame::DatagramTrailingBytes.into()),
+                    FrameScan::Rejected(FramingError::InvalidSonyHeader) => {
+                        return Err(MalformedFrame::InvalidSonyHeader.into())
+                    }
+                    FrameScan::Rejected(error) => return Err(error.into()),
+                };
                 if frames.len() >= frame_limit {
                     return Err(MalformedFrame::DatagramFrameLimit { limit: frame_limit }.into());
                 }
@@ -1023,10 +1014,15 @@ pub(crate) fn validate_profile_transport(
 /// spawning an actor or touching transport I/O. Custom transports explicitly
 /// declare serial addressing in their identity to authorize several targets.
 pub(crate) fn validate_profile_registry_topology(
-    profiles: &[(TargetSlot, &ProfileSpec)],
+    profiles: &PerTarget<Option<&ProfileSpec>>,
     identity: TransportIdentity<'_>,
 ) -> Result<(), Error> {
-    if profiles.len() <= 1 {
+    if profiles
+        .iter()
+        .filter(|(_, profile)| profile.is_some())
+        .count()
+        <= 1
+    {
         return Ok(());
     }
     if matches!(identity, TransportIdentity::Tcp | TransportIdentity::Udp) {
@@ -1036,7 +1032,8 @@ pub(crate) fn validate_profile_registry_topology(
     }
     if profiles
         .iter()
-        .any(|(_, profile)| profile.envelope() != ProfileEnvelope::RawVisca)
+        .filter_map(|(_, profile)| *profile)
+        .any(|profile| profile.envelope() != ProfileEnvelope::RawVisca)
     {
         return Err(Error::FeatureNotSupported {
             feature: "multiple VISCA targets with Sony encapsulation",
@@ -1066,26 +1063,30 @@ mod tests {
     fn unsupported_topologies_remain_nonfatal_feature_errors() {
         let raw = ProfileSpec::from_compile_time::<GenericVisca>().expect("raw profile");
         let sony = ProfileSpec::from_compile_time::<SonyFr7>().expect("Sony profile");
-        let raw_targets = [(TargetSlot::CAMERA_1, &raw), (TargetSlot::CAMERA_2, &raw)];
-        let sony_targets = [(TargetSlot::CAMERA_1, &sony), (TargetSlot::CAMERA_2, &sony)];
+        let raw_targets = PerTarget::from_fn(|target| {
+            (target == TargetSlot::CAMERA_1 || target == TargetSlot::CAMERA_2).then_some(&raw)
+        });
+        let sony_targets = PerTarget::from_fn(|target| {
+            (target == TargetSlot::CAMERA_1 || target == TargetSlot::CAMERA_2).then_some(&sony)
+        });
         for (profiles, identity, reason) in [
             (
-                &raw_targets[..],
+                &raw_targets,
                 TransportIdentity::Tcp,
                 "multiple VISCA targets over TCP or UDP",
             ),
             (
-                &raw_targets[..],
+                &raw_targets,
                 TransportIdentity::Udp,
                 "multiple VISCA targets over TCP or UDP",
             ),
             (
-                &sony_targets[..],
+                &sony_targets,
                 TransportIdentity::Serial { bus: None },
                 "multiple VISCA targets with Sony encapsulation",
             ),
             (
-                &raw_targets[..],
+                &raw_targets,
                 TransportIdentity::Custom {
                     semantics: SendSemantics::Stream,
                     addressing: AddressingMode::Ip,
@@ -1798,6 +1799,44 @@ mod tests {
     }
 
     #[test]
+    fn invalid_sony_headers_are_terminal_on_streams_and_classified_on_datagrams() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
+        );
+        for transport in [TransportKind::Stream, TransportKind::Datagram] {
+            let mut framer = SonyFramer::new_with_limits(64, 64, 128);
+            let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+            // A valid ACK follows an invalid header; the stream must never
+            // deliver it by guessing a new Sony boundary.
+            let packet = [0x90, 0x41, 1, 0x11, 0, 3, 0, 0, 0, 1, 0x90, 0x41, 0xff];
+            buffers.receive_mut()[..packet.len()].copy_from_slice(&packet);
+            let failure = decode_frames_with_routing(
+                &envelope,
+                &mut framer,
+                routing,
+                &mut buffers,
+                packet.len(),
+                4,
+                transport,
+            )
+            .unwrap_err();
+            match transport {
+                TransportKind::Stream => assert!(
+                    matches!(failure, ReceiveDecodeFailure::Fatal { error: Error::InvalidResponse { expected, .. }, .. } if expected.contains("Sony header"))
+                ),
+                TransportKind::Datagram => assert!(matches!(
+                    failure,
+                    ReceiveDecodeFailure::Malformed(MalformedFrame::InvalidSonyHeader)
+                )),
+            }
+            assert!(buffers.take_frames().is_empty());
+            assert!(!framer.has_buffered_data());
+        }
+    }
+
+    #[test]
     fn datagram_decoding_neither_copies_into_nor_clears_stream_storage() {
         let envelope = RawVisca::new(AddressingMode::Ip);
         let routing = RoutingState::new(
@@ -1825,7 +1864,7 @@ mod tests {
             1,
             "datagrams leave stream retention untouched"
         );
-        assert!(framer.frame_len(&packet).unwrap().is_ok());
+        assert!(matches!(framer.frame_len(&packet), FrameScan::Complete(_)));
         assert_eq!(framer.buffered_len(), 1, "length inspection is pure");
     }
 }
@@ -1887,7 +1926,7 @@ impl ReceiveProbe {
             adapter: TransportAdapter {
                 transport,
                 framing,
-                policy,
+                receive_limits: policy.limits,
                 facade: std::marker::PhantomData,
             },
             buffers,
@@ -1896,7 +1935,7 @@ impl ReceiveProbe {
 
     pub(crate) fn receive(&mut self, chunk: &[u8]) -> Result<usize, Error> {
         let outcome = ReceiveOutcome::copy_message(chunk, self.buffers.receive_mut());
-        let limit = self.adapter.policy.limits.frames_per_receive;
+        let limit = self.adapter.receive_limits.frames_per_receive;
         match self
             .adapter
             .classify_read(&mut self.buffers, limit, Ok(outcome))

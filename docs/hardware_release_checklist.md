@@ -47,7 +47,7 @@ Hardware-tested commit: cc1ab8f1f752ee6c946bed11365e60b8d321ab36
 A stable hardware sign-off requires the full 40-character commit SHA above.
 One HW-04 run, the e5 stale-reply contract re-run, used
 `6eba1696fd07e70312318897d9318a68c41b8298`, which differs from the commit above
-only in `tests/hardware_experiments_test.rs` (a corrected test assertion).
+only in `tests/integration/hardware_experiments_test.rs` (a corrected test assertion).
 
 Hardware operator/date: Grant Sparks (maintainer-observed run) — 2026-10-07 UTC
 

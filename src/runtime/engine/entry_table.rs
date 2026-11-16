@@ -12,8 +12,8 @@ use std::{
 use smallvec::SmallVec;
 
 use super::{
-    AdmissionSlot, CorrelationKind, CorrelationOwner, Entry, GenerationTicket, Lane, Lifecycle,
-    RequestId, RuntimeRequest, SequenceRecord, TargetSlot, TransmissionMeta, ViscaSocket,
+    AdmissionSlot, CorrelationKind, CorrelationOwner, Entry, Lane, Lifecycle, RequestId,
+    RuntimeRequest, SequenceRecord, TargetSlot, TransmissionMeta, ViscaSocket,
     MAX_SEQUENCE_HISTORY,
 };
 use crate::target::PerTarget;
@@ -89,9 +89,7 @@ impl EntryPlacement {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct AdmissionFacts {
-    pub(super) order: u64,
     pub(super) submitted_at: Instant,
-    pub(super) generation: GenerationTicket,
     pub(super) slot: AdmissionSlot,
 }
 
@@ -242,10 +240,8 @@ impl EntryTable {
             lifecycle: EntryPlacement::Active(Lifecycle::Ready {
                 previous_attempt: None,
             }),
-            admission_order: facts.order,
             submitted_at: facts.submitted_at,
             prior: None,
-            generation: facts.generation,
             sequence_history: SmallVec::new(),
             slot: facts.slot,
         };

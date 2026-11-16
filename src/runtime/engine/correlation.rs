@@ -10,6 +10,9 @@ use crate::target::{PerTarget, TargetSlot};
 
 #[derive(Debug)]
 pub(super) struct CompletionLearning {
+    /// Largest dispatched or camera-proven physical socket capacity. Retuning
+    /// cannot erase the possible execution of an older owed ACK.
+    pub(super) socket_capacity_seen: u8,
     pub(super) completion_sockets: CompletionSockets,
     pub(super) unlearned_completions: u32,
     pub(super) pending_socketless_completions: Option<PendingSocketlessCompletions>,
@@ -18,6 +21,7 @@ pub(super) struct CompletionLearning {
 impl Default for CompletionLearning {
     fn default() -> Self {
         Self {
+            socket_capacity_seen: 0,
             completion_sockets: CompletionSockets::Unknown,
             unlearned_completions: 0,
             pending_socketless_completions: None,

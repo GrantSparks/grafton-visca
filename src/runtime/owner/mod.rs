@@ -47,7 +47,6 @@ pub(crate) use blocking::*;
 #[cfg(feature = "blocking")]
 pub(crate) use clock::Clock;
 
-pub(crate) use adapter::validate_profile_transport;
 #[cfg(feature = "async")]
 pub(crate) use adapter::AsyncTransportAdapter;
 #[cfg(feature = "blocking")]
@@ -56,6 +55,7 @@ pub(crate) use adapter::BlockingTransportAdapter;
 pub(crate) use adapter::ReceiveProbe;
 #[cfg(all(feature = "test-utils", feature = "blocking"))]
 pub(crate) use adapter::{decode_response_target, RoutingState, TargetRegistry};
+pub(crate) use adapter::{validate_profile_registry_topology, validate_profile_transport};
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use turn::{clamp_receive_pause, transient_receive_pause, IdleReceiveRun, TransientFaultRun};
@@ -232,6 +232,60 @@ pub(crate) struct TuningBaseline {
     pub(crate) command_sockets: PerTarget<Option<u8>>,
 }
 
+impl TuningBaseline {
+    /// Retains immutable profile facts before any operational override is applied.
+    pub(crate) fn from_registry(profiles: &PerTarget<Option<&crate::ProfileSpec>>) -> Self {
+        let mut baseline = Self {
+            command_spacing: Duration::ZERO,
+            inquiry_spacing: Duration::ZERO,
+            command_sockets: PerTarget::default(),
+        };
+        for (target, profile) in profiles.iter() {
+            if let Some(profile) = profile {
+                baseline.command_spacing = baseline
+                    .command_spacing
+                    .max(profile.timing().command_spacing());
+                baseline.inquiry_spacing = baseline
+                    .inquiry_spacing
+                    .max(profile.timing().inquiry_spacing());
+                baseline.command_sockets[target] = Some(profile.maximum_command_sockets());
+            }
+        }
+        baseline
+    }
+
+    /// The same lowering is used at owner construction and on every retune.
+    fn apply(
+        self,
+        tuning: crate::session_config::ValidatedTuning,
+    ) -> (Duration, Duration, PerTarget<Option<u8>>) {
+        let tuning = tuning.get();
+        (
+            tuning
+                .command_spacing_override()
+                .unwrap_or(self.command_spacing),
+            tuning
+                .inquiry_spacing_override()
+                .unwrap_or(self.inquiry_spacing),
+            PerTarget::from_fn(|target| {
+                self.command_sockets[target]
+                    .map(|sockets| tuning.maximum_command_sockets_override().unwrap_or(sockets))
+            }),
+        )
+    }
+
+    #[cfg(test)]
+    fn for_test(protocol: &ProtocolPolicy, targets: &PerTarget<Option<TargetPolicy>>) -> Self {
+        Self {
+            command_spacing: protocol.command_spacing,
+            inquiry_spacing: protocol.inquiry_spacing,
+            command_sockets: PerTarget::from_fn(|target| {
+                targets[target].map(|policy| policy.command_sockets)
+            }),
+        }
+    }
+}
+
 /// Construction policy. Target registration cannot change after the owner
 /// begins accepting work; pacing, socket capacity, and the session tuning that
 /// governs request preparation are reconfigurable through the owner's control
@@ -267,24 +321,13 @@ impl OwnerPolicy {
         protocol: ProtocolPolicy,
         targets: PerTarget<Option<TargetPolicy>>,
         tuning: crate::session_config::ValidatedTuning,
-    ) -> Result<Self, Error> {
-        if targets.iter().all(|(_, target)| target.is_none()) {
-            return Err(Error::InvalidRequest {
-                reason: "owner target registry must contain at least one camera".into(),
-            });
-        }
+        baseline: TuningBaseline,
+    ) -> Self {
         // The read and write bounds start from the one transport default
         // (#799); the production builder lowers the caller's configured
         // values over them (#675).
         let transport = crate::transport::TransportConfig::default();
-        let baseline = TuningBaseline {
-            command_spacing: protocol.command_spacing,
-            inquiry_spacing: protocol.inquiry_spacing,
-            command_sockets: PerTarget::from_fn(|target| {
-                targets[target].map(|policy| policy.command_sockets)
-            }),
-        };
-        Ok(Self {
+        Self {
             protocol,
             targets,
             limits: OwnerLimits::default(),
@@ -292,7 +335,7 @@ impl OwnerPolicy {
             baseline,
             read_timeout: transport.read_timeout,
             write_timeout: transport.write_timeout,
-        })
+        }
     }
 
     // Test-only today: production goes through
@@ -305,11 +348,13 @@ impl OwnerPolicy {
     ) -> Result<Self, Error> {
         let mut targets = PerTarget::default();
         targets[target] = Some(target_policy);
-        Self::with_targets(
+        let baseline = TuningBaseline::for_test(&protocol, &targets);
+        Ok(Self::with_targets(
             protocol,
             targets,
             crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new())?,
-        )
+            baseline,
+        ))
     }
 }
 
@@ -1214,6 +1259,8 @@ pub(crate) struct DiagnosticSubscription {
     lifecycle: Arc<boundary::OwnerLifecycle>,
     #[cfg(feature = "blocking")]
     clock: Clock,
+    #[cfg(feature = "blocking")]
+    worker_id: Option<std::thread::ThreadId>,
 }
 
 impl DiagnosticSubscription {
@@ -1237,6 +1284,7 @@ impl DiagnosticSubscription {
 
     #[cfg(feature = "blocking")]
     pub(crate) fn recv_blocking(&self) -> Result<DiagnosticEvent, Error> {
+        self.off_worker("diagnostics recv")?;
         self.clock
             .select()
             .recv(&self.receiver, |event| event)
@@ -1246,6 +1294,9 @@ impl DiagnosticSubscription {
 
     #[cfg(feature = "blocking")]
     pub(crate) fn recv_timeout(&self, timeout: Duration) -> Result<Option<DiagnosticEvent>, Error> {
+        if !timeout.is_zero() {
+            self.off_worker("diagnostics recv_with_timeout")?;
+        }
         let received = match &self.clock {
             Clock::System => match self.receiver.recv_timeout(timeout) {
                 Ok(event) => Some(Ok(event)),
@@ -1265,6 +1316,17 @@ impl DiagnosticSubscription {
             }
         };
         received.transpose().map_err(|_| self.disconnected_error())
+    }
+
+    #[cfg(feature = "blocking")]
+    fn off_worker(&self, call: &str) -> Result<(), Error> {
+        if self.worker_id == Some(std::thread::current().id()) {
+            return Err(Error::InvalidState {
+                reason: format!("blocking owner worker cannot call {call} on its own session")
+                    .into(),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -1448,6 +1510,7 @@ impl StagedWrite {
 }
 
 /// Result of applying one non-I/O effect.
+#[must_use = "transmissions and session ends must be driven by the owner shell"]
 #[derive(Debug)]
 pub(crate) enum AppliedEffect {
     None,
@@ -1638,21 +1701,8 @@ impl OwnerState {
         validated: crate::session_config::ValidatedTuning,
         now: Instant,
     ) -> Result<(), Error> {
-        let tuning = validated.get();
-        let baseline = self.policy.baseline;
-        let command_spacing = tuning
-            .command_spacing_override()
-            .unwrap_or(baseline.command_spacing);
-        let inquiry_spacing = tuning
-            .inquiry_spacing_override()
-            .unwrap_or(baseline.inquiry_spacing);
-        let command_sockets: PerTarget<Option<u8>> = PerTarget::from_fn(|target| {
-            baseline.command_sockets[target].map(|profile_sockets| {
-                tuning
-                    .maximum_command_sockets_override()
-                    .unwrap_or(profile_sockets)
-            })
-        });
+        let (command_spacing, inquiry_spacing, command_sockets) =
+            self.policy.baseline.apply(validated);
         self.engine
             .retune(command_spacing, inquiry_spacing, command_sockets, now)?;
         self.tuning.set(validated);
@@ -2145,6 +2195,8 @@ impl OwnerState {
             lifecycle,
             #[cfg(feature = "blocking")]
             clock: Clock::System,
+            #[cfg(feature = "blocking")]
+            worker_id: None,
         })
     }
 

@@ -19,7 +19,6 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Admis
             request.context_mut().submission_order = 1;
             request.context_mut().motion = Some(MotionEffect {
                 axes: crate::AffectedAxes::ZOOM,
-                stop: false,
             });
             let turn = engine.begin_input_turn(now);
             engine.halt_in_turn(&turn, camera(1), crate::AffectedAxes::ZOOM, 1);
@@ -68,15 +67,12 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Admis
             request.context_mut().cancellation = CancellationPolicy::Unsupported;
         }
         "request identity exhausted" => {
-            engine.seed_allocators(0, 1, 1);
-        }
-        "generation exhausted" => {
-            engine.seed_allocators(1, 1, 0);
+            engine.seed_allocators(0, 1);
         }
         "duplicate identity refused" => {
             let turn = engine.begin_input_turn(now);
             engine.admit_in_turn(&turn, request.clone(), slot).unwrap();
-            engine.seed_allocators(1, 1, 2);
+            engine.seed_allocators(1, 1);
         }
         other => panic!("unknown admission case {other}"),
     }
@@ -99,7 +95,6 @@ fn synchronous_admission_and_test_shim_agree_on_every_verdict_path() {
         "latched lane",
         "cancellation conflict",
         "request identity exhausted",
-        "generation exhausted",
         "duplicate identity refused",
     ] {
         let (mut direct, request, slot, now) = fixture(case, start);

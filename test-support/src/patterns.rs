@@ -2,7 +2,7 @@
 //!
 //! Every constant is an absolute, hand-derived frame taken from the VISCA
 //! specification, not a value recomputed with the encoder under test. They are
-//! consumed by `tests/issue_633_golden_wire_bytes.rs`, which compares them
+//! consumed by `tests/integration/issue_633_golden_wire_bytes.rs`, which compares them
 //! byte-for-byte against the bytes the public request encoders produce for
 //! [`CameraId::CAMERA_1`](grafton_visca::types::CameraId::CAMERA_1).
 //!

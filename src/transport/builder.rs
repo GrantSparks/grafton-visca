@@ -179,7 +179,7 @@ pub struct TransportConfig {
     ///
     /// `None` leaves the operating-system default in place.
     pub(crate) tcp_nodelay: Option<bool>,
-    /// IPv4 TTL (Time To Live) for packets, in `1..=255`.
+    /// IPv4 TTL / IPv6 hop limit (Time To Live) for packets, in `1..=255`.
     /// `None` keeps the OS default.
     pub(crate) ttl: Option<u32>,
     /// TCP keepalive policy. When set, enables OS-level probes that detect
@@ -272,13 +272,13 @@ impl TransportConfig {
         self
     }
 
-    /// Returns the IPv4 TTL, or `None` for the OS default.
+    /// Returns the IPv4 TTL / IPv6 hop limit, or `None` for the OS default.
     #[must_use]
     pub const fn ttl(&self) -> Option<u32> {
         self.ttl
     }
 
-    /// Selects the IPv4 TTL, or `None` for the OS default. Transport opening validates the configuration.
+    /// Selects the IPv4 TTL / IPv6 hop limit, or `None` for the OS default. Transport opening validates the configuration.
     #[must_use]
     pub const fn with_ttl(mut self, value: Option<u32>) -> Self {
         self.ttl = value;

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Release gates verify characterization-test citations and generate the request
+  semantics tables from the command ledger. The owner safe-retry allocation
+  baseline is restored for raw and Sony framing (#959).
+
 - (#933) Community profile promotion tools: per-surface encoding families,
   `profile_spec export` and `check`, JSON-aligned registry facts, and an ignored
   read-only inquiry probe with a scripted report-schema test. Runtime hardware
@@ -63,6 +67,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   draining periodic background tasks, and panicked task joins return an error.
 
 ### Changed
+
+- Built-in typed camera views reuse their validated profile identity and grants
+  without allocating; custom profiles retain complete fact comparison (#958).
+
+- Built-in STOP urgency comes from the command ledger. Preset-speed, tally and
+  white-balance selectors forward the complete request contract and preserve
+  each encoding's state effects, with one validation per noun call (#956).
+
+- Engine write receipts carry their lifecycle proof, and request ordering and
+  correlation share the never-reused request identity (#955).
+
+- Integration suites share four test targets while retaining their feature
+  selections and independent allocation measurements (#960).
 
 - **BREAKING** (#938): Profile-independent `InquiryData` numeric fields carry
   checked value types. Canonical wire parsers and derived inquiries reject
@@ -525,6 +542,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   helpers. Use `ManualClockExecutor::local` and its `run_until` driver instead.
 
 ### Fixed
+
+- Raw stream disputes retire individual members of merged STOP debt runs, and
+  socketless disputed ACKs retain executing-socket evidence, preventing later
+  replies from being assigned to unrelated requests (#950).
+
+- Strict raw sessions poison on camera-proven stale socket ownership, including
+  owed or disputed ACKs and late cancellation replies. Live operations receive
+  the same `StreamPoisoned` cause (#951).
+
+- Blocking diagnostic receives from their session's transport callbacks fail
+  immediately with `InvalidState`, keeping the owner available for STOPs and
+  shutdown (#952).
+
+- Unsupported multi-target IP registries fail before DNS or socket I/O. Custom
+  and persisted profiles reject inquiry-only grants without inquiry support
+  (#953).
+
+- Undecodable Sony headers terminate streams immediately and are counted and
+  discarded on datagrams. TCP address-attempt errors agree across facades, and
+  configured TTL also sets the IPv6 hop limit (#954).
+
+- Halt transactions drive every resulting owner effect and count expired STOP
+  admissions in rejection metrics and diagnostics. Construction and retuning use
+  the same profile-derived pacing and socket baseline (#957).
 
 - Custom and persisted profiles may advertise a settlement position inquiry
   only when that inquiry's capability gate permits it. In particular, IRIS

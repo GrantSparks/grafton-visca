@@ -196,21 +196,23 @@ raw request constructors validate wire bytes.
 
 Allocation behavior is characterized at the narrowest stable boundary:
 
-- `issue_548_allocation_baselines` checks zero-allocation built-in
-  `write_into` encoding and warmed raw/Sony framing-buffer reuse.
+- `tests/allocation/issue_548_allocation_baselines.rs` checks zero-allocation built-in
+  `Request::write_into` encoding and warmed raw/Sony framing-buffer reuse.
 - `command::encode` keeps built-in encoded bytes inline for the current hot
   path; the runtime engine unit test
-  `inert_wire_is_inline_and_reused_across_retry_without_reallocation`
+  `runtime::engine::inert_wire_is_inline_and_reused_across_retry_without_reallocation`
   proves retries reuse the exact encoded `Arc` rather than rebuilding wire
-  data, and the owner unit test
-  `warmed_raw_and_sony_retries_reuse_owner_buffers` proves the framing buffers
+  data, and
+  `tests/allocation/issue_548_allocation_baselines.rs::warmed_raw_and_sony_retries_reuse_owner_buffers` proves the framing buffers
   are reused with it.
-- `tests/issue_561_blocking_queue.rs` and the bounded owner-submission and
+- `tests/integration/issue_561_blocking_queue.rs` and the bounded owner-submission and
   completion-subscriber unit tests in `runtime::owner` establish the current
   lifecycle/storage bounds.
-- `dyn_api_integration_test::tokio_dynamic_future_construction_matches_one_explicit_static_box`
-  establishes the dyn/static future-construction baseline.
-- `issue_517_inquiry_encoding` retains the downstream derive encoding baseline.
+- `tests/allocation/dyn_api_integration_test.rs::runtime_profile_future_construction_matches_static_without_allocating`
+  establishes the runtime-profile/static future-construction baseline.
+- `tests/allocation/issue_548_allocation_baselines.rs::{blocking_builtin_camera_and_into_typed_views_do_not_allocate,async_builtin_camera_and_into_typed_views_do_not_allocate}`
+  prove typed views reuse validated built-in profile identity without allocation.
+- `tests/allocation/issue_517_inquiry_encoding.rs` retains the downstream derive encoding baseline.
 
 These are characterization floors, not permission for 2.0 to add per-retry,
 per-frame, per-handle, or unbounded lifecycle allocation.

@@ -111,8 +111,8 @@ bash .github/scripts/test-all-features.sh doc
 RUSTDOCFLAGS="-D warnings" cargo +1.98.0 doc --no-deps --all-features
 cargo +1.98.0 test --doc --all-features
 cargo +1.98.0 test --all-features --test api_stability_test
-cargo +1.98.0 test --all-features --test issue_542_async_facade
-cargo +1.98.0 test --all-features --test issue_555_observability
+cargo +1.98.0 test --all-features --test integration issue_542_async_facade::
+cargo +1.98.0 test --all-features --test integration issue_555_observability::
 cargo +1.98.0 metadata --no-deps --format-version 1
 git diff --check
 ```

@@ -11,7 +11,7 @@ async fn zero_length_stream_read_still_closes_the_session() {
         .expect("the generic profile is valid");
     let (chunk_tx, chunks) = flume::bounded(8);
     let (sent, sent_rx) = flume::bounded(8);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
@@ -22,7 +22,7 @@ async fn zero_length_stream_read_still_closes_the_session() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();
@@ -517,7 +517,7 @@ async fn consumed_truncated_datagrams_reset_the_async_fault_run() {
     let faults = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let truncated = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let config = crate::transport::builder::TransportConfig::default();
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         AlternatingFaultAndTruncatedDatagrams {
             config,
             reads,
@@ -528,8 +528,8 @@ async fn consumed_truncated_datagrams_reset_the_async_fault_run() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    assert_eq!(adapter_policy.protocol.transport, TransportKind::Datagram);
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
     let started_at = tokio::time::Instant::now();
 
@@ -580,7 +580,7 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
         .expect("the generic profile is valid");
     let (datagram_tx, datagrams) = flume::bounded(8);
     let (sent, sent_rx) = flume::bounded(8);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ScriptedDatagramTransport {
             config: crate::transport::builder::TransportConfig::default(),
             datagrams,
@@ -590,8 +590,8 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
-    let (handle, mut actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    assert_eq!(adapter_policy.protocol.transport, TransportKind::Datagram);
+    let (handle, mut actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime).unwrap();
     let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
@@ -651,7 +651,7 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
         .expect("the generic profile is valid");
     let (chunk_tx, chunks) = flume::bounded(8);
     let (sent, sent_rx) = flume::bounded(8);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
@@ -662,8 +662,8 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
-    let (handle, mut actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    assert_eq!(adapter_policy.protocol.transport, TransportKind::Stream);
+    let (handle, mut actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime).unwrap();
     let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
@@ -724,7 +724,7 @@ async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
     // limit, as a real 256-byte raw-IP session would.
     let mut config = crate::transport::builder::TransportConfig::default();
     config.buffer_config.recv_buffer_size = 1024;
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config,
@@ -735,9 +735,9 @@ async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
-    let frame_limit = adapter.policy().limits.frames_per_receive;
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    assert_eq!(adapter_policy.protocol.transport, TransportKind::Stream);
+    let frame_limit = adapter_policy.limits.frames_per_receive;
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();
@@ -777,7 +777,7 @@ async fn a_single_target_ip_chain_address_reply_settles_the_command() {
         .expect("the generic profile is valid");
     let (chunk_tx, chunks) = flume::bounded(8);
     let (sent, sent_rx) = flume::bounded(8);
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
@@ -788,7 +788,7 @@ async fn a_single_target_ip_chain_address_reply_settles_the_command() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();
@@ -815,7 +815,7 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
     let runtime = TokioRuntime::from_current().unwrap();
     let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
         .expect("the generic profile is valid");
-    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+    let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ClosedSendDatagramTransport {
             config: crate::transport::builder::TransportConfig::default(),
         },
@@ -823,8 +823,8 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
         TargetSlot::CAMERA_1,
     )
     .unwrap();
-    assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    assert_eq!(adapter_policy.protocol.transport, TransportKind::Datagram);
+    let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();

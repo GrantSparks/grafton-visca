@@ -21,6 +21,11 @@ pub(crate) trait NounInquiryContract: crate::Inquiry {
 /// `rows = [FirstRow, OtherRow]` declares the exact semantic rows of a
 /// narrower wrapper. Its first row is the representative; every listed row
 /// must preserve the inner request's class, axes and state effect.
+///
+/// The `select` form names every `(inner type, ledger row, inner value)` arm.
+/// Its selector uses the stored request and target registration; its fallback
+/// selects target-free hooks. All hooks and state descriptors are generated
+/// from this one arm list, and every arm proves its size and policy bounds.
 macro_rules! forward_request {
     (@class Plain) => { $crate::request::PlainClass };
     (@class Targeted) => { $crate::request::OperationClass<$crate::completion::Targeted> };
@@ -35,7 +40,9 @@ macro_rules! forward_request {
     (@validate $this:ident, $target:ident []) => { ::core::result::Result::<(), $crate::Error>::Ok(()) };
     (@validate $this:ident, $target:ident [|$request:ident, $registration:ident| $validate:expr]) => {{
         let $request = $this;
+        let _ = &$request;
         let $registration = $target;
+        let _ = &$registration;
         let _ = &$request;
         let _ = &$registration;
         $validate
@@ -225,6 +232,230 @@ macro_rules! forward_request {
         const _: () = <$type as $crate::command::semantics::BuiltinRequestContract>::CLASS_MATCHES_ROW;
         $crate::command::nouns::forward_request!(@check_rows $inner, [$($row),*]);
         $crate::command::nouns::forward_request!(@operation $type, $inner, $class, [$($value)*]);
+    };
+
+    (@selected_class $primary:ty, Inherited) => { <$primary as $crate::Request>::Class };
+    (@selected_class $primary:ty, $class:ident) => { $crate::command::nouns::forward_request!(@class $class) };
+
+    // Both field-selected and profile-selected wrappers expand through this
+    // one forwarding contract. The declarations below are the only arm map.
+    (@selection $this:ident, [] [$request:ident $registration:ident ($selector:expr) ($fallback:expr)]) => {{
+        let $request = $this;
+        let _ = &$request;
+        $fallback
+    }};
+    (@selection $this:ident, [$target:ident] [$request:ident $registration:ident ($selector:expr) ($fallback:expr)]) => {{
+        let $request = $this;
+        let _ = &$request;
+        let $registration = $target;
+        let _ = &$registration;
+        $selector
+    }};
+    (@selected $type:ty, $primary:ty, $class:ident,
+        [$request:ident $registration:ident ($selector:expr) ($fallback:expr)],
+        [$($validate:tt)*],
+        {$($pattern:pat => ($inner:ty, $row:ident, $value:expr)),+ $(,)?}
+    ) => {
+        impl $crate::Request for $type {
+            type Class = $crate::command::nouns::forward_request!(@selected_class $primary, $class);
+            const MAX_SIZE: usize = {
+                let mut size = <$primary as $crate::Request>::MAX_SIZE;
+                $(if <$inner as $crate::Request>::MAX_SIZE > size { size = <$inner as $crate::Request>::MAX_SIZE; })+
+                size
+            };
+            const TIMEOUT_CLASS: $crate::TimeoutClass = <$primary as $crate::Request>::TIMEOUT_CLASS;
+            const RETRY_CLASS: $crate::RetryClass = <$primary as $crate::Request>::RETRY_CLASS;
+            const CONTROL_CLASS: $crate::ControlClass = <$primary as $crate::Request>::CONTROL_CLASS;
+            #[allow(private_interfaces)]
+            fn timeout_class(&self) -> $crate::TimeoutClass {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::timeout_class(&$value)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn retry_class(&self) -> $crate::RetryClass {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::retry_class(&$value)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn control_class(&self) -> $crate::ControlClass {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::control_class(&$value)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn motion_axes(&self) -> Option<$crate::AffectedAxes> {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::motion_axes(&$value)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn reply_shape(&self) -> $crate::raw::RawReplyShape {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::reply_shape(&$value)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn admission_control_class(&self, authority: $crate::requests::RequestContractAuthority) -> $crate::Result<$crate::ControlClass> {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::admission_control_class(&$value, authority)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn declared_max_size(&self, authority: $crate::requests::RequestContractAuthority) -> usize {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::declared_max_size(&$value, authority)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn pan_tilt_max_speed(&self, authority: $crate::requests::RequestContractAuthority) -> Option<u8> {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::pan_tilt_max_speed(&$value, authority)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn write_into(&self, camera_id: $crate::CameraId, buffer: &mut [u8]) -> $crate::Result<usize> {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::write_into(&$value, camera_id, buffer)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn write_for_target(&self, target: &$crate::TargetRegistration, buffer: &mut [u8], authority: $crate::requests::RequestContractAuthority) -> $crate::Result<usize> {
+                let $request = self;
+                let _ = &$request;
+                let $registration = target;
+                let _ = &$registration;
+                match $crate::command::nouns::forward_request!(@selection self, [target] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::write_for_target(&$value, target, buffer, authority)),+
+                }
+            }
+            #[allow(private_interfaces)]
+            fn validate_for_target(&self, target: &$crate::TargetRegistration) -> $crate::Result<()> {
+                $crate::command::nouns::forward_request!(@validate self, target [$($validate)*])?;
+                let $request = self;
+                let _ = &$request;
+                let $registration = target;
+                let _ = &$registration;
+                match $crate::command::nouns::forward_request!(@selection self, [target] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::validate_for_target(&$value, target)),+
+                }
+            }
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            #[allow(private_interfaces)]
+            fn applied_state_projection(&self, authority: $crate::requests::AppliedStateAuthority) -> Option<$crate::runtime::engine::AppliedStateProjection> {
+                let $request = self;
+                let _ = &$request;
+                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => <$inner as $crate::Request>::applied_state_projection(&$value, authority)),+
+                }
+            }
+        }
+        impl $crate::command::semantics::BuiltinRequestContract for $type {
+            const LEDGER_ROW: $crate::command::semantics::BuiltinCommand = <$primary as $crate::command::semantics::BuiltinRequestContract>::LEDGER_ROW;
+            const LEDGER_ROWS: &'static [$crate::command::semantics::BuiltinCommand] = &[$($crate::command::semantics::BuiltinCommand::$row),+];
+            type State = Self;
+            #[cfg(test)]
+            fn selected_ledger_row(&self) -> $crate::command::semantics::BuiltinCommand {
+                self.ledger_row()
+            }
+            #[cfg(test)]
+            fn selected_ledger_row_for_target(&self, target: &$crate::TargetRegistration) -> $crate::Result<$crate::command::semantics::BuiltinCommand> {
+                let $request = self;
+                let _ = &$request;
+                let $registration = target;
+                let _ = &$registration;
+                Ok(match $crate::command::nouns::forward_request!(@selection self, [target] [$request $registration ($selector) ($fallback)]) {
+                    $($pattern => $crate::command::semantics::BuiltinCommand::$row),+
+                })
+            }
+        }
+        impl $type {
+            #[cfg(test)]
+            pub(crate) const fn ledger_row(&self) -> $crate::command::semantics::BuiltinCommand {
+                let $request = self;
+                let _ = &$request;
+                match $fallback { $($pattern => $crate::command::semantics::BuiltinCommand::$row),+ }
+            }
+        }
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        impl $crate::request::builtin_contract::BuiltinStateProjection<$type> for $type {
+            fn project(request: &$type) -> Option<$crate::request::builtin_contract::AppliedStateProjection> {
+                $crate::Request::applied_state_projection(request, $crate::requests::AppliedStateAuthority::new())
+            }
+        }
+        #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+        impl $crate::request::builtin_contract::StateDescriptor for $type {
+            const KEY: Option<$crate::StateKey> = None;
+            const BY_ROW: &'static [($crate::command::semantics::BuiltinCommand, Option<$crate::StateKey>)] = &[
+                $(($crate::command::semantics::BuiltinCommand::$row,
+                    <<$inner as $crate::command::semantics::BuiltinRequestContract>::State as $crate::request::builtin_contract::StateDescriptor>::KEY)),+
+            ];
+        }
+        const _: () = <$type as $crate::command::semantics::BuiltinRequestContract>::CLASS_MATCHES_ROW;
+        $(const _: () = {
+            assert!(<$inner as $crate::Request>::MAX_SIZE <= <$type as $crate::Request>::MAX_SIZE, "selector exceeds its declared bound");
+            assert!(<$inner as $crate::Request>::TIMEOUT_CLASS as u8 == <$type as $crate::Request>::TIMEOUT_CLASS as u8, "selector changes timeout class");
+            assert!(<$inner as $crate::Request>::RETRY_CLASS as u8 == <$type as $crate::Request>::RETRY_CLASS as u8, "selector changes retry class");
+            assert!(<$inner as $crate::Request>::CONTROL_CLASS as u8 == <$type as $crate::Request>::CONTROL_CLASS as u8, "selector changes control class");
+            let selected = $crate::command::semantics::BuiltinCommand::$row.classification();
+            let primary = <$type as $crate::command::semantics::BuiltinRequestContract>::LEDGER_ROW.classification();
+            assert!(matches!((selected, primary), (
+                $crate::command::semantics::BuiltinRequestClass::Plain { .. },
+                $crate::command::semantics::BuiltinRequestClass::Plain { .. },
+            )) || selected.same_contract(primary), "selector changes request class, axes or STOP authority");
+            assert!($crate::command::semantics::BuiltinCommand::$row as usize == <$inner as $crate::command::semantics::BuiltinRequestContract>::LEDGER_ROW as usize, "selector row differs from inner request");
+        };)+
+    };
+    // A selector that reads profile context has a target-free fallback for
+    // hooks such as declared_max_size and applied_state_projection. Unlike a
+    // stored-value selector, every arm must agree with that fallback.
+    ($type:ty, $primary:ty, $class:ident;
+        select target |$request:ident, $registration:ident| ($selector:expr) default ($fallback:expr)
+        { $($pattern:pat => ($inner:ty, $row:ident, $value:expr)),+ $(,)? }
+        $(validate = |$validated:ident, $target:ident| $validate:expr)?
+    ) => {
+        $crate::command::nouns::forward_request!($type, $primary, $class;
+            select |$request, $registration| ($selector) default ($fallback)
+            {$($pattern => ($inner, $row, $value)),+}
+            $(validate = |$validated, $target| $validate)?
+        );
+        $(const _: () = {
+            assert!(<$inner as $crate::Request>::MAX_SIZE == <$primary as $crate::Request>::MAX_SIZE,
+                "a profile-selected request changes its target-free size bound");
+            assert!($crate::command::semantics::BuiltinCommand::$row.classification().same_contract(
+                <$primary as $crate::command::semantics::BuiltinRequestContract>::LEDGER_ROW.classification()),
+                "a profile-selected request changes its target-free state contract");
+        };)+
+    };
+    ($type:ty, $primary:ty, $class:ident;
+        select |$request:ident, $registration:ident| ($selector:expr) default ($fallback:expr)
+        { $($pattern:pat => ($inner:ty, $row:ident, $value:expr)),+ $(,)? }
+        $(validate = |$validated:ident, $target:ident| $validate:expr)?
+    ) => {
+        $crate::command::nouns::forward_request!(@selected $type, $primary, $class,
+            [$request $registration ($selector) ($fallback)],
+            [$(|$validated, $target| $validate)?],
+            {$($pattern => ($inner, $row, $value)),+}
+        );
     };
 
     ($type:ty, $inner:ty, $class:ident $(, rows = [$($row:ident),+ $(,)?])?) => {

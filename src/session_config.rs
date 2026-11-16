@@ -448,15 +448,12 @@ impl SessionConfig {
 
     /// Borrow all registrations in the shape consumed by the owner adapter.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn profile_registry(&self) -> Vec<(TargetSlot, &ProfileSpec)> {
-        self.targets
-            .iter()
-            .filter_map(|(target, profile)| {
-                profile
-                    .as_deref()
-                    .map(|registration| (target, registration.profile()))
-            })
-            .collect()
+    pub(crate) fn profile_registry(&self) -> PerTarget<Option<&ProfileSpec>> {
+        PerTarget::from_fn(|target| {
+            self.targets[target]
+                .as_deref()
+                .map(crate::TargetRegistration::profile)
+        })
     }
 
     /// The registered profile of `target`, shared with an owned camera view.
@@ -532,17 +529,11 @@ impl SessionConfig {
                 })
             }
         };
-        let port = |profile: &ProfileSpec| profile.transports().default_port(kind);
-        let mut ports = self.targets.iter().filter_map(|(_, registration)| {
-            registration.as_deref().map(|target| port(target.profile()))
-        });
-        let first = ports.next().flatten();
-        // A host-only endpoint needs one default agreed by every registered profile.
-        let default_port = if ports.all(|candidate| candidate == first) {
-            first
-        } else {
-            None
-        };
+        // Transport preflight proved that an IP session has exactly one target.
+        let default_port = session_config
+            .sole_target()
+            .and_then(|target| session_config.profile(target))
+            .and_then(|profile| profile.transports().default_port(kind));
         let transport_config = self.transport_config.unwrap_or(configured_default);
         transport_config.validate()?;
         let endpoint = crate::transport::address::canonicalize_endpoint(address, default_port)?;
@@ -660,7 +651,8 @@ impl ValidatedSessionConfig {
         self.1
     }
 
-    /// Validates every registered profile against a standard transport kind.
+    /// Validates every registered profile and the registry topology against
+    /// one transport identity.
     ///
     /// This check intentionally does not inspect transport configuration.  A
     /// caller can therefore reject an unsupported standard profile before any
@@ -676,7 +668,14 @@ impl ValidatedSessionConfig {
         }) {
             crate::runtime::owner::validate_profile_transport(profile, identity)?;
         }
-        Ok(())
+        crate::runtime::owner::validate_profile_registry_topology(
+            &PerTarget::from_fn(|target| {
+                self.0.targets[target]
+                    .as_deref()
+                    .map(crate::TargetRegistration::profile)
+            }),
+            identity,
+        )
     }
 
     /// Validates the registry against an opened transport before any protocol
@@ -773,6 +772,62 @@ mod tests {
                 addressing: crate::transport::AddressingMode::Ip,
             })
             .unwrap();
+    }
+
+    #[test]
+    fn multi_target_network_plans_reject_topology_before_endpoint_or_dns() {
+        use crate::camera::config::TransportOptions;
+        for transport in [
+            TransportOptions::tcp("does-not-resolve.invalid"),
+            TransportOptions::udp("does-not-resolve.invalid"),
+            TransportOptions::tcp("invalid:address:format"),
+            TransportOptions::udp("invalid:address:format"),
+        ] {
+            let config = SessionConfig::from_compile_time::<GenericVisca>()
+                .unwrap()
+                .with_target(CameraId::CAMERA_2, crate::profiles::ProfileId::GenericVisca)
+                .unwrap()
+                .with_transport(transport);
+            assert!(matches!(
+                config.connection_plan(),
+                Err(Error::FeatureNotSupported {
+                    feature: "multiple VISCA targets over TCP or UDP"
+                })
+            ));
+        }
+    }
+
+    #[test]
+    fn transport_validation_proves_registry_topology_for_standard_and_custom_identity() {
+        use crate::transport::{AddressingMode, SendSemantics, TransportIdentity};
+        let config = SessionConfig::from_compile_time::<GenericVisca>()
+            .unwrap()
+            .with_target(CameraId::CAMERA_2, crate::profiles::ProfileId::GenericVisca)
+            .unwrap()
+            .validated()
+            .unwrap();
+        for identity in [
+            TransportIdentity::Tcp,
+            TransportIdentity::Udp,
+            TransportIdentity::Custom {
+                semantics: SendSemantics::Stream,
+                addressing: AddressingMode::Ip,
+            },
+        ] {
+            assert!(matches!(
+                config.validate_for_transport(identity),
+                Err(Error::FeatureNotSupported { .. })
+            ));
+        }
+        for identity in [
+            TransportIdentity::Serial { bus: None },
+            TransportIdentity::Custom {
+                semantics: SendSemantics::Stream,
+                addressing: AddressingMode::Serial,
+            },
+        ] {
+            config.validate_for_transport(identity).unwrap();
+        }
     }
 
     #[test]

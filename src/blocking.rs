@@ -62,6 +62,7 @@ impl Diagnostics {
     }
 
     /// Waits for an event, preserving the owner's terminal cause after the queue drains.
+    /// Returns [`Error::InvalidState`] when called from this session's owner worker.
     pub fn recv(&self) -> Result<crate::observability::DiagnosticEvent> {
         self.inner.recv_blocking()
     }
@@ -70,6 +71,8 @@ impl Diagnostics {
     ///
     /// Returns `Ok(None)` when the queue remains empty, or the owner's
     /// original terminal cause once every queued event has been received.
+    /// A non-zero timeout returns [`Error::InvalidState`] when called from this
+    /// session's owner worker.
     pub fn recv_with_timeout(
         &self,
         timeout: Duration,
@@ -136,7 +139,7 @@ impl Session {
     {
         config.validate_opened_transport(&transport)?;
         let profiles = config.profile_registry();
-        let mut adapter = BlockingTransportAdapter::new_with_targets(
+        let (mut adapter, policy) = BlockingTransportAdapter::new_with_targets(
             transport,
             &profiles,
             config.validated_tuning(),
@@ -146,7 +149,6 @@ impl Session {
         if config.sony_sequence_reset_on_connect() {
             adapter.send_sony_sequence_reset()?;
         }
-        let policy = adapter.policy().clone();
         Ok(Self {
             owner: BlockingOwnerHandle::spawn(policy, adapter, clock)?,
             config: Arc::new(config),
@@ -473,6 +475,43 @@ mod tests {
             .registered_target(TargetSlot::CAMERA_1)
             .expect("registered partial motion profile");
         session.core(profile)
+    }
+
+    #[test]
+    fn selected_noun_calls_validate_their_value_once() {
+        use crate::request::builtin::{
+            request_validation_count, request_value_validation_count,
+            reset_request_validation_count,
+        };
+        for (profile, step) in [
+            (
+                ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap(),
+                helpers::auto_respond_step(),
+            ),
+            (
+                ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().unwrap(),
+                helpers::sony_auto_respond_step(),
+            ),
+        ] {
+            let transport = ScriptedBlockingTransport::new([step.clone(), step]);
+            let session = Session::open(transport, &SessionConfig::new(profile)).unwrap();
+            let camera = session.camera::<AnyProfile>(CameraId::CAMERA_1).unwrap();
+            reset_request_validation_count();
+            camera
+                .presets()
+                .set_recall_speed(crate::types::PresetSpeed::new(12).unwrap())
+                .unwrap();
+            assert_eq!(request_validation_count(), 1, "set_recall_speed");
+            assert_eq!(
+                request_value_validation_count(),
+                1,
+                "one profile range check, including the wrapper and inner request"
+            );
+            reset_request_validation_count();
+            camera.white_balance().one_push().unwrap();
+            assert_eq!(request_validation_count(), 1, "one_push");
+            session.shutdown().unwrap();
+        }
     }
 
     /// Two views taken from the same session drive its one owned transport,

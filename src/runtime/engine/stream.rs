@@ -194,7 +194,6 @@ impl StreamContext<'_> {
             && !self.stream.ledger.owes_completion(target)
             && self.raw_socket_hold_count(target) == 0
             && self.raw_hold(target, RawHoldScope::AllResponses).is_none()
-            && self.raw_hold(target, RawHoldScope::PreAck).is_none()
         {
             if let Some(owner) = self.sole_socket_holder(target) {
                 if !requests.contains(&owner) {
@@ -239,6 +238,19 @@ impl StreamContext<'_> {
         effects: &mut Decision,
     ) -> Option<RequestId> {
         let target = frame.target;
+        if matches!(
+            frame.response,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S2)
+            } | DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S2)
+            } | DecodedResponse::Error {
+                socket: Some(ViscaSocket::S2),
+                ..
+            }
+        ) {
+            self.stream.learning[target].socket_capacity_seen = 2;
+        }
         let evidence = match frame.response {
             DecodedResponse::Ack { socket } => Evidence::Ack(socket),
             DecodedResponse::Error { code, .. } => Evidence::Error(code),
@@ -251,7 +263,16 @@ impl StreamContext<'_> {
                     Resolved::Live(entry) => Some(entry.request),
                     Resolved::Debt(debt) => {
                         self.displace_stale_socket_owner(target, *socket, effects);
-                        self.hold_owed_command_socket(target, *socket, debt, now);
+                        if let Standing::Owed { completion, .. } = debt.standing {
+                            self.hold_executing_socket(
+                                target,
+                                *socket,
+                                completion,
+                                Some(debt.request),
+                                now,
+                                effects,
+                            );
+                        }
                         None
                     }
                     // Bound to neither candidate, the ACK still shows that
@@ -260,7 +281,13 @@ impl StreamContext<'_> {
                     // another command's (or released as a held one's).
                     Resolved::Disputed(candidates) => {
                         self.displace_stale_socket_owner(target, *socket, effects);
-                        self.hold_disputed_command_socket(target, *socket, &candidates, now);
+                        self.hold_disputed_command_socket(
+                            target,
+                            *socket,
+                            &candidates,
+                            now,
+                            effects,
+                        );
                         None
                     }
                     Resolved::Nothing => None,
@@ -341,9 +368,7 @@ impl StreamContext<'_> {
                         .take_stream_answer(target, Answer::Completion, evidence, now, effects)?
                         .ok();
                 }
-                if self.raw_hold(target, RawHoldScope::AllResponses).is_some()
-                    || self.raw_hold(target, RawHoldScope::PreAck).is_some()
-                {
+                if self.raw_hold(target, RawHoldScope::AllResponses).is_some() {
                     return None;
                 }
                 match (holders, held.as_slice()) {
@@ -504,10 +529,9 @@ impl StreamContext<'_> {
             self.stream.holds.release_socket(target, socket);
             if let Some(id) = self.socket_owner(target, socket) {
                 self.settle_before_owner(target, id, now, effects);
-                if let Some(entry) = self.entries.get(&id) {
+                if self.entries.get(&id).is_some() {
                     effects.defer_frame(Retro {
                         request: id,
-                        generation: entry.generation,
                         evidence: Evidence::Named(NamedFrame::Completion(socket)),
                     });
                 }
@@ -523,9 +547,10 @@ impl StreamContext<'_> {
     pub(super) fn pay_unlearned_completions(&mut self, now: Instant, effects: &mut Decision) {
         while let Some((target, entry, answered)) = self.stream.next_learned_completion() {
             self.absorb_answered(target, answered, now, effects);
-            let awaiting = self.entries.get(&entry.request).is_some_and(|live| {
-                live.generation == entry.generation && live.lifecycle().is_awaiting_completion()
-            });
+            let awaiting = self
+                .entries
+                .get(&entry.request)
+                .is_some_and(|live| live.lifecycle().is_awaiting_completion());
             if awaiting {
                 self.completion(entry.request, None, now, effects);
             }
@@ -644,11 +669,8 @@ impl StreamContext<'_> {
         socket: Option<ViscaSocket>,
         candidates: &[Outstanding; 2],
         now: Instant,
+        effects: &mut Decision,
     ) {
-        let Some(socket) = socket.filter(|socket| self.socket_owner(target, *socket).is_none())
-        else {
-            return;
-        };
         let completion = candidates
             .iter()
             .filter_map(|candidate| match candidate.standing {
@@ -660,12 +682,109 @@ impl StreamContext<'_> {
             })
             .max();
         if let Some(completion) = completion {
+            self.hold_executing_socket(target, socket, completion, None, now, effects);
+        }
+    }
+
+    /// An ACK that binds to no live request names `socket`: the camera put
+    /// another command there, so a command the engine still indexes there
+    /// lost its completion and has ended (#721). It is released now and
+    /// ended with the frame's other effects.
+    fn displace_stale_socket_owner(
+        &mut self,
+        target: TargetSlot,
+        socket: Option<ViscaSocket>,
+        effects: &mut Decision,
+    ) {
+        if let Some(stale) = socket.and_then(|socket| self.socket_owner(target, socket)) {
+            self.release_attempt_ownership(stale);
+            effects.displace(stale);
+        }
+    }
+
+    /// Holds the executing command's named socket, or the first free unheld
+    /// socket for a compatibility ACK with no socket nibble. Owed and disputed
+    /// ACK evidence must apply the same rule.
+    fn hold_executing_socket(
+        &mut self,
+        target: TargetSlot,
+        requested: Option<ViscaSocket>,
+        completion: Duration,
+        owner: Option<RequestId>,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        if requested.is_none() && self.uncertain_socketless_stream_ack(target) {
+            self.hold_uncertain_socketless_execution(target, completion, now, effects);
+            return;
+        }
+        let socket = requested.or_else(|| {
+            [ViscaSocket::S1, ViscaSocket::S2]
+                .into_iter()
+                .take(self.command_sockets(target))
+                .find(|socket| {
+                    self.socket_owner(target, *socket).is_none()
+                        && self
+                            .raw_hold(target, RawHoldScope::Socket(*socket))
+                            .is_none()
+                })
+        });
+        if let Some(socket) = socket.filter(|socket| self.socket_owner(target, *socket).is_none()) {
             self.stream.holds.extend(
                 target,
                 StreamScope::Socket(socket),
                 add_duration(now, completion),
-                None,
+                owner,
             );
+        }
+    }
+
+    /// Retains the union of physical sockets an accepted compatibility ACK
+    /// could execute on. Existing owners may have completed unseen; keeping
+    /// their guessed keys live would let an error of the new command end one
+    /// of them. End those claims through the usual strict-aware terminator,
+    /// and retain anonymous holds until named evidence releases each socket.
+    pub(super) fn hold_uncertain_socketless_execution(
+        &mut self,
+        target: TargetSlot,
+        completion: Duration,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        let mut until = add_duration(now, completion);
+        let capacity = if self.command_sockets(target) > 1
+            || self.stream.learning[target].socket_capacity_seen > 1
+            || self.socket_owner(target, ViscaSocket::S2).is_some()
+            || self
+                .raw_hold(target, RawHoldScope::Socket(ViscaSocket::S2))
+                .is_some()
+        {
+            2
+        } else {
+            1
+        };
+        for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+            if let Some(owner) = self.socket_owner(target, socket) {
+                if let Some(entry) = self.entries.get(&owner) {
+                    until = until.max(add_duration(
+                        now,
+                        entry.request.context().timeout.completion.get(),
+                    ));
+                }
+                self.release_attempt_ownership(owner);
+                effects.displace(owner);
+            }
+        }
+        let learning = &mut self.stream.learning[target];
+        learning.pending_socketless_completions = None;
+        learning.socket_capacity_seen = capacity;
+        for socket in [ViscaSocket::S1, ViscaSocket::S2]
+            .into_iter()
+            .take(usize::from(capacity))
+        {
+            self.stream
+                .holds
+                .extend(target, StreamScope::Socket(socket), until, None);
         }
     }
 

@@ -553,6 +553,11 @@ macro_rules! __define_builtin_profiles {
                 $crate::ProfileSpec::from_facts(self.raw_facts())
             }
 
+            /// Registry grants without constructing owned profile facts.
+            pub(crate) const fn typed_support(self) -> $crate::capabilities::TypedSupportSet {
+                match self { $(Self::$profile => <$profile as $crate::profiles::CompileTimeProfile>::TYPED_SUPPORT,)* }
+            }
+
             /// Returns the pinned snake_case identifier used in configurations.
             pub const fn as_str(&self) -> &'static str {
                 match self { $(Self::$profile => $profile_id,)* }

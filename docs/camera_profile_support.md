@@ -982,7 +982,7 @@ in the hardware release checklist.
   follow the R8 convention. R11 v2.20 now establishes BRC-H900 pan increasing
   left and tilt increasing up; those source-backed signs are used. Only PTZOptics G2 tilt has been
   verified on hardware (below); pan direction, `PtzOpticsG3` and BRC-H900
-  remain unverified. `tests/pan_tilt_polarity.rs` pins the encoded direction of
+  remain unverified. `tests/integration/pan_tilt_polarity.rs` pins the encoded direction of
   +45° for every built-in profile.
 
 The FR7 and BRC-H900 shutter entries are gaps in the evidence, not statements
@@ -999,7 +999,7 @@ PT12X-NDI G2 cameras; models, firmware and run evidence are in the
 - **PTZOptics G2-family shutter codes.** The PTZOptics sources document only
   `pq = Shutter Position`, not a code-to-time table, so `PtzOpticsG2`,
   `PtzOpticsG3` and `PtzOptics30x` ship the table `01` (1/30 s) through `11`
-  (1/10000 s). `hw05_shutter_round_trip` (`tests/hardware_wire_rows_test.rs`)
+  (1/10000 s). `hw05_shutter_round_trip` (`tests/integration/hardware_wire_rows_test.rs`)
   set codes `01`, `06`, `09` and `11` in shutter-priority mode and read each
   back unchanged on all five cameras, with `PtzOptics30x` on the PT30X-NDI G2
   and `PtzOpticsG2` on the others. The bench did not measure exposure time, so

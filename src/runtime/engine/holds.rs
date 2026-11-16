@@ -200,12 +200,7 @@ mod tests {
         let target = TargetSlot::ALL[0];
         let shape = PayloadShape::Nibbles(2);
         let mut ledger = StreamLedger::new();
-        ledger.push(
-            target,
-            id(1),
-            super::super::GenerationTicket(1),
-            super::super::Owes::Reply(shape),
-        );
+        ledger.push(target, id(1), super::super::Owes::Reply(shape));
         ledger.mark_written(target, id(1), false);
         ledger.retire(target, id(1), |_| (now, Duration::ZERO));
         let mut holds = HoldTable::<StreamScope>::new();

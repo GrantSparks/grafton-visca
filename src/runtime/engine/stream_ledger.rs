@@ -89,7 +89,7 @@ use crate::{
     PayloadShape, ViscaSocket,
 };
 
-use super::{inquiry_shape::InquiryShapes, GenerationTicket, Lane, RequestId};
+use super::{inquiry_shape::InquiryShapes, Lane, RequestId};
 
 /// Command debts at which ordinary command correlation latches. Urgent
 /// ACK-bearing STOPs and cancellations continue, and exact inquiry declarations
@@ -241,7 +241,6 @@ pub(crate) struct Outstanding {
     /// The request that wrote the entry. A run keeps the request that opened
     /// it; it only tags the socket hold a paid ACK leaves.
     pub(crate) request: RequestId,
-    pub(crate) generation: GenerationTicket,
     pub(crate) owes: Owes,
     /// Whether the write completed. A request that ends before its staged
     /// write left owes nothing.
@@ -391,7 +390,6 @@ impl NamedFrame {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Retro {
     pub(crate) request: RequestId,
-    pub(crate) generation: GenerationTicket,
     pub(crate) evidence: Evidence,
 }
 
@@ -401,45 +399,193 @@ pub(crate) struct Retro {
 struct Step {
     order: u64,
     request: RequestId,
-    generation: GenerationTicket,
     evidence: Evidence,
     /// A completion or error that named the socket this step's ACK named,
     /// before the dispute was proven: the request's own if the command was
     /// accepted.
     follow: Option<NamedFrame>,
+    /// Audit of unpaid members since this step selected its candidate run.
+    #[cfg(test)]
+    remaining_members: u64,
 }
 
-/// An open dispute: a socketless error that the `CompletionOnly` entry or the
-/// STOP behind it sent. Either the error was the command's rejection
-/// (*rejected*), or the command was accepted and the error, and every frame
-/// handed off since, answered the requests in `steps` (*accepted*).
+/// The opening frame is always an error, so it cannot have an ACK follow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OpeningStep {
+    order: u64,
+    request: RequestId,
+    evidence: Evidence,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Proof {
+    Either,
+    AcceptOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Opening {
+    CompletionOnly { proof: Proof },
+    NoReply,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DisputePhase {
+    Active,
+    Dormant,
+}
+
+/// The opening error and the frames handed off since it. Keeping the opening
+/// mode closed prevents a NoReply dispute from acquiring acceptance-only proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Dispute {
-    completion_only: Step,
-    /// Whether the first side is a `NoReply` command, which owes nothing
-    /// more once disputed (its entry is gone) and never completes.
-    rejection_only: bool,
-    /// The disputed error, and each frame handed off since, with the request
-    /// it answered if the command was accepted. The last is the request whose
-    /// own answer would prove the command rejected.
+    command: OpeningStep,
+    opening: Opening,
     steps: SmallVec<[Step; MAX_DISPUTE_HANDOFFS + 1]>,
-    /// Whether a second dispute touched its requests: the frames since may
-    /// belong to either explanation, so no STOP's answer can prove the
-    /// command rejected any more, and neither can write order; only the
-    /// command's completion still proves it accepted.
-    accept_only: bool,
-    /// Whether every request it names has ended and its window with it: it
-    /// no longer holds anything back, its camera's lanes latch (the
-    /// documented endgame), and only a late answer can still settle it.
-    dormant: bool,
+    phase: DisputePhase,
 }
 
 impl Dispute {
-    /// Whether the entry written at `order` is one this dispute names: its
-    /// `CompletionOnly` (or `NoReply`) command, or one of its steps.
     fn names(&self, order: u64) -> bool {
-        self.completion_only.order == order || self.steps.iter().any(|step| step.order == order)
+        self.command.order == order || self.steps.iter().any(|step| step.order == order)
     }
+    const fn no_reply(&self) -> bool {
+        matches!(self.opening, Opening::NoReply)
+    }
+    const fn only_accepts(&self) -> bool {
+        matches!(
+            self.opening,
+            Opening::CompletionOnly {
+                proof: Proof::AcceptOnly
+            }
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DisputeEvent {
+    Unwritten {
+        command: bool,
+    },
+    Answer {
+        entry: Outstanding,
+        alone: bool,
+        handed_to: Option<Step>,
+    },
+    SettledBefore,
+    Completion {
+        order: u64,
+    },
+    Touched,
+    WindowEnded,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Kept {
+    Unchanged,
+    AcceptOnly,
+    Dormant,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Verdict {
+    Keep(Kept),
+    HandOff(Step),
+    Accept,
+    Reject,
+    Untrack,
+}
+
+/// The one decision table for all evidence that can change a dispute. Its
+/// executor below is the only place that takes and reinstalls tracked state.
+fn verdict(dispute: &Dispute, event: DisputeEvent, queue: &Queue) -> Verdict {
+    let candidate = dispute.steps.last().map(|step| step.order);
+    let retired = candidate.is_some_and(|order| !queue.iter().any(|entry| entry.order == order));
+    match event {
+        DisputeEvent::Unwritten { command: true } => Verdict::Accept,
+        DisputeEvent::Unwritten { command: false } if dispute.only_accepts() => Verdict::Untrack,
+        DisputeEvent::Unwritten { command: false } => Verdict::Reject,
+        DisputeEvent::Answer { entry, .. } if entry.order == dispute.command.order => {
+            Verdict::Accept
+        }
+        DisputeEvent::Answer { entry, .. } if dispute.only_accepts() => {
+            if Some(entry.order) == candidate {
+                Verdict::Untrack
+            } else {
+                Verdict::Keep(Kept::Unchanged)
+            }
+        }
+        DisputeEvent::Answer {
+            entry,
+            alone,
+            handed_to,
+        } => {
+            if Some(entry.order) != candidate {
+                if retired {
+                    Verdict::Accept
+                } else {
+                    Verdict::Keep(Kept::Unchanged)
+                }
+            } else if alone {
+                Verdict::Reject
+            } else if entry.members > 1 {
+                // The paid run member is one frame; its remaining members
+                // still include the candidate for the opening disputed frame.
+                Verdict::Keep(Kept::Unchanged)
+            } else {
+                match handed_to {
+                    Some(step) if dispute.steps.len() <= MAX_DISPUTE_HANDOFFS => {
+                        Verdict::HandOff(step)
+                    }
+                    _ => Verdict::Untrack,
+                }
+            }
+        }
+        DisputeEvent::SettledBefore if retired && !dispute.only_accepts() => Verdict::Accept,
+        DisputeEvent::Completion { order } if order == dispute.command.order => Verdict::Accept,
+        DisputeEvent::Touched if dispute.no_reply() => Verdict::Untrack,
+        DisputeEvent::Touched => Verdict::Keep(Kept::AcceptOnly),
+        DisputeEvent::WindowEnded => Verdict::Keep(Kept::Dormant),
+        DisputeEvent::SettledBefore | DisputeEvent::Completion { .. } => {
+            Verdict::Keep(Kept::Unchanged)
+        }
+    }
+}
+
+fn settle(
+    queue: &mut Queue,
+    tracked: &mut Option<Dispute>,
+    event: DisputeEvent,
+    answered: &mut Answered,
+) {
+    let Some(mut dispute) = tracked.take() else {
+        return;
+    };
+    match verdict(&dispute, event, queue) {
+        Verdict::Keep(change) => {
+            match change {
+                Kept::Unchanged => {}
+                Kept::AcceptOnly => {
+                    dispute.opening = Opening::CompletionOnly {
+                        proof: Proof::AcceptOnly,
+                    }
+                }
+                Kept::Dormant => dispute.phase = DisputePhase::Dormant,
+            }
+            *tracked = Some(dispute);
+        }
+        Verdict::HandOff(step) => {
+            dispute.steps.push(step);
+            dispute.phase = DisputePhase::Active;
+            *tracked = Some(dispute);
+        }
+        Verdict::Accept => accept(queue, &dispute, answered),
+        Verdict::Reject => reject(queue, &dispute, answered),
+        Verdict::Untrack => {}
+    }
+    // Callers update pins after their whole ledger mutation. In particular,
+    // Touched inside answer must not coalesce candidates while that same
+    // frame is still being resolved.
 }
 
 /// How a first-answer frame resolved.
@@ -489,20 +635,13 @@ impl StreamLedger {
     }
 
     /// Appends a request whose write is about to start.
-    pub(crate) fn push(
-        &mut self,
-        target: TargetSlot,
-        request: RequestId,
-        generation: GenerationTicket,
-        owes: Owes,
-    ) -> u64 {
+    pub(crate) fn push(&mut self, target: TargetSlot, request: RequestId, owes: Owes) -> u64 {
         let order = self.next_order;
         self.next_order = self.next_order.wrapping_add(1);
         self.queue_mut(target).push_back(Outstanding {
             order,
             newest: order,
             request,
-            generation,
             owes,
             written: false,
             standing: Standing::Live,
@@ -565,25 +704,16 @@ impl StreamLedger {
             queue
                 .iter()
                 .find(|entry| unwritten(entry) && dispute.names(entry.order))
-                .map(|entry| entry.order == dispute.completion_only.order)
+                .map(|entry| entry.order == dispute.command.order)
         });
-        if let Some(command_unwritten) = decided {
-            if let Some(dispute) = state.dispute.take() {
-                if command_unwritten {
-                    // The command sent nothing, so the disputed error was
-                    // the STOP's, and each frame handed off since its step's.
-                    accept(queue, &dispute, &mut answered);
-                } else if !dispute.accept_only {
-                    // A step sent nothing, so it never sent the frame that
-                    // the command's acceptance would make its own: the
-                    // command was rejected.
-                    reject(queue, &dispute, &mut answered);
-                }
-                // A demoted dispute's steps were inferred through entries
-                // that were already disputed, not proven, so an unwritten one
-                // proves nothing: it is untracked instead.
-            }
-            pin(queue, None);
+        if let Some(command) = decided {
+            settle(
+                queue,
+                &mut state.dispute,
+                DisputeEvent::Unwritten { command },
+                &mut answered,
+            );
+            pin(queue, state.dispute.as_ref());
         }
         queue.retain(|entry| !unwritten(entry));
         for entry in queue
@@ -676,6 +806,16 @@ impl StreamLedger {
                         .count()
                         == 1;
                 answered.replies_settled = apply_in(queue, entry);
+                #[cfg(test)]
+                if let Some(dispute) = state.dispute.as_mut() {
+                    for step in dispute
+                        .steps
+                        .iter_mut()
+                        .filter(|step| step.order == entry.order)
+                    {
+                        step.remaining_members = step.remaining_members.saturating_sub(1);
+                    }
+                }
                 // A frame that pays a disputed debt may have been the next
                 // request's own answer (past the rest of the paid entry, if
                 // a run: its members are alike).
@@ -688,44 +828,16 @@ impl StreamLedger {
                 } else {
                     None
                 };
-                if let Some(dispute) = state.dispute.take() {
-                    let candidate = dispute.steps.last().map(|step| step.order);
-                    if entry.order == dispute.completion_only.order {
-                        accept(queue, &dispute, &mut answered);
-                    } else if dispute.accept_only {
-                        // Its candidate answered: whose frame that was, no
-                        // explanation tells any more; stop tracking.
-                        if Some(entry.order) != candidate {
-                            state.dispute = Some(dispute);
-                        }
-                    } else if Some(entry.order) == candidate && alone {
-                        reject(queue, &dispute, &mut answered);
-                    } else if Some(entry.order) == candidate && entry.members > 1 {
-                        // A member of the candidate run paid: its members are
-                        // alike, so the run stays the candidate.
-                        state.dispute = Some(dispute);
-                    } else if Some(entry.order) == candidate {
-                        match handed_to {
-                            Some(step) if dispute.steps.len() <= MAX_DISPUTE_HANDOFFS => {
-                                let mut dispute = dispute;
-                                dispute.steps.push(step);
-                                // A live request is named again.
-                                dispute.dormant = false;
-                                state.dispute = Some(dispute);
-                            }
-                            // Untracked past the cap, or with no candidate.
-                            _ => {}
-                        }
-                    } else if candidate
-                        .is_some_and(|order| !queue.iter().any(|entry| entry.order == order))
-                    {
-                        // Write order retired the candidate: its answer was
-                        // the disputed frame.
-                        accept(queue, &dispute, &mut answered);
-                    } else {
-                        state.dispute = Some(dispute);
-                    }
-                }
+                settle(
+                    queue,
+                    &mut state.dispute,
+                    DisputeEvent::Answer {
+                        entry,
+                        alone,
+                        handed_to,
+                    },
+                    &mut answered,
+                );
                 answered.resolved = if entry.is_debt() {
                     Resolved::Debt(entry)
                 } else {
@@ -739,13 +851,16 @@ impl StreamLedger {
                 let opened = state.dispute.is_none();
                 // A second dispute while one is tracked: only the command's
                 // completion can still prove it (accepted).
-                demote(&mut state.dispute);
-                let step = |entry: &Outstanding, evidence| Step {
+                settle(
+                    queue,
+                    &mut state.dispute,
+                    DisputeEvent::Touched,
+                    &mut answered,
+                );
+                let step = |entry: &Outstanding, evidence| OpeningStep {
                     order: entry.order,
                     request: entry.request,
-                    generation: entry.generation,
                     evidence,
-                    follow: None,
                 };
                 let head_owes = queue
                     .iter()
@@ -767,14 +882,19 @@ impl StreamLedger {
                     (opened, completion_only, stop, evidence)
                 {
                     state.dispute = Some(Dispute {
-                        completion_only: Step {
+                        command: OpeningStep {
                             evidence: Evidence::Error(code),
                             ..completion_only
                         },
-                        rejection_only: head_owes == Some(Owes::Rejection),
+                        opening: if head_owes == Some(Owes::Rejection) {
+                            Opening::NoReply
+                        } else {
+                            Opening::CompletionOnly {
+                                proof: Proof::Either,
+                            }
+                        },
                         steps: std::iter::once(stop).collect(),
-                        accept_only: false,
-                        dormant: false,
+                        phase: DisputePhase::Active,
                     });
                 }
                 let tracked = state.dispute.is_some();
@@ -818,16 +938,12 @@ impl StreamLedger {
             retro: SmallVec::new(),
             completion_only_retired: false,
         };
-        if let Some(dispute) = state.dispute.take() {
-            let candidate = dispute.steps.last().map(|step| step.order);
-            let retired =
-                candidate.is_some_and(|order| !queue.iter().any(|entry| entry.order == order));
-            if retired && !dispute.accept_only {
-                accept(queue, &dispute, &mut answered);
-            } else {
-                state.dispute = Some(dispute);
-            }
-        }
+        settle(
+            queue,
+            &mut state.dispute,
+            DisputeEvent::SettledBefore,
+            &mut answered,
+        );
         pin(&mut state.queue, state.dispute.as_ref());
         answered
     }
@@ -869,16 +985,25 @@ impl StreamLedger {
             let Some(dispute) = dispute else {
                 continue;
             };
-            if !dispute.rejection_only
+            if !dispute.no_reply()
                 && !queue.iter().any(|entry| {
-                    entry.order == dispute.completion_only.order
-                        && entry.owes == Owes::AcceptedCompletion
+                    entry.order == dispute.command.order && entry.owes == Owes::AcceptedCompletion
                 })
             {
                 return Err("a tracked dispute names no owed CompletionOnly entry");
             }
             if dispute.steps.is_empty() || dispute.steps.len() > MAX_DISPUTE_HANDOFFS + 1 {
                 return Err("a tracked dispute exceeds its hand-offs");
+            }
+            #[cfg(test)]
+            for step in &dispute.steps {
+                let remaining = queue
+                    .iter()
+                    .find(|entry| entry.order == step.order)
+                    .map_or(0, |entry| entry.members);
+                if remaining < step.remaining_members {
+                    return Err("a dispute run lost a member without an assigned frame");
+                }
             }
         }
         Ok(())
@@ -903,13 +1028,13 @@ impl StreamLedger {
             .find(|entry| matches!(entry.owes, Owes::Completion | Owes::AcceptedCompletion))
             .copied()?;
         let mut answered = Answered::default();
-        if let Some(dispute) = state
-            .dispute
-            .take_if(|dispute| dispute.completion_only.order == entry.order)
-        {
-            accept(queue, &dispute, &mut answered);
-            pin(queue, None);
-        }
+        settle(
+            queue,
+            &mut state.dispute,
+            DisputeEvent::Completion { order: entry.order },
+            &mut answered,
+        );
+        pin(queue, state.dispute.as_ref());
         take_in(queue, entry.order);
         Some((entry, answered))
     }
@@ -943,7 +1068,12 @@ impl StreamLedger {
             .as_ref()
             .is_some_and(|dispute| dispute.names(entry.order))
         {
-            demote(&mut state.dispute);
+            settle(
+                &mut state.queue,
+                &mut state.dispute,
+                DisputeEvent::Touched,
+                &mut Answered::default(),
+            );
             pin(&mut state.queue, state.dispute.as_ref());
         }
         true
@@ -967,7 +1097,7 @@ impl StreamLedger {
         let tracked = self.targets[target]
             .dispute
             .as_ref()
-            .is_some_and(|dispute| !dispute.dormant);
+            .is_some_and(|dispute| dispute.phase != DisputePhase::Dormant);
         disputed_live || tracked || (unproven && waiting_ack)
     }
 
@@ -1041,7 +1171,7 @@ impl StreamLedger {
         if self.targets[target]
             .dispute
             .as_ref()
-            .is_some_and(|dispute| dispute.dormant && !dispute.rejection_only)
+            .is_some_and(|dispute| dispute.phase == DisputePhase::Dormant && !dispute.no_reply())
         {
             return LaneState::Latched;
         }
@@ -1085,7 +1215,9 @@ impl StreamLedger {
             && self.targets[target]
                 .dispute
                 .as_ref()
-                .is_some_and(|dispute| dispute.dormant && !dispute.rejection_only)
+                .is_some_and(|dispute| {
+                    dispute.phase == DisputePhase::Dormant && !dispute.no_reply()
+                })
         {
             return LaneState::Latched;
         }
@@ -1123,8 +1255,13 @@ impl StreamLedger {
                         matches!(entry.standing, Standing::Owed { window_end, .. } if window_end <= now)
                     })
             });
-            if let (true, Some(dispute)) = (ended, dispute.as_mut()) {
-                dispute.dormant = true;
+            if ended {
+                settle(
+                    &mut state.queue,
+                    dispute,
+                    DisputeEvent::WindowEnded,
+                    &mut Answered::default(),
+                );
             }
         }
         for entry in self
@@ -1185,16 +1322,6 @@ const fn latches(owes: Owes) -> bool {
     owes.lane().is_some() || matches!(owes, Owes::Rejection)
 }
 
-/// A second dispute touched a tracked one's requests: it is kept, but only
-/// the command's completion can prove it any more. A `NoReply` command never
-/// completes, so its dispute is dropped.
-fn demote(dispute: &mut Option<Dispute>) {
-    match dispute {
-        Some(tracked) if !tracked.rejection_only => tracked.accept_only = true,
-        _ => *dispute = None,
-    }
-}
-
 /// Pins the entries a tracked dispute names, and only those, so that they
 /// keep their identity; entries it no longer names may merge again.
 fn pin(queue: &mut Queue, dispute: Option<&Dispute>) {
@@ -1233,9 +1360,10 @@ fn dispute_behind(
             handed_to = Some(Step {
                 order: entry.order,
                 request: entry.request,
-                generation: entry.generation,
                 evidence,
                 follow: None,
+                #[cfg(test)]
+                remaining_members: entry.members,
             });
         }
         if !passes_on {
@@ -1250,11 +1378,27 @@ fn dispute_behind(
 /// which owe nothing more and receive them.
 fn accept(queue: &mut Queue, dispute: &Dispute, answered: &mut Answered) {
     for step in &dispute.steps {
-        queue.retain(|entry| entry.order != step.order);
+        let before = queue
+            .iter()
+            .find(|entry| entry.order == step.order)
+            .map_or(0, |entry| entry.members);
+        take_in(queue, step.order);
+        let after = queue
+            .iter()
+            .find(|entry| entry.order == step.order)
+            .map_or(0, |entry| entry.members);
+        debug_assert_eq!(
+            after,
+            before.saturating_sub(1),
+            "one disputed frame pays exactly one member"
+        );
+        if let Some(entry) = queue.iter_mut().find(|entry| entry.order == step.order) {
+            entry.disputed = false;
+            entry.pinned = false;
+        }
         for evidence in std::iter::once(step.evidence).chain(step.follow.map(Evidence::Named)) {
             answered.retro.push(Retro {
                 request: step.request,
-                generation: step.generation,
                 evidence,
             });
         }
@@ -1266,14 +1410,13 @@ fn accept(queue: &mut Queue, dispute: &Dispute, answered: &mut Answered) {
 /// error was its rejection, and its entry is retired.
 fn reject(queue: &mut Queue, dispute: &Dispute, answered: &mut Answered) {
     // A `NoReply` command's entry is gone, and it already ended.
-    if dispute.rejection_only {
+    if dispute.no_reply() {
         return;
     }
-    take_in(queue, dispute.completion_only.order);
+    take_in(queue, dispute.command.order);
     answered.retro.push(Retro {
-        request: dispute.completion_only.request,
-        generation: dispute.completion_only.generation,
-        evidence: dispute.completion_only.evidence,
+        request: dispute.command.request,
+        evidence: dispute.command.evidence,
     });
     answered.completion_only_retired = true;
 }
@@ -1442,7 +1585,7 @@ mod tests {
         let now = Instant::now();
         for (index, owes) in (1..).zip(kinds) {
             let cancel = matches!(owes, Owes::Cancel(_));
-            ledger.push(TARGET, request(index), GenerationTicket(1), *owes);
+            ledger.push(TARGET, request(index), *owes);
             ledger.mark_written(TARGET, request(index), cancel);
         }
         for index in (1..).take(kinds.len()) {
@@ -1494,7 +1637,7 @@ mod tests {
     fn a_rejection_already_ambiguous_between_waiting_commands_is_disputed() {
         let mut ledger = StreamLedger::new();
         for id in [1, 2] {
-            ledger.push(TARGET, request(id), GenerationTicket(1), Owes::Ack);
+            ledger.push(TARGET, request(id), Owes::Ack);
             ledger.mark_written(TARGET, request(id), false);
         }
         // The first such rejection disputes the oldest waiting command; the
@@ -1512,7 +1655,7 @@ mod tests {
     fn a_learned_completion_proves_its_dispute_accepted() {
         let mut ledger = StreamLedger::new();
         for (id, owes) in [(1, Owes::Completion), (2, Owes::Ack)] {
-            ledger.push(TARGET, request(id), GenerationTicket(1), owes);
+            ledger.push(TARGET, request(id), owes);
             ledger.mark_written(TARGET, request(id), false);
         }
         let answered = ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
@@ -1524,13 +1667,91 @@ mod tests {
             decided.retro.as_slice(),
             [Retro {
                 request: request(2),
-                generation: GenerationTicket(1),
                 evidence: Evidence::Error(0x41),
             }]
         );
         assert!(!ledger.awaits_dispute(TARGET, request(2)));
         assert!(ledger.is_empty());
         ledger.check_disputes().unwrap();
+    }
+
+    #[test]
+    fn accepting_a_dispute_pays_one_member_of_a_stop_debt_run() {
+        for count in [2, 3, 17] {
+            let kinds: Vec<_> = std::iter::once(Owes::Completion)
+                .chain(std::iter::repeat_n(Owes::Ack, count))
+                .collect();
+            let mut ledger = owed(&kinds);
+            let disputed = ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+            assert!(matches!(disputed.resolved, Resolved::Disputed(_)));
+            ledger.check_disputes().unwrap();
+            ledger.answer(TARGET, Answer::Completion, Evidence::Other);
+            assert_eq!(shape(&ledger), [(Owes::Ack, count as u64 - 1)]);
+            assert!(ledger
+                .queue(TARGET)
+                .iter()
+                .all(|entry| !entry.disputed && !entry.pinned));
+            ledger.push(TARGET, request(99), Owes::Ack);
+            ledger.mark_written(TARGET, request(99), false);
+            for _ in 1..count {
+                let paid = ledger.answer(TARGET, Answer::Ack, Evidence::Ack(None));
+                assert!(matches!(paid.resolved, Resolved::Debt(_)));
+            }
+            let own = ledger.answer(TARGET, Answer::Ack, Evidence::Ack(None));
+            assert!(matches!(own.resolved, Resolved::Live(entry) if entry.request == request(99)));
+            ledger.check_disputes().unwrap();
+        }
+    }
+
+    #[test]
+    fn the_dispute_audit_detects_a_member_lost_without_a_frame() {
+        let mut ledger = owed(&[Owes::Completion, Owes::Ack, Owes::Ack]);
+        ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+        ledger.check_disputes().unwrap();
+        ledger
+            .queue_mut(TARGET)
+            .iter_mut()
+            .find(|entry| entry.owes == Owes::Ack)
+            .unwrap()
+            .members -= 1;
+        assert_eq!(
+            ledger.check_disputes(),
+            Err("a dispute run lost a member without an assigned frame")
+        );
+    }
+
+    #[test]
+    fn run_member_answers_preserve_the_unpaid_disputed_member() {
+        for paid in 1..4 {
+            let mut ledger = owed(&[
+                Owes::Completion,
+                Owes::Ack,
+                Owes::Ack,
+                Owes::Ack,
+                Owes::Ack,
+                Owes::Ack,
+            ]);
+            ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+            ledger.push(TARGET, request(99), Owes::Ack);
+            ledger.mark_written(TARGET, request(99), false);
+            for _ in 0..paid {
+                ledger.answer(TARGET, Answer::Ack, Evidence::Ack(None));
+                ledger.check_disputes().unwrap();
+            }
+            ledger.answer(TARGET, Answer::Completion, Evidence::Other);
+            assert_eq!(ledger.debts(TARGET), 4 - paid);
+            for _ in paid..4 {
+                assert!(matches!(
+                    ledger
+                        .answer(TARGET, Answer::Ack, Evidence::Ack(None))
+                        .resolved,
+                    Resolved::Debt(_)
+                ));
+            }
+            assert!(
+                matches!(ledger.answer(TARGET, Answer::Ack, Evidence::Ack(None)).resolved, Resolved::Live(entry) if entry.request == request(99))
+            );
+        }
     }
 
     /// Cancellations for different sockets never compete, so alternating
@@ -1607,7 +1828,6 @@ mod tests {
                 answered.retro.as_slice(),
                 [Retro {
                     request: request(retro_to),
-                    generation: GenerationTicket(1),
                     evidence: Evidence::Error(0x02),
                 }],
                 "{proof:?}"
@@ -1624,7 +1844,7 @@ mod tests {
     fn a_dispute_is_handed_off_to_the_next_waiting_stop() {
         let mut ledger = owed(&[Owes::Completion, Owes::Ack]);
         ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x02));
-        ledger.push(TARGET, request(9), GenerationTicket(1), Owes::Ack);
+        ledger.push(TARGET, request(9), Owes::Ack);
         ledger.mark_written(TARGET, request(9), false);
         // While a dispute is tracked nothing crosses, and no inquiry is
         // written.
@@ -1661,7 +1881,7 @@ mod tests {
             (4, ViscaSocket::S2),
             (5, ViscaSocket::S1),
         ] {
-            ledger.push(TARGET, request(id), GenerationTicket(1), Owes::Ack);
+            ledger.push(TARGET, request(id), Owes::Ack);
             ledger.mark_written(TARGET, request(id), false);
             ledger.answer(TARGET, Answer::Ack, Evidence::Ack(Some(socket)));
             assert!(ledger.follow(TARGET, NamedFrame::Completion(socket)));
@@ -1685,7 +1905,7 @@ mod tests {
         for reverse in [false, true] {
             let mut ledger = StreamLedger::new();
             for (id, shape) in [(1, PayloadShape::Bytes(1)), (2, PayloadShape::Nibbles(4))] {
-                ledger.push(TARGET, request(id), GenerationTicket(1), Owes::Reply(shape));
+                ledger.push(TARGET, request(id), Owes::Reply(shape));
                 ledger.mark_written(TARGET, request(id), false);
             }
             let replies: [(u64, &[u8]); 2] = if reverse {
@@ -1716,12 +1936,7 @@ mod tests {
             ledger.inquiry_state(TARGET, PayloadShape::Nibbles(4)),
             LaneState::Clear
         );
-        ledger.push(
-            TARGET,
-            request(2),
-            GenerationTicket(1),
-            Owes::Reply(PayloadShape::Nibbles(4)),
-        );
+        ledger.push(TARGET, request(2), Owes::Reply(PayloadShape::Nibbles(4)));
         ledger.mark_written(TARGET, request(2), false);
         let invalid = ledger.answer(TARGET, Answer::Reply(&[0, 0, 0, 0x10]), Evidence::Other);
         assert_eq!(invalid.resolved, Resolved::Nothing);

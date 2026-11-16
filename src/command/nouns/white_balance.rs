@@ -675,103 +675,20 @@ impl OnePush {
             },
         )
     }
-
-    pub(crate) fn selected_row_for_target(
-        &self,
-        target: &TargetRegistration,
-    ) -> crate::Result<crate::command::semantics::BuiltinCommand> {
-        use crate::{
-            capabilities::OnePushWhiteBalanceEncoding, command::semantics::BuiltinCommand,
-        };
-        Ok(match Self::encoding_for_target(target)? {
-            OnePushWhiteBalanceEncoding::Standard => BuiltinCommand::OnePushWhiteBalanceTrigger,
-            OnePushWhiteBalanceEncoding::SonyFr7 => BuiltinCommand::Fr7WhiteBalanceSet,
-        })
-    }
 }
 
-impl Request for OnePush {
-    type Class = crate::request::PlainClass;
-    const MAX_SIZE: usize = <color::OnePushTriggerCommand as Request>::MAX_SIZE;
-    const TIMEOUT_CLASS: crate::TimeoutClass =
-        <color::OnePushTriggerCommand as Request>::TIMEOUT_CLASS;
-    const RETRY_CLASS: crate::RetryClass = <color::OnePushTriggerCommand as Request>::RETRY_CLASS;
-    const CONTROL_CLASS: crate::ControlClass =
-        <color::OnePushTriggerCommand as Request>::CONTROL_CLASS;
-
-    fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
-        Request::write_into(&color::OnePushTriggerCommand::new(), camera_id, buffer)
+forward_request!(OnePush, color::OnePushTriggerCommand, Plain;
+    select target |request, target| (Self::encoding_for_target(target)?)
+        default (crate::capabilities::OnePushWhiteBalanceEncoding::Standard) {
+        crate::capabilities::OnePushWhiteBalanceEncoding::Standard => (
+            color::OnePushTriggerCommand, OnePushWhiteBalanceTrigger,
+            color::OnePushTriggerCommand::new()
+        ),
+        crate::capabilities::OnePushWhiteBalanceEncoding::SonyFr7 => (
+            sony_fr7_white_balance::Fr7WhiteBalanceSet, Fr7WhiteBalanceSet,
+            sony_fr7_white_balance::Fr7WhiteBalanceSet
+        ),
     }
-
-    #[allow(private_interfaces)]
-    fn write_for_target(
-        &self,
-        target: &TargetRegistration,
-        buffer: &mut [u8],
-        authority: crate::requests::RequestContractAuthority,
-    ) -> crate::Result<usize> {
-        self.validate_for_target(target)?;
-        use crate::command::semantics::BuiltinCommand;
-        match self.selected_row_for_target(target)? {
-            BuiltinCommand::OnePushWhiteBalanceTrigger => Request::write_for_target(
-                &color::OnePushTriggerCommand::new(),
-                target,
-                buffer,
-                authority,
-            ),
-            BuiltinCommand::Fr7WhiteBalanceSet => Request::write_for_target(
-                &sony_fr7_white_balance::Fr7WhiteBalanceSet,
-                target,
-                buffer,
-                authority,
-            ),
-            _ => Err(crate::Error::InvalidRequest {
-                reason: "invalid one-push white balance encoding row".into(),
-            }),
-        }
-    }
-
-    fn validate_for_target(&self, target: &TargetRegistration) -> crate::Result<()> {
-        use crate::command::semantics::BuiltinCommand;
-        match self.selected_row_for_target(target)? {
-            BuiltinCommand::OnePushWhiteBalanceTrigger => {
-                Request::validate_for_target(&color::OnePushTriggerCommand::new(), target)
-            }
-            BuiltinCommand::Fr7WhiteBalanceSet => {
-                Request::validate_for_target(&sony_fr7_white_balance::Fr7WhiteBalanceSet, target)
-            }
-            _ => Err(crate::Error::InvalidRequest {
-                reason: "invalid one-push white balance encoding row".into(),
-            }),
-        }
-    }
-}
-
-impl crate::command::semantics::BuiltinRequestContract for OnePush {
-    const LEDGER_ROW: crate::command::semantics::BuiltinCommand =
-        crate::command::semantics::BuiltinCommand::OnePushWhiteBalanceTrigger;
-    const LEDGER_ROWS: &'static [crate::command::semantics::BuiltinCommand] = &[
-        crate::command::semantics::BuiltinCommand::OnePushWhiteBalanceTrigger,
-        crate::command::semantics::BuiltinCommand::Fr7WhiteBalanceSet,
-    ];
-    type State = crate::request::builtin_contract::NoState;
-
-    #[cfg(test)]
-    fn selected_ledger_row_for_target(
-        &self,
-        target: &TargetRegistration,
-    ) -> crate::Result<crate::command::semantics::BuiltinCommand> {
-        self.selected_row_for_target(target)
-    }
-}
-
-const _: () = <OnePush as crate::command::semantics::BuiltinRequestContract>::CLASS_MATCHES_ROW;
-const _: () = assert!(
-    crate::command::semantics::BuiltinCommand::OnePushWhiteBalanceTrigger
-        .classification()
-        .same_contract(
-            crate::command::semantics::BuiltinCommand::Fr7WhiteBalanceSet.classification(),
-        )
 );
 
 #[cfg(test)]

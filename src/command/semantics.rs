@@ -118,10 +118,17 @@ pub(crate) enum BuiltinRequestClass {
     AppliedOnly {
         /// Exact fixed affected axes.
         axes: BuiltinAxisSelection,
+        /// A reviewed STOP, authorized to use the urgent admission lane.
+        stop: bool,
     },
 }
 
 impl BuiltinRequestClass {
+    /// Whether this ledger row is a reviewed typed STOP.
+    pub(crate) const fn is_stop(self) -> bool {
+        matches!(self, Self::AppliedOnly { stop: true, .. })
+    }
+
     /// Returns the completion class, if this is an operation.
     #[cfg(test)]
     #[must_use]
@@ -139,7 +146,7 @@ impl BuiltinRequestClass {
     pub(crate) const fn axes(self) -> Option<BuiltinAxisSelection> {
         match self {
             Self::Plain { .. } => None,
-            Self::Targeted { axes } | Self::AppliedOnly { axes } => Some(axes),
+            Self::Targeted { axes } | Self::AppliedOnly { axes, .. } => Some(axes),
         }
     }
 
@@ -168,10 +175,19 @@ impl BuiltinRequestClass {
                 (Some(left), Some(right)) => left.same_effect(right),
                 (None, Some(_)) | (Some(_), None) => false,
             },
-            (Self::Targeted { axes: left }, Self::Targeted { axes: right })
-            | (Self::AppliedOnly { axes: left }, Self::AppliedOnly { axes: right }) => {
+            (Self::Targeted { axes: left }, Self::Targeted { axes: right }) => {
                 left.same_selection(right)
             }
+            (
+                Self::AppliedOnly {
+                    axes: left,
+                    stop: left_stop,
+                },
+                Self::AppliedOnly {
+                    axes: right,
+                    stop: right_stop,
+                },
+            ) => left.same_selection(right) && left_stop == right_stop,
             _ => false,
         }
     }
@@ -234,9 +250,9 @@ impl BuiltinClassMarker for crate::request::OperationClass<crate::completion::Ap
 /// axes, the write-only state effect and the typed capability gate) is read
 /// from [`Self::LEDGER_ROW`].
 pub(crate) trait BuiltinRequestContract: crate::Request<Class: BuiltinClassMarker> {
-    /// A ledger row this type serves. Every ledger row served by the type
-    /// must classify identically; the typed-request inventory checks this at
-    /// compile time.
+    /// A representative ledger row this type serves. Selector arms preserve
+    /// its class, axes and STOP authority; each arm retains its own state effect.
+    /// The typed-request inventory checks these contracts at compile time.
     const LEDGER_ROW: BuiltinCommand;
 
     /// Exact value-selected row, exposed only to the literal wire inventory.
@@ -284,6 +300,7 @@ pub(crate) const fn fixed_axes<T: BuiltinRequestContract>() -> AffectedAxes {
         }
         | BuiltinRequestClass::AppliedOnly {
             axes: BuiltinAxisSelection::Exact(axes),
+            ..
         } => axes,
         _ => panic!("ledger row has no fixed operation axes"),
     }
@@ -301,8 +318,8 @@ pub(crate) trait LedgerState {
 ///
 /// `plain`, `plain(Set(<key>))`, `plain(Clear(<key>))`,
 /// `plain(Invalidate(<key>))`, `targeted(<axes>)`,
-/// `targeted(profile_preset_recall)` and `applied(<axes>)` are the only row
-/// forms; `<key>` names a [`crate::state_cache::StateKey`] and `<axes>` an
+/// `targeted(profile_preset_recall)`, `applied(<axes>)` and
+/// `applied_stop(<axes>)` are the only row forms; `<key>` names a [`crate::state_cache::StateKey`] and `<axes>` an
 /// [`crate::types::AffectedAxes`] constant. [`BuiltinCommand`], the test-build
 /// `BuiltinCommand::ALL` and [`BuiltinCommand::classification`] are all
 /// expanded from this one list, so a row cannot be declared without a
@@ -410,7 +427,12 @@ macro_rules! ledger_class {
     };
     (applied($axes:ident)) => {
         BuiltinRequestClass::AppliedOnly {
-            axes: BuiltinAxisSelection::Exact(AffectedAxes::$axes),
+            axes: BuiltinAxisSelection::Exact(AffectedAxes::$axes), stop: false,
+        }
+    };
+    (applied_stop($axes:ident)) => {
+        BuiltinRequestClass::AppliedOnly {
+            axes: BuiltinAxisSelection::Exact(AffectedAxes::$axes), stop: true,
         }
     };
     ($($row:tt)*) => {
@@ -419,7 +441,7 @@ macro_rules! ledger_class {
             stringify!($($row)*),
             "`; expected plain, plain(Set(<StateKey>)), plain(Clear(<StateKey>)), ",
             "plain(Invalidate(<StateKey>)), targeted(<AXES>), ",
-            "targeted(profile_preset_recall) or applied(<AXES>)"
+            "targeted(profile_preset_recall), applied(<AXES>) or applied_stop(<AXES>)"
         ))
     };
 }
@@ -429,13 +451,13 @@ builtin_command_ledger! {
     PanTiltHome => { class: targeted(PAN_TILT), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::pan_tilt::HOME)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pantilthome-command"), (R14, [PtzOpticsG3], "r14-pantilthome-command"), (R7, [SonyFr7], "r7-pantilthome-command"), (R11, [SonyBrcH900], "r11-pantilthome-command"), (R8, [SonyEviH100, GenericVisca], "r8-pantilthome-command"), (R12, [SonyBrc300, GenericVisca], "r12-pantilthome-command"), (R21, [NearusBrc300, GenericVisca], "r21-pantilthome-command")]) },
     PanTiltReset => { class: targeted(PAN_TILT), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::pan_tilt::RESET)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pantiltreset-command"), (R14, [PtzOpticsG3], "r14-pantiltreset-command"), (R7, [SonyFr7], "r7-pantiltreset-command"), (R11, [SonyBrcH900], "r11-pantiltreset-command"), (R8, [SonyEviH100, GenericVisca], "r8-pantiltreset-command"), (R12, [SonyBrc300, GenericVisca], "r12-pantiltreset-command"), (R21, [NearusBrc300, GenericVisca], "r21-pantiltreset-command")]) },
     PanTiltDrive => { class: applied(PAN_TILT), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::pan_tilt::DRIVE)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pantiltdrive-command"), (R14, [PtzOpticsG3], "r14-pantiltdrive-command"), (R7, [SonyFr7], "r7-pantiltdrive-command"), (R11, [SonyBrcH900], "r11-pantiltdrive-command"), (R8, [SonyEviH100, GenericVisca], "r8-pantiltdrive-command"), (R12, [SonyBrc300, GenericVisca], "r12-pantiltdrive-command"), (R21, [NearusBrc300, GenericVisca], "r21-pantiltdrive-command")]) },
-    PanTiltStop => { class: applied(PAN_TILT), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::pan_tilt::DRIVE)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pantiltstop-command"), (R14, [PtzOpticsG3], "r14-pantiltstop-command"), (R7, [SonyFr7], "r7-pantiltstop-command"), (R11, [SonyBrcH900], "r11-pantiltstop-command"), (R8, [SonyEviH100, GenericVisca], "r8-pantiltstop-command"), (R12, [SonyBrc300, GenericVisca], "r12-pantiltstop-command"), (R21, [NearusBrc300, GenericVisca], "r21-pantiltstop-command")]) },
+    PanTiltStop => { class: applied_stop(PAN_TILT), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::pan_tilt::DRIVE)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pantiltstop-command"), (R14, [PtzOpticsG3], "r14-pantiltstop-command"), (R7, [SonyFr7], "r7-pantiltstop-command"), (R11, [SonyBrcH900], "r11-pantiltstop-command"), (R8, [SonyEviH100, GenericVisca], "r8-pantiltstop-command"), (R12, [SonyBrc300, GenericVisca], "r12-pantiltstop-command"), (R21, [NearusBrc300, GenericVisca], "r21-pantiltstop-command")]) },
     PanTiltAbsolute => { class: targeted(PAN_TILT), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::pan_tilt::ABSOLUTE)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pantiltabsolute-command"), (R14, [PtzOpticsG3], "r14-pantiltabsolute-command"), (R7, [SonyFr7], "r7-pantiltabsolute-command"), (R11, [SonyBrcH900], "r11-pantiltabsolute-command"), (R8, [SonyEviH100, GenericVisca], "r8-pantiltabsolute-command"), (R12, [SonyBrc300, GenericVisca], "r12-pantiltabsolute-command"), (R21, [NearusBrc300, GenericVisca], "r21-pantiltabsolute-command")]) },
     PanTiltRelative => { class: targeted(PAN_TILT), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::pan_tilt::RELATIVE)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pantiltrelative-command"), (R14, [PtzOpticsG3], "r14-pantiltrelative-command"), (R7, [SonyFr7], "r7-pantiltrelative-command"), (R11, [SonyBrcH900], "r11-pantiltrelative-command"), (R8, [SonyEviH100, GenericVisca], "r8-pantiltrelative-command"), (R12, [SonyBrc300, GenericVisca], "r12-pantiltrelative-command"), (R21, [NearusBrc300, GenericVisca], "r21-pantiltrelative-command")]) },
     PanTiltLimitSet => { class: plain(Set(PanTiltLimit)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::pan_tilt::LIMIT_SET)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pantiltlimitset-command"), (R14, [PtzOpticsG3], "r14-pantiltlimitset-command"), (R7, [SonyFr7], "r7-pantiltlimitset-command"), (R11, [SonyBrcH900], "r11-pantiltlimitset-command"), (R8, [SonyEviH100, GenericVisca], "r8-pantiltlimitset-command"), (R12, [SonyBrc300, GenericVisca], "r12-pantiltlimitset-command"), (R21, [NearusBrc300, GenericVisca], "r21-pantiltlimitset-command")]) },
     PanTiltLimitClear => { class: plain(Clear(PanTiltLimit)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::pan_tilt::LIMIT_CLEAR)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pantiltlimitclear-command"), (R14, [PtzOpticsG3], "r14-pantiltlimitclear-command"), (R7, [SonyFr7], "r7-pantiltlimitclear-command"), (R11, [SonyBrcH900], "r11-pantiltlimitclear-command"), (R8, [SonyEviH100, GenericVisca], "r8-pantiltlimitclear-command"), (R12, [SonyBrc300, GenericVisca], "r12-pantiltlimitclear-command"), (R21, [NearusBrc300, GenericVisca], "r21-pantiltlimitclear-command")]) },
     // Zoom.
-    ZoomStop => { class: applied(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::zoom::DRIVE).then(&[0x00], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-zoomstop-command"), (R14, [PtzOpticsG3], "r14-zoomstop-command"), (R7, [SonyFr7], "r7-zoomstop-command"), (R11, [SonyBrcH900], "r11-zoomstop-command"), (R8, [SonyEviH100, GenericVisca], "r8-zoomstop-command"), (R12, [SonyBrc300, GenericVisca], "r12-zoomstop-command"), (R21, [NearusBrc300, GenericVisca], "r21-zoomstop-command")]) },
+    ZoomStop => { class: applied_stop(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::zoom::DRIVE).then(&[0x00], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-zoomstop-command"), (R14, [PtzOpticsG3], "r14-zoomstop-command"), (R7, [SonyFr7], "r7-zoomstop-command"), (R11, [SonyBrcH900], "r11-zoomstop-command"), (R8, [SonyEviH100, GenericVisca], "r8-zoomstop-command"), (R12, [SonyBrc300, GenericVisca], "r12-zoomstop-command"), (R21, [NearusBrc300, GenericVisca], "r21-zoomstop-command")]) },
     ZoomTele => { class: applied(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::zoom::DRIVE).then(&[0x02], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-zoomtele-command"), (R14, [PtzOpticsG3], "r14-zoomtele-command"), (R7, [SonyFr7], "r7-zoomtele-command"), (R11, [SonyBrcH900], "r11-zoomtele-command"), (R8, [SonyEviH100, GenericVisca], "r8-zoomtele-command"), (R12, [SonyBrc300, GenericVisca], "r12-zoomtele-command"), (R21, [NearusBrc300, GenericVisca], "r21-zoomtele-command")]) },
     ZoomWide => { class: applied(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::zoom::DRIVE).then(&[0x03], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-zoomwide-command"), (R14, [PtzOpticsG3], "r14-zoomwide-command"), (R7, [SonyFr7], "r7-zoomwide-command"), (R11, [SonyBrcH900], "r11-zoomwide-command"), (R8, [SonyEviH100, GenericVisca], "r8-zoomwide-command"), (R12, [SonyBrc300, GenericVisca], "r12-zoomwide-command"), (R21, [NearusBrc300, GenericVisca], "r21-zoomwide-command")]) },
     ZoomTeleVariable => { class: applied(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::zoom::DRIVE).then(&[0x20], &[0xF0])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-zoomtelevariable-command"), (R14, [PtzOpticsG3], "r14-zoomtelevariable-command"), (R7, [SonyFr7], "r7-zoomtelevariable-command"), (R11, [SonyBrcH900], "r11-zoomtelevariable-command"), (R8, [SonyEviH100, GenericVisca], "r8-zoomtelevariable-command"), (R12, [SonyBrc300, GenericVisca], "r12-zoomtelevariable-command"), (R21, [NearusBrc300, GenericVisca], "r21-zoomtelevariable-command")]) },
@@ -443,7 +465,7 @@ builtin_command_ledger! {
     ZoomPosition => { class: targeted(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::zoom::DIRECT)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-zoomposition-command"), (R14, [PtzOpticsG3], "r14-zoomposition-command"), (R7, [SonyFr7], "r7-zoomposition-command"), (R11, [SonyBrcH900], "r11-zoomposition-command"), (R8, [SonyEviH100, GenericVisca], "r8-zoomposition-command"), (R12, [SonyBrc300, GenericVisca], "r12-zoomposition-command"), (R21, [NearusBrc300, GenericVisca], "r21-zoomposition-command")]) },
     DigitalZoom => { class: plain(Set(ZoomDigitalZoom)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::zoom::DIGITAL)), source: crate::source_evidence::source!([(R8, [SonyEviH100, GenericVisca], "r8-digitalzoom-command"), (R12, [SonyBrc300, GenericVisca], "r12-digitalzoom-command"), (R21, [NearusBrc300, GenericVisca], "r21-digitalzoom-command")]) },
     // Focus.
-    FocusStop => { class: applied(FOCUS), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::focus::DRIVE).then(&[0x00], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-focusstop-command"), (R14, [PtzOpticsG3], "r14-focusstop-command"), (R7, [SonyFr7], "r7-focusstop-command"), (R11, [SonyBrcH900], "r11-focusstop-command"), (R8, [SonyEviH100, GenericVisca], "r8-focusstop-command"), (R12, [SonyBrc300, GenericVisca], "r12-focusstop-command"), (R21, [NearusBrc300, GenericVisca], "r21-focusstop-command")]) },
+    FocusStop => { class: applied_stop(FOCUS), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::focus::DRIVE).then(&[0x00], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-focusstop-command"), (R14, [PtzOpticsG3], "r14-focusstop-command"), (R7, [SonyFr7], "r7-focusstop-command"), (R11, [SonyBrcH900], "r11-focusstop-command"), (R8, [SonyEviH100, GenericVisca], "r8-focusstop-command"), (R12, [SonyBrc300, GenericVisca], "r12-focusstop-command"), (R21, [NearusBrc300, GenericVisca], "r21-focusstop-command")]) },
     FocusFar => { class: applied(FOCUS), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::focus::DRIVE).then(&[0x02], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-focusfar-command"), (R14, [PtzOpticsG3], "r14-focusfar-command"), (R7, [SonyFr7], "r7-focusfar-command"), (R11, [SonyBrcH900], "r11-focusfar-command"), (R8, [SonyEviH100, GenericVisca], "r8-focusfar-command"), (R12, [SonyBrc300, GenericVisca], "r12-focusfar-command"), (R21, [NearusBrc300, GenericVisca], "r21-focusfar-command")]) },
     FocusNear => { class: applied(FOCUS), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::focus::DRIVE).then(&[0x03], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-focusnear-command"), (R14, [PtzOpticsG3], "r14-focusnear-command"), (R7, [SonyFr7], "r7-focusnear-command"), (R11, [SonyBrcH900], "r11-focusnear-command"), (R8, [SonyEviH100, GenericVisca], "r8-focusnear-command"), (R12, [SonyBrc300, GenericVisca], "r12-focusnear-command"), (R21, [NearusBrc300, GenericVisca], "r21-focusnear-command")]) },
     FocusFarVariable => { class: applied(FOCUS), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::focus::DRIVE).then(&[0x20], &[0xF0])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-focusfarvariable-command"), (R14, [PtzOpticsG3], "r14-focusfarvariable-command"), (R7, [SonyFr7], "r7-focusfarvariable-command"), (R11, [SonyBrcH900], "r11-focusfarvariable-command"), (R8, [SonyEviH100, GenericVisca], "r8-focusfarvariable-command"), (R12, [SonyBrc300, GenericVisca], "r12-focusfarvariable-command"), (R21, [NearusBrc300, GenericVisca], "r21-focusfarvariable-command")]) },
@@ -653,7 +675,7 @@ builtin_command_ledger! {
     Fr7SetKneePoint => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::sony_fr7_image::KNEE_POINT)), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7setkneepoint") },
     Fr7ZoomHighResolutionTele => { class: applied(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::sony_fr7_zoom::HIGH_RESOLUTION_DRIVE).then(&[0x02], &[0xFF])), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7zoomhighresolutiontele") },
     Fr7ZoomHighResolutionWide => { class: applied(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::sony_fr7_zoom::HIGH_RESOLUTION_DRIVE).then(&[0x03], &[0xFF])), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7zoomhighresolutionwide") },
-    Fr7ZoomHighResolutionStop => { class: applied(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::sony_fr7_zoom::HIGH_RESOLUTION_DRIVE).then(&[0x00], &[0xFF])), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7zoomhighresolutionstop") },
+    Fr7ZoomHighResolutionStop => { class: applied_stop(ZOOM), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::sony_fr7_zoom::HIGH_RESOLUTION_DRIVE).then(&[0x00], &[0xFF])), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7zoomhighresolutionstop") },
     Fr7SetPresetSpeedSelection => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::sony_fr7_presets::PRESET_SPEED_SELECTION)), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7setpresetspeedselection") },
     Fr7SetCommonPresetSpeed => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::sony_fr7_presets::COMMON_PRESET_SPEED)), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7setcommonpresetspeed") },
     Fr7SetSeparatePresetMode => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::sony_fr7_presets::SEPARATE_PRESET_MODE)), source: crate::source_evidence::source!(R7, [SonyFr7], "r7-command-fr7setseparatepresetmode") },
@@ -734,7 +756,7 @@ mod tests {
         for command in BuiltinCommand::ALL {
             match command.classification() {
                 BuiltinRequestClass::Targeted { axes }
-                | BuiltinRequestClass::AppliedOnly { axes } => {
+                | BuiltinRequestClass::AppliedOnly { axes, .. } => {
                     if let BuiltinAxisSelection::Exact(axes) = axes {
                         assert!(axes.is_single() || axes.axis_count() > 1);
                     }
@@ -753,7 +775,8 @@ mod tests {
         assert_eq!(
             BuiltinCommand::MenuNavigate.classification(),
             BuiltinRequestClass::AppliedOnly {
-                axes: BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT)
+                axes: BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
+                stop: false
             },
         );
         for command in [
@@ -911,6 +934,12 @@ mod tests {
         ) {
             assert_eq!(R::TIMEOUT_CLASS, timeout, "{command:?} timeout class");
             assert_eq!(R::RETRY_CLASS, retry, "{command:?} retry class");
+            assert_eq!(
+                matches!(R::CONTROL_CLASS, crate::ControlClass::Urgent),
+                command.classification().is_stop()
+                    || matches!(command, BuiltinCommand::CommandCancel),
+                "{command:?} urgent admission authority",
+            );
             assert!(
                 BuiltinCommand::ALL.contains(&command),
                 "{command:?} is not a BuiltinCommand row"

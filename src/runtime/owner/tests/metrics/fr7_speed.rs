@@ -146,7 +146,7 @@ fn queued_mode_refusal(invalidate: bool) {
     let error = state.prepare_write(&staged).unwrap_err();
     assert!(matches!(error, Error::InvalidRequest { .. }));
     for effect in state.finish_write(&staged, WriteOutcome::NotSent(error), now) {
-        state.apply_effect(effect, now);
+        let _applied = state.apply_effect(effect, now);
     }
     let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = observer.try_recv().unwrap()
     else {
@@ -255,7 +255,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
 
     let expiry = now + ack_timeout;
     for effect in state.advance(expiry) {
-        state.apply_effect(effect, expiry);
+        let _applied = state.apply_effect(effect, expiry);
     }
     let retry_at = state
         .next_wake(expiry)
@@ -269,7 +269,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
     let retry = retry.expect("the lost Sony ACK schedules a same-sequence retry");
     let error = state.prepare_write(&retry).unwrap_err();
     for effect in state.finish_write(&retry, WriteOutcome::NotSent(error), retry_at) {
-        state.apply_effect(effect, retry_at);
+        let _applied = state.apply_effect(effect, retry_at);
     }
     let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = observer.try_recv().unwrap()
     else {

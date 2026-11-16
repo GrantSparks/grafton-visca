@@ -45,7 +45,7 @@ impl Udp {
             socket_setup(endpoint, socket.connect(target))?;
             socket_setup(
                 endpoint,
-                apply_udp_socket_options(socket2::SockRef::from(&socket), options),
+                apply_udp_socket_options(socket2::SockRef::from(&socket), target, options),
             )?;
             Ok(socket)
         })?;
@@ -363,5 +363,21 @@ mod tests {
 
         sender.join().expect("sender thread");
         assert!(matches!(result, Err(Error::Timeout { .. })));
+    }
+    #[test]
+    fn ipv6_udp_ttl_sets_the_unicast_hop_limit() {
+        let Ok(peer) = UdpSocket::bind("[::1]:0") else {
+            return;
+        };
+        let address = peer.local_addr().expect("IPv6 peer");
+        let config = TransportConfig::for_udp().with_ttl(Some(7));
+        let transport =
+            Udp::connect_with_config(&address.to_string(), config).expect("IPv6 UDP setup");
+        assert_eq!(
+            socket2::SockRef::from(&transport.socket)
+                .unicast_hops_v6()
+                .expect("IPv6 hops"),
+            7
+        );
     }
 }

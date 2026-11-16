@@ -24,6 +24,8 @@ use std::borrow::Cow;
 #[cfg(test)]
 std::thread_local! {
     static REQUEST_WRITE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static REQUEST_VALIDATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static REQUEST_VALUE_VALIDATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
@@ -35,6 +37,27 @@ pub(crate) fn reset_request_write_count() {
 pub(crate) fn request_write_count() -> usize {
     REQUEST_WRITE_COUNT.with(std::cell::Cell::get)
 }
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+pub(crate) fn reset_request_validation_count() {
+    REQUEST_VALIDATION_COUNT.with(|count| count.set(0));
+    REQUEST_VALUE_VALIDATION_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+pub(crate) fn request_validation_count() -> usize {
+    REQUEST_VALIDATION_COUNT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn record_request_value_validation() {
+    REQUEST_VALUE_VALIDATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+}
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+pub(crate) fn request_value_validation_count() -> usize {
+    REQUEST_VALUE_VALIDATION_COUNT.with(std::cell::Cell::get)
+}
+
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 use crate::types::SpeedLevel;
 use crate::types::{FocusPosition, IrisLevel, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed};
@@ -76,23 +99,26 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 /// a variant path, optionally with tuple or named fields, so a top-level wildcard or
 /// binding cannot absorb a variant added later. The generated request hook
 /// gates each value on the row it selects. Every row then classifies like
-/// the entry's row. Noun rows with the same class and capability gate can send
-/// a value-selecting type; constant `by_value` rows additionally prove their
-/// exact selected row at compile time.
+/// the entry's row. Noun wrappers use `forward_request!(..., rows = [...])`
+/// to declare the exact row set of a value-selecting type; the generated
+/// typed-request inventory checks each noun's evaluated request against it.
 macro_rules! builtin_request {
     (@class Plain) => { request::PlainClass };
     (@class Targeted) => { request::OperationClass<completion::Targeted> };
     (@class AppliedOnly) => { request::OperationClass<completion::AppliedOnly> };
 
-    (@policy $class:ident ($timeout:ident, $retry:ident, $control:ident)) => {
-        (TimeoutClass::$timeout, RetryClass::$retry, ControlClass::$control)
+    (@policy $row:ident $class:ident $(($timeout:ident, $retry:ident, $control:ident))?) => {
+        crate::request::builtin_policy::policy(
+            BuiltinCommand::$row.classification().is_stop(),
+            matches!(BuiltinCommand::$row, BuiltinCommand::CommandCancel),
+            !matches!(BuiltinCommand::$row.classification(), crate::command::semantics::BuiltinRequestClass::Plain { .. }),
+            builtin_request!(@explicit $(($timeout, $retry, $control))?),
+        )
     };
-    (@policy Plain) => {
-        (TimeoutClass::Quick, RetryClass::Standard, ControlClass::Normal)
+    (@explicit ($timeout:ident, $retry:ident, $control:ident)) => {
+        Some((TimeoutClass::$timeout, RetryClass::$retry, ControlClass::$control))
     };
-    (@policy $operation:ident) => {
-        (TimeoutClass::Movement, RetryClass::Movement, ControlClass::User)
-    };
+    (@explicit) => { None };
 
     (@row $this:ident) => { Self::LEDGER_ROW };
     (@row $this:ident, $value:ident) => { $this.ledger_row() };
@@ -185,11 +211,11 @@ macro_rules! builtin_request {
 
             const MAX_SIZE: usize = $size;
             const TIMEOUT_CLASS: TimeoutClass =
-                builtin_request!(@policy $class $(($timeout, $retry, $control))?).0;
+                builtin_request!(@policy $row $class $(($timeout, $retry, $control))?).0;
             const RETRY_CLASS: RetryClass =
-                builtin_request!(@policy $class $(($timeout, $retry, $control))?).1;
+                builtin_request!(@policy $row $class $(($timeout, $retry, $control))?).1;
             const CONTROL_CLASS: ControlClass =
-                builtin_request!(@policy $class $(($timeout, $retry, $control))?).2;
+                builtin_request!(@policy $row $class $(($timeout, $retry, $control))?).2;
 
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 #[cfg(test)]
@@ -217,6 +243,8 @@ macro_rules! builtin_request {
             }
 
             fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
+                #[cfg(test)]
+                REQUEST_VALIDATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
                 let row = builtin_request!(@row self $(, $value)?);
                 row_gate(row).validate(target.profile(), surface_entry(row).feature())?;
                 row.source().validate_for_profile(target.profile(), surface_entry(row).feature())?;
@@ -251,6 +279,9 @@ macro_rules! builtin_request {
         builtin_request!(@contract $type, $row [$($flag)?] [$($value)?]);
         // Evaluated by `cargo check`: fails when the class disagrees with the row.
         const _: () = <$type as BuiltinRequestContract>::CLASS_MATCHES_ROW;
+        const _: () = {
+            let _ = builtin_request!(@policy $row $class $(($timeout, $retry, $control))?);
+        };
         builtin_request!(@operation $type, $class $(, $flag)?);
         $( builtin_request!(@rows $type, |$value| ($scrutinee) {
             $($pattern $(::$segment)* $(($($field),*))? $({$($named)*})? => $value_row),+
@@ -280,6 +311,8 @@ fn require_in_range<T>(
 where
     T: Copy + PartialOrd + Into<i32>,
 {
+    #[cfg(test)]
+    record_request_value_validation();
     if value >= range.min() && value <= range.max() {
         Ok(())
     } else {
@@ -1662,7 +1695,6 @@ impl PanTiltStop {
 builtin_request! {
     PanTiltStop => PanTiltStop: AppliedOnly {
         size: 9,
-        policy: (Quick, Movement, Urgent),
         wire: |value: &PanTiltStop| PanTilt::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: value.pan_speed,
@@ -1946,7 +1978,6 @@ pub struct ZoomStop;
 builtin_request! {
     ZoomStop => ZoomStop: AppliedOnly {
         size: 6,
-        policy: (Quick, Movement, Urgent),
         wire: |_: &ZoomStop| Zoom::Stop,
     };
 }
@@ -2019,7 +2050,6 @@ pub struct FocusStop;
 builtin_request! {
     FocusStop => FocusStop: AppliedOnly {
         size: 6,
-        policy: (Quick, Movement, Urgent),
         wire: |_: &FocusStop| Focus::Stop,
     };
 }
@@ -5324,7 +5354,6 @@ builtin_request! {
         },
     };
     crate::command::Fr7ZoomHighResolutionStop => Fr7ZoomHighResolutionStop: AppliedOnly { size: 11,
-        policy: (Quick, Movement, Urgent),
     };
     crate::command::Fr7SetPresetSpeedSelection => Fr7SetPresetSpeedSelection: Plain { size: 7,
     };

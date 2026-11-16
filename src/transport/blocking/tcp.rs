@@ -1,7 +1,7 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
 use std::{
-    net::TcpStream,
+    net::{SocketAddr, TcpStream},
     time::{Duration, Instant},
 };
 
@@ -11,7 +11,7 @@ use crate::{
         address::resolve_blocking,
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
         builder::TransportConfig,
-        connect::{connect_deadline, preflight, socket_setup, TcpAttempts},
+        connect::{connect_deadline, preflight, socket_setup, AttemptFailure, TcpAttempts},
         socket_options::{apply_tcp_socket_options, TcpConnectionConfig},
         stream_read, BlockingTransport, HasTransportConfig, ReceiveOutcome,
     },
@@ -55,22 +55,41 @@ impl Tcp {
         let endpoint = preflight(address, &config)?;
         let options = TcpConnectionConfig::from(config);
         let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
-        let mut attempts = TcpAttempts::new(resolve_blocking(&endpoint, deadline)?, deadline);
-
-        while let Some((address, remaining)) = attempts.next_attempt(Instant::now()) {
-            match TcpStream::connect_timeout(&address, remaining) {
-                Ok(stream) => {
-                    socket_setup(
-                        &endpoint,
-                        apply_tcp_socket_options(socket2::SockRef::from(&stream), options),
-                    )?;
-                    return Ok(Self { stream, config });
-                }
-                Err(error) => attempts.failed(Some(error)),
-            }
-        }
-        Err(attempts.into_error(&endpoint, Instant::now()))
+        let stream = connect_resolved(
+            &endpoint,
+            options,
+            resolve_blocking(&endpoint, deadline)?,
+            deadline,
+            TcpStream::connect_timeout,
+            Instant::now,
+        )?;
+        Ok(Self { stream, config })
     }
+}
+
+/// Drive the same address plan used by the async connectors after resolution.
+fn connect_resolved(
+    endpoint: &str,
+    options: TcpConnectionConfig,
+    addresses: Vec<SocketAddr>,
+    deadline: Deadline,
+    mut connect: impl FnMut(&SocketAddr, Duration) -> std::io::Result<TcpStream>,
+    mut now: impl FnMut() -> Instant,
+) -> Result<TcpStream, Error> {
+    let mut attempts = TcpAttempts::new(addresses, deadline);
+    while let Some((address, remaining)) = attempts.next_attempt(now()) {
+        match connect(&address, remaining) {
+            Ok(stream) => {
+                socket_setup(
+                    endpoint,
+                    apply_tcp_socket_options(socket2::SockRef::from(&stream), address, options),
+                )?;
+                return Ok(stream);
+            }
+            Err(error) => attempts.failed(AttemptFailure::from_socket(error)),
+        }
+    }
+    Err(attempts.into_error(endpoint, now()))
 }
 
 impl HasTransportConfig for Tcp {
@@ -166,6 +185,104 @@ mod tests {
         assert!(
             !accepted,
             "invalid configuration must be rejected before TCP connect"
+        );
+    }
+    #[test]
+    fn an_unroutable_first_address_does_not_hide_the_next_refusal() {
+        let addresses = [
+            "192.0.2.1:5678".parse().expect("test-net address"),
+            "127.0.0.1:9".parse().expect("local address"),
+        ];
+        let options = TcpConnectionConfig::from(
+            TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(800)),
+        );
+        let started = Instant::now();
+        let clock = std::cell::Cell::new(started);
+        let deadline = connect_deadline(started, options.connect_timeout).expect("budget");
+        let mut tried = Vec::new();
+        // Inject OS verdicts and time into the production connector loop.
+        // Windows can spend a short budget before a closed local port reports
+        // refusal, which correctly yields Timeout instead of this case's
+        // conclusive ConnectionRefused. The first attempt spends exactly its
+        // share here; the second refusal arrives within the total budget.
+        let error = connect_resolved(
+            "camera.test:5678",
+            options,
+            addresses.to_vec(),
+            deadline,
+            |address, budget| {
+                tried.push((*address, budget));
+                Err(if *address == addresses[0] {
+                    clock.set(clock.get() + budget);
+                    ErrorKind::TimedOut.into()
+                } else {
+                    ErrorKind::ConnectionRefused.into()
+                })
+            },
+            || clock.get(),
+        )
+        .expect_err("both addresses fail");
+        assert_eq!(
+            tried,
+            [
+                (addresses[0], Duration::from_millis(400)),
+                (addresses[1], Duration::from_millis(400)),
+            ]
+        );
+        assert!(
+            matches!(&error, Error::ConnectionFailed { source, .. } if source.kind() == ErrorKind::ConnectionRefused),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn only_expired_attempts_keep_the_blocking_timeout_contract() {
+        let addresses = [
+            "192.0.2.1:5678".parse().expect("first address"),
+            "192.0.2.2:5678".parse().expect("second address"),
+        ];
+        let options = TcpConnectionConfig::from(
+            TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(800)),
+        );
+        for spend_shares in [false, true] {
+            let started = Instant::now();
+            let clock = std::cell::Cell::new(started);
+            let deadline = connect_deadline(started, options.connect_timeout).expect("budget");
+            let mut tried = Vec::new();
+            let error = connect_resolved(
+                "camera.test:5678",
+                options,
+                addresses.to_vec(),
+                deadline,
+                |address, budget| {
+                    tried.push(*address);
+                    if spend_shares {
+                        clock.set(clock.get() + budget);
+                    }
+                    Err(ErrorKind::TimedOut.into())
+                },
+                || clock.get(),
+            )
+            .expect_err("both shares expire");
+            assert_eq!(tried, addresses);
+            assert!(matches!(error, Error::Timeout { .. }), "{error:?}");
+        }
+    }
+
+    #[test]
+    fn ipv6_tcp_ttl_sets_the_unicast_hop_limit() {
+        let Ok(listener) = TcpListener::bind("[::1]:0") else {
+            return;
+        };
+        let address = listener.local_addr().expect("IPv6 listener");
+        let config = TransportConfig::for_tcp().with_ttl(Some(7));
+        let transport =
+            Tcp::connect_with_config(&address.to_string(), config).expect("IPv6 TCP connect");
+        assert_eq!(
+            socket2::SockRef::from(&transport.stream)
+                .unicast_hops_v6()
+                .expect("IPv6 hops"),
+            7
         );
     }
 }

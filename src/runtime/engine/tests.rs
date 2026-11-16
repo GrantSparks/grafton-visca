@@ -31,6 +31,7 @@ mod raw_evidence;
 mod raw_stream_model;
 mod retry_history;
 mod session_end;
+mod socketless_ack_conflicts;
 mod write_outcomes;
 
 fn extend_fixture_hold(
@@ -503,14 +504,14 @@ fn duplicate_write_receipts_do_not_requeue_the_request() {
 }
 
 #[test]
-fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
+fn request_and_transmission_allocators_stop_at_exhaustion() {
     let mut allocator = IdAllocator::seeded(u64::MAX);
     assert_eq!(allocator.candidate().map(NonZeroU64::get), Some(u64::MAX));
     assert!(allocator.candidate().is_none());
 
     let start = Instant::now();
     let mut request_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    request_engine.seed_allocators(u64::MAX, 1, 1);
+    request_engine.seed_allocators(u64::MAX, 1);
     let first = request_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
@@ -538,36 +539,8 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
         }
     )));
 
-    let mut generation_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    generation_engine.seed_allocators(1, 1, u64::MAX);
-    let first = generation_engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
-            slot: AdmissionSlot::Ordinary,
-        },
-        start,
-    );
-    assert_eq!(admitted(&first).get(), 1);
-    send_ok(&mut generation_engine, &first, None, start);
-    let second = generation_engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
-            slot: AdmissionSlot::Ordinary,
-        },
-        start,
-    );
-    assert!(second.iter().any(|effect| matches!(
-        effect,
-        Effect::AdmissionRejected {
-            ticket: AdmissionTicket(2),
-            error: Error::RuntimeIdentityExhausted,
-        }
-    )));
-
     let mut transmission_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    transmission_engine.seed_allocators(1, u64::MAX, 1);
+    transmission_engine.seed_allocators(1, u64::MAX);
     let first = transmission_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
@@ -608,7 +581,6 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
     )));
     assert!(transmission_engine.entry(first_id).is_some());
     request_engine.assert_invariants().unwrap();
-    generation_engine.assert_invariants().unwrap();
     transmission_engine.assert_invariants().unwrap();
 }
 
@@ -1788,7 +1760,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
 }
 
 #[test]
-fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
+fn response_at_exact_deadline_wins_and_equal_deadlines_use_request_order() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let first = engine.handle(
@@ -2835,7 +2807,7 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
 }
 
 #[test]
-fn zero_spacing_drains_pending_cancellations_in_admission_order() {
+fn zero_spacing_drains_pending_cancellations_in_request_order() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let first = engine.handle(
@@ -3320,7 +3292,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
 }
 
 #[test]
-fn stream_cancel_failure_poisons_and_terminalizes_in_admission_order() {
+fn stream_cancel_failure_poisons_and_terminalizes_in_request_order() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
     let first = engine.handle(
@@ -3651,7 +3623,7 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
 }
 
 #[test]
-fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
+fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.command_spacing = Duration::from_millis(10);
@@ -4834,7 +4806,7 @@ fn fuzz_step(
         {
             let sequence = engine
                 .transmission_owner(*request, *transmission)
-                .and_then(|owner| match owner.framing {
+                .and_then(|owner| match owner.write.framing() {
                     RequestFraming::Sony {
                         sequence: SonyRequestSequence::Replay(sequence),
                     } => Some(sequence),
@@ -4887,6 +4859,8 @@ struct FuzzCoverage {
     tombstoned: usize,
     single_flight_blocked: usize,
     strict_poisoned: usize,
+    /// The directed socket-reuse seed reached the strict displacement path.
+    strict_displacements: usize,
     /// Stream writes that failed: the step that poisoned a default-mode
     /// stream session, which nothing else the generator does can poison.
     failed_stream_writes: usize,
@@ -4936,6 +4910,12 @@ impl FuzzCoverage {
                 _ => {}
             }
         }
+        if engine.policy.strict_unconfirmed_poison && engine.mode().is_raw() {
+            assert_eq!(
+                self.quarantined, 0,
+                "a strict raw session emitted a survivable unconfirmed terminal"
+            );
+        }
         if !engine.correlation.holds().is_empty() {
             self.tombstoned += 1;
         }
@@ -4965,7 +4945,8 @@ fn fuzz_coverage_floor_met(configuration: FuzzConfiguration, coverage: &FuzzCove
             || configuration.strict_unconfirmed_poison
             || coverage.quarantined > 0)
         && (configuration.inquiry_capacity != 1 || coverage.single_flight_blocked > 0)
-        && (!configuration.strict_unconfirmed_poison || coverage.strict_poisoned > 0)
+        && (!configuration.strict_unconfirmed_poison
+            || (coverage.strict_poisoned > 0 && coverage.strict_displacements > 0))
 }
 
 /// Seeds every generated session with real traffic through each required state
@@ -5409,6 +5390,64 @@ fn seed_fuzz_coverage(
             Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [2]
         ));
         *now = release_at + Duration::from_micros(1);
+    }
+
+    // #951 directed seed: the first command's completion is lost and the
+    // second command's ACK reuses its socket. No deadline or receive fault
+    // precedes the evidence, so this can poison only through displacement.
+    // Keep this last: a strict session is terminal after the second ACK.
+    if envelope == EnvelopeKind::Raw && configuration.strict_unconfirmed_poison {
+        let first = seed_admit(
+            engine,
+            ticket,
+            coverage,
+            command(2, CancellationPolicy::Supported),
+            *now,
+        );
+        let sent = send_ok(engine, &first, None, *now);
+        coverage.record(engine, &sent);
+        let first_id = admitted(&first);
+        let acked = engine.handle(
+            frame(
+                2,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            *now,
+        );
+        coverage.record(engine, &acked);
+        let second = seed_admit(
+            engine,
+            ticket,
+            coverage,
+            command(2, CancellationPolicy::Supported),
+            *now,
+        );
+        let sent = send_ok(engine, &second, None, *now);
+        coverage.record(engine, &sent);
+        let second_id = admitted(&second);
+        let displaced = engine.handle(
+            frame(
+                2,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            *now,
+        );
+        coverage.record(engine, &displaced);
+        for id in [first_id, second_id] {
+            assert!(matches!(terminal_failure(&displaced, id),
+                Some(Error::StreamPoisoned { source })
+                    if matches!(source.as_ref(), Error::UnsequencedCommandUnconfirmed)));
+        }
+        assert_eq!(engine.state(), SessionState::Poisoned);
+        coverage.strict_displacements += 1;
+        engine.assert_invariants().unwrap();
+        return;
     }
 
     // Raw ACK loss reaches either the default immediate per-request failure plus
@@ -11187,6 +11226,50 @@ fn urgent_ack_binds_when_its_preack_hold_has_no_live_predecessor() {
     engine.assert_invariants().unwrap();
 }
 
+/// The datagram urgent exception admits two positional candidates, so an
+/// unsequenced ACK proves neither request owns the named socket.
+#[test]
+fn urgent_raw_command_bypasses_preack_gate_and_ambiguous_ack_binds_neither() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (ordinary, ordinary_id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        now,
+    );
+    send_ok(&mut engine, &ordinary, None, now);
+    let (urgent, urgent_id) = admit(
+        &mut engine,
+        2,
+        urgent_command(1, CancellationPolicy::Supported),
+        now,
+    );
+    assert_eq!(request_transmit(&urgent).1, urgent_id);
+    send_ok(&mut engine, &urgent, None, now);
+    let answer = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        now,
+    );
+    assert!(answer
+        .iter()
+        .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))));
+    for id in [ordinary_id, urgent_id] {
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingAck { .. })
+        ));
+        assert_eq!(socket_of(&engine, id), None);
+    }
+    engine.assert_invariants().unwrap();
+}
+
 /// The identified write-result ingress shares the Sending timeout policy. A
 /// result at equality remains input-first and then reaches the due pass; a
 /// result one nanosecond later must install the same target hold before it
@@ -12265,7 +12348,7 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
 
 fn declared_motion(target: u8, axes: crate::AffectedAxes, order: u64) -> RuntimeRequest {
     let mut request = command(target, CancellationPolicy::Supported);
-    request.context_mut().motion = Some(MotionEffect { axes, stop: false });
+    request.context_mut().motion = Some(MotionEffect { axes });
     request.context_mut().submission_order = order;
     request
 }

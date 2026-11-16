@@ -378,6 +378,7 @@ impl BlockingOwnerHandle {
         mut subscription: super::DiagnosticSubscription,
     ) -> super::DiagnosticSubscription {
         subscription.clock = self.clock.clone();
+        subscription.worker_id = Some(self.worker_id);
         subscription
     }
 

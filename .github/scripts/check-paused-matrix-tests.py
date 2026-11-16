@@ -52,43 +52,41 @@ def has_test_utils(command: str) -> bool:
 def violations(command: str, output: str) -> list[str]:
     if has_test_utils(command):
         return []
-    suite = None
     found = []
     for line in output.splitlines():
-        if re.search(r"\bRunning\s", line):
-            match = re.search(r"\bRunning tests[/\\]([a-zA-Z0-9_]+)\.rs\b", line)
-            suite = match.group(1) if match else None
+        case = re.match(r"test ([a-zA-Z0-9_]+)::([a-zA-Z0-9_:]+) \.\.\. ", line)
+        if case is None:
+            continue
+        suite, name = case.groups()
         if suite not in SUITES:
             continue
-        case = re.match(r"test ([a-zA-Z0-9_:]+) \.\.\. ", line)
-        if case:
-            parts = case.group(1).split("::")
-            if len(parts) >= 2 and parts[-1] in {"blocking", "smol"} and "::".join(parts[:-2]) == SUITES[suite]:
-                found.append(f"{suite}::{case.group(1)}")
+        parts = name.split("::")
+        if len(parts) >= 2 and parts[-1] in {"blocking", "smol"} and "::".join(parts[:-2]) == SUITES[suite]:
+            found.append(f"{suite}::{name}")
     return found
 
 
 def self_test() -> None:
     repository = Path(__file__).resolve().parents[2]
     discovered = {
-        path.stem for path in (repository / "tests").glob("*.rs")
+        path.stem for path in (repository / "tests" / "integration").glob("*.rs")
         if re.search(r"facade_matrix!\s*\{\s*paused\s*:", path.read_text())
     }
     assert discovered == set(SUITES), "update the audited paused-suite inventory when adding or removing a suite"
     for suite, prefix in SUITES.items():
         for facade in ("blocking", "smol"):
             name = "::".join(part for part in (prefix, "scenario", facade) if part)
-            log = f"Running tests/{suite}.rs (target/debug/deps/{suite}-hash)\ntest {name} ... ok\n"
+            log = f"Running tests/integration/main.rs (target/debug/deps/integration-hash)\ntest {suite}::{name} ... ok\n"
             expected = [f"{suite}::{name}"]
             assert violations("--features blocking", log) == expected
             assert violations("--features runtime-smol,test-utils", log) == []
             assert violations("--all-features", log) == []
-    log = "Running tests/issue_631_runtime_tuning.rs (target)\ntest paused::scenario::blocking ... ignored\n"
+    log = "test issue_631_runtime_tuning::paused::scenario::blocking ... ignored\n"
     assert violations("--features blocking", log)
     # The separate concurrency modules still run without virtual time.
-    log = "Running tests/issue_777_operation_observation.rs (target)\ntest async_facade::scenario::smol ... ok\n"
+    log = "test issue_777_operation_observation::async_facade::scenario::smol ... ok\n"
     assert violations("--features runtime-smol", log) == []
-    log = "Running tests/issue_866_owner_timers.rs (target)\ntest local_manual_clock_actor_reuses_four_timer_factories ... ok\n"
+    log = "test issue_866_owner_timers::local_manual_clock_actor_reuses_four_timer_factories ... ok\n"
     assert violations("--no-default-features --features async,test-utils", log) == []
     assert not has_test_utils("--features test-utils-extra")
     assert has_test_utils("--features=runtime-tokio,test-utils")

@@ -130,14 +130,13 @@ impl Session {
             config.validate_opened_transport(&transport)?;
             let tuning = config.validated_tuning();
             let profiles = config.profile_registry();
-            let mut adapter = AsyncTransportAdapter::new_with_targets(
+            let (mut adapter, policy) = AsyncTransportAdapter::new_with_targets(
                 transport,
                 &profiles,
                 tuning,
                 config.admission_capacity(),
                 config.strict_unconfirmed_poison(),
             )?;
-            let policy = adapter.policy().clone();
 
             if config.sony_sequence_reset_on_connect() {
                 executor

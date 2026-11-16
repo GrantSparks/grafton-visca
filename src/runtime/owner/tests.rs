@@ -112,16 +112,6 @@ fn an_individual_target_rejects_broadcast_without_panicking() {
 }
 
 #[test]
-fn with_targets_rejects_an_empty_registry_without_panicking() {
-    assert!(OwnerPolicy::with_targets(
-        policy_for_target_validation(),
-        PerTarget::default(),
-        crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new()).unwrap()
-    )
-    .is_err());
-}
-
-#[test]
 fn control_lane_uses_its_own_named_nonzero_bound() {
     let mut policy = OwnerPolicy::single_target(
         policy_for_target_validation(),
@@ -246,6 +236,81 @@ fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
         Duration::from_millis(10)
     );
     assert_eq!(command_sockets(&state), 2);
+}
+
+/// Construction and retuning lower the same validated overrides from profile
+/// facts, including clearing them after an earlier wider override.
+#[test]
+fn construction_and_retuning_have_identical_limits_for_every_profile_and_serial_registry() {
+    let now = Instant::now();
+    let config = crate::transport::TransportConfig::default();
+    let identity = crate::transport::TransportIdentity::Custom {
+        semantics: crate::transport::SendSemantics::Stream,
+        addressing: crate::transport::AddressingMode::Serial,
+    };
+    let check = |profiles: PerTarget<Option<&crate::ProfileSpec>>| {
+        let registered = || profiles.iter().filter_map(|(_, profile)| *profile);
+        let baseline = TuningBaseline::from_registry(&profiles);
+        for tuning in [
+            crate::OperationalTuning::new(),
+            crate::OperationalTuning::new().with_maximum_command_sockets(1),
+            crate::OperationalTuning::new()
+                .with_command_spacing(baseline.command_spacing + Duration::from_millis(17))
+                .with_inquiry_spacing(baseline.inquiry_spacing + Duration::from_millis(23))
+                .with_maximum_command_sockets(1),
+        ] {
+            let validated =
+                crate::session_config::ValidatedTuning::validate(tuning, registered()).unwrap();
+            let policy = adapter::owner_policy_for_registry_with_tuning(
+                &profiles,
+                &config,
+                identity,
+                validated,
+                crate::DEFAULT_ADMISSION_CAPACITY,
+                false,
+            )
+            .unwrap();
+            let constructed = OwnerState::new(policy, now).unwrap();
+            let initial = crate::session_config::ValidatedTuning::validate(
+                crate::OperationalTuning::new(),
+                registered(),
+            )
+            .unwrap();
+            let policy = adapter::owner_policy_for_registry_with_tuning(
+                &profiles,
+                &config,
+                identity,
+                initial,
+                crate::DEFAULT_ADMISSION_CAPACITY,
+                false,
+            )
+            .unwrap();
+            let mut retuned = OwnerState::new(policy, now).unwrap();
+            retuned.retune(validated, now).unwrap();
+            assert_eq!(
+                constructed.engine.operational_limits_for_test(),
+                retuned.engine.operational_limits_for_test()
+            );
+            retuned.retune(initial, now).unwrap();
+            assert_eq!(
+                retuned.engine.operational_limits_for_test(),
+                baseline.apply(initial)
+            );
+        }
+    };
+    for id in crate::profiles::ProfileId::all() {
+        let profile = id.spec().unwrap();
+        check(PerTarget::from_fn(|target| {
+            (target == TargetSlot::CAMERA_1).then_some(&profile)
+        }));
+    }
+    let first = crate::profiles::ProfileId::GenericVisca.spec().unwrap();
+    let second = crate::profiles::ProfileId::PtzOpticsG2.spec().unwrap();
+    check(PerTarget::from_fn(|target| match target {
+        TargetSlot::CAMERA_1 => Some(&first),
+        TargetSlot::CAMERA_2 => Some(&second),
+        _ => None,
+    }));
 }
 
 /// The owner's cell is the slot's only strong owner (#777): dropping it
@@ -1075,7 +1140,6 @@ mod metrics {
         let mut request = command(retrying());
         request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
             axes: AffectedAxes::PAN_TILT,
-            stop: false,
         });
         request.context_mut().submission_order = 1;
         let (mut observation, _) = admit_observation(&mut state, request, earlier);
@@ -1085,18 +1149,26 @@ mod metrics {
         else {
             panic!("the halt has a positive admission budget");
         };
-        let receipt = state.accept_halt(
-            crate::prepared::PreparedHalt {
-                target: TargetSlot::CAMERA_1,
-                axes: Some(AffectedAxes::PAN_TILT),
-                requests: [None, None, None],
-                budget: ACK,
-            },
-            halt_deadline,
-            2,
-            remaining,
-            delivered,
-        );
+        let prepared = crate::prepared::PreparedHalt {
+            target: TargetSlot::CAMERA_1,
+            axes: Some(AffectedAxes::PAN_TILT),
+            requests: [None, None, None],
+            budget: ACK,
+        };
+        let (turn, effects) = state.begin_halt(&prepared, 2, delivered);
+        for effect in effects {
+            assert!(matches!(
+                state.apply_effect(effect, delivered),
+                AppliedEffect::None
+            ));
+        }
+        let (receipt, effects) = state.accept_halt(turn, prepared, halt_deadline, 2, remaining);
+        for effect in effects {
+            assert!(matches!(
+                state.apply_effect(effect, delivered),
+                AppliedEffect::None
+            ));
+        }
         assert!(receipt.slots.iter().all(Option::is_none));
         observation.poll();
         let terminal = observation
@@ -1127,7 +1199,7 @@ mod metrics {
             .get_mut(&observation.id())
             .unwrap()
             .cancellation = Some(CancellationIntent::Recorded(cancellation.observer));
-        state.apply_effect(
+        let _applied = state.apply_effect(
             Effect::CancellationObservation {
                 id: observation.id(),
                 observation: CancellationObservation::Failed(Error::CancellationUnconfirmed),
@@ -1193,7 +1265,6 @@ mod metrics {
         let mut request = command(retrying());
         request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
             axes: AffectedAxes::PAN_TILT,
-            stop: false,
         });
         request.context_mut().submission_order = 1;
         let (mut original, _) = admit_observation(&mut state, request.clone(), now);
@@ -1312,7 +1383,6 @@ mod metrics {
         let mut motion = command(retrying());
         motion.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
             axes: AffectedAxes::PAN_TILT,
-            stop: false,
         });
         motion.context_mut().submission_order = order;
         let _ = state.engine.halt_in_turn(
@@ -1544,22 +1614,36 @@ mod metrics {
             .iter()
             .all(|permit| permit.slot() == AdmissionSlot::ControlReserve));
         let stop_context = *stop.context();
-        let receipt = state.accept_halt(
-            crate::prepared::PreparedHalt {
-                target: TargetSlot::CAMERA_1,
-                axes: Some(crate::AffectedAxes::MOVEMENT),
-                requests: [
-                    Some(Ok(stop.clone().into())),
-                    Some(Ok(stop.clone().into())),
-                    Some(Ok(stop.into())),
-                ],
-                budget: ACK,
-            },
+        let prepared = crate::prepared::PreparedHalt {
+            target: TargetSlot::CAMERA_1,
+            axes: Some(crate::AffectedAxes::MOVEMENT),
+            requests: [
+                Some(Ok(stop.clone().into())),
+                Some(Ok(stop.clone().into())),
+                Some(Ok(stop.into())),
+            ],
+            budget: ACK,
+        };
+        let (turn, effects) = state.begin_halt(&prepared, 1, now);
+        for effect in effects {
+            assert!(matches!(
+                state.apply_effect(effect, now),
+                AppliedEffect::None
+            ));
+        }
+        let (receipt, effects) = state.accept_halt(
+            turn,
+            prepared,
             now + ACK,
             1,
             crate::runtime::engine::NonZeroDuration::new(ACK).unwrap(),
-            now,
         );
+        for effect in effects {
+            assert!(matches!(
+                state.apply_effect(effect, now),
+                AppliedEffect::None
+            ));
+        }
         for slot in receipt.slots {
             assert!(matches!(
                 slot,
@@ -1714,7 +1798,7 @@ fn engine_terminal_cause_is_authoritative_before_effect_delivery() {
         expected.to_string()
     );
     for effect in effects {
-        state.apply_effect(effect, now);
+        let _applied = state.apply_effect(effect, now);
     }
     state.input(Input::Shutdown(ShutdownReason::Explicit), now);
     assert_eq!(
@@ -1996,13 +2080,14 @@ mod lifecycle_trace {
                 ..TargetPolicy::test_default()
             });
         }
+        let baseline = TuningBaseline::for_test(&protocol, &targets);
         OwnerPolicy::with_targets(
             protocol,
             targets,
             crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new())
                 .unwrap(),
+            baseline,
         )
-        .unwrap()
     }
 
     fn command(
@@ -2506,7 +2591,7 @@ mod lifecycle_trace {
                         self.record_admission_rejected(effect, out);
                     }
                     Effect::Transition { id, from, to, .. } => {
-                        self.apply_effect(effect);
+                        let _applied = self.apply_effect(effect);
                         out.push(format!(
                             "{} effect state id={} from={} to={}",
                             self.at,
@@ -2520,10 +2605,10 @@ mod lifecycle_trace {
                     }
                     Effect::DeadlineExpired { id, .. } => {
                         deadlines.insert(id);
-                        self.apply_effect(effect);
+                        let _applied = self.apply_effect(effect);
                     }
                     Effect::CancellationRecorded { id } => {
-                        self.apply_effect(effect);
+                        let _applied = self.apply_effect(effect);
                         let queued = matches!(
                             self.cancel_phase,
                             Some(Phase::Ready | Phase::Backoff { .. })
@@ -2562,10 +2647,11 @@ mod lifecycle_trace {
                                 id.get()
                             ),
                         ));
-                        self.apply_effect(effect);
+                        let _applied = self.apply_effect(effect);
                     }
                     Effect::AppliedState { effect: projection } => {
-                        self.apply_effect(Effect::AppliedState { effect: projection });
+                        let _applied =
+                            self.apply_effect(Effect::AppliedState { effect: projection });
                         let entry = self.state().target_cache[projection.target]
                             .lock()
                             .unwrap()
@@ -2599,7 +2685,7 @@ mod lifecycle_trace {
                         };
                         let text = outcome_text(outcome);
                         let permits_before = self.state().permits().available();
-                        self.apply_effect(effect.clone());
+                        let _applied = self.apply_effect(effect.clone());
                         let removed = self.state().request_state(id).is_none();
                         let released = self.state().permits().available() == permits_before + 1;
                         out.push(format!(
@@ -2628,7 +2714,7 @@ mod lifecycle_trace {
                     Effect::SessionEnded(ref end) => {
                         let from = SessionState::Running;
                         let to = end.status.state();
-                        self.apply_effect(effect);
+                        let _applied = self.apply_effect(effect);
                         let detail = match to {
                             SessionState::Poisoned => {
                                 format!("cause={}", poison_cause(self.state()))
@@ -2663,7 +2749,7 @@ mod lifecycle_trace {
 
         fn record_admitted(&mut self, id: RequestId, effect: Effect, out: &mut Vec<String>) {
             let pending = self.pending.take().expect("a staged admission");
-            self.apply_effect(effect);
+            let _applied = self.apply_effect(effect);
             let target = self
                 .diagnostics
                 .as_ref()

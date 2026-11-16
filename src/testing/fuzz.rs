@@ -118,12 +118,12 @@ fn sequence_from(bytes: &[u8]) -> u32 {
 
 /// Exercise strict serial and bounded IP response-source routing.
 pub fn response_target(bytes: &[u8]) {
-    let Ok(all_targets) = TargetRegistry::from_targets(&TargetSlot::ALL) else {
-        return;
-    };
-    let Ok(single_target) = TargetRegistry::from_targets(&TargetSlot::ALL[..1]) else {
-        return;
-    };
+    let all_targets =
+        TargetRegistry::from_registry(&crate::target::PerTarget::from_fn(|_| Some(())));
+    let single_target =
+        TargetRegistry::from_registry(&crate::target::PerTarget::from_fn(|target| {
+            (target == TargetSlot::ALL[0]).then_some(())
+        }));
     let serial = RoutingState::new(AddressingMode::Serial, all_targets);
     let single_ip = RoutingState::new(AddressingMode::Ip, single_target);
     let ambiguous_ip = RoutingState::new(AddressingMode::Ip, all_targets);

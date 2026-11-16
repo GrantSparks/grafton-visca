@@ -3,8 +3,8 @@
 #[cfg(test)]
 use super::CancelState;
 use super::{
-    add_duration, NonZeroDuration, Phase, ReplyShape, RequestFraming, RuntimeRequest,
-    TransmissionId,
+    add_duration, CorrelationKind, NonZeroDuration, Phase, ReplyShape, RequestFraming,
+    RuntimeRequest, TransmissionId,
 };
 use crate::ViscaSocket;
 use std::time::Instant;
@@ -920,16 +920,54 @@ impl Lifecycle {
 }
 
 impl Lifecycle {
-    pub(crate) const fn sending_cancellation(self) -> Option<SendingCancellation> {
+    /// The closed write proof retains the phase facts a receipt will consume.
+    pub(crate) fn active_write(self, transmission: TransmissionId) -> Option<ActiveWrite> {
+        if let Self::Sending {
+            transmission: active,
+            framing,
+            attempt,
+            reply,
+            ..
+        } = self
+        {
+            return (active == transmission).then_some(ActiveWrite::Request {
+                framing,
+                attempt,
+                reply,
+            });
+        }
+        let cancellation = self.cancellation_write()?;
+        (cancellation.send.transmission == transmission)
+            .then_some(ActiveWrite::Cancellation(cancellation))
+    }
+
+    const fn cancellation_write(self) -> Option<CancellationWrite> {
         match self {
             Self::Executing {
+                socket,
+                started_at,
+                deadline,
+                attempt,
                 cancellation: ExecutingCancellation::Sending(send),
-                ..
-            }
-            | Self::AwaitingCancellationResolution {
+            } => Some(CancellationWrite {
+                socket,
+                send,
+                phase: SocketedPhase::Executing {
+                    started_at,
+                    deadline,
+                    attempt,
+                },
+            }),
+            Self::AwaitingCancellationResolution {
+                socket,
+                deadline,
+                attempt,
                 cancellation: ResolvingCancellation::Sending(send),
-                ..
-            } => Some(send),
+            } => Some(CancellationWrite {
+                socket,
+                send,
+                phase: SocketedPhase::Resolving { deadline, attempt },
+            }),
             Self::Executing {
                 cancellation:
                     ExecutingCancellation::None
@@ -950,6 +988,24 @@ impl Lifecycle {
             | Self::AwaitingCompletion { .. }
             | Self::AwaitingReply { .. }
             | Self::Backoff { .. } => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn sending_cancellation(self) -> Option<SendingCancellation> {
+        match self.cancellation_write() {
+            Some(write) => Some(write.send),
+            None => None,
+        }
+    }
+
+    pub(crate) const fn unanswered_cancellation(self) -> Option<(ViscaSocket, Instant)> {
+        if !self.awaiting_cancellation_answer() {
+            return None;
+        }
+        match (self.socket(), self.cancellation_ambiguity()) {
+            (Some(socket), Some(deadline)) => Some((socket, deadline)),
+            _ => None,
         }
     }
 
@@ -1020,7 +1076,7 @@ impl Lifecycle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PendingCancellationPhase {
+enum SocketedPhase {
     Executing {
         started_at: Instant,
         deadline: Instant,
@@ -1032,13 +1088,98 @@ enum PendingCancellationPhase {
     },
 }
 
+/// Proof that a receipt belongs to one currently active write.
+/// Only `Lifecycle::active_write` constructs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActiveWrite {
+    Request {
+        framing: RequestFraming,
+        attempt: AttemptFacts,
+        reply: SendingReply,
+    },
+    Cancellation(CancellationWrite),
+}
+
+impl ActiveWrite {
+    pub(super) const fn kind(self) -> CorrelationKind {
+        match self {
+            Self::Request { .. } => CorrelationKind::Request,
+            Self::Cancellation(_) => CorrelationKind::Cancellation,
+        }
+    }
+
+    pub(super) const fn framing(self) -> RequestFraming {
+        match self {
+            Self::Request { framing, .. } => framing,
+            Self::Cancellation(write) => write.send.framing,
+        }
+    }
+}
+
+/// Socket and phase facts proved when a cancellation write is identified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CancellationWrite {
+    socket: ViscaSocket,
+    phase: SocketedPhase,
+    send: SendingCancellation,
+}
+
+impl CancellationWrite {
+    pub(crate) const fn written(self, observation_deadline: Instant) -> Lifecycle {
+        let (deadline, attempt) = match self.phase {
+            SocketedPhase::Executing {
+                deadline, attempt, ..
+            }
+            | SocketedPhase::Resolving { deadline, attempt } => (deadline, attempt),
+        };
+        Lifecycle::AwaitingCancellationResolution {
+            socket: self.socket,
+            deadline,
+            attempt,
+            cancellation: ResolvingCancellation::AwaitingTerminal {
+                ambiguity_deadline: self.send.ambiguity_deadline,
+                observation_deadline,
+                observer_open: self.send.observer_open,
+            },
+        }
+    }
+
+    pub(crate) const fn refused(self) -> Lifecycle {
+        match self.phase {
+            SocketedPhase::Executing {
+                started_at,
+                deadline,
+                attempt,
+            } => Lifecycle::Executing {
+                socket: self.socket,
+                started_at,
+                deadline,
+                attempt,
+                cancellation: ExecutingCancellation::ObservationFailed {
+                    ambiguity_deadline: self.send.ambiguity_deadline,
+                },
+            },
+            SocketedPhase::Resolving { deadline, attempt } => {
+                Lifecycle::AwaitingCancellationResolution {
+                    socket: self.socket,
+                    deadline,
+                    attempt,
+                    cancellation: ResolvingCancellation::ObservationFailed {
+                        ambiguity_deadline: self.send.ambiguity_deadline,
+                    },
+                }
+            }
+        }
+    }
+}
+
 /// Proof that one socketed lifecycle currently holds a requested cancellation.
 /// Only the exhaustive lifecycle projection constructs this emission input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PendingCancellation {
     socket: ViscaSocket,
     request: RequestedCancellation,
-    phase: PendingCancellationPhase,
+    phase: SocketedPhase,
 }
 
 impl PendingCancellation {
@@ -1062,7 +1203,7 @@ impl PendingCancellation {
             observer_open: self.request.observer_open,
         };
         match self.phase {
-            PendingCancellationPhase::Executing {
+            SocketedPhase::Executing {
                 started_at,
                 deadline,
                 attempt,
@@ -1073,7 +1214,7 @@ impl PendingCancellation {
                 attempt,
                 cancellation: ExecutingCancellation::Sending(send),
             },
-            PendingCancellationPhase::Resolving { deadline, attempt } => {
+            SocketedPhase::Resolving { deadline, attempt } => {
                 Lifecycle::AwaitingCancellationResolution {
                     socket: self.socket,
                     deadline,
@@ -1097,7 +1238,7 @@ impl Lifecycle {
             } => Some(PendingCancellation {
                 socket,
                 request,
-                phase: PendingCancellationPhase::Executing {
+                phase: SocketedPhase::Executing {
                     started_at,
                     deadline,
                     attempt,
@@ -1111,7 +1252,7 @@ impl Lifecycle {
             } => Some(PendingCancellation {
                 socket,
                 request,
-                phase: PendingCancellationPhase::Resolving { deadline, attempt },
+                phase: SocketedPhase::Resolving { deadline, attempt },
             }),
             Self::Executing {
                 cancellation:
