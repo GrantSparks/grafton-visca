@@ -2986,7 +2986,9 @@ trait EngineMethods: EngineAccess {
     /// with another request's. A socketless ACK binds to the first free
     /// physical socket available to that dispatched attempt, because the frame
     /// names no socket and the first free socket is the one the camera assigns
-    /// next. `None` means no safe assignment exists.
+    /// next. Stream callers first exclude retained completions and inert holds
+    /// that make the camera's physical occupancy unknowable. `None` means no
+    /// safe assignment exists.
     fn assign_socket(
         &self,
         target: TargetSlot,
@@ -3011,6 +3013,24 @@ trait EngineMethods: EngineAccess {
             .into_iter()
             .take(assignment_socket_count)
             .find(|socket| self.socket_available(target, *socket, id))
+    }
+
+    /// A compatibility ACK cannot reconstruct physical socket occupancy after
+    /// a completion was retained ambiguously, or while inert socket evidence
+    /// may already have completed unseen. In particular, the camera can reuse
+    /// a socket that the host still indexes to a predecessor.
+    fn uncertain_socketless_stream_ack(&self, target: TargetSlot) -> bool {
+        let Some(stream) = self.mode().stream() else {
+            return false;
+        };
+        let learning = &stream.learning[target];
+        self.raw_socket_hold_count(target) != 0
+            || learning.pending_socketless_completions.is_some()
+            || learning.unlearned_completions != 0
+            || [ViscaSocket::S1, ViscaSocket::S2]
+                .into_iter()
+                .take(self.command_sockets(target))
+                .all(|socket| self.socket_owner(target, socket).is_some())
     }
 
     /// Applies a camera's authoritative raw socket assignment.
@@ -3091,7 +3111,17 @@ trait EngineMethods: EngineAccess {
             }
         };
         let target = entry.request.context().target;
-        let deadline = add_duration(now, entry.request.context().timeout.completion.get());
+        let completion = entry.request.context().timeout.completion.get();
+        let deadline = add_duration(now, completion);
+        if socket.is_none() && self.uncertain_socketless_stream_ack(target) {
+            let (core, mode) = self.split();
+            if let CorrelationState::RawStream(stream) = mode {
+                StreamContext { core, stream }
+                    .hold_uncertain_socketless_execution(target, completion, now, effects);
+            }
+            self.terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects);
+            return;
+        }
         let Some(socket) = self.assign_ack_socket(target, socket, id, now, effects) else {
             if !matches!(self.session, EngineSession::Running) {
                 return;
@@ -3290,12 +3320,17 @@ trait EngineMethods: EngineAccess {
     }
 
     fn mark_stream_answer_written(&mut self, id: RequestId, cancel: bool) {
-        if let Some(target) = self
-            .entries
-            .get(&id)
-            .map(|entry| entry.request.context().target)
-        {
+        if let Some((target, capacity)) = self.entries.get(&id).map(|entry| {
+            (
+                entry.request.context().target,
+                entry.dispatched_socket_capacity(),
+            )
+        }) {
             if let CorrelationState::RawStream(stream) = self.split().1 {
+                if let Some(capacity) = capacity {
+                    let seen = &mut stream.learning[target].socket_capacity_seen;
+                    *seen = (*seen).max(capacity);
+                }
                 stream.ledger.mark_written(target, id, cancel);
             }
         }

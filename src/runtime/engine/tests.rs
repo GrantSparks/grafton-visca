@@ -31,6 +31,7 @@ mod raw_evidence;
 mod raw_stream_model;
 mod retry_history;
 mod session_end;
+mod socketless_ack_conflicts;
 mod write_outcomes;
 
 fn extend_fixture_hold(

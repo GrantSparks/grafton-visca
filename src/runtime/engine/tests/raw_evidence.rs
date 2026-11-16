@@ -893,13 +893,16 @@ fn socketless_late_completion_never_completes_a_live_command() {
     let (stop_effects, stop) = admit(&mut engine, 2, stop_command(1), later);
     send_ok(&mut engine, &stop_effects, None, later);
 
-    // A camera that omits the socket nibble: its ACKs name no socket.
+    // The owed ACK names no socket, so it holds the first free one.
     let socketless_ack = || frame(1, None, DecodedResponse::Ack { socket: None });
     engine.handle(socketless_ack(), later);
     assert!(engine
         .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
         .is_some());
-    engine.handle(socketless_ack(), later);
+    // A named ACK proves the STOP's physical socket despite the inert S1
+    // hold. A compatibility ACK here must preserve uncertainty instead of
+    // guessing S2 (socketless_ack_conflicts covers that separate contract).
+    engine.handle(ack(1, ViscaSocket::S2), later);
     assert!(matches!(
         phase_of(&engine, stop),
         Some(Phase::Executing {

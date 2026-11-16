@@ -618,6 +618,18 @@ write result is outstanding (#860).
 Either kind of ACK naming a socket the engine still indexes to an executing
 command proves that command's completion was lost: it ends unconfirmed and
 the socket is released (#721).
+A socketless ACK can use the first-free rule only while physical occupancy
+remains certain. An ambiguously retained completion, an unresolved completion
+from before socket learning, or an inert socket hold can mean the camera has
+already freed a socket still indexed locally. Such an ACK retains the union
+of possible sockets as anonymous holds instead of guessing. The possible
+sockets include earlier dispatched capacity and camera-proven socket keys,
+so lowering capacity cannot forget an older execution, while a one-socket
+session gains no phantom second hold. Existing socket owners and the newly
+accepted live request end unconfirmed through the usual
+strict-policy path; a paid debt or disputed ACK keeps the same execution
+holds. Socketless completions cannot release this anonymous union, while
+named socket evidence restores exact correlation. STOP delivery continues.
 
 A tracked dispute is also decided where the engine learns who sent nothing
 or who completed, and its frames are then assigned at once:
