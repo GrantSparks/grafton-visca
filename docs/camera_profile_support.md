@@ -720,6 +720,12 @@ escape hatch for simulators and downstream integrations.
 | `GenericVisca` | 5678 | 1259 | yes | `RawVisca` |
 <!-- END GENERATED PROFILE TRANSPORTS -->
 
+Generic VISCA uses the optical zoom interval `0x0000..=0x4000` shared by its
+EVI-H100, BRC-300 and Nearus sources. Profile validation checks optical and
+digital maxima against `ZoomPosition`, gain grants against their declared gain
+range, and preset recall-speed ranges against the selected packet encoding.
+Exported custom profiles obey these same checks before any request is prepared.
+
 ## Built-In Profile Marker Matrix
 
 The table below lists optional typed support markers emitted by the registry.

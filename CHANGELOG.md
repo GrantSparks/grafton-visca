@@ -73,6 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remains available on raw wire requests through `CameraId`; invalid target
   addresses are rejected by the value type before configuration or I/O.
 
+- Profile validation rejects gain grants without a gain range, zoom endpoints
+  outside the checked position domain, and recall speeds outside the selected
+  encoding. Generic VISCA optical normalization uses its sourced `0x4000`
+  endpoint (#965).
+
 - Built-in typed camera views reuse their validated profile identity and grants
   without allocating; custom profiles retain complete fact comparison (#958).
 

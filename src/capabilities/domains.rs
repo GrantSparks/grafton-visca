@@ -640,6 +640,16 @@ impl super::Capabilities {
             }
         }
         if let Some(zoom) = &self.zoom {
+            domain(
+                "capabilities.zoom.optical_max",
+                [zoom.optical_max; 2],
+                |value| crate::types::ZoomPosition::new(value).is_ok(),
+            )?;
+            if let Some(maximum) = zoom.digital_max {
+                domain("capabilities.zoom.digital_max", [maximum; 2], |value| {
+                    crate::types::ZoomPosition::new(value).is_ok()
+                })?;
+            }
             if zoom.optical_max == 0
                 || zoom
                     .digital_max

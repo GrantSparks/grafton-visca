@@ -109,6 +109,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn generic_visca_optical_endpoints_round_trip() -> Result<(), crate::Error> {
+        let profile = crate::profiles::ProfileId::GenericVisca.spec()?;
+        let zoom = profile
+            .capabilities()
+            .zoom
+            .as_ref()
+            .ok_or(crate::Error::FeatureNotSupported { feature: "zoom" })?;
+        for (normalized, expected) in [(UnitInterval::MIN, 0), (UnitInterval::MAX, 0x4000)] {
+            let position = zoom.position_at(normalized, ZoomDomain::Optical)?;
+            assert_eq!(position.value(), expected);
+            assert_eq!(zoom.normalize(position, ZoomDomain::Optical)?, normalized);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn test_zoom_normalization() -> Result<(), crate::Error> {
         // Use PtzOpticsG2-style values for testing
         let optical_max: u16 = 0x4000;

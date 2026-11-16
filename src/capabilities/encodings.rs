@@ -8,6 +8,17 @@ macro_rules! define_profile_encodings {
 
 super::typed_support_registry::typed_support_registry!(define_profile_encodings);
 
+impl PresetRecallSpeedEncoding {
+    /// Inclusive recall-speed values represented by this packet dialect.
+    #[must_use]
+    pub const fn speed_range(self) -> super::CapabilityRange<u8> {
+        match self {
+            Self::PtzOptics => super::CapabilityRange::<u8>::new(1, 0x18),
+            Self::SonyFr7 => super::CapabilityRange::<u8>::new(1, 50),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

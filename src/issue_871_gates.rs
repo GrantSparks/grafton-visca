@@ -514,6 +514,61 @@ macro_rules! gate_tests {
 noun_table!(gate_tests);
 
 #[test]
+fn mutated_specs_cannot_advertise_unpreparable_facts() {
+    use crate::capabilities::{CapabilityRange, PresetRecallSpeedEncoding};
+    for id in crate::profiles::ProfileId::all() {
+        let mut baseline = id.raw_facts();
+        baseline.capabilities.profile_id = None;
+        ProfileSpec::from_facts(baseline.clone()).expect("exported builtin facts");
+        for mutation in 0..6 {
+            let mut facts = baseline.clone();
+            let caps = &mut facts.capabilities;
+            let field = match mutation {
+                0 if caps.supports(TypedSupportSurface::Gain) => {
+                    caps.exposure.as_mut().expect("gain domain").gain_range = None;
+                    "gain_range"
+                }
+                1 => {
+                    caps.zoom.as_mut().expect("zoom domain").optical_max = 0x8000;
+                    "optical_max"
+                }
+                2 => {
+                    caps.zoom.as_mut().expect("zoom domain").digital_max = Some(0x8000);
+                    "digital_max"
+                }
+                3 if caps.supports(TypedSupportSurface::PresetRecallSpeed) => {
+                    caps.presets.as_mut().expect("presets").recall_speed_range = None;
+                    "typed_support"
+                }
+                4 if facts.encodings.preset_recall_speed()
+                    == Some(PresetRecallSpeedEncoding::PtzOptics) =>
+                {
+                    caps.presets.as_mut().expect("presets").recall_speed_range =
+                        Some(CapabilityRange::<u8>::new(1, 50));
+                    "recall_speed_range"
+                }
+                5 => {
+                    caps.typed_support = caps
+                        .typed_support
+                        .union(crate::capabilities::TypedSupportSet::from_surface(
+                            TypedSupportSurface::TallyBrightness,
+                        ))
+                        .without(TypedSupportSurface::Tally);
+                    "typed_support"
+                }
+                _ => continue,
+            };
+            let error = ProfileSpec::from_facts(facts)
+                .expect_err("mutated discovery must not promise an unpreparable request");
+            assert!(
+                error.to_string().contains(field),
+                "{id:?} mutation {mutation}: {error}"
+            );
+        }
+    }
+}
+
+#[test]
 fn sharpness_level_and_mode_have_independent_model_permissions() {
     for profile in [
         ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7"),

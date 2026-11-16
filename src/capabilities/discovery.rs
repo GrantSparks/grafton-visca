@@ -170,6 +170,7 @@ impl Capabilities {
             ),
             S::ExposureMode => Dedicated(exposure.is_some_and(|domain| !domain.modes.is_empty())),
             S::Iris => Dedicated(exposure.is_some_and(|domain| domain.iris_range.is_some())),
+            S::Gain => Dedicated(exposure.is_some_and(|domain| domain.gain_range.is_some())),
             S::BacklightCompensation => {
                 Dedicated(exposure.is_some_and(|domain| domain.backlight_compensation))
             }
@@ -245,7 +246,6 @@ impl Capabilities {
             | S::IrisSteps
             | S::AutoIris
             | S::Shutter
-            | S::Gain
             | S::GainLimit => ParentDomain(exposure.is_some()),
             S::AutoWhiteBalanceSensitivity
             | S::PresetWhite
@@ -429,6 +429,23 @@ mod tests {
             .expect("valid built-in profile")
             .capabilities()
             .clone()
+    }
+
+    #[test]
+    fn shared_gain_metadata_requires_its_value_range() {
+        let mut caps = profile_capabilities::<PtzOpticsG2>();
+        assert_eq!(
+            caps.surface_metadata(TypedSupportSurface::Gain),
+            SurfaceMetadata::Dedicated(true)
+        );
+        caps.exposure.as_mut().expect("exposure").gain_range = None;
+        assert_eq!(
+            caps.surface_metadata(TypedSupportSurface::Gain),
+            SurfaceMetadata::Dedicated(false)
+        );
+        assert!(caps
+            .surface_metadata(TypedSupportSurface::GainLimit)
+            .permits());
     }
 
     #[test]

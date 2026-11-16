@@ -336,18 +336,6 @@ impl SetRecallSpeed {
                     .into(),
             });
         }
-        if matches!(
-            self.encoding,
-            crate::capabilities::PresetRecallSpeedEncoding::PtzOptics
-        ) && self.speed.value() > 24
-        {
-            return Err(crate::Error::parameter_out_of_range(
-                "preset recall speed",
-                i32::from(self.speed.value()),
-                1,
-                24,
-            ));
-        }
         // The standard inner request validates its profile range. FR7's
         // protocol request carries only the checked union value, so this
         // target-selected wrapper validates that arm's narrower profile range.

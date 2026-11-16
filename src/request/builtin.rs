@@ -5105,6 +5105,9 @@ mod tests {
             let mut capabilities = profile.capabilities().clone();
             capabilities.profile_id = None;
             capabilities.exposure.as_mut().expect("exposure").gain_range = None;
+            capabilities.typed_support = capabilities
+                .typed_support
+                .without(TypedSupportSurface::Gain);
             let without_gain_levels = runtime_profile_builder(&profile, capabilities)
                 .build()
                 .expect("gain-limit support needs no gain-level range");

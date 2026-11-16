@@ -1609,6 +1609,24 @@ impl ProfileFacts {
         }
         self.capabilities.validate_domains()?;
         self.encodings.validate(self.capabilities.typed_support)?;
+        if let Some((range, encoding)) = self
+            .capabilities
+            .presets
+            .as_ref()
+            .and_then(|presets| presets.recall_speed_range)
+            .zip(self.encodings.preset_recall_speed())
+        {
+            let wire_range = encoding.speed_range();
+            if range.min() < wire_range.min() || range.max() > wire_range.max() {
+                return Err(invalid_profile_fields(
+                    &[
+                        "capabilities.presets.recall_speed_range",
+                        "encodings.preset_recall_speed",
+                    ],
+                    "advertised recall speeds must fit the selected packet encoding",
+                ));
+            }
+        }
         if self.capabilities.inquiry_support == capabilities::InquirySupport::None {
             let inquiries = self
                 .capabilities
@@ -1629,8 +1647,16 @@ impl ProfileFacts {
         }
         for surface in self.capabilities.typed_support.iter() {
             if !self.capabilities.surface_metadata(surface).permits() {
+                let fields: &[&str] = if surface == capabilities::TypedSupportSurface::Gain {
+                    &[
+                        "capabilities.typed_support",
+                        "capabilities.exposure.gain_range",
+                    ]
+                } else {
+                    &["capabilities.typed_support"]
+                };
                 return Err(invalid_profile_fields(
-                    &["capabilities.typed_support"],
+                    fields,
                     format_args!(
                         "typed support {surface:?} cannot enable an absent physical capability"
                     ),
@@ -2789,6 +2815,19 @@ mod tests {
         )
         .is_err());
 
+        for field in ["optical_max", "digital_max"] {
+            let mut caps = valid_runtime_capabilities();
+            let zoom = caps.zoom.as_mut().expect("zoom");
+            if field == "optical_max" {
+                zoom.optical_max = 0x8000;
+            } else {
+                zoom.digital_max = Some(0x8000);
+            }
+            let error = runtime_builder(caps)
+                .build()
+                .expect_err("out of ZoomPosition domain");
+            assert!(error.to_string().contains(field), "{error}");
+        }
         let mut caps = valid_runtime_capabilities();
         caps.zoom.as_mut().expect("zoom").speed = CapabilityRange::<u8>::new(0, 8);
         assert!(runtime_builder(caps).build().is_err());
@@ -2796,6 +2835,39 @@ mod tests {
         caps.presets.as_mut().expect("presets").recall_speed_range =
             Some(CapabilityRange::<u8>::new(1, 200));
         assert!(runtime_builder(caps).build().is_err());
+    }
+
+    #[test]
+    fn recall_speed_ranges_fit_the_selected_packet_encoding() {
+        use capabilities::PresetRecallSpeedEncoding;
+        for (encoding, last) in [
+            (PresetRecallSpeedEncoding::PtzOptics, 0x18),
+            (PresetRecallSpeedEncoding::SonyFr7, 50),
+        ] {
+            let mut facts = ProfileId::PtzOpticsG2.raw_facts();
+            facts.capabilities.profile_id = None;
+            facts.encodings = facts.encodings.with_encoding(encoding.into());
+            facts
+                .capabilities
+                .presets
+                .as_mut()
+                .expect("presets")
+                .recall_speed_range = Some(CapabilityRange::<u8>::new(1, last));
+            ProfileSpec::from_facts(facts.clone()).expect("complete encoding range");
+            for range in [
+                CapabilityRange::<u8>::new(0, last),
+                CapabilityRange::<u8>::new(1, last + 1),
+            ] {
+                facts
+                    .capabilities
+                    .presets
+                    .as_mut()
+                    .expect("presets")
+                    .recall_speed_range = Some(range);
+                let error = ProfileSpec::from_facts(facts.clone()).expect_err("outside encoding");
+                assert!(error.to_string().contains("recall_speed_range"), "{error}");
+            }
+        }
     }
 
     #[test]
