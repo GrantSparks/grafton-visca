@@ -4,12 +4,7 @@ use super::*;
 #[test]
 fn ended_session_cannot_retain_work() {
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        Instant::now(),
-    );
+    admit(&mut engine, 1, command(1), Instant::now());
     engine.session = EngineSession::Ended(SessionEnd {
         status: EndStatus::Closed,
         cause: Error::ConnectionClosed { source: None },
@@ -63,11 +58,7 @@ fn corrupt_capacity() -> ProtocolEngine {
     let turn = engine.begin_input_turn(Instant::now());
     for _ in 0..2 {
         engine
-            .admit_in_turn(
-                &turn,
-                command(1, CancellationPolicy::Supported),
-                AdmissionSlot::Ordinary,
-            )
+            .admit_in_turn(&turn, command(1), AdmissionSlot::Ordinary)
             .unwrap();
     }
     // Lower an existing valid proof beneath the admitted population.
@@ -104,18 +95,13 @@ fn expire_unwritten_halt_runs_the_hook_even_on_an_unknown_transmission() {
 fn ready_and_backoff_have_no_active_attempt() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (write, id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (write, id) = admit(&mut engine, 1, command(1), start);
     assert!(engine.entry(id).unwrap().lifecycle().attempt().is_some());
     send_ok(&mut engine, &write, Some(0x1001), start);
     engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -156,15 +142,10 @@ fn raw_release_gate_runs_the_hook_even_when_no_input_is_retained() {
 
 #[test]
 #[cfg(debug_assertions)]
-#[should_panic(expected = "no entry may be Sending at an input boundary")]
+#[should_panic(expected = "no write may be staged at an input boundary")]
 fn unrelated_input_cannot_cross_an_unfinished_write() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (_, id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (_, id) = admit(&mut engine, 1, command(1), now);
     engine.handle(Input::Cancel { id }, now);
 }

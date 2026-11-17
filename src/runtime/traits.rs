@@ -256,18 +256,6 @@ macro_rules! delegate_executor {
                 self.executor.sleep(duration)
             }
 
-            fn timeout<'a, F, T>(
-                &'a self,
-                duration: std::time::Duration,
-                fut: F,
-            ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-            where
-                F: Future<Output = T> + Send + 'a,
-                T: Send + 'a,
-            {
-                self.executor.timeout(duration, fut)
-            }
-
             fn now(&self) -> std::time::Instant {
                 self.executor.now()
             }
@@ -522,7 +510,7 @@ mod tokio_impl {
                     Executor::now(&runtime).duration_since(before) < Duration::from_secs(30)
                 );
 
-                let timeout = runtime.timeout(Duration::from_secs(1), future::pending::<()>());
+                let timeout = crate::timeout::within(future::pending::<()>(), runtime.sleep(Duration::from_secs(1)));
                 tokio::pin!(timeout);
                 tokio::select! {
                     result = &mut timeout => panic!("selected timer fired before advance: {result:?}"),

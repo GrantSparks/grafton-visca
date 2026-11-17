@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING**: Outgoing `transport::FrameMeta::Sony` exposes its complete
+  sequence as `u32`; `transport::FrameSequence` is removed from the public API.
+  Sony reply identity is decoded once and carried directly to the engine's
+  matching correlation index. Owner probes and engine fixtures now exercise
+  the same lower-16 path as production for small sequences (#1031).
+- **BREAKING**: Async TCP transports no longer expose `split` or separate reader
+  and writer halves. Sessions and caller-owned transports use the whole TCP
+  transport, with consistent ownership across Tokio and smol (#1034).
+- **BREAKING**: `Executor` provides spawning, sleeping, reusable timers and a
+  clock; its overridable `timeout` method is removed. Async Sony RESET and
+  serial startup use the shared operation-first deadline race (#1024).
+- **BREAKING**: `#[value_enum]` payload variants require a `#[value]` checked
+  scalar whose wire domain excludes every active unit variant's code. Primitive
+  payloads and overlapping domains now fail at compile time, including
+  conditional variants and biased wire mappings (#1027).
+- **BREAKING**: Picture-effect setters accept only values in the selected profile's
+  `ImageCaps::picture_effects` inventory. PTZOptics G2, G3 and 30X admit Off and
+  BlackAndWhite; custom profiles can list documented checked extension codes.
+  `UnknownPictureEffect` rejects the `FF` frame terminator. The inventory replaces
+  `ImageCaps::picture_effect`, removes its `Copy` implementation, and changes the
+  persisted `ProfileSpec` image key; regenerate saved specs (#1023).
+- **BREAKING**: `CapabilityRange::new` and `CapabilityDomain::new` return checked
+  results instead of panicking. Domains take a third `gaps` argument accepting
+  a static slice or owned vector; pass an empty vector for a contiguous domain.
+  The former `CapabilityDomain::with_gaps` constructor is removed. Invalid
+  hand-built digital zoom limits now return no digital range (#1029).
 - **BREAKING**: `Request::policy()` returns the policy selected by its sealed
   class: `request::CommandPolicy`, `OperationPolicy`, or `InquiryPolicy`.
   Custom requests replace flat policy constants and accessors with this method;
@@ -16,10 +42,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `CommandRetryClass`, which excludes inquiry retry semantics, while
   inquiries use `InquiryRetryClass`. The former class-agnostic policy enums
   leave the public API; persisted command and operation policies reject the
-  former `"inquiry"` retry alias (#1016, #909, #970).
+  former `"inquiry"` retry alias. STOP policies select `CommandRetryClass::Standard`,
+  matching their existing refusal and retry behavior (#1016, #1026, #909, #970).
+- **BREAKING**: `Session`'s `Debug` output lists its registered target IDs in
+  camera-number order, as in `Session { targets: [IndividualCameraId(1)], .. }`,
+  instead of their count (#1033).
+
+### Added
+
+- `CameraConfig::with_mount` carries the selected installation into single-camera
+  sessions and persisted configurations. FR7 Ceiling positions use −210°…+15°
+  before I/O; fixed-range profiles refuse a mount override at validation (#1022).
+- Wide dynamic range and motion-sync enable setters retain their last applied
+  values through `state_cache().exposure().wide_dynamic_range()` and
+  `state_cache().motion_sync().enabled()`. Both keys stay unknown until applied,
+  and uncertain writes invalidate them (#1028).
 
 ### Fixed
 
+- Zero-spacing cancellation finishes every staged write before running due work
+  or dispatching a ready retry. Both owners preserve write and stream-ledger
+  order; the input-boundary audit includes cancellation writes (#1021).
+- Dropping a Tokio session connect future aborts its selected-runtime connector
+  instead of leaving it dialing. Async session opening returns the published
+  terminal error when the executor drops the actor during spawning (#1024).
+- Socket-cancel support comes solely from the registered target, so the public
+  owner-turn probe works on every built-in profile, including PTZOptics (#1025).
+- Buffered partial frames no longer let eager idle or transient-fault receives
+  starve command deadlines, controls or shutdown. Failed raw-release probes
+  retain their escalating pause, and malformed or discarded input spends the
+  release fairness budget on both owner shells (#1020).
 - Blocking TCP writes on Unix retain an OS `TimedOut` as the `StreamPoisoned`
   source, matching Tokio and smol. Blocking UDP receives honour their full
   precise read budget after an early idle result (#1014).

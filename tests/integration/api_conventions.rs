@@ -186,6 +186,26 @@ macro_rules! api_convention_tests {
             }
 
             #[test]
+            fn every_property_setter_has_a_typed_readback_route() {
+                // Mirror shares the sourced combined flip-mode inquiry. Each
+                // exception names its real readback, so removing that route or
+                // adding a direct getter cannot leave a stale exception.
+                let exceptions = [("image", "mirror", "flip_mode")];
+                let mut used_exceptions = Vec::new();
+                for setter in rows().iter().filter(|row| row.method.starts_with("set_")) {
+                    let property = setter.method.strip_prefix("set_").expect("setter");
+                    let inquiry = rows().iter().any(|row| row.noun == setter.noun && row.method == property && row.kind == NounKind::Inquiry);
+                    let cached = crate::state_cache::StateKey::ALL.iter().any(|key| key.noun_name() == setter.noun && key.property_name() == property);
+                    if inquiry || cached { continue; }
+                    let exception = exceptions.iter().find(|(noun, name, _)| *noun == setter.noun && *name == property)
+                        .unwrap_or_else(|| panic!("{}().{} has neither a typed inquiry nor a StateCache key", setter.noun, setter.method));
+                    assert_eq!(find(exception.0, exception.2).kind, NounKind::Inquiry, "exception no longer has its documented readback: {exception:?}");
+                    used_exceptions.push(*exception);
+                }
+                assert_eq!(used_exceptions.as_slice(), exceptions, "reviewed readback exceptions changed");
+            }
+
+            #[test]
             fn runtime_gates_retain_every_static_header_and_refinement_marker() {
                 for row in rows() {
                     let mut runtime = BTreeSet::new();

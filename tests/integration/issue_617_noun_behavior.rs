@@ -419,6 +419,105 @@ mod blocking_surface {
     }
 
     #[test]
+    fn blocking_picture_effects_require_the_profile_inventory_before_any_write() {
+        use grafton_visca::types::{PictureEffectMode, UnknownPictureEffect};
+        let (session, fake) =
+            open_with(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"));
+        let camera = session
+            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+            .expect("camera");
+        assert!(UnknownPictureEffect::new(0xff).is_err());
+        for code in [0x05, 0xfe] {
+            let error = camera
+                .image()
+                .set_picture_effect(PictureEffectMode::Unknown(
+                    UnknownPictureEffect::new(code).expect("checked extension"),
+                ))
+                .expect_err("undocumented effect");
+            assert!(matches!(
+                error,
+                Error::InvalidParameter {
+                    parameter: "picture_effect",
+                    ..
+                }
+            ));
+            assert!(
+                fake.writes().is_empty(),
+                "a refused effect must not reach the transport"
+            );
+        }
+        for (effect, code) in [
+            (PictureEffectMode::Off, 0x00),
+            (PictureEffectMode::BlackAndWhite, 0x04),
+        ] {
+            camera
+                .image()
+                .set_picture_effect(effect)
+                .expect("documented effect");
+            assert_eq!(
+                fake.take_only_payload(),
+                [0x81, 0x01, 0x04, 0x63, code, 0xff]
+            );
+        }
+        session.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn a_custom_picture_effect_inventory_allows_only_its_documented_extension() {
+        use grafton_visca::types::{PictureEffectMode, UnknownPictureEffect};
+        let base = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let mut caps = base.capabilities().clone();
+        caps.profile_id = None;
+        caps.image
+            .as_mut()
+            .expect("image")
+            .picture_effects
+            .push(PictureEffectMode::Unknown(
+                UnknownPictureEffect::new(0x05).expect("documented extension"),
+            ));
+        let mut builder = ProfileSpec::builder(caps)
+            .transports(base.transports())
+            .envelope(base.envelope())
+            .timing(base.timing())
+            .maximum_command_sockets(base.maximum_command_sockets())
+            .supports_operation_complete(base.supports_operation_complete())
+            .supports_command_cancel(base.supports_command_cancel())
+            .position_inquiries(base.position_inquiries());
+        for selection in base.encodings().iter() {
+            builder = builder.encoding(selection);
+        }
+        let (session, fake) = open_with(builder.build().expect("custom profile"));
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
+            .expect("runtime profile");
+        camera
+            .image()
+            .set_picture_effect(PictureEffectMode::Unknown(
+                UnknownPictureEffect::new(0x05).expect("documented extension"),
+            ))
+            .expect("listed extension");
+        assert_eq!(
+            fake.take_only_payload(),
+            [0x81, 0x01, 0x04, 0x63, 0x05, 0xff]
+        );
+        assert!(matches!(
+            camera
+                .image()
+                .set_picture_effect(PictureEffectMode::Unknown(
+                    UnknownPictureEffect::new(0x06).expect("unlisted extension"),
+                )),
+            Err(Error::InvalidParameter {
+                parameter: "picture_effect",
+                ..
+            })
+        ));
+        assert!(fake.writes().is_empty());
+        session.shutdown().expect("shutdown");
+    }
+
+    #[test]
     fn blocking_focus_zone_03_reaches_the_wire_on_the_g2_family() {
         let (session, fake) =
             open_with(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"));
@@ -937,6 +1036,54 @@ mod async_surface {
             );
             session.shutdown().expect("shutdown");
         }
+    }
+
+    #[tokio::test]
+    async fn dynamic_picture_effects_require_the_profile_inventory_before_any_write() {
+        use grafton_visca::types::{PictureEffectMode, UnknownPictureEffect};
+        let fake = probe_camera();
+        let session = open_session(
+            &fake,
+            ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
+        )
+        .await;
+        let camera = session
+            .camera::<grafton_visca::profiles::AnyProfile>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
+            .expect("runtime profile");
+        for code in [0x05, 0xfe] {
+            let error = camera
+                .image()
+                .set_picture_effect(PictureEffectMode::Unknown(
+                    UnknownPictureEffect::new(code).expect("checked extension"),
+                ))
+                .await
+                .expect_err("undocumented effect");
+            assert!(matches!(
+                error,
+                Error::InvalidParameter {
+                    parameter: "picture_effect",
+                    ..
+                }
+            ));
+            assert!(fake.writes().is_empty());
+        }
+        for (effect, code) in [
+            (PictureEffectMode::Off, 0x00),
+            (PictureEffectMode::BlackAndWhite, 0x04),
+        ] {
+            camera
+                .image()
+                .set_picture_effect(effect)
+                .await
+                .expect("documented effect");
+            assert_eq!(
+                fake.take_only_payload(),
+                [0x81, 0x01, 0x04, 0x63, code, 0xff]
+            );
+        }
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]

@@ -350,7 +350,8 @@ mod tests {
         let base = ProfileId::GenericVisca.spec().expect("base profile");
         let mut facts = base.capabilities().clone();
         facts.profile_id = None;
-        facts.focus.as_mut().expect("focus").speed = CapabilityRange::<u8>::new(3, 5);
+        facts.focus.as_mut().expect("focus").speed =
+            CapabilityRange::<u8>::new(3, 5).expect("valid capability bounds");
         let mut builder = ProfileSpec::builder(facts)
             .transports(base.transports())
             .envelope(base.envelope())

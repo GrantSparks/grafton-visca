@@ -9,7 +9,7 @@
 mod timeout_tests {
     use grafton_visca::{
         profiles::CommandTimeouts,
-        runtime::{Executor, TokioExecutor},
+        runtime::TokioExecutor,
         testing::testkit::{helpers, ScriptedTransport, Step},
         transport::AsyncTransport,
     };
@@ -24,46 +24,6 @@ mod timeout_tests {
         assert_eq!(defaults.preset_timeout(), Duration::from_secs(60));
         assert_eq!(defaults.long_running_timeout(), Duration::from_secs(300));
         assert_eq!(defaults.network_timeout(), Duration::from_secs(5));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn test_deterministic_executor_timeout() {
-        let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
-
-        // Create a future that never completes
-        let never_completes = std::future::pending::<()>();
-
-        // Apply a timeout of 100ms
-        let timeout_fut = executor.timeout(Duration::from_millis(100), never_completes);
-
-        // Start the timeout future (it should be pending)
-        tokio::select! {
-            result = timeout_fut => {
-                // This should not happen immediately
-                panic!("Timeout future completed too early: {:?}", result);
-            }
-            _ = std::future::ready(()) => {
-                // Expected - the timeout future is pending immediately
-            }
-        }
-
-        // Now advance the virtual clock by 100ms to trigger the timeout
-        tokio::time::advance(Duration::from_millis(100)).await;
-
-        // The timeout should now complete with an error
-        let timeout_fut =
-            executor.timeout(Duration::from_millis(100), std::future::pending::<()>());
-
-        // Advance time first
-        tokio::time::advance(Duration::from_millis(100)).await;
-
-        // Now poll the timeout
-        let result = timeout_fut.await;
-        assert!(
-            matches!(result, Err(grafton_visca::Error::Timeout { .. })),
-            "Expected timeout error, got {:?}",
-            result
-        );
     }
 
     #[tokio::test(start_paused = true)]

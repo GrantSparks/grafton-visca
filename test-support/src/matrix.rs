@@ -356,7 +356,10 @@ macro_rules! facade_matrix {
         }
         macro_rules! within {
             ($duration:expr, $e:expr) => {
-                grafton_visca::runtime::Executor::timeout(&$executor, $duration, $e)
+                futures_lite::future::or(async { Some($e.await) }, async {
+                    grafton_visca::runtime::Executor::sleep(&$executor, $duration).await;
+                    None
+                })
                     .await
                     .expect(concat!("step exceeded its outer deadline: ", stringify!($e)))
             };

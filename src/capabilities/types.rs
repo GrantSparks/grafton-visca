@@ -20,6 +20,33 @@ pub struct CapabilityRange<T> {
     max: T,
 }
 
+const RANGE_BOUNDS: &str = "capability range minimum exceeds maximum";
+const DOMAIN_BOUNDS: &str = "capability domain bounds must be ordered and its gaps sorted, unique, and strictly inside them";
+
+impl<T: PartialOrd> CapabilityRange<T> {
+    /// Creates an inclusive capability range from checked runtime bounds.
+    ///
+    /// # Errors
+    /// Returns a profile-field error when the bounds are unordered or inverted.
+    ///
+    /// ```
+    /// use grafton_visca::capabilities::CapabilityRange;
+    /// let range = CapabilityRange::<i32>::new(-100, 100)?;
+    /// assert!(range.contains(0));
+    /// # Ok::<(), grafton_visca::Error>(())
+    /// ```
+    pub fn new(min: T, max: T) -> crate::Result<Self> {
+        if min <= max {
+            Ok(Self { min, max })
+        } else {
+            Err(crate::profiles::invalid_profile_fields(
+                &["capability_range"],
+                RANGE_BOUNDS,
+            ))
+        }
+    }
+}
+
 #[cfg(feature = "serde")]
 impl<'de, T> serde::Deserialize<'de> for CapabilityRange<T>
 where
@@ -37,16 +64,7 @@ where
         }
 
         let wire = WireRange::<T>::deserialize(deserializer)?;
-        if wire.min <= wire.max {
-            Ok(Self {
-                min: wire.min,
-                max: wire.max,
-            })
-        } else {
-            Err(serde::de::Error::custom(
-                "capability range minimum exceeds maximum",
-            ))
-        }
+        Self::new(wire.min, wire.max).map_err(serde::de::Error::custom)
     }
 }
 
@@ -158,27 +176,41 @@ where
 macro_rules! impl_capability_domain {
     ($ty:ty) => {
         impl CapabilityDomain<$ty> {
-            /// Creates a domain with no gaps.
+            /// Creates a checked domain whose source table does not list `gaps`.
             ///
-            /// # Panics
-            /// Panics when `min > max`.
-            #[must_use]
-            pub const fn new(min: $ty, max: $ty) -> Self {
-                Self::with_gaps(min, max, &[])
+            /// Pass an empty slice or vector for a domain without gaps. Runtime
+            /// gap vectors are owned by the resulting domain.
+            ///
+            /// # Errors
+            /// Returns a profile-field error when bounds are inverted or gaps
+            /// are not sorted, unique and strictly inside the bounds.
+            ///
+            /// ```
+            /// use grafton_visca::capabilities::CapabilityDomain;
+            /// let domain = CapabilityDomain::<u16>::new(0, 9, vec![2, 3])?;
+            /// assert!(!domain.contains(2));
+            /// # Ok::<(), grafton_visca::Error>(())
+            /// ```
+            pub fn new(
+                min: $ty,
+                max: $ty,
+                gaps: impl Into<Cow<'static, [$ty]>>,
+            ) -> crate::Result<Self> {
+                let gaps = gaps.into();
+                if !Self::is_well_formed(min, max, &gaps) {
+                    return Err(crate::profiles::invalid_profile_fields(
+                        &["capability_domain"],
+                        DOMAIN_BOUNDS,
+                    ));
+                }
+                Ok(Self { min, max, gaps })
             }
 
-            /// Creates a domain whose source table does not list `gaps`.
-            ///
-            /// # Panics
-            /// Panics when `min > max`, or when `gaps` is not sorted, unique,
-            /// and strictly inside the bounds. In a `const` item that is a
-            /// compile error.
-            #[must_use]
-            pub const fn with_gaps(min: $ty, max: $ty, gaps: &'static [$ty]) -> Self {
+            /// Checked registry literals are evaluated in a const block.
+            pub(crate) const fn from_registry(min: $ty, max: $ty, gaps: &'static [$ty]) -> Self {
                 assert!(
                     Self::is_well_formed(min, max, gaps),
-                    "capability domain bounds must be ordered and its gaps sorted, unique, \
-                     and strictly inside them"
+                    "invalid registry capability domain"
                 );
                 Self {
                     min,
@@ -217,9 +249,7 @@ macro_rules! impl_capability_domain {
             pub fn validate(&self, parameter: &'static str, value: $ty) -> crate::Result<$ty> {
                 match self.admission(value) {
                     DomainAdmission::Admitted => Ok(value),
-                    DomainAdmission::OutOfBounds => {
-                        CapabilityRange::<$ty>::new(self.min, self.max).validate(parameter, value)
-                    }
+                    DomainAdmission::OutOfBounds => self.bounds().validate(parameter, value),
                     DomainAdmission::Gap => Err(Error::invalid_parameter(
                         parameter,
                         value.to_string(),
@@ -244,17 +274,7 @@ macro_rules! impl_capability_domain {
                 }
 
                 let wire = WireDomain::deserialize(deserializer)?;
-                if !Self::is_well_formed(wire.min, wire.max, &wire.gaps) {
-                    return Err(serde::de::Error::custom(
-                        "capability domain bounds must be ordered and its gaps sorted, unique, \
-                         and strictly inside them",
-                    ));
-                }
-                Ok(Self {
-                    min: wire.min,
-                    max: wire.max,
-                    gaps: Cow::Owned(wire.gaps),
-                })
+                Self::new(wire.min, wire.max, wire.gaps).map_err(serde::de::Error::custom)
             }
         }
     };
@@ -305,13 +325,10 @@ macro_rules! impl_capability_range {
                 (min + f64::from(value.value()) * span).round() as $ty
             }
 
-            /// Creates an inclusive capability range.
-            ///
-            /// # Panics
-            /// Panics when `min > max`.
-            #[must_use]
-            pub const fn new(min: $ty, max: $ty) -> Self {
-                assert!(min <= max, "capability range minimum exceeds maximum");
+            /// Checked registry literals are evaluated in a const block.
+            #[allow(dead_code)] // Not every supported scalar width occurs in the registry.
+            pub(crate) const fn from_registry(min: $ty, max: $ty) -> Self {
+                assert!(min <= max, "invalid registry capability range");
                 Self { min, max }
             }
 
@@ -406,6 +423,7 @@ impl CoordinateSystem {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use proptest::prelude::*;
 
@@ -429,7 +447,7 @@ mod tests {
             (i32::MIN, i32::MIN + 3, 0.5, i32::MIN + 1),
             (i32::MAX - 3, i32::MAX, 0.5, i32::MAX - 1),
         ] {
-            let range = CapabilityRange::<i32>::new(min, max);
+            let range = CapabilityRange::<i32>::new(min, max).expect("valid capability bounds");
             let actual = range.denormalize(unit_interval(normalized));
             assert!(
                 range.contains(actual),
@@ -451,7 +469,7 @@ mod tests {
             (i32::MIN, i32::MAX, -1),
             (i32::MIN + 1, i32::MAX, 0),
         ] {
-            let range = CapabilityRange::<i32>::new(min, max);
+            let range = CapabilityRange::<i32>::new(min, max).expect("valid capability bounds");
             assert_eq!(
                 range.denormalize(unit_interval(0.5)),
                 expected,
@@ -469,7 +487,8 @@ mod tests {
                     if min > max {
                         continue;
                     }
-                    let range = CapabilityRange::<$ty>::new(min, max);
+                    let range =
+                        CapabilityRange::<$ty>::new(min, max).expect("valid capability bounds");
                     for step in 0_u8..=8 {
                         let normalized = unit_interval(f32::from(step) / 8.0);
                         let numerator =
@@ -556,7 +575,7 @@ mod tests {
                 ) {
                     let min = first.min(second);
                     let max = first.max(second);
-                    let range = CapabilityRange::<$ty>::new(min, max);
+                    let range = CapabilityRange::<$ty>::new(min, max).expect("valid capability bounds");
                     let lower = left.min(right);
                     let upper = left.max(right);
                     let lower_result = range.denormalize(lower);
@@ -567,7 +586,7 @@ mod tests {
                     prop_assert_eq!(range.denormalize(UnitInterval::MIN), min);
                     prop_assert_eq!(range.denormalize(UnitInterval::MAX), max);
 
-                    let singleton = CapabilityRange::<$ty>::new(first, first);
+                    let singleton = CapabilityRange::<$ty>::new(first, first).expect("valid capability bounds");
                     prop_assert_eq!(singleton.denormalize(left), first);
                     prop_assert_eq!(singleton.denormalize(right), first);
                     prop_assert_eq!(singleton.denormalize(UnitInterval::MIN), first);
@@ -585,21 +604,35 @@ mod tests {
 
     #[test]
     fn capability_range_constructs_valid_signed_and_unsigned_ranges() {
-        assert_eq!(CapabilityRange::<u8>::new(1_u8, 3).as_inclusive(), 1..=3);
         assert_eq!(
-            CapabilityRange::<u16>::new(0_u16, 10).as_inclusive(),
+            CapabilityRange::<u8>::new(1_u8, 3)
+                .expect("valid capability bounds")
+                .as_inclusive(),
+            1..=3
+        );
+        assert_eq!(
+            CapabilityRange::<u16>::new(0_u16, 10)
+                .expect("valid capability bounds")
+                .as_inclusive(),
             0..=10
         );
-        assert_eq!(CapabilityRange::<i8>::new(-7_i8, 7).as_inclusive(), -7..=7);
         assert_eq!(
-            CapabilityRange::<i16>::new(-170_i16, 170).as_inclusive(),
+            CapabilityRange::<i8>::new(-7_i8, 7)
+                .expect("valid capability bounds")
+                .as_inclusive(),
+            -7..=7
+        );
+        assert_eq!(
+            CapabilityRange::<i16>::new(-170_i16, 170)
+                .expect("valid capability bounds")
+                .as_inclusive(),
             -170..=170
         );
     }
 
     #[test]
     fn validate_accepts_bounds_and_rejects_outside_without_clamping() {
-        let range = CapabilityRange::<u8>::new(1, 3);
+        let range = CapabilityRange::<u8>::new(1, 3).expect("valid capability bounds");
         assert_eq!(range.validate("speed", 1).ok(), Some(1));
         assert_eq!(range.validate("speed", 3).ok(), Some(3));
         for value in [0, 4] {
@@ -607,7 +640,7 @@ mod tests {
                 matches!(range.validate("speed", value), Err(Error::ParameterOutOfRange { parameter: "speed", value: actual, min: 1, max: 3, .. }) if actual == i32::from(value))
             );
         }
-        let signed = CapabilityRange::<i16>::new(-20, 20);
+        let signed = CapabilityRange::<i16>::new(-20, 20).expect("valid capability bounds");
         assert_eq!(signed.validate("pos", -20).ok(), Some(-20));
         assert!(matches!(
             signed.validate("pos", -21),
@@ -619,15 +652,19 @@ mod tests {
                 ..
             })
         ));
-        let wide = CapabilityRange::<i32>::new(-5, i32::MAX);
+        let wide = CapabilityRange::<i32>::new(-5, i32::MAX).expect("valid capability bounds");
         assert_eq!(wide.validate("w", i32::MAX).ok(), Some(i32::MAX));
     }
 
     #[test]
     fn capability_domain_admits_bounds_and_refuses_gaps_through_one_rule() {
-        let domain = CapabilityDomain::<u8>::with_gaps(0x00, 0x11, &[0x01, 0x02, 0x03, 0x04]);
+        let domain = CapabilityDomain::<u8>::new(0x00, 0x11, &[0x01, 0x02, 0x03, 0x04])
+            .expect("valid capability bounds");
         assert_eq!(domain.gaps(), &[0x01, 0x02, 0x03, 0x04]);
-        assert_eq!(domain.bounds(), CapabilityRange::<u8>::new(0x00, 0x11));
+        assert_eq!(
+            domain.bounds(),
+            CapabilityRange::<u8>::new(0x00, 0x11).expect("valid capability bounds")
+        );
         for admitted in [0x00, 0x05, 0x11] {
             assert!(domain.contains(admitted));
             assert_eq!(domain.validate("iris", admitted).ok(), Some(admitted));
@@ -662,8 +699,7 @@ mod tests {
             (18, 17, &[]),
         ] {
             assert!(
-                std::panic::catch_unwind(|| CapabilityDomain::<u16>::with_gaps(min, max, gaps))
-                    .is_err(),
+                CapabilityDomain::<u16>::new(min, max, gaps).is_err(),
                 "{min}..={max} {gaps:?}"
             );
         }
@@ -671,15 +707,75 @@ mod tests {
 
     #[test]
     fn capability_range_rejects_inverted_ranges() {
-        assert!(std::panic::catch_unwind(|| CapabilityRange::<u8>::new(2_u8, 1)).is_err());
-        assert!(std::panic::catch_unwind(|| CapabilityRange::<u16>::new(2_u16, 1)).is_err());
-        assert!(std::panic::catch_unwind(|| CapabilityRange::<i8>::new(2_i8, 1)).is_err());
-        assert!(std::panic::catch_unwind(|| CapabilityRange::<i16>::new(2_i16, 1)).is_err());
+        assert!(CapabilityRange::<u8>::new(2_u8, 1).is_err());
+        assert!(CapabilityRange::<u16>::new(2_u16, 1).is_err());
+        assert!(CapabilityRange::<i8>::new(2_i8, 1).is_err());
+        assert!(CapabilityRange::<i16>::new(2_i16, 1).is_err());
+        assert!(CapabilityRange::<i32>::new(2_i32, 1).is_err());
+    }
+
+    #[test]
+    fn capability_domain_owns_runtime_gaps() {
+        let gaps = vec![2_u16, 3, 7];
+        let domain = CapabilityDomain::<u16>::new(1, 9, gaps).expect("runtime gaps");
+        assert_eq!(domain.gaps(), &[2, 3, 7]);
+        assert!(domain.contains(1));
+        assert!(domain.contains(9));
+        assert!(!domain.contains(7));
+        assert!(CapabilityDomain::<u16>::new(1, 9, vec![9]).is_err());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    #[allow(clippy::panic)]
+    fn capability_constructor_and_serde_validate_identical_invariants() {
+        for (min, max, gaps) in [
+            (0_u16, 9, vec![]),
+            (1, 9, vec![2, 7]),
+            (1, 9, vec![9]),
+            (1, 9, vec![0]),
+            (1, 9, vec![7, 2]),
+            (1, 9, vec![2, 2]),
+            (9, 1, vec![]),
+        ] {
+            let domain = CapabilityDomain::<u16>::new(min, max, gaps.clone());
+            let decoded = serde_json::from_value::<CapabilityDomain<u16>>(
+                serde_json::json!({"min": min, "max": max, "gaps": gaps}),
+            );
+            match (domain, decoded) {
+                (Ok(domain), Ok(decoded)) => assert_eq!(domain, decoded),
+                (Err(error), Err(decoded)) => assert_eq!(error.to_string(), decoded.to_string()),
+                pair => panic!("constructor and serde disagree: {pair:?}"),
+            }
+            let range = CapabilityRange::<u16>::new(min, max);
+            let decoded = serde_json::from_value::<CapabilityRange<u16>>(
+                serde_json::json!({"min": min, "max": max}),
+            );
+            match (range, decoded) {
+                (Ok(range), Ok(decoded)) => assert_eq!(range, decoded),
+                (Err(error), Err(decoded)) => assert_eq!(error.to_string(), decoded.to_string()),
+                pair => panic!("constructor and serde disagree: {pair:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn hand_built_zoom_with_inverted_digital_limits_has_no_digital_range() {
+        let zoom = crate::capabilities::ZoomCaps {
+            optical_max: 0x4000,
+            digital_max: Some(0x1000),
+            speed: CapabilityRange::<u8>::new(0, 7).expect("speed"),
+            direct: true,
+            variable: true,
+            optical_ratio: None,
+        };
+        assert_eq!(zoom.digital_range(), None);
+        assert_eq!(zoom.optical_range().as_inclusive(), 0..=0x4000);
     }
 
     #[test]
     fn capability_range_allows_single_value_ranges() {
-        let range = CapabilityRange::<u8>::new(5_u8, 5);
+        let range = CapabilityRange::<u8>::new(5_u8, 5).expect("valid capability bounds");
 
         assert_eq!(range.min(), 5);
         assert_eq!(range.max(), 5);
@@ -690,7 +786,7 @@ mod tests {
 
     #[test]
     fn capability_range_represents_full_width_u8_ranges() {
-        let range = CapabilityRange::<u8>::new(0_u8, u8::MAX);
+        let range = CapabilityRange::<u8>::new(0_u8, u8::MAX).expect("valid capability bounds");
 
         assert!(range.contains(0));
         assert!(range.contains(u8::MAX));
@@ -699,25 +795,25 @@ mod tests {
 
     #[test]
     fn capability_range_methods_work_for_supported_primitives() {
-        let u8_range = CapabilityRange::<u8>::new(1_u8, 3);
+        let u8_range = CapabilityRange::<u8>::new(1_u8, 3).expect("valid capability bounds");
         assert_eq!(u8_range.min(), 1);
         assert_eq!(u8_range.max(), 3);
         assert!(u8_range.contains(2));
         assert_eq!(u8_range.as_inclusive(), 1..=3);
 
-        let u16_range = CapabilityRange::<u16>::new(10_u16, 12);
+        let u16_range = CapabilityRange::<u16>::new(10_u16, 12).expect("valid capability bounds");
         assert_eq!(u16_range.min(), 10);
         assert_eq!(u16_range.max(), 12);
         assert!(u16_range.contains(11));
         assert_eq!(u16_range.as_inclusive(), 10..=12);
 
-        let i8_range = CapabilityRange::<i8>::new(-2_i8, 2);
+        let i8_range = CapabilityRange::<i8>::new(-2_i8, 2).expect("valid capability bounds");
         assert_eq!(i8_range.min(), -2);
         assert_eq!(i8_range.max(), 2);
         assert!(i8_range.contains(0));
         assert_eq!(i8_range.as_inclusive(), -2..=2);
 
-        let i16_range = CapabilityRange::<i16>::new(-20_i16, 20);
+        let i16_range = CapabilityRange::<i16>::new(-20_i16, 20).expect("valid capability bounds");
         assert_eq!(i16_range.min(), -20);
         assert_eq!(i16_range.max(), 20);
         assert!(i16_range.contains(0));

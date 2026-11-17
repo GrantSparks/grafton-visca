@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use grafton_visca::{runtime::Executor, Error};
+use grafton_visca::runtime::Executor;
 
 /// Counts actor tasks and timer factories through the selected executor.
 #[derive(Clone)]
@@ -46,18 +46,6 @@ impl<E: Executor> Executor for CountingExecutor<E> {
 
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
         self.inner.sleep(duration)
-    }
-
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        future: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        self.inner.timeout(duration, future)
     }
 
     fn now(&self) -> std::time::Instant {

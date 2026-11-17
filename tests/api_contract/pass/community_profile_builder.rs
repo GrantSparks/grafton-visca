@@ -15,7 +15,7 @@ impl CompileTimeProfile for Community {
         facts.zoom = Some(ZoomCaps {
             optical_max: 0x4000,
             digital_max: None,
-            speed: CapabilityRange::<u8>::new(0, 7),
+            speed: CapabilityRange::<u8>::new(0, 7)?,
             direct: false,
             variable: true,
             optical_ratio: None,

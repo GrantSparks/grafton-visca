@@ -183,7 +183,7 @@ impl ZoomCaps {
             self.optical_max,
             self.digital_max,
         )?;
-        CapabilityRange::<u16>::new(0, max).normalize(position.value())
+        CapabilityRange::<u16>::new(0, max)?.normalize(position.value())
     }
 }
 
@@ -382,7 +382,7 @@ impl WhiteBalanceCaps {
 }
 
 /// Image-processing source facts and optional adjustment domains.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -439,8 +439,8 @@ pub struct ImageCaps {
     pub mirror: bool,
     /// Whether flip changes need explicit settings persistence.
     pub requires_settings_save_for_flip: bool,
-    /// Whether the shared picture-effect family is supported.
-    pub picture_effect: bool,
+    /// Picture-effect values documented for this model; empty means unsupported.
+    pub picture_effects: Vec<crate::types::PictureEffectMode>,
 }
 
 /// Preset memory facts; presence supplies an exact recall-axis set.
@@ -573,14 +573,15 @@ impl ZoomCaps {
     /// Derives the zero-based optical position interval.
     #[must_use]
     pub const fn optical_range(&self) -> CapabilityRange<u16> {
-        CapabilityRange::<u16>::new(0, self.optical_max)
+        CapabilityRange::<u16>::from_registry(0, self.optical_max)
     }
 
     /// Derives the digital position interval sharing the optical boundary.
+    /// Returns `None` when no digital maximum exists or it is below the optical maximum.
     #[must_use]
     pub fn digital_range(&self) -> Option<CapabilityRange<u16>> {
         self.digital_max
-            .map(|maximum| CapabilityRange::<u16>::new(self.optical_max, maximum))
+            .and_then(|maximum| CapabilityRange::<u16>::new(self.optical_max, maximum).ok())
     }
 }
 
@@ -857,6 +858,12 @@ impl super::Capabilities {
             }
         }
         if let Some(image) = &self.image {
+            if !unique(&image.picture_effects) {
+                return Err(invalid(
+                    &["capabilities.image.picture_effects"],
+                    "picture-effect inventory must be unique",
+                ));
+            }
             optional!(
                 "capabilities.image.contrast_range",
                 image.contrast_range,

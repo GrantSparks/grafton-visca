@@ -126,7 +126,7 @@ async fn queued_cancel_at_shutdown_concludes_on_the_buffered_terminal_slot() {
         .await
         .unwrap();
     handle.shutdown().unwrap();
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
 
     // The queued cancellation is drained at shutdown with the session's
     // terminal error; the operation's buffered terminal outcome still decides

@@ -1,5 +1,6 @@
 //! #842: real preparation must permit a healthy late-ACK attempt to finish.
 use super::*;
+use crate::runtime::engine::CancellationPolicy;
 
 #[tokio::test]
 async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
@@ -50,9 +51,9 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
         harness
             .gates
             .send_async(Ok(if sony {
-                TransmissionMeta::Sony { sequence: 1 }
+                TransmissionMeta::Allocated { sequence: 1 }
             } else {
-                TransmissionMeta::Raw
+                TransmissionMeta::Known
             }))
             .await
             .unwrap();
@@ -61,20 +62,14 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
         runtime.advance(Duration::from_secs(ack_at));
         let mut ack = ack(ViscaSocket::S1);
         if sony {
-            ack.sequence = Some(EnvelopeSequence {
-                value: 1,
-                width: SequenceWidth::Full32,
-            });
+            ack.sequence = Some(FrameSequence::from_reply_header(1));
         }
         harness.frames.send_async(batch(vec![ack])).await.unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 1);
         runtime.advance(completion_at - Duration::from_secs(ack_at));
         let mut completed = completion(ViscaSocket::S1);
         if sony {
-            completed.sequence = Some(EnvelopeSequence {
-                value: 1,
-                width: SequenceWidth::Full32,
-            });
+            completed.sequence = Some(FrameSequence::from_reply_header(1));
         }
         harness
             .frames

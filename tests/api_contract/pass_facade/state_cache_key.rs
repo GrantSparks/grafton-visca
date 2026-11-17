@@ -27,6 +27,8 @@ fn inspect_cache(cache: &StateCache) {
     let _: Option<grafton_visca::types::PanTiltSpeedMode> = cache.pan_tilt().speed_mode();
     let _: Option<grafton_visca::types::ImageFlipMode> = cache.image().flip_mode();
     let _: Option<grafton_visca::types::MotionSyncSpeed> = cache.motion_sync().speed();
+    let _: Option<grafton_visca::types::WideDynamicRangeLevel> = cache.exposure().wide_dynamic_range();
+    let _: Option<bool> = cache.motion_sync().enabled();
     let _: Option<grafton_visca::state_cache::PanTiltLimitUpdate> = cache.pan_tilt().limit();
 }
 

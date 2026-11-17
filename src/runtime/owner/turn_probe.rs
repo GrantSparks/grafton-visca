@@ -17,9 +17,8 @@ use super::{
 use crate::{
     request::Request,
     runtime::engine::{
-        CancellationPolicy, CommandReply, ControlPolicy, DecodedFrame, DecodedResponse,
-        EncodedMessage, EnvelopeKind, EnvelopeSequence, RequestContext, RetryPolicy, SequenceWidth,
-        TimeoutPolicy,
+        CommandReply, ControlPolicy, DecodedFrame, DecodedResponse, EncodedMessage, EnvelopeKind,
+        FrameSequence, RequestContext, RetryPolicy, TimeoutPolicy,
     },
     target::TargetSlot,
     transport::{
@@ -87,7 +86,9 @@ impl RetainedStreamInput for ProbeTransport {}
 
 impl ProbeDriver for ProbeTransport {
     fn record_write(&mut self, metadata: TransmissionMeta, bytes: &[u8]) {
-        self.metadata = Some(metadata);
+        if metadata != TransmissionMeta::Known || self.metadata.is_none() {
+            self.metadata = Some(metadata);
+        }
         self.writes += 1;
         self.last_write.clear();
         self.last_write.extend_from_slice(bytes);
@@ -219,7 +220,6 @@ impl TurnProbe {
                 builtin_inquiry_syntax: false,
             },
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         };
         let request = RuntimeRequest::Command {
             wire: Arc::clone(&self.wire),
@@ -350,9 +350,9 @@ impl TurnProbe {
             self.shell.core.state.engine.envelope_kind(),
             EnvelopeKind::Sony
         )
-        .then_some(EnvelopeSequence {
-            value: u32::MAX,
-            width: SequenceWidth::Full32,
+        .then(|| {
+            self.sequence()
+                .unwrap_or(FrameSequence::from_reply_header(0))
         });
         self.receive(
             &[DecodedResponse::Completion {
@@ -369,17 +369,16 @@ impl TurnProbe {
         }
     }
 
-    fn sequence(&self) -> Option<EnvelopeSequence> {
+    fn sequence(&self) -> Option<FrameSequence> {
         match self.driver.metadata {
-            Some(TransmissionMeta::Sony { sequence }) => Some(EnvelopeSequence {
-                value: sequence,
-                width: SequenceWidth::Full32,
-            }),
+            Some(TransmissionMeta::Allocated { sequence }) => {
+                Some(FrameSequence::from_reply_header(sequence))
+            }
             _ => None,
         }
     }
 
-    fn receive(&mut self, responses: &[DecodedResponse], sequence: Option<EnvelopeSequence>) {
+    fn receive(&mut self, responses: &[DecodedResponse], sequence: Option<FrameSequence>) {
         let mut frames = self.shell.core.state.buffers().take_frames();
         for response in responses {
             assert!(
@@ -409,6 +408,26 @@ impl TurnProbe {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_registered_profile_supports_command_and_frame_turns() {
+        for id in crate::profiles::ProfileId::all() {
+            let profile = id.spec().unwrap();
+            for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
+                let mut probe =
+                    TurnProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+                probe.stage_command().unwrap();
+                probe.command_turn().unwrap();
+                if probe.shell.core.state.engine.envelope_kind() == EnvelopeKind::Sony {
+                    assert!(matches!(
+                        probe.sequence(),
+                        Some(FrameSequence::MaybeTruncated(_))
+                    ));
+                }
+                probe.frame_turn().unwrap();
+            }
+        }
+    }
 
     #[test]
     fn probe_pacing_reads_the_retuned_engine() {

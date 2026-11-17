@@ -21,7 +21,7 @@ use crate::executor::{Executor, ResettableTimer};
 #[cfg(all(feature = "async", feature = "test-utils"))]
 use smallvec::SmallVec;
 
-#[cfg(all(feature = "test-utils", any(feature = "async", feature = "blocking")))]
+#[cfg(all(feature = "test-utils", feature = "blocking"))]
 use crate::Error;
 
 #[cfg(all(feature = "async", feature = "test-utils"))]
@@ -1119,23 +1119,6 @@ impl<E: Executor> Executor for ManualClockExecutor<E> {
 
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
         self.clock.sleep_async(duration)
-    }
-
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        fut: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        let expiry = self.clock.sleep_async(duration);
-        async move {
-            crate::timeout::within(fut, expiry)
-                .await
-                .ok_or_else(Error::io_timeout)
-        }
     }
 
     fn now(&self) -> Instant {

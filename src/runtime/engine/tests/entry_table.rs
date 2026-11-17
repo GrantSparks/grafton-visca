@@ -5,29 +5,19 @@ use super::*;
 fn displaced_entry_removal_cannot_release_the_successors_socket() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (first, predecessor) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (first, predecessor) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &first, Some(0x1001), now);
     engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
         ),
         now,
     );
-    let (second, successor) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (second, successor) = admit(&mut engine, 2, command(1), now);
     send_ok(&mut engine, &second, Some(0x1002), now);
     let logical = engine.entry(predecessor).unwrap().lifecycle();
     engine
@@ -46,9 +36,27 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
     );
     // One frame operation can assign its ACK to the successor before retiring
     // the displaced predecessor. No external input crosses this window.
-    engine
+    let Lifecycle::Executing {
+        started_at,
+        deadline,
+        attempt,
+        cancellation,
+        ..
+    } = logical
+    else {
+        unreachable!("executing predecessor")
+    };
+    let claim = engine
         .entries
-        .transition(successor, EntryChange::Lifecycle(logical))
+        .claim_socket(successor, [ViscaSocket::S1])
+        .unwrap();
+    claim
+        .install(SocketedLifecycle::Executing {
+            started_at,
+            deadline,
+            attempt,
+            cancellation,
+        })
         .unwrap();
     engine.entries.remove(&predecessor).unwrap();
     assert_eq!(
@@ -59,7 +67,7 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
     let late = engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -74,7 +82,7 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
     let completed = engine.handle(
         frame(
             1,
-            Some((0x1002, SequenceWidth::Full32)),
+            Some(0x1002),
             DecodedResponse::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -86,23 +94,35 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
 }
 
 #[test]
-#[should_panic(expected = "one Sony sequence per correlation kind")]
-fn a_second_sequence_of_the_same_kind_is_an_invariant_violation() {
+fn occupied_socket_cannot_mint_an_installation_claim() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (_, id) = admit(&mut engine, 1, inquiry(1), now);
-    for sequence in [0x0001_beef, 0x0002_beef] {
-        engine
-            .entries
-            .transition(
-                id,
-                EntryChange::Written {
-                    receipt: TransmissionMeta::Sony { sequence },
-                    kind: CorrelationKind::Request,
-                },
-            )
-            .unwrap();
-    }
+    let (first, predecessor) = admit(&mut engine, 1, command(1), now);
+    send_ok(&mut engine, &first, Some(0x1001), now);
+    engine.handle(
+        frame(
+            1,
+            Some(0x1001),
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        now,
+    );
+    let (_, successor) = admit(&mut engine, 2, command(1), now);
+    assert!(engine
+        .entries
+        .claim_socket(successor, [ViscaSocket::S1])
+        .is_none());
+    assert!(engine
+        .entries
+        .claim_socket(predecessor, [ViscaSocket::S1])
+        .is_some());
+    assert!(engine
+        .entries
+        .claim_socket(successor, [ViscaSocket::S2])
+        .is_some());
+    engine.assert_invariants().unwrap();
 }
 
 #[test]
@@ -120,7 +140,7 @@ fn admission_and_transitions_never_duplicate_a_ready_position() {
         table
             .transition(
                 id,
-                EntryChange::Lifecycle(Lifecycle::Ready {
+                EntryChange::Lifecycle(UnsocketedLifecycle::Ready {
                     previous_attempt: None,
                 }),
             )
@@ -144,9 +164,9 @@ fn admission_and_transitions_never_duplicate_a_ready_position() {
 fn stop_class_alone_selects_the_highest_priority_ready_index() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let mut ordinary = command(1, CancellationPolicy::Supported);
+    let mut ordinary = command(1);
     ordinary.context_mut().control.class = ControlClass::User;
-    let mut stop = urgent_command(1, CancellationPolicy::Supported);
+    let mut stop = urgent_command(1);
     // Even a lowest-priority context cannot demote the immutable STOP class.
     stop.context_mut().control.class = ControlClass::Background;
     let turn = engine.begin_input_turn(now);

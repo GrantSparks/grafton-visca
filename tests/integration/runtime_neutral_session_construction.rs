@@ -17,7 +17,6 @@ use grafton_visca::{
     r#async::Session,
     runtime::{ExecError, Executor},
     transport::AddressingMode,
-    Error,
 };
 
 use fake_camera::FakeCamera;
@@ -89,25 +88,6 @@ impl Executor for ThreadExecutor {
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
         async move {
             async_io::Timer::after(duration).await;
-        }
-    }
-
-    #[allow(clippy::manual_async_fn)]
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        future: F,
-    ) -> impl Future<Output = std::result::Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        async move {
-            futures_lite::future::race(async move { Ok(future.await) }, async move {
-                async_io::Timer::after(duration).await;
-                Err(Error::io_timeout())
-            })
-            .await
         }
     }
 }

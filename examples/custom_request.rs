@@ -178,10 +178,10 @@ fn runtime_profile_spec() -> Result<ProfileSpec, Error> {
 
     ProfileSpec::builder(capabilities)
         .pan_tilt(PanTiltCaps {
-            pan_range: CapabilityRange::<i32>::new(-1_000, 1_000),
-            tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-500, 500)),
-            pan_speed: CapabilityRange::<u8>::new(1, 8),
-            tilt_speed: CapabilityRange::<u8>::new(1, 8),
+            pan_range: CapabilityRange::<i32>::new(-1_000, 1_000)?,
+            tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-500, 500)?),
+            pan_speed: CapabilityRange::<u8>::new(1, 8)?,
+            tilt_speed: CapabilityRange::<u8>::new(1, 8)?,
             coordinates: grafton_visca::profiles::PanTiltCoordinateConversion::new(
                 CoordinateSystem::SignedCentered,
                 PanTiltWireCodec::StandardVisca,

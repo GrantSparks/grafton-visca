@@ -17,20 +17,23 @@ use smallvec::SmallVec;
 use crate::{
     profiles::{ProfileEnvelope, ProfileSpec},
     protocol::{
-        framer::{FrameScan, Framer, FramingError, RawFramer, SonyFramer},
+        framer::{
+            BufferOverflow, FrameScan, Framer, OversizedRawFrame, RawFramer, SonyFramer,
+            SonyPositionLost,
+        },
         response::{decode_basic_for_source, BasicKind},
     },
     raw::INLINE_BYTES,
     runtime::engine::{
-        CancellationPolicy, DecodedFrame, DecodedResponse, EnvelopeKind, EnvelopeSequence,
-        ProtocolPolicy, SequenceWidth, TargetPolicy, TransportKind,
+        CancellationPolicy, DecodedFrame, DecodedResponse, EnvelopeKind, ProtocolPolicy,
+        TargetPolicy, TransportKind,
     },
     target::{PerTarget, TargetSlot},
     transport::{
         builder::{AddressingMode, TransportConfig},
         envelope::{
-            Envelope, FrameMeta, FrameSequence, MalformedFrame, RawVisca, SonyEncapsulated,
-            SonyMalformed, SonyResponse,
+            Envelope, FrameSequence, MalformedFrame, RawVisca, SonyEncapsulated, SonyMalformed,
+            SonyResponse,
         },
         TransportIdentity,
     },
@@ -47,33 +50,63 @@ use crate::{
 };
 
 pub(crate) enum OwnerResponse<'a> {
-    Visca { payload: &'a [u8], meta: FrameMeta },
-    SonyControl { code: u16 },
+    Visca {
+        payload: &'a [u8],
+        sequence: Option<FrameSequence>,
+    },
+    SonyControl {
+        code: u16,
+    },
 }
 
 /// Associate each sealed envelope with its only valid frame grammar.
 pub(crate) trait AdapterEnvelope: Envelope {
     type Framer: Framer;
+    fn stream_rejection(rejection: <Self::Framer as Framer>::Rejection) -> StreamRejection;
+    fn datagram_rejection(rejection: <Self::Framer as Framer>::Rejection) -> ReceiveDecodeFailure;
     fn extract_owner<'a>(&self, framed: &'a [u8]) -> Result<OwnerResponse<'a>, MalformedFrame>;
 }
 
 impl AdapterEnvelope for RawVisca {
     type Framer = RawFramer;
+    fn stream_rejection(_rejection: OversizedRawFrame) -> StreamRejection {
+        StreamRejection::Discard
+    }
+    fn datagram_rejection(rejection: OversizedRawFrame) -> ReceiveDecodeFailure {
+        ReceiveDecodeFailure::Fatal {
+            error: rejection.into(),
+            discarded: 0,
+        }
+    }
     fn extract_owner<'a>(&self, framed: &'a [u8]) -> Result<OwnerResponse<'a>, MalformedFrame> {
         Ok(OwnerResponse::Visca {
             payload: framed,
-            meta: FrameMeta::Raw,
+            sequence: None,
         })
     }
 }
 
 impl AdapterEnvelope for SonyEncapsulated {
     type Framer = SonyFramer;
+    fn stream_rejection(rejection: SonyPositionLost) -> StreamRejection {
+        StreamRejection::PositionLost(rejection.into())
+    }
+    fn datagram_rejection(rejection: SonyPositionLost) -> ReceiveDecodeFailure {
+        match rejection {
+            SonyPositionLost::InvalidHeader => {
+                MalformedFrame::Sony(SonyMalformed::InvalidHeader).into()
+            }
+            SonyPositionLost::Oversized { max_size } => ReceiveDecodeFailure::Fatal {
+                error: Error::ResponseTooLarge { max_size },
+                discarded: 0,
+            },
+        }
+    }
     fn extract_owner<'a>(&self, framed: &'a [u8]) -> Result<OwnerResponse<'a>, MalformedFrame> {
         match self.extract_owner_response(framed)? {
             SonyResponse::Visca { payload, sequence } => Ok(OwnerResponse::Visca {
                 payload,
-                meta: FrameMeta::Sony { sequence },
+                sequence: Some(sequence),
             }),
             SonyResponse::Control { code } => Ok(OwnerResponse::SonyControl { code }),
         }
@@ -682,8 +715,14 @@ pub(crate) enum ReceiveDecodeFailure {
     Fatal { error: Error, discarded: usize },
     Malformed(MalformedFrame),
 }
-impl From<FramingError> for ReceiveDecodeFailure {
-    fn from(error: FramingError) -> Self {
+/// Only raw oversize rejection preserves a usable next stream boundary.
+pub(crate) enum StreamRejection {
+    Discard,
+    PositionLost(Error),
+}
+
+impl From<BufferOverflow> for ReceiveDecodeFailure {
+    fn from(error: BufferOverflow) -> Self {
         Self::Fatal {
             error: error.into(),
             discarded: 0,
@@ -747,50 +786,45 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
                 let length = match framer.frame_len(&input[offset..]) {
                     FrameScan::Complete(length) => length,
                     FrameScan::NeedMore => return Err(MalformedFrame::DatagramTrailingBytes.into()),
-                    FrameScan::Rejected(FramingError::InvalidSonyHeader) => {
-                        return Err(MalformedFrame::Sony(SonyMalformed::InvalidHeader).into())
-                    }
-                    FrameScan::Rejected(error) => return Err(error.into()),
+                    FrameScan::Rejected(rejection) => return Err(E::datagram_rejection(rejection)),
                 };
-                if frames.len() >= frame_limit {
+                let Some(vacancy) = frames.vacancy() else {
                     return Err(MalformedFrame::DatagramFrameLimit { limit: frame_limit }.into());
-                }
+                };
                 if let Some(frame) =
                     decode_frame(envelope, routing, &input[offset..offset + length])?
                 {
-                    frames
-                        .try_push(frame)
-                        .map_err(|_| MalformedFrame::DatagramFrameLimit { limit: frame_limit })?;
+                    vacancy.fill(frame);
                 }
                 offset += length;
             }
             Ok(())
         })(),
-        TransportKind::Stream => {
-            (|| {
-                framer.push_slice(&buffers.receive_mut()[..received])?;
-                while frames.len() < frame_limit {
-                    let Some(next) =
-                        framer.visit_next_frame(|frame| decode_frame(envelope, routing, frame))
-                    else {
-                        break;
-                    };
-                    match next {
-                        Ok(Ok(Some(frame))) => {
-                            frames.try_push(frame).map_err(|_| {
-                                MalformedFrame::DatagramFrameLimit { limit: frame_limit }
-                            })?;
+        TransportKind::Stream => (|| {
+            framer.push_slice(&buffers.receive_mut()[..received])?;
+            while let Some(vacancy) = frames.vacancy() {
+                let Some(next) =
+                    framer.visit_next_frame(|frame| decode_frame(envelope, routing, frame))
+                else {
+                    break;
+                };
+                match next {
+                    Ok(Ok(Some(frame))) => vacancy.fill(frame),
+                    Ok(Ok(None)) => {}
+                    Ok(Err(_)) => discarded = discarded.saturating_add(1),
+                    Err(rejection) => match E::stream_rejection(rejection) {
+                        StreamRejection::Discard => discarded = discarded.saturating_add(1),
+                        StreamRejection::PositionLost(error) => {
+                            return Err(ReceiveDecodeFailure::Fatal {
+                                error,
+                                discarded: 0,
+                            });
                         }
-                        Ok(Ok(None)) => {}
-                        Ok(Err(_)) | Err(FramingError::OversizedRawFrame { .. }) => {
-                            discarded = discarded.saturating_add(1);
-                        }
-                        Err(error) => return Err(error.into()),
-                    }
+                    },
                 }
-                Ok(())
-            })()
-        }
+            }
+            Ok(())
+        })(),
     };
     match result {
         Ok(()) => {
@@ -810,8 +844,8 @@ fn decode_frame<E: AdapterEnvelope>(
     framed: impl AsRef<[u8]>,
 ) -> Result<Option<DecodedFrame>, MalformedFrame> {
     let framed = framed.as_ref();
-    let (payload, meta) = match envelope.extract_owner(framed)? {
-        OwnerResponse::Visca { payload, meta } => (payload, meta),
+    let (payload, sequence) = match envelope.extract_owner(framed)? {
+        OwnerResponse::Visca { payload, sequence } => (payload, sequence),
         OwnerResponse::SonyControl { code } => {
             let Some(target) = routing.targets().sole_target() else {
                 return Ok(None);
@@ -828,16 +862,6 @@ fn decode_frame<E: AdapterEnvelope>(
         // drop it without falling back to any configured target.
         return Ok(None);
     };
-    let sequence = meta.sequence().map(|sequence| match sequence {
-        FrameSequence::Full32(value) => EnvelopeSequence {
-            value,
-            width: SequenceWidth::Full32,
-        },
-        FrameSequence::MaybeTruncated(value) => EnvelopeSequence {
-            value: u32::from(value),
-            width: SequenceWidth::Lower16,
-        },
-    });
     if !routing.targets().contains(target) {
         // Preserve a source-valid but unregistered serial frame as an inert
         // frame. This keeps async receive alive while ensuring the engine

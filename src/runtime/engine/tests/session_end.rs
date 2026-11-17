@@ -87,12 +87,7 @@ fn owner_terminal_inputs_emit_their_complete_verdict_once() {
 fn strict_deadline_poison_emits_and_retains_the_engine_verdict_once() {
     let now = Instant::now();
     let mut engine = strict_poison_engine();
-    let (effects, _) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, _) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &effects, None, now);
     let deadline = now + Duration::from_millis(20);
     let effects = engine.advance(deadline);
@@ -109,12 +104,7 @@ fn strict_deadline_poison_emits_and_retains_the_engine_verdict_once() {
 fn strict_receive_fault_emits_and_retains_the_engine_verdict_once() {
     let now = Instant::now();
     let mut engine = strict_poison_engine();
-    let (effects, _) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, _) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &effects, None, now);
     let effects = engine.handle(
         Input::ReceiveFault {
@@ -136,12 +126,7 @@ fn stream_write_poison_delivers_the_exact_transport_cause_once() {
     let now = Instant::now();
     for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
         let mut engine = engine(envelope, TransportKind::Stream);
-        let (admission, id) = admit(
-            &mut engine,
-            1,
-            command(1, CancellationPolicy::Supported),
-            now,
-        );
+        let (admission, id) = admit(&mut engine, 1, command(1), now);
         let (transmission, _, _) = request_transmit(&admission);
         let cause = Error::transport_error(std::io::Error::other("short write"));
         let effects = engine.handle(

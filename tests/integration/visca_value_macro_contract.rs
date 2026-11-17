@@ -41,6 +41,9 @@ fn visca_value_attributes_are_checked_downstream() {
             "tests/api_contract/fail/visca_enum_duplicate_attribute.rs",
             "tests/api_contract/fail/visca_enum_exhaustive_removed.rs",
             "tests/api_contract/fail/visca_enum_suffixed_discriminant.rs",
+            "tests/api_contract/fail/value_enum_payload_aliases_unit_code.rs",
+            "tests/api_contract/fail/value_enum_biased_payload_aliases_unit_code.rs",
+            "tests/api_contract/fail/value_enum_primitive_payload.rs",
         ],
         &features,
     );

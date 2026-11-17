@@ -254,10 +254,12 @@ fn synthetic_spec(
     caps.typed_support = typed_support;
     caps.inquiry_support = InquirySupport::Full;
     caps.pan_tilt = Some(PanTiltCaps {
-        pan_range: CapabilityRange::<i32>::new(-1700, 1700),
-        tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-300, 900)),
-        pan_speed: CapabilityRange::<u8>::new(1, 24),
-        tilt_speed: CapabilityRange::<u8>::new(1, 20),
+        pan_range: CapabilityRange::<i32>::new(-1700, 1700).expect("valid capability bounds"),
+        tilt_ranges: TiltRanges::Single(
+            CapabilityRange::<i32>::new(-300, 900).expect("valid capability bounds"),
+        ),
+        pan_speed: CapabilityRange::<u8>::new(1, 24).expect("valid capability bounds"),
+        tilt_speed: CapabilityRange::<u8>::new(1, 20).expect("valid capability bounds"),
         coordinates: PanTiltCoordinateConversion::new(
             CoordinateSystem::SignedCentered,
             PanTiltWireCodec::StandardVisca,
@@ -270,20 +272,20 @@ fn synthetic_spec(
         variable_speed: false,
         motion_sync_speed_range: typed_support
             .contains(S::MotionSync)
-            .then(|| CapabilityRange::<u8>::new(1, 24)),
+            .then(|| CapabilityRange::<u8>::new(1, 24).expect("valid capability bounds")),
     });
     caps.zoom = Some(ZoomCaps {
         optical_max: 0x4000,
         digital_max: Some(0x7000),
-        speed: CapabilityRange::<u8>::new(0, 7),
+        speed: CapabilityRange::<u8>::new(0, 7).expect("valid capability bounds"),
         direct: true,
         variable: true,
         optical_ratio: None,
     });
     caps.focus = Some(FocusCaps {
-        range: CapabilityRange::<u16>::new(0x1000, 0xf000),
+        range: CapabilityRange::<u16>::new(0x1000, 0xf000).expect("valid capability bounds"),
         near_end: FocusNearEnd::Minimum,
-        speed: CapabilityRange::<u8>::new(0, 7),
+        speed: CapabilityRange::<u8>::new(0, 7).expect("valid capability bounds"),
         auto_focus: true,
         one_push: true,
         zone_inquiry: typed_support.contains(S::FocusZoneInquiry),
@@ -303,18 +305,18 @@ fn synthetic_spec(
         wide_dynamic_range: typed_support.contains(S::WideDynamicRange),
         compensation_range: typed_support
             .contains(S::ExposureCompensation)
-            .then(|| CapabilityRange::<i8>::new(-7, 7)),
-        iris_range: typed_support
-            .contains(S::Iris)
-            .then(|| CapabilityDomain::<u16>::new(0, 30)),
-        gain_range: Some(CapabilityRange::<u8>::new(0, 15)),
+            .then(|| CapabilityRange::<i8>::new(-7, 7).expect("valid capability bounds")),
+        iris_range: typed_support.contains(S::Iris).then(|| {
+            CapabilityDomain::<u16>::new(0, 30, &[][..]).expect("valid capability bounds")
+        }),
+        gain_range: Some(CapabilityRange::<u8>::new(0, 15).expect("valid capability bounds")),
         shutter_speeds: vec![ShutterSpeedEntry::new(
             crate::types::ExposureTime::new(1, 60)?,
             0x01,
         )],
-        brightness_range: typed_support
-            .contains(S::Brightness)
-            .then(|| CapabilityDomain::<u8>::new(0, 0xff)),
+        brightness_range: typed_support.contains(S::Brightness).then(|| {
+            CapabilityDomain::<u8>::new(0, 0xff, &[][..]).expect("valid capability bounds")
+        }),
     });
     let color_temperature = typed_support.contains(S::ColorTemperature)
         || typed_support.contains(S::ColorTemperatureInquiry);
@@ -325,7 +327,8 @@ fn synthetic_spec(
     caps.white_balance = Some(WhiteBalanceCaps {
         modes: white_modes,
         one_push: typed_support.contains(S::OnePushWhiteBalance),
-        color_temp_range: color_temperature.then(|| CapabilityRange::<u16>::new(2500, 8000)),
+        color_temp_range: color_temperature
+            .then(|| CapabilityRange::<u16>::new(2500, 8000).expect("valid capability bounds")),
         color_temperature_steps: if color_temperature {
             (0..=55)
                 .map(|step| 2500 + 100 * step)
@@ -335,30 +338,41 @@ fn synthetic_spec(
             Arc::from([])
         },
         rgb_gain: typed_support.contains(S::RgbGain).then(|| RgbGainRanges {
-            red: CapabilityRange::<u8>::new(0, 0xff),
-            blue: CapabilityRange::<u8>::new(0, 0xff),
+            red: CapabilityRange::<u8>::new(0, 0xff).expect("valid capability bounds"),
+            blue: CapabilityRange::<u8>::new(0, 0xff).expect("valid capability bounds"),
         }),
         rgb_tuning: typed_support
             .contains(S::RgbTuning)
             .then(|| RgbTuningRanges {
-                red: CapabilityRange::<i8>::new(-10, 10),
-                blue: CapabilityRange::<i8>::new(-10, 10),
+                red: CapabilityRange::<i8>::new(-10, 10).expect("valid capability bounds"),
+                blue: CapabilityRange::<i8>::new(-10, 10).expect("valid capability bounds"),
             }),
     });
     // This broad fixture exists only to instantiate generic noun contracts.
     // Unlike the old metadata-trait fixture, its granted surfaces have facts.
     if typed_support.contains(S::Contrast) {
         caps.image = Some(ImageCaps {
-            contrast_range: Some(CapabilityRange::<u8>::new(0, 14)),
-            sharpness_range: Some(CapabilityRange::<u8>::new(0, 15)),
-            saturation_range: Some(CapabilityRange::<u8>::new(0, 14)),
-            hue_range: Some(CapabilityRange::<u8>::new(0, 14)),
-            luminance_range: Some(CapabilityRange::<u8>::new(0, 14)),
-            gamma_range: Some(CapabilityRange::<u8>::new(0, 4)),
+            contrast_range: Some(
+                CapabilityRange::<u8>::new(0, 14).expect("valid capability bounds"),
+            ),
+            sharpness_range: Some(
+                CapabilityRange::<u8>::new(0, 15).expect("valid capability bounds"),
+            ),
+            saturation_range: Some(
+                CapabilityRange::<u8>::new(0, 14).expect("valid capability bounds"),
+            ),
+            hue_range: Some(CapabilityRange::<u8>::new(0, 14).expect("valid capability bounds")),
+            luminance_range: Some(
+                CapabilityRange::<u8>::new(0, 14).expect("valid capability bounds"),
+            ),
+            gamma_range: Some(CapabilityRange::<u8>::new(0, 4).expect("valid capability bounds")),
             flip: true,
             mirror: true,
             requires_settings_save_for_flip: false,
-            picture_effect: true,
+            picture_effects: vec![
+                crate::types::PictureEffectMode::Off,
+                crate::types::PictureEffectMode::BlackAndWhite,
+            ],
         });
     }
     caps.presets = Some(PresetCaps {
@@ -366,7 +380,9 @@ fn synthetic_spec(
         recall_axes: AffectedAxes::PAN_TILT
             .union(AffectedAxes::ZOOM)
             .union(AffectedAxes::FOCUS),
-        recall_speed_range: Some(CapabilityRange::<u8>::new(1, 23)),
+        recall_speed_range: Some(
+            CapabilityRange::<u8>::new(1, 23).expect("valid capability bounds"),
+        ),
         tour: false,
         thumbnail: false,
         recall_delay: Duration::ZERO,

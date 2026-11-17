@@ -2,9 +2,8 @@
 use super::*;
 
 fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, AdmissionSlot, Instant) {
-    let supported = CancellationPolicy::Supported;
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let mut request = command(1, supported);
+    let mut request = command(1);
     let mut slot = AdmissionSlot::Ordinary;
     let mut now = start;
     match case {
@@ -33,7 +32,7 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Admis
         }
         "full reserve" => {
             engine = reserved_engine();
-            request = urgent_command(1, supported);
+            request = urgent_command(1);
             slot = AdmissionSlot::ControlReserve;
             let turn = engine.begin_input_turn(now);
             for _ in 0..2 {
@@ -41,7 +40,7 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Admis
             }
         }
         "unregistered target" => {
-            request = command(7, supported);
+            request = command(7);
         }
         "shape capacity" => {
             let turn = engine.begin_input_turn(now);
@@ -62,9 +61,6 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Admis
             now = timed_out + Duration::from_millis(50);
             engine.advance(now);
             request = inquiry(1);
-        }
-        "cancellation conflict" => {
-            request.context_mut().cancellation = CancellationPolicy::Unsupported;
         }
         "request identity exhausted" => {
             engine.seed_allocators(0, 1);
@@ -93,7 +89,6 @@ fn synchronous_admission_and_test_shim_agree_on_every_verdict_path() {
         "unregistered target",
         "shape capacity",
         "latched lane",
-        "cancellation conflict",
         "request identity exhausted",
         "duplicate identity refused",
     ] {

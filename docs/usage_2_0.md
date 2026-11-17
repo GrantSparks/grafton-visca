@@ -324,8 +324,9 @@ transport is checked against the profile transport registry; one that reports
 no standard kind (`None`) may bypass only that standard profile/transport pair matrix. The
 custom path still undergoes target-registry, envelope, addressing/topology,
 pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
-executor must provide coherent spawn, sleep, timeout, and clock behavior from
-one runtime. `raw::InquiryRequest::new` uses the inquiry lifecycle's fixed
+executor must provide coherent spawn, sleep, reusable timers, and clock behavior
+from one runtime. Async construction uses the crate's operation-first deadline
+race. Dropping a built-in connect future cancels its pending connector work. `raw::InquiryRequest::new` uses the inquiry lifecycle's fixed
 timeout and accepts no timeout argument; `from_fn`, `with_context`, and explicit
 `request::InquiryPolicy` values follow the same rule. Inquiry constructors take
 `request::InquiryRetryClass::Never` or `InquiryRetryClass::Inquiry`; the latter

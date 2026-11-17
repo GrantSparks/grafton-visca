@@ -16,7 +16,7 @@ use crate::{
     Error,
 };
 
-use super::{EnvelopeKind, RequestFraming, TransmissionMeta};
+use super::{EnvelopeKind, TransmissionMeta};
 
 /// Immutable, shared configuration for exactly one session wire protocol.
 #[derive(Debug, Clone)]
@@ -114,13 +114,11 @@ enum FramingPlan {
 }
 
 impl WriteFraming {
-    /// Correlation evidence for checking a driver's later write result.
-    pub(crate) fn expectation(&self) -> RequestFraming {
-        match &self.0 {
-            FramingPlan::Raw(_) => RequestFraming::Raw,
-            FramingPlan::Sony { sequence, .. } => RequestFraming::Sony {
-                sequence: *sequence,
-            },
+    #[cfg(test)]
+    pub(super) fn sony_sequence(&self) -> Option<SonyRequestSequence> {
+        match self.0 {
+            FramingPlan::Raw(_) => None,
+            FramingPlan::Sony { sequence, .. } => Some(sequence),
         }
     }
 
@@ -133,11 +131,16 @@ impl WriteFraming {
         match &self.0 {
             FramingPlan::Raw(envelope) => {
                 envelope.frame_into(bytes, kind, out)?;
-                Ok(TransmissionMeta::Raw)
+                Ok(TransmissionMeta::Known)
             }
             FramingPlan::Sony { envelope, sequence } => envelope
                 .frame_into_with_sequence(bytes, kind, *sequence, out)
-                .map(|sequence| TransmissionMeta::Sony { sequence }),
+                .map(|allocated| match sequence {
+                    SonyRequestSequence::AllocateFresh => TransmissionMeta::Allocated {
+                        sequence: allocated,
+                    },
+                    SonyRequestSequence::Replay(_) => TransmissionMeta::Known,
+                }),
         }
     }
 }
@@ -163,14 +166,14 @@ mod tests {
             first
                 .frame_into(COMMAND, CommandKind::Command, &mut buffer)
                 .expect("first"),
-            TransmissionMeta::Sony { sequence: 0 }
+            TransmissionMeta::Allocated { sequence: 0 }
         );
         let original = buffer.clone();
         assert_eq!(
             replay
                 .frame_into(COMMAND, CommandKind::Command, &mut buffer)
                 .expect("replay"),
-            TransmissionMeta::Sony { sequence: 0 }
+            TransmissionMeta::Known
         );
         assert_eq!(buffer, original);
         assert!(encoder
@@ -184,7 +187,7 @@ mod tests {
         assert_eq!(
             next.frame_into(COMMAND, CommandKind::Command, &mut buffer)
                 .expect("next"),
-            TransmissionMeta::Sony { sequence: 1 }
+            TransmissionMeta::Allocated { sequence: 1 }
         );
         let shared = authority.clone();
         let ProtocolEncoder::Sony(shared) = shared.encoder() else {
@@ -195,7 +198,7 @@ mod tests {
                 .plan(SonyRequestSequence::AllocateFresh)
                 .frame_into(COMMAND, CommandKind::Command, &mut buffer)
                 .expect("shared"),
-            TransmissionMeta::Sony { sequence: 2 }
+            TransmissionMeta::Allocated { sequence: 2 }
         );
     }
 
@@ -217,7 +220,7 @@ mod tests {
             pending
                 .frame_into(COMMAND, CommandKind::Command, &mut buffer)
                 .expect("after reset"),
-            TransmissionMeta::Sony { sequence: 0 }
+            TransmissionMeta::Allocated { sequence: 0 }
         );
     }
 
@@ -228,13 +231,12 @@ mod tests {
             unreachable!("raw authority");
         };
         let plan = encoder.plan();
-        assert_eq!(plan.expectation(), RequestFraming::Raw);
         let mut buffer = bytes::BytesMut::new();
         let command = [0x82, 0x01, 0x04, 0x00, 0x02, 0xff];
         assert_eq!(
             plan.frame_into(&command, CommandKind::Command, &mut buffer)
                 .expect("raw frame"),
-            TransmissionMeta::Raw
+            TransmissionMeta::Known
         );
         assert_eq!(buffer.as_ref(), command);
     }

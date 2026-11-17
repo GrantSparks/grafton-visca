@@ -541,7 +541,7 @@ builtin_command_ledger! {
     ExposureCompensationUp => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::COMPENSATION_STEP).then(&[0x02], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-exposurecompensationup-command"), (R14, [PtzOpticsG3], "r14-exposurecompensationup-command"), (R8, [SonyEviH100, GenericVisca], "r8-exposurecompensationup-command"), (R12, [SonyBrc300, GenericVisca], "r12-exposurecompensationup-command"), (R21, [NearusBrc300, GenericVisca], "r21-exposurecompensationup-command")]) },
     ExposureCompensationDown => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::COMPENSATION_STEP).then(&[0x03], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-exposurecompensationdown-command"), (R14, [PtzOpticsG3], "r14-exposurecompensationdown-command"), (R8, [SonyEviH100, GenericVisca], "r8-exposurecompensationdown-command"), (R12, [SonyBrc300, GenericVisca], "r12-exposurecompensationdown-command"), (R21, [NearusBrc300, GenericVisca], "r21-exposurecompensationdown-command")]) },
     ExposureCompensationDirect => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::COMPENSATION_DIRECT).prefix_len(3)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-exposurecompensationdirect-command"), (R14, [PtzOpticsG3], "r14-exposurecompensationdirect-command"), (R8, [SonyEviH100, GenericVisca], "r8-exposurecompensationdirect-command"), (R12, [SonyBrc300, GenericVisca], "r12-exposurecompensationdirect-command"), (R21, [NearusBrc300, GenericVisca], "r21-exposurecompensationdirect-command")]) },
-    DynamicRange => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::DYNAMIC_RANGE).prefix_len(3)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-dynamicrange-command"), (R14, [PtzOpticsG3], "r14-dynamicrange-command")]) },
+    DynamicRange => { class: plain(Set(ExposureWideDynamicRange)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::DYNAMIC_RANGE).prefix_len(3)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-dynamicrange-command"), (R14, [PtzOpticsG3], "r14-dynamicrange-command")]) },
     // Iris commands are finite physical aperture movements.  They have a
     // meaningful end state and an exact Iris inquiry, so every
     // reset/step/direct form is targeted rather than applied-only.
@@ -624,7 +624,7 @@ builtin_command_ledger! {
     // cache entry.
     ImageFreezeOn => { class: plain(Set(ImageFreeze)), packet: None, source: crate::source_evidence::Source::Unsourced },
     ImageFreezeOff => { class: plain(Set(ImageFreeze)), packet: None, source: crate::source_evidence::Source::Unsourced },
-    PictureEffect => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::image::PICTURE_EFFECT)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pictureeffect-command"), (R14, [PtzOpticsG3], "r14-pictureeffect-command")]) },
+    PictureEffect => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::image::PICTURE_EFFECT).select(&[&[0x00], &[0x04]])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pictureeffect-command"), (R14, [PtzOpticsG3], "r14-pictureeffect-command")]) },
     // Neutral-density filter.
     NdFilterMode => { class: plain(Set(NdFilterMode)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::nd_filter::MODE)), source: crate::source_evidence::source!([(R7, [SonyFr7], "r7-ndfiltermode-command")]) },
     // ND direct and step commands physically reposition the filter. The
@@ -668,7 +668,7 @@ builtin_command_ledger! {
     // Motion-related configuration. The speed command retains its historical
     // protocol row identity; its exact applied value is now cached because no
     // sourced inquiry can read that speed back.
-    MotionSyncMode => { class: plain, packet: None, source: crate::source_evidence::Source::Unsourced },
+    MotionSyncMode => { class: plain(Set(MotionSyncEnabled)), packet: None, source: crate::source_evidence::Source::Unsourced },
     MotionSyncPreset => { class: plain(Set(MotionSyncSpeed)), packet: None, source: crate::source_evidence::Source::Unsourced },
     VariableSpeedMode => { class: plain(Set(PanTiltSpeedMode)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::variable_speed::STEP_RANGE)), source: crate::source_evidence::source!([(R7, [SonyFr7], "r7-variablespeedmode-command")]) },
     // Sony FR7 cinema controls, R7 v4.
@@ -905,7 +905,16 @@ mod tests {
             BuiltinCommand::MotionSyncMode
                 .classification()
                 .state_effect(),
-            None
+            Some(AppliedStateEffectRequirement::Set(
+                StateKey::MotionSyncEnabled
+            ))
+        );
+
+        assert_eq!(
+            BuiltinCommand::DynamicRange.classification().state_effect(),
+            Some(AppliedStateEffectRequirement::Set(
+                StateKey::ExposureWideDynamicRange
+            ))
         );
 
         let represented: HashSet<_> = BuiltinCommand::ALL
@@ -951,9 +960,9 @@ mod tests {
     /// retry class is a deliberate decision rather than the generic default for
     /// its domain, so that changing one is a visible, reviewed edit here.
     ///
-    /// - Urgent stops and focus triggers complete on the quick deadline but keep
-    ///   the movement retry class, because an unacknowledged stop must still be
-    ///   retried on movement error evidence.
+    /// - Urgent stops complete on the quick deadline with standard retries.
+    ///   A camera's standing not-executable refusal cannot be changed by a resend.
+    ///   Applied-only focus triggers retain the movement retry class.
     /// - Pan/tilt limit edits and focus-mode settings change configuration, not
     ///   position, so they are plain quick/standard writes.
     /// - Targeted iris and ND-filter operations settle through profile-selected
@@ -966,7 +975,8 @@ mod tests {
     #[test]
     fn deliberate_request_timeout_and_retry_policies_are_pinned() {
         use crate::request::builtin as req;
-        use crate::{RetryClass as Retry, TimeoutClass as Timeout};
+        use crate::request::CommandRetryClass as Retry;
+        use crate::CommandTimeoutClass as Timeout;
 
         fn pin<R: BuiltinRequestContract>(
             command: BuiltinCommand,
@@ -974,12 +984,8 @@ mod tests {
             retry: Retry,
             pinned: &mut HashSet<BuiltinCommand>,
         ) {
-            assert_eq!(
-                R::POLICY.timeout.lower(),
-                timeout,
-                "{command:?} timeout class"
-            );
-            assert_eq!(R::POLICY.retry.lower(), retry, "{command:?} retry class");
+            assert_eq!(R::POLICY.timeout, timeout, "{command:?} timeout class");
+            assert_eq!(R::POLICY.retry, retry, "{command:?} retry class");
             assert_eq!(
                 matches!(R::POLICY.class, crate::ControlClass::Urgent),
                 command.classification().is_stop(),
@@ -995,19 +1001,25 @@ mod tests {
         let mut pinned = HashSet::new();
         let p = &mut pinned;
 
-        // Urgent stops and applied-only focus triggers: quick deadline,
-        // movement retry class.
+        // Urgent stops: quick deadline and standard retries. Applied-only
+        // focus triggers use the quick deadline and movement retries.
         pin::<req::PanTiltStop>(
             BuiltinCommand::PanTiltStop,
             Timeout::Quick,
-            Retry::Movement,
+            Retry::Standard,
             p,
         );
-        pin::<req::ZoomStop>(BuiltinCommand::ZoomStop, Timeout::Quick, Retry::Movement, p);
+        pin::<req::ZoomStop>(BuiltinCommand::ZoomStop, Timeout::Quick, Retry::Standard, p);
         pin::<req::FocusStop>(
             BuiltinCommand::FocusStop,
             Timeout::Quick,
-            Retry::Movement,
+            Retry::Standard,
+            p,
+        );
+        pin::<crate::command::Fr7ZoomHighResolutionStop>(
+            BuiltinCommand::Fr7ZoomHighResolutionStop,
+            Timeout::Quick,
+            Retry::Standard,
             p,
         );
         pin::<req::FocusTrigger>(

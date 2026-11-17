@@ -153,7 +153,7 @@ pub use blocking_transport::{
 pub use buffer::BufferConfig;
 pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig};
 pub use datagram::ReceiveOutcome;
-pub use envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulated};
+pub use envelope::{Envelope, FrameMeta, RawVisca, SonyEncapsulated};
 
 /// The one end-of-stream rule shared by the built-in byte-stream transports.
 ///

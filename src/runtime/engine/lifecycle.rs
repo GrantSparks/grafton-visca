@@ -1,10 +1,12 @@
 //! The closed per-request lifecycle. Phase-local facts have one legal home.
 
+use super::entry_table::{EntryChange, SocketedLifecycle, UnsocketedLifecycle};
+
 #[cfg(test)]
 use super::CancelState;
 use super::{
-    add_duration, CommandReply, CorrelationKind, NonZeroDuration, Phase, RequestFraming,
-    RuntimeRequest, TransmissionId,
+    add_duration, CommandReply, CorrelationKind, NonZeroDuration, Phase, RuntimeRequest,
+    TransmissionId,
 };
 use crate::ViscaSocket;
 use std::time::Instant;
@@ -85,7 +87,6 @@ pub(crate) enum CompletionDeadline {
     },
     Accepted,
     Cancelling {
-        socket: ViscaSocket,
         original_deadline: Instant,
         attempt: AttemptFacts,
         cancellation: ResolvingCancellation,
@@ -114,7 +115,6 @@ pub(crate) struct RequestedCancellation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SendingCancellation {
     pub(crate) transmission: TransmissionId,
-    pub(crate) framing: RequestFraming,
     pub(crate) ambiguity_deadline: Instant,
     pub(crate) observer_open: bool,
 }
@@ -184,7 +184,6 @@ pub(crate) enum Lifecycle {
     },
     Sending {
         transmission: TransmissionId,
-        framing: RequestFraming,
         started_at: Instant,
         attempt: AttemptFacts,
         reply: SendingReply,
@@ -304,20 +303,21 @@ impl Lifecycle {
             ),
         }
     }
-    pub(crate) const fn is_uncorrelated_write(self) -> bool {
-        match self {
-            Self::Sending { reply, .. } => match reply {
-                SendingReply::Stop | SendingReply::AckThenCompletion | SendingReply::Inquiry => {
-                    false
-                }
-                SendingReply::CompletionOnly | SendingReply::NoReply => true,
-            },
-            _ => false,
-        }
-    }
     pub(crate) const fn is_uncorrelated_command(self) -> bool {
-        self.is_uncorrelated_write() || self.is_awaiting_completion()
+        matches!(
+            self,
+            Self::Sending {
+                reply: SendingReply::CompletionOnly | SendingReply::NoReply,
+                ..
+            } | Self::AwaitingCompletion { .. }
+        )
     }
+
+    /// An immediate request or cancellation write still awaits its receipt.
+    pub(crate) const fn staged_write(self) -> bool {
+        self.is_sending() || self.cancellation_write().is_some()
+    }
+
     /// End of the ACK response window. Cancellation intent may extend the
     /// original deadline, but must never shorten it.
     pub(crate) fn awaiting_ack_end(self) -> Option<Instant> {
@@ -476,7 +476,6 @@ impl Lifecycle {
                 }),
             )),
             Self::Executing {
-                socket,
                 deadline,
                 attempt,
                 cancellation,
@@ -484,7 +483,6 @@ impl Lifecycle {
             } => {
                 let action = match cancellation.into_resolution() {
                     Some(cancellation) => CompletionDeadline::Cancelling {
-                        socket,
                         original_deadline: deadline,
                         attempt,
                         cancellation,
@@ -824,11 +822,11 @@ impl Lifecycle {
 }
 
 /// Cancellation's input decision follows directly from the stored legal state.
-pub(crate) enum CancellationDecision {
+pub(super) enum CancellationDecision {
     Local,
     Refused(crate::Error),
     Duplicate,
-    Record(Lifecycle),
+    Record(EntryChange),
 }
 
 impl ExecutingCancellation {
@@ -866,7 +864,7 @@ impl ResolvingCancellation {
 }
 
 impl Lifecycle {
-    pub(crate) fn cancellation_decision(
+    pub(super) fn cancellation_decision(
         self,
         supported: bool,
         ambiguity_deadline: Instant,
@@ -911,15 +909,18 @@ impl Lifecycle {
                 if !supported {
                     return refused();
                 }
-                CancellationDecision::Record(Self::AwaitingAck {
-                    sent_at,
-                    deadline,
-                    attempt,
-                    cancellation: Some(requested),
-                })
+                CancellationDecision::Record(
+                    UnsocketedLifecycle::AwaitingAck {
+                        sent_at,
+                        deadline,
+                        attempt,
+                        cancellation: Some(requested),
+                    }
+                    .into(),
+                )
             }
             Self::Executing {
-                socket,
+                socket: _,
                 started_at,
                 deadline,
                 attempt,
@@ -928,13 +929,15 @@ impl Lifecycle {
                 if !supported {
                     return refused();
                 }
-                CancellationDecision::Record(Self::Executing {
-                    socket,
-                    started_at,
-                    deadline,
-                    attempt,
-                    cancellation: ExecutingCancellation::Requested(requested),
-                })
+                CancellationDecision::Record(
+                    SocketedLifecycle::Executing {
+                        started_at,
+                        deadline,
+                        attempt,
+                        cancellation: ExecutingCancellation::Requested(requested),
+                    }
+                    .into(),
+                )
             }
         }
     }
@@ -945,17 +948,12 @@ impl Lifecycle {
     pub(crate) fn active_write(self, transmission: TransmissionId) -> Option<ActiveWrite> {
         if let Self::Sending {
             transmission: active,
-            framing,
             attempt,
             reply,
             ..
         } = self
         {
-            return (active == transmission).then_some(ActiveWrite::Request {
-                framing,
-                attempt,
-                reply,
-            });
+            return (active == transmission).then_some(ActiveWrite::Request { attempt, reply });
         }
         let cancellation = self.cancellation_write()?;
         (cancellation.send.transmission == transmission)
@@ -965,13 +963,12 @@ impl Lifecycle {
     const fn cancellation_write(self) -> Option<CancellationWrite> {
         match self {
             Self::Executing {
-                socket,
+                socket: _,
                 started_at,
                 deadline,
                 attempt,
                 cancellation: ExecutingCancellation::Sending(send),
             } => Some(CancellationWrite {
-                socket,
                 send,
                 phase: SocketedPhase::Executing {
                     started_at,
@@ -980,12 +977,11 @@ impl Lifecycle {
                 },
             }),
             Self::AwaitingCancellationResolution {
-                socket,
+                socket: _,
                 deadline,
                 attempt,
                 cancellation: ResolvingCancellation::Sending(send),
             } => Some(CancellationWrite {
-                socket,
                 send,
                 phase: SocketedPhase::Resolving { deadline, attempt },
             }),
@@ -1117,7 +1113,6 @@ enum SocketedPhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActiveWrite {
     Request {
-        framing: RequestFraming,
         attempt: AttemptFacts,
         reply: SendingReply,
     },
@@ -1131,33 +1126,24 @@ impl ActiveWrite {
             Self::Cancellation(_) => CorrelationKind::Cancellation,
         }
     }
-
-    pub(super) const fn framing(self) -> RequestFraming {
-        match self {
-            Self::Request { framing, .. } => framing,
-            Self::Cancellation(write) => write.send.framing,
-        }
-    }
 }
 
 /// Socket and phase facts proved when a cancellation write is identified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CancellationWrite {
-    socket: ViscaSocket,
     phase: SocketedPhase,
     send: SendingCancellation,
 }
 
 impl CancellationWrite {
-    pub(crate) const fn written(self, observation_deadline: Instant) -> Lifecycle {
+    pub(crate) const fn written(self, observation_deadline: Instant) -> SocketedLifecycle {
         let (deadline, attempt) = match self.phase {
             SocketedPhase::Executing {
                 deadline, attempt, ..
             }
             | SocketedPhase::Resolving { deadline, attempt } => (deadline, attempt),
         };
-        Lifecycle::AwaitingCancellationResolution {
-            socket: self.socket,
+        SocketedLifecycle::AwaitingCancellationResolution {
             deadline,
             attempt,
             cancellation: ResolvingCancellation::AwaitingTerminal {
@@ -1168,14 +1154,13 @@ impl CancellationWrite {
         }
     }
 
-    pub(crate) const fn refused(self) -> Lifecycle {
+    pub(crate) const fn refused(self) -> SocketedLifecycle {
         match self.phase {
             SocketedPhase::Executing {
                 started_at,
                 deadline,
                 attempt,
-            } => Lifecycle::Executing {
-                socket: self.socket,
+            } => SocketedLifecycle::Executing {
                 started_at,
                 deadline,
                 attempt,
@@ -1184,8 +1169,7 @@ impl CancellationWrite {
                 },
             },
             SocketedPhase::Resolving { deadline, attempt } => {
-                Lifecycle::AwaitingCancellationResolution {
-                    socket: self.socket,
+                SocketedLifecycle::AwaitingCancellationResolution {
                     deadline,
                     attempt,
                     cancellation: ResolvingCancellation::ObservationFailed {
@@ -1218,11 +1202,9 @@ impl PendingCancellation {
         self,
         transmission: TransmissionId,
         ambiguity_deadline: Instant,
-        framing: RequestFraming,
-    ) -> Lifecycle {
+    ) -> SocketedLifecycle {
         let send = SendingCancellation {
             transmission,
-            framing,
             ambiguity_deadline,
             observer_open: self.request.observer_open,
         };
@@ -1231,16 +1213,14 @@ impl PendingCancellation {
                 started_at,
                 deadline,
                 attempt,
-            } => Lifecycle::Executing {
-                socket: self.socket,
+            } => SocketedLifecycle::Executing {
                 started_at,
                 deadline,
                 attempt,
                 cancellation: ExecutingCancellation::Sending(send),
             },
             SocketedPhase::Resolving { deadline, attempt } => {
-                Lifecycle::AwaitingCancellationResolution {
-                    socket: self.socket,
+                SocketedLifecycle::AwaitingCancellationResolution {
                     deadline,
                     attempt,
                     cancellation: ResolvingCancellation::Sending(send),

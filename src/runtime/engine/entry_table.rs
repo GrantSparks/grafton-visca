@@ -12,8 +12,9 @@ use std::{
 use smallvec::SmallVec;
 
 use super::{
-    AdmissionSlot, CorrelationKind, CorrelationOwner, Entry, Lane, Lifecycle, RequestId,
-    RuntimeRequest, SequenceRecord, TargetSlot, TransmissionMeta, ViscaSocket,
+    AdmissionSlot, AttemptFacts, CorrelationKind, CorrelationOwner, Entry, ExecutingCancellation,
+    Lane, Lifecycle, RequestId, RequestedCancellation, ResolvingCancellation, RuntimeRequest,
+    SendingReply, SequenceRecord, TargetSlot, TransmissionId, TransmissionMeta, ViscaSocket,
 };
 use crate::target::PerTarget;
 
@@ -76,18 +77,9 @@ impl SequenceSlots {
     }
 
     fn record(&mut self, kind: CorrelationKind, sequence: u32) {
-        let slot = &mut self[kind];
-        if let Some(previous) = slot {
-            // The framing check rejects an inconsistent retry before this
-            // mutation. Do not silently replace its authoritative sequence if
-            // an internal caller ever violates that protocol.
-            assert_eq!(
-                *previous, sequence,
-                "one Sony sequence per correlation kind"
-            );
-        } else {
-            *slot = Some(sequence);
-        }
+        // Fresh allocation is planned only while this correlation slot is empty.
+        // Replays carry `Known` and never change either sequence index.
+        self[kind].get_or_insert(sequence);
     }
 }
 
@@ -142,33 +134,194 @@ pub(super) struct AdmissionFacts {
     pub(super) slot: AdmissionSlot,
 }
 
+/// Successors which cannot install a socket identity.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum UnsocketedLifecycle {
+    Ready {
+        previous_attempt: Option<AttemptFacts>,
+    },
+    Sending {
+        transmission: TransmissionId,
+        started_at: Instant,
+        attempt: AttemptFacts,
+        reply: SendingReply,
+    },
+    AwaitingAck {
+        sent_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+        cancellation: Option<RequestedCancellation>,
+    },
+    AwaitingCompletion {
+        sent_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
+    ExecutingDisplaced {
+        started_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
+    AwaitingReply {
+        sent_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
+}
+impl UnsocketedLifecycle {
+    fn lifecycle(self) -> Lifecycle {
+        match self {
+            Self::Ready { previous_attempt } => Lifecycle::Ready { previous_attempt },
+            Self::Sending {
+                transmission,
+                started_at,
+                attempt,
+                reply,
+            } => Lifecycle::Sending {
+                transmission,
+                started_at,
+                attempt,
+                reply,
+            },
+            Self::AwaitingAck {
+                sent_at,
+                deadline,
+                attempt,
+                cancellation,
+            } => Lifecycle::AwaitingAck {
+                sent_at,
+                deadline,
+                attempt,
+                cancellation,
+            },
+            Self::AwaitingCompletion {
+                sent_at,
+                deadline,
+                attempt,
+            } => Lifecycle::AwaitingCompletion {
+                sent_at,
+                deadline,
+                attempt,
+            },
+            Self::ExecutingDisplaced {
+                started_at,
+                deadline,
+                attempt,
+            } => Lifecycle::ExecutingDisplaced {
+                started_at,
+                deadline,
+                attempt,
+            },
+            Self::AwaitingReply {
+                sent_at,
+                deadline,
+                attempt,
+            } => Lifecycle::AwaitingReply {
+                sent_at,
+                deadline,
+                attempt,
+            },
+        }
+    }
+}
+
+/// A socket-preserving successor; the table supplies its existing identity.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SocketedLifecycle {
+    Executing {
+        started_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+        cancellation: ExecutingCancellation,
+    },
+    AwaitingCancellationResolution {
+        deadline: Instant,
+        attempt: AttemptFacts,
+        cancellation: ResolvingCancellation,
+    },
+}
+impl SocketedLifecycle {
+    fn lifecycle(self, socket: ViscaSocket) -> Lifecycle {
+        match self {
+            Self::Executing {
+                started_at,
+                deadline,
+                attempt,
+                cancellation,
+            } => Lifecycle::Executing {
+                socket,
+                started_at,
+                deadline,
+                attempt,
+                cancellation,
+            },
+            Self::AwaitingCancellationResolution {
+                deadline,
+                attempt,
+                cancellation,
+            } => Lifecycle::AwaitingCancellationResolution {
+                socket,
+                deadline,
+                attempt,
+                cancellation,
+            },
+        }
+    }
+}
+
+/// Proof minted only for a free entry-table socket, consumed on installation.
+#[derive(Debug)]
+pub(super) struct SocketClaim<'a> {
+    table: &'a mut EntryTable,
+    request: RequestId,
+    socket: ViscaSocket,
+}
+
+impl SocketClaim<'_> {
+    pub(super) fn install(self, phase: SocketedLifecycle) -> Option<Transitioned> {
+        self.table
+            .change_lifecycle(self.request, phase.lifecycle(self.socket))
+    }
+
+    #[cfg(test)]
+    pub(super) fn socket(self) -> ViscaSocket {
+        self.socket
+    }
+}
+
 /// A complete change to one live entry. Index updates are part of the change.
 #[derive(Debug)]
 pub(super) enum EntryChange {
-    Lifecycle(Lifecycle),
+    Lifecycle(UnsocketedLifecycle),
+    Socketed(SocketedLifecycle),
     Written {
         receipt: TransmissionMeta,
         kind: CorrelationKind,
     },
     Retry {
-        to: Lifecycle,
+        ready_at: Instant,
+        previous_attempt: AttemptFacts,
         prior: super::PriorAttempts,
     },
     CloseObserver,
     DisplaceSocket,
 }
 
+impl From<UnsocketedLifecycle> for EntryChange {
+    fn from(phase: UnsocketedLifecycle) -> Self {
+        Self::Lifecycle(phase)
+    }
+}
+impl From<SocketedLifecycle> for EntryChange {
+    fn from(phase: SocketedLifecycle) -> Self {
+        Self::Socketed(phase)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Transitioned {
     pub(super) from: Lifecycle,
     pub(super) to: Lifecycle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct SocketConflict {
-    pub(super) target: TargetSlot,
-    pub(super) socket: ViscaSocket,
-    pub(super) owner: RequestId,
 }
 
 #[derive(Clone, Copy)]
@@ -299,46 +452,64 @@ impl EntryTable {
         true
     }
 
+    pub(super) fn claim_socket(
+        &mut self,
+        request: RequestId,
+        candidates: impl IntoIterator<Item = ViscaSocket>,
+    ) -> Option<SocketClaim<'_>> {
+        let target = self.entries.get(&request)?.request.context().target;
+        let socket = candidates.into_iter().find(|socket| {
+            self.socket_owner(target, *socket)
+                .is_none_or(|owner| owner == request)
+        })?;
+        Some(SocketClaim {
+            table: self,
+            request,
+            socket,
+        })
+    }
+
+    fn change_lifecycle(&mut self, id: RequestId, to: Lifecycle) -> Option<Transitioned> {
+        let entry = self.entries.get_mut(&id)?;
+        let before = IndexFacts::of(entry);
+        let from = entry.lifecycle();
+        entry.lifecycle = entry.lifecycle.transition(to);
+        let after = IndexFacts::of(entry);
+        let changed = Transitioned { from, to };
+        self.update_indexes(id, &before, &after);
+        Some(changed)
+    }
+
     pub(super) fn transition(
         &mut self,
         id: RequestId,
         change: EntryChange,
-    ) -> Result<Option<Transitioned>, SocketConflict> {
-        let Some(entry) = self.entries.get_mut(&id) else {
-            return Ok(None);
-        };
-        let to = match &change {
-            EntryChange::Lifecycle(to) | EntryChange::Retry { to, .. } => *to,
-            _ => entry.lifecycle(),
-        };
-        // Resource admission precedes mutation. Displacement cannot reclaim a socket.
-        if matches!(
-            change,
-            EntryChange::Lifecycle(_) | EntryChange::Retry { .. }
-        ) && entry.lifecycle.active().is_some()
-        {
-            if let Some(socket) = to.socket() {
-                let target = entry.request.context().target;
-                if let Some(owner) = self.sockets[target][socket].filter(|owner| *owner != id) {
-                    return Err(SocketConflict {
-                        target,
-                        socket,
-                        owner,
-                    });
-                }
-            }
-        }
+    ) -> Option<Transitioned> {
+        let entry = self.entries.get_mut(&id)?;
         let before = IndexFacts::of(entry);
         let from = entry.lifecycle();
         match change {
             EntryChange::DisplaceSocket => entry.lifecycle = entry.lifecycle.displace(),
-            EntryChange::Lifecycle(to) => entry.lifecycle = entry.lifecycle.transition(to),
-            EntryChange::Retry { to, prior } => {
-                entry.lifecycle = entry.lifecycle.transition(to);
+            EntryChange::Lifecycle(to) => {
+                entry.lifecycle = entry.lifecycle.transition(to.lifecycle())
+            }
+            EntryChange::Socketed(to) => {
+                let socket = entry.lifecycle().socket()?;
+                entry.lifecycle = entry.lifecycle.transition(to.lifecycle(socket));
+            }
+            EntryChange::Retry {
+                ready_at,
+                previous_attempt,
+                prior,
+            } => {
+                entry.lifecycle = entry.lifecycle.transition(Lifecycle::Backoff {
+                    ready_at,
+                    previous_attempt,
+                });
                 entry.prior = Some(prior);
             }
             EntryChange::Written { receipt, kind } => {
-                if let TransmissionMeta::Sony { sequence } = receipt {
+                if let TransmissionMeta::Allocated { sequence } = receipt {
                     entry.sequences.record(kind, sequence);
                 }
             }
@@ -354,7 +525,7 @@ impl EntryTable {
             to: entry.lifecycle(),
         };
         self.update_indexes(id, &before, &after);
-        Ok(Some(result))
+        Some(result)
     }
 
     /// Test-only corruption of semantic request facts while keeping indexes

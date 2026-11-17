@@ -196,12 +196,8 @@ impl StreamCorrelation {
             self.holds.extend(target, scope, until, Some(id));
         }
     }
-    pub(super) fn stop_wait_bound(
-        &self,
-        entry: &super::Entry,
-        uncorrelated_write: impl FnOnce() -> bool,
-    ) -> Option<Instant> {
-        if !entry.request.is_stop() || uncorrelated_write() {
+    pub(super) fn stop_wait_bound(&self, entry: &super::Entry) -> Option<Instant> {
+        if !entry.request.is_stop() {
             return None;
         }
         let context = entry.request.context();

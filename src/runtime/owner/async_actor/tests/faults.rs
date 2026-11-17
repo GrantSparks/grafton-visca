@@ -2,6 +2,48 @@ use super::*;
 use crate::runtime::owner::turn::{
     clamp_receive_pause, transient_receive_pause, TransientFaultRun,
 };
+
+/// #1020: an overdue raw hold cannot zero-clamp a failed release probe's
+/// escalating pause. Paused Tokio time must advance to the permanent verdict.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test(start_paused = true)]
+async fn a_latched_raw_release_paces_faults_until_the_session_ends() {
+    let runtime = TokioRuntime::from_current().unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut driver = AlwaysFailingReceive {
+        reads: Arc::clone(&reads),
+    };
+    let (completion, admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
+    let admission = actor.core.receivers.admissions.try_recv().unwrap();
+    actor
+        .handle_event(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut driver,
+            Executor::now(&runtime),
+            false,
+        )
+        .await;
+    let _receipt = admitted.recv_async().await.unwrap().unwrap();
+    reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
+    let _terminal = completion.recv_async().await.unwrap();
+    tokio::time::advance(Duration::from_secs(1)).await;
+
+    let snapshot = tokio::time::timeout(Duration::from_secs(10), actor.run(driver))
+        .await
+        .expect("fault pacing must advance paused time despite the overdue raw hold");
+    assert_eq!(snapshot.state, SessionState::Closed);
+    assert!(
+        reads.load(Ordering::Relaxed)
+            <= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT + 2).unwrap()
+    );
+    assert!(
+        reads.load(Ordering::Relaxed) >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT).unwrap()
+    );
+}
 /// A zero-length stream read is still the only close signal.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
@@ -57,7 +99,7 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
     let receipt = handle.submit(retrying_command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
     gates
-        .send_async(Ok(TransmissionMeta::Sony { sequence: 1 }))
+        .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
         .await
         .unwrap();
 
@@ -71,7 +113,7 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
     // The very same request is written again rather than failed.
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
     gates
-        .send_async(Ok(TransmissionMeta::Sony { sequence: 1 }))
+        .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
         .await
         .unwrap();
     frames
@@ -116,7 +158,7 @@ async fn fatal_receive_fault_closes_the_session() {
 
         let receipt = handle.submit(command()).await.unwrap();
         assert_eq!(started.recv_async().await.unwrap(), receipt.id);
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(OwnerReceive::read_error(Error::Io {
                 source: Arc::new(std::io::Error::from(kind)),
@@ -302,7 +344,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     let receipt = handle.submit(retrying_command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
     gates
-        .send_async(Ok(TransmissionMeta::Sony { sequence: 1 }))
+        .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
         .await
         .unwrap();
 
@@ -316,7 +358,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
             .unwrap();
         assert_eq!(started.recv_async().await.unwrap(), receipt.id);
         gates
-            .send_async(Ok(TransmissionMeta::Sony { sequence: 1 }))
+            .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
             .await
             .unwrap();
     }
@@ -380,7 +422,7 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
 
     let receipt = handle.submit(retrying_command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
 
     for timeout in [
         Error::io_timeout(),

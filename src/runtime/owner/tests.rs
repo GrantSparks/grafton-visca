@@ -8,7 +8,7 @@ use super::*;
 
 #[cfg(any(feature = "blocking", feature = "test-utils"))]
 pub(super) mod waiter_rejection;
-use crate::{runtime::engine::CancellationPolicy, CameraId};
+use crate::CameraId;
 
 /// The outcome of a scripted physical send; preparation errors use NotSent.
 pub(super) fn write_outcome(result: Result<TransmissionMeta, Error>) -> WriteOutcome {
@@ -395,7 +395,6 @@ mod control_reserve {
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         };
         RuntimeRequest::Command {
             reply_shape,
@@ -669,6 +668,13 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
         speed,
         crate::types::MotionSyncSpeed::NORMAL
     );
+    check!(
+        ExposureWideDynamicRange,
+        exposure,
+        wide_dynamic_range,
+        crate::types::WideDynamicRangeLevel::new(4).unwrap()
+    );
+    check!(MotionSyncEnabled, motion_sync, enabled, true);
     assert_eq!(
         covered.iter().map(|value| value.key()).collect::<Vec<_>>(),
         StateKey::ALL
@@ -714,8 +720,8 @@ mod metrics {
     use crate::{
         runtime::engine::{
             CancellationPolicy, CommandReply, ControlPolicy, DeadlineKind, DecodedFrame,
-            DecodedResponse, EncodedMessage, EnvelopeKind, EnvelopeSequence, RequestContext,
-            RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
+            DecodedResponse, EncodedMessage, EnvelopeKind, FrameSequence, RequestContext,
+            RetryPolicy, TimeoutPolicy, TransmissionMeta,
         },
         Error, ViscaSocket,
     };
@@ -776,7 +782,6 @@ mod metrics {
             },
             retry,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         }
     }
 
@@ -806,10 +811,7 @@ mod metrics {
     fn frame(sequence: Option<u32>, response: DecodedResponse) -> Input {
         OwnerState::frame_input(DecodedFrame {
             target: TargetSlot::CAMERA_1,
-            sequence: sequence.map(|value| EnvelopeSequence {
-                value,
-                width: SequenceWidth::Full32,
-            }),
+            sequence: sequence.map(FrameSequence::from_reply_header),
             response,
         })
     }
@@ -825,8 +827,8 @@ mod metrics {
             if let AppliedEffect::Transmit(staged) = state.apply_effect(effect, now) {
                 let produced = state.finish_write(
                     &staged,
-                    WriteOutcome::Sent(sequence.map_or(TransmissionMeta::Raw, |sequence| {
-                        TransmissionMeta::Sony { sequence }
+                    WriteOutcome::Sent(sequence.map_or(TransmissionMeta::Known, |sequence| {
+                        TransmissionMeta::Allocated { sequence }
                     })),
                     now,
                 );
@@ -1291,6 +1293,121 @@ mod metrics {
         ));
     }
 
+    /// #1021: the owner completes a cancel outside its input turn. Its
+    /// recursive drain must write the matured retry only after that receipt.
+    #[test]
+    fn zero_spacing_cancellation_drains_before_a_matured_retry() {
+        let start = Instant::now();
+        let mut policy = owner_policy(EnvelopeKind::Raw);
+        policy.protocol.transport = TransportKind::Stream;
+        let mut state = OwnerState::new(policy, start).unwrap();
+        let first_observer = sent(&mut state, command(RetryPolicy::NEVER), None, start);
+        let executing = *state.active.keys().next().unwrap();
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start,
+        );
+        let retry_observer = sent(&mut state, command(retrying()), None, start);
+        let retry = *state.active.keys().find(|id| **id != executing).unwrap();
+        let rejected = state.input(
+            frame(
+                None,
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x03.into(),
+                },
+            ),
+            start,
+        );
+        let ready_at = rejected
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::RetryScheduled { id, ready_at, .. } if *id == retry => Some(*ready_at),
+                _ => None,
+            })
+            .expect("buffer-full retry");
+        drain(&mut state, rejected, None, start);
+        let (_observation, observer) = CancellationObserver::pair();
+        let (mut effects, answer) = state.begin_cancellation(
+            CancellationRequest {
+                id: executing,
+                observer,
+            },
+            ready_at,
+        );
+        answer.unwrap();
+        assert_eq!(
+            effects
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Transmit { .. }))
+                .count(),
+            1
+        );
+        let mut writes = Vec::new();
+        while let Some(effect) = effects.pop_front() {
+            if let AppliedEffect::Transmit(staged) = state.apply_effect(effect, ready_at) {
+                writes.push(staged.request);
+                let produced = state.finish_write(
+                    &staged,
+                    WriteOutcome::Sent(TransmissionMeta::Known),
+                    ready_at,
+                );
+                prepend_effects(&mut effects, produced);
+            }
+        }
+        assert_eq!(
+            writes,
+            [executing, retry],
+            "ledger answers follow the actual write order"
+        );
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Error {
+                    socket: Some(ViscaSocket::S1),
+                    code: 0x04.into(),
+                },
+            ),
+            ready_at,
+        );
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S2),
+                },
+            ),
+            ready_at,
+        );
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S2),
+                },
+            ),
+            ready_at,
+        );
+        assert!(matches!(
+            first_observer.try_recv(),
+            Some(RuntimeOutcome::Command(CommandOutcome::Cancelled))
+        ));
+        assert!(matches!(
+            retry_observer.try_recv(),
+            Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+        ));
+        assert!(matches!(state.state(), SessionState::Running));
+    }
+
     /// #986: the owner's intent exists only after the engine accepts it,
     /// before the returned diagnostic and lifecycle effects are driven.
     #[test]
@@ -1306,8 +1423,7 @@ mod metrics {
                 .unwrap()
                 .cancellation = cancellation;
             let mut state = OwnerState::new(policy, now).unwrap();
-            let mut request = command(RetryPolicy::NEVER);
-            request.context_mut().cancellation = cancellation;
+            let request = command(RetryPolicy::NEVER);
             let _terminal = sent(&mut state, request, None, now);
             let id = *state.active.keys().next().unwrap();
             let (_observation, observer) = CancellationObserver::pair();
@@ -2186,7 +2302,7 @@ mod lifecycle_trace {
 
     fn write_result(label: &str) -> Result<TransmissionMeta, Error> {
         match label {
-            "ok" => Ok(TransmissionMeta::Raw),
+            "ok" => Ok(TransmissionMeta::Known),
             "Timeout" => Err(Error::io_timeout()),
             other => Err(Error::transport_error(std::io::Error::other(
                 other.to_owned(),
@@ -2239,12 +2355,7 @@ mod lifecycle_trace {
         )
     }
 
-    fn command(
-        target: TargetSlot,
-        wire: &str,
-        cancellation: CancellationPolicy,
-        ack: Duration,
-    ) -> RuntimeRequest {
+    fn command(target: TargetSlot, wire: &str, ack: Duration) -> RuntimeRequest {
         RuntimeRequest::Command {
             reply_shape: CommandReply::AckThenCompletion,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
@@ -2264,7 +2375,6 @@ mod lifecycle_trace {
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
-                cancellation,
             },
             // Fixtures observe this exact write-only effect through StateCache.
             applied_state: Some(AppliedStateProjection::set(
@@ -2273,12 +2383,7 @@ mod lifecycle_trace {
         }
     }
 
-    fn inquiry(
-        target: TargetSlot,
-        wire: &str,
-        cancellation: CancellationPolicy,
-        reply: Duration,
-    ) -> RuntimeRequest {
+    fn inquiry(target: TargetSlot, wire: &str, reply: Duration) -> RuntimeRequest {
         RuntimeRequest::Inquiry {
             payload_shape: crate::PayloadShape::Unknown,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
@@ -2298,7 +2403,6 @@ mod lifecycle_trace {
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
-                cancellation,
             },
         }
     }
@@ -2468,8 +2572,8 @@ mod lifecycle_trace {
             };
 
             let request = match field(input, "kind").unwrap_or("command") {
-                "command" => command(target, wire, self.cancellation, ack),
-                "inquiry" => inquiry(target, wire, self.cancellation, ack),
+                "command" => command(target, wire, ack),
+                "inquiry" => inquiry(target, wire, ack),
                 other => panic!("unknown fixture request kind {other}"),
             };
             let now = self.now;
@@ -2551,7 +2655,7 @@ mod lifecycle_trace {
             // target and socket rather than by envelope sequence.
             let target =
                 TargetSlot::from(crate::IndividualCameraId::try_from(decoded.source).unwrap());
-            let sequence: Option<EnvelopeSequence> = None;
+            let sequence: Option<FrameSequence> = None;
             let now = self.now;
             let pre_socket = |state: &OwnerState, id: RequestId| match state.request_state(id) {
                 Some((Phase::Executing { socket, .. }, _)) => Some(socket),

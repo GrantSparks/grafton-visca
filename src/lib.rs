@@ -1161,7 +1161,7 @@ mod position_inquiries;
 mod requests;
 pub(crate) use requests::{
     AffectedAxes, ControlClass, Inquiry, OperationCommand, PayloadShape, Request, ResponseDecoder,
-    RetryClass, SubmissionClass, TimeoutClass,
+    SubmissionClass,
 };
 
 #[cfg(any(feature = "blocking", feature = "async", test))]

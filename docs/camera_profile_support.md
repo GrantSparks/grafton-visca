@@ -939,9 +939,12 @@ Sony R7 pp. 12, 18 and 22 specify signed twenty-bit pan and tilt words, with
 235.9 units/degree on each axis. Positive R7 pan is counterclockwise, so the
 library's positive rightward angle uses a negative pan scale. Desktop tilt
 uses −30° to +195°; Ceiling uses −210° to +15°. Configure the matching mount
-with `SessionConfig::with_mount(target, MountPosition::Ceiling)` before opening
-the session. `camera.registration().tilt_range()` reports the effective target
-limits; `camera.profile()` remains the canonical source inventory.
+with `CameraConfig::with_mount(MountPosition::Ceiling)` for a single-camera
+`CameraSession`, or `SessionConfig::with_mount(target, MountPosition::Ceiling)`
+for a target in a multi-camera `Session`, before opening the session. The mount
+is preserved when a `CameraConfig` is serialized; an absent or `null` mount uses
+the profile default (Desktop for FR7). `camera.registration().tilt_range()`
+reports the effective target limits; `camera.profile()` remains the canonical source inventory.
 
 The nominal degree endpoints and integer words differ by up to half a unit.
 The FR7 converter snaps that endpoint cell to R7's exact word and uses nearest
@@ -1063,6 +1066,13 @@ p. 44) lists `00` CLOSE and `05`..`11` and its Bright table (p. 45) `00` and
 every iris position `00`..`11` (R12, R21). Generic VISCA admits the iris
 positions all three list: `00` and `05`..`11`. The PTZOptics sources (R1, R14)
 give no iris or bright tables, so those profiles keep their contiguous ranges.
+
+Runtime profile builders construct ranges with `CapabilityRange::<T>::new(min,
+max)?` and domains with `CapabilityDomain::<T>::new(min, max, gaps)?`. Both return
+profile-field errors for invalid bounds; domains also reject unsorted, duplicate
+or non-interior gaps. `gaps` accepts an owned `Vec<T>` from configuration, or a
+static slice; pass an empty vector for a contiguous domain. Serde uses these
+same checked constructors.
 The unsourced auto/manual status inquiry is removed from the typed surface.
 Caller-owned requests and decoders can model an extension once its packet and
 reply are established for that camera. The FR7 command list

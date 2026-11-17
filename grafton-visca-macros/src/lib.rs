@@ -48,7 +48,9 @@ pub fn value(args: TokenStream, item: TokenStream) -> TokenStream {
 /// Unit variants use explicit integer discriminants or `#[wire(code)]`.
 /// The wire type defaults to `u8`; use `wire = (u8, u8)` for tuple codes.
 /// One tuple variant may hold a checked value that supplies the remaining
-/// wire domain. `#[value(display = "label")]` sets a variant's display text.
+/// wire domain. Its payload must be a `#[value]` scalar whose wire domain
+/// excludes every active unit variant's code; overlap and primitive payloads
+/// are compile errors. `#[value(display = "label")]` sets a variant's display text.
 /// The attribute emits the standard derives, `Display`, helper derives and
 /// `WireValue`, without inherent wire-codec aliases or primitive conversions.
 #[proc_macro_attribute]

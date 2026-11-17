@@ -1961,7 +1961,7 @@ vendor-verified claim from this built-in catalog.
 | r1-ptzopticsg2-noisereduction3d-grant | R1 | PtzOpticsG2 | grant.NoiseReduction3D | 09 04 54 | - | §7 command/inquiry tables |
 | r14-ptzopticsg2-noisereduction2dcontrol-grant | R14 | PtzOpticsG2 | grant.NoiseReduction2D | 01 04 53 | - | Current Developer Portal command and query pages |
 | r14-ptzopticsg2-noisereduction3dcontrol-grant | R14 | PtzOpticsG2 | grant.NoiseReduction3D | 01 04 54 | - | Current Developer Portal command and query pages |
-| r1-ptzopticsg2-pictureeffect-grant | R1 | PtzOpticsG2 | grant.PictureEffect | 01 04 63;09 04 63 | - | §7 command/inquiry tables |
+| r1-ptzopticsg2-pictureeffect-grant | R1 | PtzOpticsG2 | grant.PictureEffect | 01 04 63 00;01 04 63 04;09 04 63 | - | §7 command/inquiry tables |
 | r10-ptzopticsg3-ptzopticsantiflicker-grant | R10 | PtzOpticsG3 | grant.AntiFlicker | 01 04 23 | - | Move 4K G3 command/inquiry list |
 | r10-ptzopticsg3-ptzopticssettingssave-grant | R10 | PtzOpticsG3 | grant.SettingsSave | 01 04 A5 10 | - | Move 4K G3 command/inquiry list |
 | r10-ptzopticsg3-ptzopticspresetrecallspeed-grant | R10 | PtzOpticsG3 | grant.PresetRecallSpeed | 01 06 01 pp | - | Move 4K G3 command/inquiry list |
@@ -1995,7 +1995,7 @@ vendor-verified claim from this built-in catalog.
 | r14-ptzopticsg3-noisereduction3d-grant | R14 | PtzOpticsG3 | grant.NoiseReduction3D | 09 04 54 | - | Current Developer Portal command and query pages |
 | r14-ptzopticsg3-noisereduction2dcontrol-grant | R14 | PtzOpticsG3 | grant.NoiseReduction2D | 01 04 53 | - | Current Developer Portal command and query pages |
 | r14-ptzopticsg3-noisereduction3dcontrol-grant | R14 | PtzOpticsG3 | grant.NoiseReduction3D | 01 04 54 | - | Current Developer Portal command and query pages |
-| r14-ptzopticsg3-pictureeffect-grant | R14 | PtzOpticsG3 | grant.PictureEffect | 01 04 63;09 04 63 | - | Current Developer Portal command and query pages |
+| r14-ptzopticsg3-pictureeffect-grant | R14 | PtzOpticsG3 | grant.PictureEffect | 01 04 63 00;01 04 63 04;09 04 63 | - | Current Developer Portal command and query pages |
 | r1-ptzoptics30x-ptzopticsantiflicker-grant | R1 | PtzOptics30x | grant.AntiFlicker | 01 04 23 | - | §7 command/inquiry tables |
 | r1-ptzoptics30x-ptzopticssettingssave-grant | R1 | PtzOptics30x | grant.SettingsSave | 01 04 A5 10 | - | §7 command/inquiry tables |
 | r1-ptzoptics30x-ptzopticspresetrecallspeed-grant | R1 | PtzOptics30x | grant.PresetRecallSpeed | 01 06 01 pp | - | §7 command/inquiry tables |
@@ -2032,7 +2032,7 @@ vendor-verified claim from this built-in catalog.
 | r1-ptzoptics30x-noisereduction3d-grant | R1 | PtzOptics30x | grant.NoiseReduction3D | 09 04 54 | - | §7 command/inquiry tables |
 | r14-ptzoptics30x-noisereduction2dcontrol-grant | R14 | PtzOptics30x | grant.NoiseReduction2D | 01 04 53 | - | Current Developer Portal command and query pages |
 | r14-ptzoptics30x-noisereduction3dcontrol-grant | R14 | PtzOptics30x | grant.NoiseReduction3D | 01 04 54 | - | Current Developer Portal command and query pages |
-| r1-ptzoptics30x-pictureeffect-grant | R1 | PtzOptics30x | grant.PictureEffect | 01 04 63;09 04 63 | - | §7 command/inquiry tables |
+| r1-ptzoptics30x-pictureeffect-grant | R1 | PtzOptics30x | grant.PictureEffect | 01 04 63 00;01 04 63 04;09 04 63 | - | §7 command/inquiry tables |
 | r7-sonyfr7-versioninquiry-grant | R7 | SonyFr7 | grant.VersionInquiry | 09 00 02 | - | FR7 v4 pp.14–23 |
 | r7-sonyfr7-sonyspotlight-grant | R7 | SonyFr7 | grant.Spotlight | 01 04 3A 02;01 04 3A 03 | - | FR7 v4 pp.14–23 |
 | r7-sonyfr7-pushautofocus-grant | R7 | SonyFr7 | grant.PushAutoFocus | 01 7E 04 58 | - | FR7 v4 pp.14–23 |
@@ -2620,8 +2620,8 @@ vendor-verified claim from this built-in catalog.
 | r14-imageflipboth-command | R14 | PtzOpticsG3 | command.ImageFlipBoth | 01 04 A4 03 | - | Current Developer Portal command pages |
 | r1-imageflipcombined-command | R1 | PtzOpticsG2, PtzOptics30x | command.ImageFlipCombined | 01 04 A4 | - | §7 command list |
 | r14-imageflipcombined-command | R14 | PtzOpticsG3 | command.ImageFlipCombined | 01 04 A4 | - | Current Developer Portal command pages |
-| r1-pictureeffect-command | R1 | PtzOpticsG2, PtzOptics30x | command.PictureEffect | 01 04 63 | - | §7 command list |
-| r14-pictureeffect-command | R14 | PtzOpticsG3 | command.PictureEffect | 01 04 63 | - | Current Developer Portal command pages |
+| r1-pictureeffect-command | R1 | PtzOpticsG2, PtzOptics30x | command.PictureEffect | 01 04 63 00;01 04 63 04 | - | §7 command list |
+| r14-pictureeffect-command | R14 | PtzOpticsG3 | command.PictureEffect | 01 04 63 00;01 04 63 04 | - | Current Developer Portal command pages |
 | r7-ndfiltermode-command | R7 | SonyFr7 | command.NdFilterMode | 01 7E 04 52 | - | FR7 v4 command list pp.14–20 |
 | r7-ndfilterdirect-command | R7 | SonyFr7 | command.NdFilterDirect | 01 7E 04 42 | - | FR7 v4 command list pp.14–20 |
 | r7-ndfilterstepup-command | R7 | SonyFr7 | command.NdFilterStepUp | 01 7E 04 12 02 | - | FR7 v4 command list pp.14–20 |

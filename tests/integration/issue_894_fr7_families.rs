@@ -312,7 +312,7 @@ mod paused {
             assert_eq!(wait!(zoom.clear_image_position()).expect("Clear Image Zoom readback"), ClearImageZoomPosition::MAX);
             let mut stop = wait!(zoom.stop_high_resolution()).expect("high-resolution stop admission");
             wait!(stop.applied()).expect("high-resolution stop application");
-            assert_eq!(grafton_visca::command::zoom::StopHighResolution.policy().retry_class(), grafton_visca::request::CommandRetryClass::Movement);
+            assert_eq!(grafton_visca::command::zoom::StopHighResolution.policy().retry_class(), grafton_visca::request::CommandRetryClass::Standard);
             assert_applied_only(&grafton_visca::command::zoom::StopHighResolution, AffectedAxes::ZOOM);
             assert_sony_writes(&fake, expected);
             wait!(session.close()).expect("close FR7 session");

@@ -638,9 +638,9 @@ anyway. The ledger still binds every frame by write order, so the only cost
 is decisiveness: a frame it makes ambiguous binds to neither request, and
 the STOP may end unconfirmed. Every built-in profile (500 ms ACK, 1 s
 ambiguity) thus writes a STOP within 1.5 s, against a halt budget of at
-least its 30 s movement completion deadline. Only a `NoReply` or
-`CompletionOnly` command's own local write in flight, which has no write
-order yet, still holds it back.
+least its 30 s movement completion deadline. The scheduler runs due work
+and dispatch only after every staged request or cancellation write has
+received its identified result (#1021).
 
 A cancellation written for a command that has ended, after another command
 was written that the camera then put in the same socket, reaches that later
@@ -902,9 +902,12 @@ reply can retire one colliding owner, after which the same lower-16 value may
 again be unique. Registering a retry of one request under the same sequence
 does not manufacture a collision.
 
-This full-width-first, unique-lower-16-only rule is the complete correlation
-decision from review item 16. Socket, FIFO, admission order, and temporal
-recency never break a sequence collision.
+The decoder carries this closed reply identity through the adapter to the
+engine. The header selects exactly one correlation index: full-width headers
+use the exact index, and zero-upper-half headers use the lower-16 index. The
+owner probes and engine fixtures use the same header decoder, so small sequence
+numbers exercise the same path as a new production session. Socket, FIFO,
+admission order, and temporal recency never break a sequence collision.
 
 Fixed-format ACK, completion, error, and network-change frames are classified
 only at their exact lengths. A known fixed prefix with trailing bytes is
@@ -928,9 +931,13 @@ retention bound `max_buffer_size + recv_buffer_size`, a Sony header with an unde
 a payload the framer cannot retain, is a genuine framing failure that still
 poisons a stream (#848). For the serial preset the bound is 8192 + 256 = 8448
 bytes, and overflow reports that configured bound. Raw and Sony framers are
-separate types with one strict, nonmutating overflow policy. The adapter pairs
-each framer with its matching envelope and visits frame bytes by reference;
-it does not copy them into a second framing scratch buffer.
+separate types with one strict, nonmutating overflow policy. Each producer has
+its own closed rejection type: pushing can only overflow, raw scanning can
+only reject an oversized delimited frame, and Sony scanning can only lose
+position to an invalid header or oversized declaration. A raw rejection carries
+the exact consumed boundary, so discarding never rescans for its terminator.
+The adapter pairs each framer with its matching envelope and visits frame bytes
+by reference; it does not copy them into a second framing scratch buffer.
 
 One immutable `WireProtocol` authority is created for the session and shared
 with the deterministic engine. Engine mode predicates derive from that authority;
@@ -943,7 +950,10 @@ plan does not allocate a Sony sequence. Execution validates the payload before
 allocating a fresh sequence, and replay leaves the allocator unchanged. The
 adapter's receive framer is constructed from that same authority, once.
 
-Receive batches reuse the owner's bounded storage after the shell consumes them. The read
+Receive batches reuse the owner's bounded storage after the shell consumes them.
+The stream decoder borrows a vacant batch slot before consuming a frame, so
+exceeding the frame count cannot become a malformed-datagram verdict on a stream.
+The read
 boundary produces one closed verdict (frames, no progress, transient failure,
 or fatal failure), retaining original fatal causes. The shell executes that
 verdict without classifying OS errors again. Retained stream inspection is an
@@ -1074,7 +1084,7 @@ resource bound above applies independently to each raw target.
 | `Lifecycle` variant | Phase-local facts | Legal cancellation |
 | --- | --- | --- |
 | `Ready` | On retry, the previous written attempt. | None; cancelling removes the entry. |
-| `Sending` | Transmission, framing expectation, start time, attempt facts, and the closed `SendingReply` family. Its result precedes every unrelated input or due pass. | None; commands refuse cancellation with `CancellationNotSupported`. |
+| `Sending` | Transmission, start time, attempt facts, and the closed `SendingReply` family. Its result precedes every unrelated input or due pass. | None; commands refuse cancellation with `CancellationNotSupported`. |
 | `AwaitingAck` | Send time, ACK deadline and attempt facts. | None or requested. |
 | `AwaitingCompletion` | Send time, completion deadline and attempt facts. No socket. | None; cancellation is refused with `CancellationNotSupported` (#835). |
 | `Executing` | Socket, start time, original completion deadline and attempt facts. | `ExecutingCancellation`: none, requested, sending, or observation-failed. |
@@ -1114,7 +1124,7 @@ reinstalling an immediate deadline (#861).
 
 Cancellation is nested in the lifecycle states that permit it. Requested and
 sending substates carry their ambiguity deadline and observer-open fact; the
-sending substate also carries its transmission and framing expectation. Awaiting-terminal additionally
+sending substate also carries its transmission identity. Awaiting-terminal additionally
 carries the cancellation observation deadline. Observation-failed records the
 remaining ambiguity lifecycle after its observer has resolved. None of these
 substates repeats the socket: only the enclosing socketed lifecycle owns it.
@@ -1198,7 +1208,7 @@ an exhaustive halt preparation arm before the crate compiles (#999).
 | Ledger debt unpaid when the due pass reaches its window end | Latch only overlapping inquiry declarations, or the command lane: fail affected queued `Ready`/`Backoff` work and reject matching new work, unwritten, with `InquiryCorrelationLost` (overlapping inquiries, `CompletionOnly`) or `CommandCorrelationLost` (ordinary ACK-bearing, `CompletionOnly`, `NoReply`), `Terminal`/`NotAccepted`. The latch neither expires nor wakes the owner; STOPs, other targets, and the session are unaffected; the debt's answer, or a later first answer that settles it, reopens the lane (#795). |
 | Disputed raw stream frame (a socketless error behind a `CompletionOnly` entry that may still be rejected or a `NoReply` command's owed entry, or any frame behind a disputed waiting request, with another candidate behind it) | Bind to neither; keep the union of the debts either explanation leaves: the `CompletionOnly` command owes only its completion, the other candidate keeps owing and is disputed (never crossed; settled by its own answer or by write order) (#795). |
 | Sequenced Sony ACK naming a busy socket | Bind the new request to the named socket. Retain the predecessor as socket-free `ExecutingDisplaced`, routable by its request sequence until its original completion deadline; refuse its cancellation with `CancellationUnconfirmed`. A socketless ACK with both physical sockets occupied reports `Ignored(SocketConflict)` and finishes `CommandFailedAfterAck` (#963). |
-| Unrelated input or due work while a request is `Sending` | Forbidden by the immediate-write contract. Both owners apply the identified result first; the input-boundary auditor rejects a violation in debug and test builds (#860). |
+| Unrelated input or due work while any request or cancellation write awaits its result | Forbidden by the immediate-write contract. Both owners apply the identified result first; the input-boundary auditor rejects a violation in debug and test builds. The engine defers its due/cancel/dispatch tail until every staged write finishes (#860, #1021; `zero_spacing_cancel_with_a_matured_retry_preserves_the_write_boundary`, `zero_spacing_cancellation_drains_before_a_matured_retry`). |
 | Completion in `Executing`, including after cancellation ambiguity elapsed | `finish` with `CommandOutcome::Applied`; exact socket ownership keeps it attributable through the completion deadline, and a retained cancellation observer maps this to `Completed` (#724). |
 | Exact completion in `AwaitingCancellationResolution` before its phase deadline | `finish` with `CommandOutcome::Applied`; the request is still open while its owned socket is retained. |
 | Completion in `AwaitingCompletion` (issue #700) | `finish` with `CommandOutcome::Applied`, regardless of a vendor socket nibble on a datagram; on a raw byte stream only a socketless completion resolves to this request (#795). A raw datagram retains the bounded `AllResponses` hold before ordinary same-target response-bearing work starts. A raw stream accounts for the answer in its ledger instead of installing that broad hold (`completion_only_terminal_quarantine_blocks_successor_then_restores_liveness`; `raw_evidence::stream_owed_completion_only_answer_holds_back_ordinary_work`). |
@@ -1271,7 +1281,8 @@ than claimed as a snapshot-auditor check.
   (Enforcement: types: private entry table and atomic index changes; owner: sole
   admission path and safe terminal removal.)
 - Every request and cancellation transmission has one active identity and one result. (Enforcement:
-  types: identity and framing expectation belong to the active sending lifecycle; owner: named
+  types: identity belongs to the active sending lifecycle, and the bound write plan reports only
+  a newly allocated Sony sequence; owner: named
   receipts match that identity, and `duplicate_write_receipts_do_not_requeue_the_request` pins
   stale receipt rejection.)
 - Every request reaches at most one terminal engine transition. (Enforcement: owner: sole-entry
@@ -1279,7 +1290,8 @@ than claimed as a snapshot-auditor check.
 - Every retained operation or cancellation observer resolves at most once. (Enforcement: owner:
   one-shot terminal and cancellation slots.)
 - Every target/socket pair has at most one active owner. (Enforcement: types: atomic entry-table
-  transitions and the closed active/displaced placement.)
+  transitions consume an exclusive socket claim when installing ownership; successors preserve
+  the existing socket, and the closed active/displaced placement prevents reclaiming a reassigned socket.)
 - No retry path writes a command again after its ACK. (Enforcement: type: retry transitions require
   an eligibility value issued only by unacknowledged lifecycles.)
 - Every live raw byte-stream ledger entry belongs to a request that still awaits that answer; the
@@ -1450,6 +1462,14 @@ A raw release does not create an exception to that order; it adds two rules.
   has elapsed it leads, so an eager receive cannot delay it further. If the due
   set grows before the timer turn, the latch is replaced and the new set needs
   its own proof (#746).
+
+  The failed probe's escalating pause is clamped to a pending grace, but not
+  to the suppressed, overdue hold. Without grace the release timer waits beside
+  that paced probe, which gets receive-first selection when the pause ends.
+  Malformed datagrams and discarded-only batches spend the pending release's
+  fairness budget too. Regressions: `a_latched_raw_release_paces_faults_until_the_session_ends`,
+  `a_latched_raw_release_paces_faults_on_manual_clock`, and
+  `raw_release_malformed_and_discarded_floods_serve_boundaries` (#1020).
 - **A boundary selected while a release is due is retained, not run.** Its
   ordinary input turn would run due work behind unread or retained evidence.
   The coordinator holds it in a single slot until the release resolves, and
@@ -1533,9 +1553,15 @@ a successful write resets idle escalation (#838).
 The coordinator paces only the receive
 source, so boundaries, timers, and control stay selectable during the pause in
 both shells, and an eager custom driver cannot hot-spin either owner (#723).
+The buffered-prefix cases are pinned by
+`tokio_buffered_no_progress_reaches_deadline_and_shutdown`,
+`smol_buffered_no_progress_reaches_deadline_and_shutdown`, and
+`buffered_no_progress_reaches_deadline_and_close_on_manual_clock` (#1020): an
+eager no-data or transient-fault read yields even when an incomplete frame is
+retained, so an already-due ACK deadline and shutdown remain selectable.
 
 <!-- BEGIN WRITE-ONLY STATE KEYS -->
-`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`.
+`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`, `ExposureWideDynamicRange`, `MotionSyncEnabled`.
 <!-- END WRITE-ONLY STATE KEYS -->
 
 ## Request and motion semantics

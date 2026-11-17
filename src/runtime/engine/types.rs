@@ -350,7 +350,6 @@ pub(crate) struct RequestContext {
     pub(crate) timeout: TimeoutPolicy,
     pub(crate) retry: RetryPolicy,
     pub(crate) control: ControlPolicy,
-    pub(crate) cancellation: CancellationPolicy,
 }
 
 impl RequestContext {
@@ -590,20 +589,6 @@ impl ProtocolPolicy {
     }
 }
 
-/// Identifies full-width and known-truncated Sony envelope correlation data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct EnvelopeSequence {
-    pub(crate) value: u32,
-    pub(crate) width: SequenceWidth,
-}
-
-/// Width supplied by scheduler-independent envelope parsing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SequenceWidth {
-    Full32,
-    Lower16,
-}
-
 /// Owned scheduler-independent decoded response data.
 ///
 /// `Ack` and `Completion` carry an *optional* socket because the socket nibble
@@ -778,36 +763,28 @@ pub(crate) enum RawReleaseGateAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecodedFrame {
     pub(crate) target: TargetSlot,
-    pub(crate) sequence: Option<EnvelopeSequence>,
+    pub(crate) sequence: Option<crate::transport::envelope::FrameSequence>,
     pub(crate) response: DecodedResponse,
 }
 
 /// Metadata returned by a successful exact transport write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TransmissionMeta {
-    Raw,
-    Sony { sequence: u32 },
+    Known,
+    Allocated { sequence: u32 },
 }
 
 impl TransmissionMeta {
     #[cfg(test)]
     pub(crate) const fn for_sequence(sequence: Option<u32>) -> Self {
         match sequence {
-            None => Self::Raw,
-            Some(sequence) => Self::Sony { sequence },
+            None => Self::Known,
+            Some(sequence) => Self::Allocated { sequence },
         }
     }
 }
 
 pub(crate) use crate::transport::envelope::SonyRequestSequence;
-
-/// Correlation expectation derived from one bound write plan.
-/// Raw VISCA has no Sony sequence axis; Sony preserves its exact retry intent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RequestFraming {
-    Raw,
-    Sony { sequence: SonyRequestSequence },
-}
 
 /// The transport boundary classifies refusal before I/O separately from a
 /// send whose bytes may have reached the camera.
@@ -1250,7 +1227,6 @@ mod duration_proof_tests {
             timeout,
             retry,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         }
     }
 

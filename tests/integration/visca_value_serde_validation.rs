@@ -308,19 +308,24 @@ mod serde_validation {
     fn scalar_root_and_nested_schema_domains_agree_with_checked_input() {
         use grafton_visca::types::{Kelvin, UnknownPictureEffect};
 
+        assert!(
+            UnknownPictureEffect::new(255).is_err(),
+            "FF is the frame terminator"
+        );
+        assert!(serde_json::from_str::<UnknownPictureEffect>("255").is_err());
         let nested = serde_json::to_value(schemars::schema_for!(ScalarDomainSchemaContainer))
             .expect("nested scalar schemas");
         let instance = serde_json::to_value(ScalarDomainSchemaContainer {
             gain: GainLevel::new(25).expect("maximum gain"),
             compensation: ExposureCompensationLevel::new(-7).expect("minimum compensation"),
             kelvin: Kelvin::new(2000).expect("minimum Kelvin"),
-            unknown_effect: UnknownPictureEffect::new(255).expect("extension effect"),
+            unknown_effect: UnknownPictureEffect::new(254).expect("extension effect"),
         })
         .expect("scalar container JSON");
         assert_eq!(
             instance,
             serde_json::json!({
-                "gain": 25, "compensation": -7, "kelvin": 2000, "unknown_effect": 255
+                "gain": 25, "compensation": -7, "kelvin": 2000, "unknown_effect": 254
             })
         );
         for (field, definition) in [
@@ -377,8 +382,8 @@ mod serde_validation {
             nested["$defs"]["UnknownPictureEffect"].clone(),
         ] {
             let members = schema["enum"].as_array().expect("exact sparse membership");
-            assert_eq!(members.len(), 253);
-            for excluded in [0, 2, 4] {
+            assert_eq!(members.len(), 252);
+            for excluded in [0, 2, 4, 255] {
                 assert!(!members.contains(&serde_json::json!(excluded)));
             }
             assert_schema_integer_domain::<UnknownPictureEffect>(&schema, -1..=256, |input| {

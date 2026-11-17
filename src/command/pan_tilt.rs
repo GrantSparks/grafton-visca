@@ -581,10 +581,12 @@ mod tests {
 
             let mut caps = Capabilities::runtime_baseline("Boundary test", 1).expect("baseline");
             caps.pan_tilt = Some(PanTiltCaps {
-                pan_range: CapabilityRange::<i32>::new(0, 1),
-                tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(0, 1)),
-                pan_speed: CapabilityRange::<u8>::new(1, 8),
-                tilt_speed: CapabilityRange::<u8>::new(1, 8),
+                pan_range: CapabilityRange::<i32>::new(0, 1).expect("valid capability bounds"),
+                tilt_ranges: TiltRanges::Single(
+                    CapabilityRange::<i32>::new(0, 1).expect("valid capability bounds"),
+                ),
+                pan_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
+                tilt_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
                 coordinates: crate::PanTiltCoordinateConversion::new(
                     CoordinateSystem::SignedCentered,
                     codec,
@@ -608,7 +610,8 @@ mod tests {
                 ] {
                     let mut candidate = caps.clone();
                     let domain = candidate.pan_tilt.as_mut().expect("pan/tilt domain");
-                    let range = CapabilityRange::<i32>::new(value.min(0), value.max(0));
+                    let range = CapabilityRange::<i32>::new(value.min(0), value.max(0))
+                        .expect("valid capability bounds");
                     if pan_axis {
                         domain.pan_range = range;
                     } else {

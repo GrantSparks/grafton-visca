@@ -339,7 +339,7 @@ ImageFlipCombined[Vertical]	81 01 04 A4 02 FF
 ImageFlipCombined[Both]	81 01 04 A4 03 FF
 PictureEffect[Off]	81 01 04 63 00 FF
 PictureEffect[BW]	81 01 04 63 04 FF
-PictureEffect[Unknown 0x05]	81 01 04 63 05 FF
+PictureEffect[Unknown 0x05]	REJECT(InvalidParameter)
 ImageFlip[On]	81 01 04 66 02 FF
 ImageFlip[Off]	81 01 04 66 03 FF
 HorizontalFlip[on]	81 01 04 61 02 FF

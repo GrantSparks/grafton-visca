@@ -511,8 +511,8 @@ impl PanTiltCoordinateConversion {
                     let span = range.max() - range.min();
                     capabilities::CapabilityRange::<i32>::new(-span, span)
                 };
-                ranges.pan_units = span(ranges.pan_units);
-                ranges.tilt_units = span(ranges.tilt_units);
+                ranges.pan_units = span(ranges.pan_units)?;
+                ranges.tilt_units = span(ranges.tilt_units)?;
                 ["pan offset", "tilt offset"]
             }
         };
@@ -1965,10 +1965,12 @@ mod tests {
         let mut caps =
             Capabilities::runtime_baseline("Downstream runtime camera", 1).expect("baseline");
         caps.pan_tilt = Some(PanTiltCaps {
-            pan_range: CapabilityRange::<i32>::new(-100, 100),
-            tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-50, 50)),
-            pan_speed: CapabilityRange::<u8>::new(1, 8),
-            tilt_speed: CapabilityRange::<u8>::new(1, 8),
+            pan_range: CapabilityRange::<i32>::new(-100, 100).expect("valid capability bounds"),
+            tilt_ranges: TiltRanges::Single(
+                CapabilityRange::<i32>::new(-50, 50).expect("valid capability bounds"),
+            ),
+            pan_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
+            tilt_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
             coordinates: conversion(
                 CoordinateSystem::SignedCentered,
                 PanTiltWireCodec::StandardVisca,
@@ -1984,15 +1986,15 @@ mod tests {
         caps.zoom = Some(ZoomCaps {
             optical_max: 1000,
             digital_max: None,
-            speed: CapabilityRange::<u8>::new(0, 7),
+            speed: CapabilityRange::<u8>::new(0, 7).expect("valid capability bounds"),
             direct: false,
             variable: false,
             optical_ratio: Some(10.0),
         });
         caps.focus = Some(FocusCaps {
-            range: CapabilityRange::<u16>::new(0, 2000),
+            range: CapabilityRange::<u16>::new(0, 2000).expect("valid capability bounds"),
             near_end: FocusNearEnd::Minimum,
-            speed: CapabilityRange::<u8>::new(0, 7),
+            speed: CapabilityRange::<u8>::new(0, 7).expect("valid capability bounds"),
             auto_focus: false,
             one_push: false,
             zone_inquiry: false,
@@ -2003,7 +2005,9 @@ mod tests {
         caps.presets = Some(PresetCaps {
             highest: 10,
             recall_axes: AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM),
-            recall_speed_range: Some(CapabilityRange::<u8>::new(1, 8)),
+            recall_speed_range: Some(
+                CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
+            ),
             tour: false,
             thumbnail: false,
             recall_delay: Duration::ZERO,
@@ -2502,10 +2506,12 @@ mod tests {
                 pan_tilt.coordinates =
                     conversion(CoordinateSystem::SignedCentered, codec, 10.0, 10.0);
                 let field = if pan_axis {
-                    pan_tilt.pan_speed = CapabilityRange::<u8>::new(1, 50);
+                    pan_tilt.pan_speed =
+                        CapabilityRange::<u8>::new(1, 50).expect("valid capability bounds");
                     "capabilities.pan_tilt.pan_speed"
                 } else {
-                    pan_tilt.tilt_speed = CapabilityRange::<u8>::new(1, 50);
+                    pan_tilt.tilt_speed =
+                        CapabilityRange::<u8>::new(1, 50).expect("valid capability bounds");
                     "capabilities.pan_tilt.tilt_speed"
                 };
                 let error = runtime_builder(caps.clone())
@@ -2918,16 +2924,20 @@ mod tests {
             -1.0,
             1.0,
         );
-        pt.pan_range = CapabilityRange::<i32>::new(-0x80000, 0x7FFFF);
-        pt.tilt_ranges = TiltRanges::Single(CapabilityRange::<i32>::new(-0x8000, 0x7FFF));
+        pt.pan_range =
+            CapabilityRange::<i32>::new(-0x80000, 0x7FFFF).expect("valid capability bounds");
+        pt.tilt_ranges = TiltRanges::Single(
+            CapabilityRange::<i32>::new(-0x8000, 0x7FFF).expect("valid capability bounds"),
+        );
         assert!(runtime_builder(caps.clone()).build().is_ok());
         caps.pan_tilt.as_mut().expect("pan/tilt").pan_range =
-            CapabilityRange::<i32>::new(-0x80001, 0x7FFFF);
+            CapabilityRange::<i32>::new(-0x80001, 0x7FFFF).expect("valid capability bounds");
         assert!(runtime_builder(caps).build().is_err());
 
         let mut caps = valid_runtime_capabilities();
-        caps.pan_tilt.as_mut().expect("pan/tilt").tilt_ranges =
-            TiltRanges::Single(CapabilityRange::<i32>::new(-0x8000, 0x8000));
+        caps.pan_tilt.as_mut().expect("pan/tilt").tilt_ranges = TiltRanges::Single(
+            CapabilityRange::<i32>::new(-0x8000, 0x8000).expect("valid capability bounds"),
+        );
         assert!(runtime_builder(caps).build().is_err());
         for (pan, tilt) in [
             (0.0, 1.0),
@@ -2965,11 +2975,12 @@ mod tests {
             assert!(error.to_string().contains(field), "{error}");
         }
         let mut caps = valid_runtime_capabilities();
-        caps.zoom.as_mut().expect("zoom").speed = CapabilityRange::<u8>::new(0, 8);
+        caps.zoom.as_mut().expect("zoom").speed =
+            CapabilityRange::<u8>::new(0, 8).expect("valid capability bounds");
         assert!(runtime_builder(caps).build().is_err());
         let mut caps = valid_runtime_capabilities();
         caps.presets.as_mut().expect("presets").recall_speed_range =
-            Some(CapabilityRange::<u8>::new(1, 200));
+            Some(CapabilityRange::<u8>::new(1, 200).expect("valid capability bounds"));
         assert!(runtime_builder(caps).build().is_err());
     }
 
@@ -2988,11 +2999,12 @@ mod tests {
                 .presets
                 .as_mut()
                 .expect("presets")
-                .recall_speed_range = Some(CapabilityRange::<u8>::new(1, last));
+                .recall_speed_range =
+                Some(CapabilityRange::<u8>::new(1, last).expect("valid capability bounds"));
             ProfileSpec::from_facts(facts.clone()).expect("complete encoding range");
             for range in [
-                CapabilityRange::<u8>::new(0, last),
-                CapabilityRange::<u8>::new(1, last + 1),
+                CapabilityRange::<u8>::new(0, last).expect("valid capability bounds"),
+                CapabilityRange::<u8>::new(1, last + 1).expect("valid capability bounds"),
             ] {
                 facts
                     .capabilities
@@ -3168,7 +3180,7 @@ mod tests {
         caps.zoom = Some(capabilities::ZoomCaps {
             optical_max: 0x4000,
             digital_max: Some(0x7000),
-            speed: capabilities::CapabilityRange::<u8>::new(0, 7),
+            speed: capabilities::CapabilityRange::<u8>::new(0, 7).expect("valid capability bounds"),
             direct: true,
             variable: false,
             optical_ratio: None,
@@ -3714,17 +3726,20 @@ mod tests {
         };
         let mut caps = custom();
         caps.exposure.as_mut().expect("exposure").gain_range =
-            Some(CapabilityRange::<u8>::new(0, 255));
+            Some(CapabilityRange::<u8>::new(0, 255).expect("valid capability bounds"));
         assert!(copy_builder(&base, caps).build().is_err());
         let mut caps = custom();
-        caps.exposure.as_mut().expect("exposure").iris_range =
-            Some(crate::capabilities::CapabilityDomain::<u16>::new(0, 255));
+        caps.exposure.as_mut().expect("exposure").iris_range = Some(
+            crate::capabilities::CapabilityDomain::<u16>::new(0, 255, &[][..])
+                .expect("valid capability bounds"),
+        );
         assert!(copy_builder(&base, caps).build().is_err());
         let mut caps = custom();
         caps.pan_tilt
             .as_mut()
             .expect("pan/tilt")
-            .motion_sync_speed_range = Some(CapabilityRange::<u8>::new(0, 24));
+            .motion_sync_speed_range =
+            Some(CapabilityRange::<u8>::new(0, 24).expect("valid capability bounds"));
         assert!(copy_builder(&base, caps).build().is_err());
         let mut caps = custom();
         caps.white_balance.as_mut().expect("WB").modes.clear();
@@ -3873,6 +3888,7 @@ mod tests {
         for (path, key) in [
             ("/capabilities", "focus"),
             ("/capabilities/zoom", "optical_ratio"),
+            ("/capabilities/image", "picture_effects"),
             ("/capabilities/pan_tilt/coordinates", "wire_codec"),
         ] {
             let mut missing = value.clone();
@@ -3897,6 +3913,75 @@ mod tests {
         assert!(serde_json::from_value::<ProfileSpec>(invalid).is_err());
         let restored: ProfileSpec = serde_json::from_value(value).expect("current grouped shape");
         assert_eq!(restored, base);
+    }
+
+    #[test]
+    fn picture_effect_inventories_allow_checked_extensions_and_reject_duplicates() {
+        let base = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
+        let mut caps = base.capabilities().clone();
+        caps.profile_id = None;
+        let extension = crate::types::PictureEffectMode::Unknown(
+            crate::types::UnknownPictureEffect::new(0x05).expect("extension"),
+        );
+        caps.image
+            .as_mut()
+            .expect("image")
+            .picture_effects
+            .push(extension);
+        let custom = copy_builder(&base, caps.clone())
+            .build()
+            .expect("custom inventory");
+        assert!(custom
+            .capabilities()
+            .image
+            .as_ref()
+            .expect("image")
+            .picture_effects
+            .contains(&extension));
+        caps.image
+            .as_mut()
+            .expect("image")
+            .picture_effects
+            .push(extension);
+        let error = copy_builder(&base, caps)
+            .build()
+            .expect_err("duplicate effect");
+        assert!(error
+            .to_string()
+            .contains("capabilities.image.picture_effects"));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn picture_effect_inventory_has_a_required_round_tripping_persisted_key() {
+        let base = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
+        let value = serde_json::to_value(&base).expect("serialize inventory");
+        let image = &value["capabilities"]["image"];
+        assert_eq!(
+            image["picture_effects"],
+            serde_json::json!(["off", "black_and_white"])
+        );
+        assert!(image.get("picture_effect").is_none());
+        assert_eq!(
+            serde_json::from_value::<ProfileSpec>(value.clone()).expect("round trip"),
+            base
+        );
+        let mut obsolete = value.clone();
+        let image = obsolete["capabilities"]["image"]
+            .as_object_mut()
+            .expect("image object");
+        image.remove("picture_effects");
+        image.insert("picture_effect".into(), serde_json::Value::Bool(true));
+        let error =
+            serde_json::from_value::<ProfileSpec>(obsolete).expect_err("obsolete inventory");
+        assert!(error.to_string().contains(REGENERATE_SPEC));
+        let mut empty = value;
+        empty["capabilities"]["profile_id"] = serde_json::Value::Null;
+        empty["capabilities"]["image"]["picture_effects"] = serde_json::json!([]);
+        assert!(
+            serde_json::from_value::<ProfileSpec>(empty).is_err(),
+            "a typed grant requires a nonempty inventory"
+        );
     }
 
     #[cfg(feature = "serde")]

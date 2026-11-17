@@ -82,9 +82,7 @@ mod tests {
         profiles::{GenericVisca, SonyFr7},
         protocol::framer::RawIncompletePrefix,
         runtime::{
-            engine::{
-                DecodedResponse, EnvelopeSequence, RawPrefixEvidence, SequenceWidth, TransportKind,
-            },
+            engine::{DecodedResponse, FrameSequence, RawPrefixEvidence, TransportKind},
             owner::{BlockingOwnerHandle, BlockingTransportAdapter, Clock, RetainedStreamInput},
         },
         transport::{
@@ -694,10 +692,7 @@ mod tests {
         let frames = frames(receive(&mut adapter, &mut buffers));
         assert_eq!(
             frames[0].sequence,
-            Some(EnvelopeSequence {
-                value: 0x1234_5678,
-                width: SequenceWidth::Full32,
-            })
+            Some(FrameSequence::from_reply_header(0x1234_5678))
         );
         assert!(matches!(frames[0].response, DecodedResponse::Ack { .. }));
     }
@@ -714,10 +709,7 @@ mod tests {
         assert_eq!(frames.len(), 1);
         assert_eq!(
             frames[0].sequence,
-            Some(EnvelopeSequence {
-                value: 0xff00_ff00,
-                width: SequenceWidth::Full32,
-            })
+            Some(FrameSequence::from_reply_header(0xff00_ff00))
         );
         assert!(matches!(frames[0].response, DecodedResponse::Ack { .. }));
     }
@@ -732,10 +724,7 @@ mod tests {
         let frames = frames(receive(&mut adapter, &mut buffers));
         assert_eq!(
             frames[0].sequence,
-            Some(EnvelopeSequence {
-                value: 42,
-                width: SequenceWidth::Lower16,
-            })
+            Some(FrameSequence::from_reply_header(42))
         );
     }
 

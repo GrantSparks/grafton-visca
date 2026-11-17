@@ -143,7 +143,7 @@ impl RetainedStreamInput for PendingDriver {}
 
 impl AsyncOwnerDriver for PendingDriver {
     async fn write(&mut self, _write: WireWrite<'_>) -> WriteOutcome {
-        WriteOutcome::Sent(crate::runtime::owner::TransmissionMeta::Raw)
+        WriteOutcome::Sent(crate::runtime::owner::TransmissionMeta::Known)
     }
 
     async fn receive(

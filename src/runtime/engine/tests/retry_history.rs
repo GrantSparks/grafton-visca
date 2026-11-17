@@ -55,7 +55,7 @@ fn fixture_with_retry(
                 engine.handle(
                     frame(
                         1,
-                        Some((0x1001, SequenceWidth::Full32)),
+                        Some(0x1001),
                         DecodedResponse::Error {
                             socket: None,
                             code: if matches!(history, History::NotExecutable) {
@@ -83,7 +83,7 @@ fn fixture_with_retry(
         engine.handle(
             frame(
                 1,
-                Some((0x1001, SequenceWidth::Full32)),
+                Some(0x1001),
                 DecodedResponse::Error {
                     socket: None,
                     code: 0x03.into(),
@@ -198,7 +198,7 @@ fn terminal_paths_and_cache_agree_for_every_reachable_prior_history() {
                         let effects = engine.handle(
                             frame(
                                 1,
-                                Some((0x1001, SequenceWidth::Full32)),
+                                Some(0x1001),
                                 DecodedResponse::Error {
                                     socket: None,
                                     code: 0x03.into(),
@@ -266,7 +266,7 @@ fn physical_write_evidence_invalidates_without_mutating_retry_history() {
         assert!(engine.entry(id).unwrap().prior.is_none());
         let (transmission, request, _) = request_transmit(&write);
         let result = if late_sent {
-            WriteOutcome::Sent(TransmissionMeta::Sony { sequence: 0x1001 })
+            WriteOutcome::Sent(TransmissionMeta::Allocated { sequence: 0x1001 })
         } else {
             // A transport may return an arbitrary typed error. Its physical
             // failure must not be mistaken for a pre-ACK camera rejection.
@@ -313,7 +313,7 @@ fn queued_previous_attempt_must_agree_with_retry_history() {
         .entries
         .transition(
             id,
-            EntryChange::Lifecycle(Lifecycle::Ready {
+            EntryChange::Lifecycle(UnsocketedLifecycle::Ready {
                 previous_attempt: None,
             }),
         )
@@ -332,7 +332,7 @@ fn an_acknowledged_attempt_cannot_be_made_conclusive_by_later_refusal_evidence()
     engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -364,7 +364,7 @@ fn halt_racing_a_conclusive_rejection_keeps_terminal_and_cache_certainty_equal()
         let effects = engine.handle(
             frame(
                 1,
-                sequence.map(|value| (value, SequenceWidth::Full32)),
+                sequence,
                 DecodedResponse::Error {
                     socket: None,
                     code: 0x03.into(),
@@ -436,7 +436,7 @@ fn a_later_camera_rejection_cannot_erase_an_earlier_possible_effect() {
         engine.handle(
             frame(
                 1,
-                Some((0x1001, SequenceWidth::Full32)),
+                Some(0x1001),
                 DecodedResponse::Error {
                     socket: None,
                     code: code.into(),
@@ -487,7 +487,7 @@ fn sequence_slots_keep_the_request_sequence_across_retries_and_cancellation() {
         let rejected = engine.handle(
             frame(
                 1,
-                Some((sequence, SequenceWidth::Full32)),
+                Some(sequence),
                 DecodedResponse::Error {
                     socket: None,
                     code: 0x03.into(),
@@ -506,7 +506,7 @@ fn sequence_slots_keep_the_request_sequence_across_retries_and_cancellation() {
     engine.handle(
         frame(
             1,
-            Some((sequence & 0xFFFF, SequenceWidth::Lower16)),
+            Some(sequence & 0xFFFF),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -519,7 +519,7 @@ fn sequence_slots_keep_the_request_sequence_across_retries_and_cancellation() {
         Input::TransmissionFinished {
             request,
             transmission,
-            result: WriteOutcome::Sent(TransmissionMeta::Sony {
+            result: WriteOutcome::Sent(TransmissionMeta::Allocated {
                 sequence: sequence + 1,
             }),
         },
@@ -553,7 +553,7 @@ fn rejection_during_cancellation_cannot_erase_the_prior_lost_ack() {
     let effects = engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),

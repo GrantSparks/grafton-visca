@@ -206,51 +206,22 @@ impl InquiryPolicy {
     ordinary_policy_accessors!();
 }
 
-// Only the class-selected policy can reach this lowering. Callers cannot add
-// an inquiry timeout, command retry family, or urgent ordinary submission lane.
-#[cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
-pub(crate) struct Parts {
-    pub(crate) timeout: crate::TimeoutClass,
-    pub(crate) retry: crate::RetryClass,
-    pub(crate) class: ControlClass,
-    pub(crate) reply: RawReplyShape,
-}
-
-#[allow(private_interfaces)]
 pub trait Sealed: Copy {
-    fn parts(self) -> Parts;
+    fn control_class(self) -> ControlClass;
 }
 
-#[allow(private_interfaces)]
 impl Sealed for CommandPolicy {
-    fn parts(self) -> Parts {
-        Parts {
-            timeout: self.timeout.lower(),
-            retry: self.retry.lower(),
-            class: self.control_class(),
-            reply: self.reply_shape,
-        }
+    fn control_class(self) -> ControlClass {
+        self.control_class()
     }
 }
-#[allow(private_interfaces)]
 impl Sealed for OperationPolicy {
-    fn parts(self) -> Parts {
-        Parts {
-            timeout: self.timeout.lower(),
-            retry: self.retry.lower(),
-            class: self.control_class(),
-            reply: self.reply_shape.into(),
-        }
+    fn control_class(self) -> ControlClass {
+        self.control_class()
     }
 }
-#[allow(private_interfaces)]
 impl Sealed for InquiryPolicy {
-    fn parts(self) -> Parts {
-        Parts {
-            timeout: crate::TimeoutClass::Inquiry,
-            retry: self.retry.retry_class(),
-            class: self.control_class(),
-            reply: RawReplyShape::AckThenCompletion,
-        }
+    fn control_class(self) -> ControlClass {
+        self.control_class()
     }
 }

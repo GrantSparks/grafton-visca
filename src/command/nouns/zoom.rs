@@ -373,7 +373,7 @@ fn decode_normalized(context: [u64; 2], payload: &[u8]) -> crate::Result<UnitInt
     // Only this module constructs the inline context, from a checked u16 maximum.
     #[allow(clippy::cast_possible_truncation)]
     let maximum = context[0] as u16;
-    crate::capabilities::CapabilityRange::<u16>::new(0, maximum)
+    crate::capabilities::CapabilityRange::<u16>::new(0, maximum)?
         .normalize(position.value())
         .map_err(|error| crate::command::inquiry_structs::reply_value_error(error, payload))
 }
@@ -395,7 +395,7 @@ mod tests {
         facts.profile_id = None;
         let zoom = facts.zoom.as_mut().expect("zoom");
         zoom.digital_max = Some(0x7000);
-        zoom.speed = CapabilityRange::<u8>::new(2, 5);
+        zoom.speed = CapabilityRange::<u8>::new(2, 5).expect("valid capability bounds");
         facts.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
         if digital_permission {
             facts.typed_support = facts.typed_support.union(TypedSupportSet::from_surface(
@@ -443,10 +443,7 @@ mod tests {
                 .expect("maximum reply"),
             UnitInterval::MAX
         );
-        assert_eq!(
-            crate::request::policy_parts(&query).timeout,
-            crate::TimeoutClass::Inquiry
-        );
+        let _: crate::request::InquiryPolicy = query.policy();
         assert_eq!(
             query.policy().retry_class(),
             crate::request::InquiryRetryClass::Inquiry

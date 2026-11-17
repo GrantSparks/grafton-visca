@@ -15,12 +15,7 @@ fn socketless_done(engine: &mut ProtocolEngine, at: Instant) -> Vec<Effect> {
 }
 
 fn executing(engine: &mut ProtocolEngine, ticket: u64, at: Instant) -> RequestId {
-    let (write, id) = admit(
-        engine,
-        ticket,
-        command(1, CancellationPolicy::Supported),
-        at,
-    );
+    let (write, id) = admit(engine, ticket, command(1), at);
     send_ok(engine, &write, None, at);
     socketless_ack(engine, at);
     assert!(matches!(
@@ -31,7 +26,7 @@ fn executing(engine: &mut ProtocolEngine, ticket: u64, at: Instant) -> RequestId
 }
 
 fn crossing_stop(engine: &mut ProtocolEngine, at: Instant) -> (RequestId, Instant) {
-    let mut stop = urgent_command(1, CancellationPolicy::Supported);
+    let mut stop = urgent_command(1);
     stop.context_mut().dispatch_deadline = Some(at + Duration::from_millis(20));
     let (_, id) = admit(engine, 3, stop, at);
     let written_at = at + Duration::from_millis(10);
@@ -80,12 +75,7 @@ fn socketless_ack_after_an_ambiguous_completion_preserves_every_possible_executi
 
     // Neither the still-executing second command nor the STOP can give a
     // later command an Applied verdict through a forgotten execution.
-    let (write, successor) = admit(
-        &mut engine,
-        4,
-        urgent_command(1, CancellationPolicy::Supported),
-        later,
-    );
+    let (write, successor) = admit(&mut engine, 4, urgent_command(1), later);
     send_ok(&mut engine, &write, None, later);
     let acked = socketless_ack(&mut engine, later);
     assert!(matches!(
@@ -97,12 +87,7 @@ fn socketless_ack_after_an_ambiguous_completion_preserves_every_possible_executi
 
     // Named evidence recovers one exact physical socket without reviving a
     // guessed predecessor or poisoning the healthy default-policy session.
-    let (write, exact) = admit(
-        &mut engine,
-        5,
-        urgent_command(1, CancellationPolicy::Supported),
-        later,
-    );
+    let (write, exact) = admit(&mut engine, 5, urgent_command(1), later);
     send_ok(&mut engine, &write, None, later);
     engine.handle(
         frame(
@@ -172,12 +157,7 @@ fn socketless_ack_cannot_guess_past_an_inert_predecessor_socket() {
         now + Duration::from_millis(40),
         None,
     );
-    let (write, request) = admit(
-        &mut engine,
-        1,
-        urgent_command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (write, request) = admit(&mut engine, 1, urgent_command(1), now);
     send_ok(&mut engine, &write, None, now);
     let acked = socketless_ack(&mut engine, now);
     assert!(matches!(
@@ -230,12 +210,7 @@ fn a_one_socket_union_recovers_without_waiting_for_a_phantom_second_socket() {
         now + Duration::from_millis(40),
         None,
     );
-    let (write, first) = admit(
-        &mut engine,
-        1,
-        urgent_command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (write, first) = admit(&mut engine, 1, urgent_command(1), now);
     send_ok(&mut engine, &write, None, now);
     assert!(matches!(
         terminal_failure(&socketless_ack(&mut engine, now), first),
@@ -257,12 +232,7 @@ fn a_one_socket_union_recovers_without_waiting_for_a_phantom_second_socket() {
         ),
         now,
     );
-    let (write, next) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (write, next) = admit(&mut engine, 2, command(1), now);
     send_ok(&mut engine, &write, None, now);
     socketless_ack(&mut engine, now);
     assert_eq!(socket_of(&engine, next), Some(ViscaSocket::S1));
@@ -277,12 +247,7 @@ fn a_one_socket_union_recovers_without_waiting_for_a_phantom_second_socket() {
 fn lowering_capacity_cannot_forget_a_second_socket_from_an_ended_attempt() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
-    let (write, old) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (write, old) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &write, None, now);
     let later = now + Duration::from_millis(20);
     assert!(matches!(
@@ -319,12 +284,7 @@ fn a_camera_proven_second_socket_survives_a_one_socket_dispatch_limit() {
         CommandSocketCount::ONE,
         CancellationPolicy::Supported,
     );
-    let (write, old) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (write, old) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &write, None, now);
     engine.handle(
         frame(
@@ -355,12 +315,7 @@ fn a_camera_proven_second_socket_survives_a_one_socket_dispatch_limit() {
         now + Duration::from_millis(40),
         None,
     );
-    let (write, next) = admit(
-        &mut engine,
-        2,
-        urgent_command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (write, next) = admit(&mut engine, 2, urgent_command(1), now);
     send_ok(&mut engine, &write, None, now);
     assert!(matches!(
         terminal_failure(&socketless_ack(&mut engine, now), next),

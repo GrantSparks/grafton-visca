@@ -1,4 +1,63 @@
 use super::*;
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tokio_buffered_no_progress_reaches_deadline_and_shutdown() {
+    for outcome in [
+        BufferedNoProgress::EagerIdle,
+        BufferedNoProgress::Timeout,
+        BufferedNoProgress::Fault,
+    ] {
+        let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let (handle, terminated, join) = run_isolated_tokio_actor(
+            stream_policy(1),
+            BufferedNoProgressDriver {
+                outcome,
+                reads: Arc::clone(&reads),
+                written: false,
+                buffered: false,
+            },
+        );
+        assert_buffered_no_progress_is_bounded(
+            TokioRuntime::from_current().unwrap(),
+            handle,
+            terminated,
+            reads,
+        )
+        .await;
+        join.join().unwrap();
+    }
+}
+
+#[cfg(feature = "runtime-smol")]
+#[test]
+fn smol_buffered_no_progress_reaches_deadline_and_shutdown() {
+    for outcome in [
+        BufferedNoProgress::EagerIdle,
+        BufferedNoProgress::Timeout,
+        BufferedNoProgress::Fault,
+    ] {
+        let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut owner_policy = policy(1);
+        owner_policy.protocol.transport = crate::runtime::engine::TransportKind::Stream;
+        let (handle, terminated, join) = run_isolated_smol_actor(
+            owner_policy,
+            BufferedNoProgressDriver {
+                outcome,
+                reads: Arc::clone(&reads),
+                written: false,
+                buffered: false,
+            },
+        );
+        smol::block_on(assert_buffered_no_progress_is_bounded(
+            SmolRuntime::new(),
+            handle,
+            terminated,
+            reads,
+        ));
+        join.join().unwrap();
+    }
+}
 /// The actor polls its sources by walking the coordinator's planned order:
 /// for every selection shape and every combination of ready sources, the
 /// winner is the first ready source in `Selection::order`, and an omitted
@@ -115,6 +174,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let (write_tx, writes) = flume::bounded(8);
     let mut driver = RawBufferedFloodDriver {
+        shape: RawFloodShape::Buffered,
         reads: Arc::clone(&reads),
         buffered,
         writes: write_tx,
@@ -218,7 +278,10 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
 /// sequence: four flood reads yield, the next poll takes admission, and four
 /// more reads reach the following cooperative yield.
 #[cfg(feature = "runtime-tokio")]
-async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, u64) {
+async fn raw_release_flood_boundary_cadence(
+    latched_raw_release: bool,
+    shape: RawFloodShape,
+) -> (u64, u64) {
     const HOLD: Duration = Duration::from_secs(1);
     const FAIRNESS_CEILING: usize = 4;
 
@@ -227,9 +290,12 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
     owner_policy.limits.frames_per_receive = std::num::NonZeroUsize::new(FAIRNESS_CEILING).unwrap();
     owner_policy.protocol.raw_inquiry_release_hold = HOLD;
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let buffered = Arc::new(std::sync::atomic::AtomicBool::new(
+        shape == RawFloodShape::Buffered,
+    ));
     let (write_tx, writes) = flume::bounded(8);
     let mut driver = RawBufferedFloodDriver {
+        shape,
         reads: Arc::clone(&reads),
         buffered,
         writes: write_tx,
@@ -259,18 +325,20 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
         ));
 
         runtime.advance(HOLD);
-        assert_eq!(
-            actor
-                .handle_event(
-                    OwnerEvent::Wake,
-                    &mut driver,
-                    Executor::now(&runtime),
-                    false,
-                )
-                .await,
-            TurnOutcome::ContinueBuffered
-        );
-        assert!(actor.core.coordinator.release().await_until().is_some());
+        if shape == RawFloodShape::Buffered {
+            assert_eq!(
+                actor
+                    .handle_event(
+                        OwnerEvent::Wake,
+                        &mut driver,
+                        Executor::now(&runtime),
+                        false,
+                    )
+                    .await,
+                TurnOutcome::ContinueBuffered
+            );
+            assert!(actor.core.coordinator.release().await_until().is_some());
+        }
     }
 
     let (_completion, _admitted) = handle
@@ -288,7 +356,12 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
         "the forced boundary begins on the next poll"
     );
 
-    assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
+    for _ in 0..=FAIRNESS_CEILING {
+        assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
+        if handle.core.admissions.is_empty() {
+            break;
+        }
+    }
     let second_yield_reads = reads.load(Ordering::Relaxed);
     assert!(
         handle.core.admissions.is_empty(),
@@ -304,10 +377,31 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn raw_release_flood_matches_normal_boundary_cadence() {
-    let normal = raw_release_flood_boundary_cadence(false).await;
-    let raw = raw_release_flood_boundary_cadence(true).await;
+    let normal = raw_release_flood_boundary_cadence(false, RawFloodShape::Buffered).await;
+    let raw = raw_release_flood_boundary_cadence(true, RawFloodShape::Buffered).await;
     assert_eq!(normal, (4, 8), "normal selector phase sequence");
     assert_eq!(raw, normal, "raw release must use the same phase cadence");
+}
+
+/// #1020: both adapter outcomes which consume input without yielding a
+/// frame spend the same finite raw-release fairness budget.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_release_malformed_and_discarded_floods_serve_boundaries() {
+    for shape in [
+        RawFloodShape::MalformedDatagram,
+        RawFloodShape::DiscardedBatch,
+    ] {
+        let raw = raw_release_flood_boundary_cadence(true, shape).await;
+        assert_eq!(
+            raw.0, 1,
+            "non-progressing input requests a cooperative handoff"
+        );
+        assert!(
+            raw.1 <= 8,
+            "{shape:?} exceeded the boundary fairness cadence: {raw:?}"
+        );
+    }
 }
 
 /// A due engine wake may allow one ordinary control observation, but a
@@ -697,6 +791,7 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
     let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let (write_tx, writes) = flume::bounded(8);
     let mut driver = RawBufferedFloodDriver {
+        shape: RawFloodShape::Buffered,
         reads: Arc::clone(&reads),
         buffered,
         writes: write_tx,

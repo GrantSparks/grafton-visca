@@ -187,6 +187,10 @@ state_key_ledger! {
     ImageFlipMode(crate::types::ImageFlipMode) => ImageState::flip_mode,
     /// Returns the last applied synchronized-motion speed.
     MotionSyncSpeed(crate::types::MotionSyncSpeed) => MotionSyncState::speed,
+    /// Returns the last applied wide-dynamic-range level.
+    ExposureWideDynamicRange(crate::types::WideDynamicRangeLevel) => ExposureState::wide_dynamic_range,
+    /// Returns whether synchronized preset movement was last applied as enabled.
+    MotionSyncEnabled(bool) => MotionSyncState::enabled,
 }
 
 /// A fixed table with exactly one inline slot per declared state key.

@@ -84,7 +84,8 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
     capabilities.zoom = Some(grafton_visca::capabilities::ZoomCaps {
         optical_max: 0x4000,
         digital_max: Some(0x7000),
-        speed: grafton_visca::capabilities::CapabilityRange::<u8>::new(0, 7),
+        speed: grafton_visca::capabilities::CapabilityRange::<u8>::new(0, 7)
+            .expect("valid capability bounds"),
         direct: true,
         variable: false,
         optical_ratio: None,
@@ -136,9 +137,10 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
         wide_dynamic_range: false,
         compensation_range: None,
         iris_range: None,
-        gain_range: Some(grafton_visca::capabilities::CapabilityRange::<u8>::new(
-            0, 1,
-        )),
+        gain_range: Some(
+            grafton_visca::capabilities::CapabilityRange::<u8>::new(0, 1)
+                .expect("valid capability bounds"),
+        ),
         shutter_speeds: vec![ShutterSpeedEntry {
             exposure: grafton_visca::types::ExposureTime::new(1, 60).expect("nonzero denominator"),
             value: 1,

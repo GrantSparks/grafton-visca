@@ -133,14 +133,14 @@ fn scalar_schemas_use_the_checked_semantic_domain() {
     assert_bounds::<GainLevel>(0, 25);
     assert_bounds::<ExposureCompensationLevel>(-7, 7);
     assert_bounds::<Kelvin>(2000, 15000);
-    assert_bounds::<UnknownPictureEffect>(1, 255);
+    assert_bounds::<UnknownPictureEffect>(1, 254);
 
     let schema = schemars::schema_for!(UnknownPictureEffect);
     let values = schema
         .get("enum")
         .and_then(serde_json::Value::as_array)
         .expect("sparse values have exact schema membership");
-    let expected: Vec<_> = (1_u8..=255)
+    let expected: Vec<_> = (1_u8..=254)
         .filter(|value| ![2, 4].contains(value))
         .map(serde_json::Value::from)
         .collect();

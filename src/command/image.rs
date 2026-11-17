@@ -285,7 +285,8 @@ impl ImageFlipCombinedCommand {
 ///
 /// The built-in reference validates the standard off command and PTZOptics
 /// black-and-white command. Use `PictureEffectMode::Unknown(UnknownPictureEffect::new(value)?)` for
-/// model-specific picture-effect values outside that source-backed surface.
+/// model-specific picture-effect values listed in the selected profile's
+/// `ImageCaps::picture_effects` inventory. The frame terminator `FF` is excluded.
 #[derive(Debug, Copy, Clone)]
 pub struct PictureEffectCommand {
     /// Picture-effect mode to send.

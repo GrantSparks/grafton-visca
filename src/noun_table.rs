@@ -588,7 +588,9 @@ macro_rules! noun_table {
             /// `WideDynamicRangeLevel` is a protocol adjustment code, not a percentage or
             /// a number of photographic stops. Its checked union is `0..=8`; the profile's
             /// `WideDynamicRange` grant and `ExposureCaps::wide_dynamic_range` fact
-            /// declare support.
+            /// declare support. The last applied value is available through
+            /// [`StateCache::exposure`](crate::state_cache::StateCache::exposure)
+            /// and its `wide_dynamic_range()` accessor.
             plain [SetWideDynamicRange] set_wide_dynamic_range(level: types::WideDynamicRangeLevel) -> command::exposure::SetWideDynamicRange where HasWideDynamicRange
                 = [command::exposure::SetWideDynamicRange::new(level)];
             /// Returns the iris level.
@@ -1332,16 +1334,16 @@ macro_rules! noun_table {
             ///
             /// `PictureEffectMode` is an effect selector rather than an intensity. It
             /// preserves unknown reply codes as well as the named effects; the selected
-            /// profile's `ImageCaps::picture_effect` fact and picture-effect grant declare
+            /// profile's `ImageCaps::picture_effects` inventory and picture-effect grant declare
             /// availability.
             inquiry [PictureEffectInquiry] picture_effect() -> types::PictureEffectMode where HasPictureEffect
                 = [command::image::PictureEffectInquiry];
             /// Sets picture-effect mode.
             ///
             /// `PictureEffectMode` is an effect selector rather than an intensity. It
-            /// preserves unknown reply codes as well as the named effects; the selected
-            /// profile's `ImageCaps::picture_effect` fact and picture-effect grant declare
-            /// availability.
+            /// accepts only values in the selected profile's `ImageCaps::picture_effects`
+            /// inventory, including checked extension codes documented by custom profiles.
+            /// Built-in PTZOptics profiles admit Off and BlackAndWhite. Returns after application.
             plain [SetPictureEffect] set_picture_effect(mode: types::PictureEffectMode) -> command::image::SetPictureEffect where HasPictureEffect
                 = [command::image::SetPictureEffect::new(mode)];
             /// Raises the master black level by `1..=255` relative adjustment steps. Direct levels span −99.0 to
@@ -1550,13 +1552,16 @@ macro_rules! noun_table {
                 getter: motion_sync,
                 title: "Motion sync",
                 gate: [typed HasMotionSync],
-                doc: "Motion-sync settings; readback requires a custom inquiry.",
+                doc: "Motion-sync settings; the state cache records applied writes, and camera readback requires a custom inquiry.",
             };
             /// Enables or disables synchronized preset movement.
             ///
             /// `true` enables synchronized preset-recall movement and `false` disables it.
             /// This boolean is supported through the selected profile's `MotionSync`
-            /// grant; it does not itself select a speed or start movement.
+            /// grant; it does not itself select a speed or start movement. The last
+            /// applied value is available through
+            /// [`StateCache::motion_sync`](crate::state_cache::StateCache::motion_sync)
+            /// and its `enabled()` accessor.
             plain [SetEnabled] set_enabled(enabled: bool) -> command::motion_sync::SetEnabled
                 = [command::motion_sync::SetEnabled::new(enabled)];
             /// Sets the motion-sync speed.  [`crate::types::MotionSyncSpeed`](crate::types::MotionSyncSpeed) owns the `1..=24`

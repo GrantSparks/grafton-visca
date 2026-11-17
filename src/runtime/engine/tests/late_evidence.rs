@@ -8,7 +8,7 @@ const SEQUENCE: u32 = 0x1234_1001;
 fn answer(envelope: EnvelopeKind, response: DecodedResponse) -> Input {
     frame(
         1,
-        (envelope == EnvelopeKind::Sony).then_some((SEQUENCE, SequenceWidth::Full32)),
+        (envelope == EnvelopeKind::Sony).then_some(SEQUENCE),
         response,
     )
 }
@@ -43,12 +43,7 @@ fn assert_no_rewrite(effects: &[Effect], request: RequestId) {
 
 fn sony_waiting(start: Instant) -> (ProtocolEngine, RequestId) {
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (write, id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (write, id) = admit(&mut engine, 1, command(1), start);
     send_ok(&mut engine, &write, Some(SEQUENCE), start);
     (engine, id)
 }
@@ -96,13 +91,9 @@ fn sony_late_completion_applies_each_unacknowledged_retry_path() {
             let start = Instant::now();
             let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
             let request = if cause == 1 {
-                command_with_reply_shape(
-                    1,
-                    CancellationPolicy::Supported,
-                    CommandReply::CompletionOnly,
-                )
+                command_with_reply_shape(1, CommandReply::CompletionOnly)
             } else {
-                command(1, CancellationPolicy::Supported)
+                command(1)
             };
             let (write, id) = admit(&mut engine, 1, request, start);
             send_ok(&mut engine, &write, Some(SEQUENCE), start);
@@ -154,7 +145,7 @@ fn sony_lower16_ack_keeps_the_written_attempt_socket_capacity() {
     let accepted = engine.handle(
         frame(
             1,
-            Some((SEQUENCE & 0xffff, SequenceWidth::Lower16)),
+            Some(SEQUENCE & 0xffff),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S2),
             },
@@ -227,7 +218,7 @@ fn acknowledged_lifecycle_cannot_supply_retry_eligibility() {
 fn late_sony_completion_does_not_outlive_the_total_budget_in_backoff() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let mut request = command(1, CancellationPolicy::Supported);
+    let mut request = command(1);
     request.context_mut().retry.total_budget =
         Some(NonZeroDuration::new(Duration::from_millis(22)).unwrap());
     request.context_mut().retry.initial_backoff = Duration::from_millis(1);
@@ -265,7 +256,7 @@ fn raw_late_socketless_completion_releases_the_retired_holder_without_a_cascade(
             let (write, id) = admit(
                 &mut engine,
                 u64::try_from(index + 1).unwrap(),
-                command(1, CancellationPolicy::Supported),
+                command(1),
                 at,
             );
             send_ok(&mut engine, &write, None, at);
@@ -297,21 +288,11 @@ fn raw_late_socketless_completion_releases_the_retired_holder_without_a_cascade(
 
 fn held_and_live(start: Instant) -> (ProtocolEngine, RequestId, RequestId) {
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
-    let (write, held) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (write, held) = admit(&mut engine, 1, command(1), start);
     send_ok(&mut engine, &write, None, start);
     engine.handle(ack(EnvelopeKind::Raw, ViscaSocket::S1), start);
     let later = start + Duration::from_millis(10);
-    let (write, live) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        later,
-    );
+    let (write, live) = admit(&mut engine, 2, command(1), later);
     send_ok(&mut engine, &write, None, later);
     engine.handle(ack(EnvelopeKind::Raw, ViscaSocket::S2), later);
     engine.advance(start + Duration::from_millis(40));
@@ -350,12 +331,7 @@ fn held_socket_reuse_does_not_assign_an_ambiguous_predecessor_completion_to_a_li
     let (mut engine, _, live) = held_and_live(start);
     let at = start + Duration::from_millis(41);
     engine.handle(complete(EnvelopeKind::Raw, None), at);
-    let (write, successor) = admit(
-        &mut engine,
-        3,
-        command(1, CancellationPolicy::Supported),
-        at,
-    );
+    let (write, successor) = admit(&mut engine, 3, command(1), at);
     send_ok(&mut engine, &write, None, at);
     let reused = engine.handle(ack(EnvelopeKind::Raw, ViscaSocket::S1), at);
     assert!(
@@ -382,12 +358,7 @@ fn order_snapshot(
     // One shared epoch makes snapshots directly comparable despite Instant's
     // opaque representation; only relative lifecycle deadlines are projected.
     let mut engine = engine(envelope, transport);
-    let (write, id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (write, id) = admit(&mut engine, 1, command(1), start);
     send_ok(
         &mut engine,
         &write,
@@ -498,14 +469,14 @@ proptest! {
             let input = match action {
                 0 => {
                     ticket += 1;
-                    Input::Admit { ticket: AdmissionTicket(ticket), request: command(1, CancellationPolicy::Supported), slot: AdmissionSlot::Ordinary }
+                    Input::Admit { ticket: AdmissionTicket(ticket), request: command(1), slot: AdmissionSlot::Ordinary }
                 }
                 1 => Input::ReceiveFault { error: Error::transport_error(std::io::Error::other("model receive fault")) },
                 2 | 3 if !written.is_empty() => {
                     let index = usize::from(advance) % written.len();
                     let (id, sequence) = written.iter().nth(index).unwrap();
                     accepted.insert(*id);
-                    frame(1, Some((*sequence, SequenceWidth::Full32)),
+                    frame(1, Some(*sequence),
                         if action == 2 { DecodedResponse::Ack { socket: Some(ViscaSocket::S1) } }
                         else { DecodedResponse::Completion { socket: Some(ViscaSocket::S1) } })
                 }
@@ -516,7 +487,7 @@ proptest! {
                 if let Effect::Transmit { transmission, request, kind: Transmission::Request { framing, .. } } = effect {
                     prop_assert!(!accepted.contains(&request), "rewrote {request:?} after camera acceptance");
                     let sequence = *written.entry(request).or_insert_with(|| 0x1000 + u32::try_from(request.get()).unwrap());
-                    if let RequestFraming::Sony { sequence: SonyRequestSequence::Replay(requested) } = framing.expectation() {
+                    if let Some(SonyRequestSequence::Replay(requested)) = framing.sony_sequence() {
                         prop_assert_eq!(requested, sequence);
                     }
                     effects.extend(engine.handle_turn(Input::TransmissionFinished {

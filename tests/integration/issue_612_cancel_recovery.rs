@@ -265,11 +265,13 @@ async fn runtime_profile_refused_cancel_leaves_the_handle_observing<
     ));
 
     fake.push(frames::complete(1));
-    executor
-        .timeout(Duration::from_secs(2), moving.applied())
-        .await
-        .expect("handle observer deadline")
-        .expect("the dynamic handle still observes the original operation");
+    futures_lite::future::or(async { Ok(moving.applied().await) }, async {
+        executor.sleep(Duration::from_secs(2)).await;
+        Err(grafton_visca::Error::io_timeout())
+    })
+    .await
+    .expect("handle observer deadline")
+    .expect("the dynamic handle still observes the original operation");
     assert_eq!(fake.writes(), vec![ZOOM_TELE.to_vec()]);
 
     session.shutdown().expect("owner shutdown");

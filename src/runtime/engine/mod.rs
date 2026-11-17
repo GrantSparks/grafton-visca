@@ -39,6 +39,7 @@ use smallvec::SmallVec;
 use crate::protocol::framer::RawIncompletePrefix;
 use crate::protocol::response::CameraErrorCode;
 use crate::target::{PerTarget, TargetSlot};
+pub(crate) use crate::transport::envelope::FrameSequence;
 use crate::{
     Certainty, CommandSocketCount, Error, FailureContext, FailureStage, PayloadShape, ViscaSocket,
 };
@@ -46,7 +47,10 @@ use crate::{
 mod decision;
 mod entry_table;
 use decision::Decision;
-use entry_table::{AdmissionFacts, EntryChange, EntryPlacement, EntryTable, SequenceSlots};
+use entry_table::{
+    AdmissionFacts, EntryChange, EntryPlacement, EntryTable, SequenceSlots, SocketClaim,
+    SocketedLifecycle, UnsocketedLifecycle,
+};
 mod framing;
 pub(crate) use framing::{ProtocolEncoder, WireProtocol, WriteFraming};
 
@@ -855,12 +859,10 @@ impl ProtocolEngine {
 
 /// Shared operations are reusable by a processor borrowing an exact mode.
 trait EngineMethods: EngineAccess {
-    fn stop_wait_bound_in(&self, entry: &Entry, occupancy: &Occupancy) -> Option<Instant> {
-        self.mode().stream().and_then(|stream| {
-            stream.stop_wait_bound(entry, || {
-                occupancy.targets[entry.request.context().target].uncorrelated_write
-            })
-        })
+    fn stop_wait_bound_in(&self, entry: &Entry) -> Option<Instant> {
+        self.mode()
+            .stream()
+            .and_then(|stream| stream.stop_wait_bound(entry))
     }
     fn pre_ack_bypass_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
         entry.request.is_stop()
@@ -950,7 +952,7 @@ trait EngineMethods: EngineAccess {
                     return true;
                 };
                 !self
-                    .stop_wait_bound_in(entry, occupancy)
+                    .stop_wait_bound_in(entry)
                     .is_some_and(|bound| now >= bound)
                     && (self.hold_blocks_in(entry, target, occupancy)
                         || self.command_gate_in(entry, target, occupancy)
@@ -1044,13 +1046,15 @@ trait EngineMethods: EngineAccess {
 
     /// A returned transmit is performed immediately. Its identified result is
     /// the only permitted input until that write has finished.
-    fn assert_input_boundary(&self) -> Result<(), Box<str>> {
-        if self
-            .entries
+    fn staged_write(&self) -> bool {
+        self.entries
             .values()
-            .any(|entry| matches!(entry.lifecycle(), Lifecycle::Sending { .. }))
-        {
-            return Err("no entry may be Sending at an input boundary".into());
+            .any(|entry| entry.lifecycle().staged_write())
+    }
+
+    fn assert_input_boundary(&self) -> Result<(), Box<str>> {
+        if self.staged_write() {
+            return Err("no write may be staged at an input boundary".into());
         }
         Ok(())
     }
@@ -1058,7 +1062,7 @@ trait EngineMethods: EngineAccess {
     fn debug_assert_input_boundary(&self) {
         debug_assert!(
             self.assert_input_boundary().is_ok(),
-            "no entry may be Sending at an input boundary"
+            "no write may be staged at an input boundary"
         );
     }
 
@@ -1155,9 +1159,7 @@ trait EngineMethods: EngineAccess {
     ) {
         let mut effects = Decision::new(sink);
         if engine_turn.runs_due() {
-            self.run_due(input_turn.now, &mut effects);
-            self.drain_pending_cancellations(input_turn.now, &mut effects);
-            self.dispatch_one(input_turn.now, &mut effects);
+            self.scheduler_tail(input_turn.now, &mut effects);
         }
         self.finish_decision(input_turn.now, effects)
     }
@@ -1242,11 +1244,26 @@ trait EngineMethods: EngineAccess {
     fn advance_turn_into(&mut self, now: Instant, turn: EngineTurn, sink: &mut Vec<Effect>) {
         let mut effects = Decision::new(sink);
         if turn.runs_due() {
-            self.run_due(now, &mut effects);
-            self.drain_pending_cancellations(now, &mut effects);
-            self.dispatch_one(now, &mut effects);
+            self.scheduler_tail(now, &mut effects);
         }
         self.finish_decision(now, effects)
+    }
+
+    /// Due work and ordinary dispatch require every immediate write to have
+    /// finished. A cancellation drain may stage several ordered writes; its
+    /// last receipt resumes the tail before any ordinary request can send.
+    fn scheduler_tail(&mut self, now: Instant, effects: &mut Decision) {
+        if self.staged_write() {
+            return;
+        }
+        self.run_due(now, effects);
+        if self.staged_write() {
+            return;
+        }
+        self.drain_pending_cancellations(now, effects);
+        if !self.staged_write() {
+            self.dispatch_one(now, effects);
+        }
     }
 
     /// Entries holding `slot`, for `target` when the slot is a control
@@ -1442,7 +1459,7 @@ trait EngineMethods: EngineAccess {
             });
         }
         self.admission_slot_available(&request, slot)?;
-        let Some(target_policy) = self.targets[context.target].policy else {
+        let Some(_) = self.targets[context.target].policy else {
             return Err(Error::InvalidState {
                 reason: "target is not registered in this session".into(),
             });
@@ -1463,11 +1480,6 @@ trait EngineMethods: EngineAccess {
         }
         if let Some(error) = self.latched_raw_lane_error(&request) {
             return Err(error);
-        }
-        if target_policy.cancellation != context.cancellation {
-            return Err(Error::InvalidState {
-                reason: "request cancellation policy conflicts with target registration".into(),
-            });
         }
         let Some(id) = self.allocate_request_id() else {
             return Err(Error::RuntimeIdentityExhausted);
@@ -1618,9 +1630,8 @@ trait EngineMethods: EngineAccess {
             }
             CorrelationState::Sequenced | CorrelationState::RawDatagram(_) => None,
         };
-        let lifecycle = Lifecycle::Sending {
+        let lifecycle = UnsocketedLifecycle::Sending {
             transmission,
-            framing: framing.expectation(),
             started_at: now,
             attempt: AttemptFacts {
                 socket_capacity: dispatched_socket_capacity,
@@ -1778,32 +1789,13 @@ trait EngineMethods: EngineAccess {
     /// half way to its dispatch deadline. The stream ledger still binds
     /// every frame by write order, so the cost is only decisiveness: a frame
     /// it makes ambiguous binds to neither request, and the STOP may end
-    /// unconfirmed (#795). Only the local write of a `NoReply` or
-    /// `CompletionOnly` command, which has no write order yet, still holds
-    /// it back (`None` until that write has left).
+    /// unconfirmed (#795). The scheduler reaches dispatch only after every
+    /// local write has finished.
     #[cfg(test)]
     fn stop_wait_bound(&self, entry: &Entry) -> Option<Instant> {
-        self.mode().stream().and_then(|stream| {
-            stream.stop_wait_bound(entry, || {
-                self.uncorrelated_write_in_flight(entry.request.context().target)
-            })
-        })
-    }
-
-    /// Whether a `NoReply` or `CompletionOnly` command's local write to
-    /// `target` is in flight.
-    #[cfg(test)]
-    fn uncorrelated_write_in_flight(&self, target: TargetSlot) -> bool {
-        self.entries.values().any(|entry| {
-            entry.request.context().target == target
-                && matches!(
-                    entry.lifecycle(),
-                    Lifecycle::Sending {
-                        reply: SendingReply::CompletionOnly | SendingReply::NoReply,
-                        ..
-                    }
-                )
-        })
+        self.mode()
+            .stream()
+            .and_then(|stream| stream.stop_wait_bound(entry))
     }
 
     /// Whether `entry`, a STOP on a raw byte stream, has waited out
@@ -2130,27 +2122,19 @@ trait EngineMethods: EngineAccess {
         }
     }
 
-    fn transition(&mut self, id: RequestId, to: Lifecycle, now: Instant, effects: &mut Decision) {
-        match self.entries.transition(id, EntryChange::Lifecycle(to)) {
-            Ok(Some(changed)) => effects.push(Effect::Transition {
+    fn transition(
+        &mut self,
+        id: RequestId,
+        to: impl Into<EntryChange>,
+        _now: Instant,
+        effects: &mut Decision,
+    ) {
+        if let Some(changed) = self.entries.transition(id, to.into()) {
+            effects.push(Effect::Transition {
                 id,
                 from: changed.from,
                 to: changed.to,
-            }),
-            Ok(None) => {}
-            Err(conflict) => self.finish_after_ack(
-                id,
-                Error::InvalidState {
-                    reason: format!(
-                        "socket {} is already owned by {:?}",
-                        conflict.socket, conflict.owner
-                    )
-                    .into(),
-                },
-                false,
-                now,
-                effects,
-            ),
+            });
         }
     }
 
@@ -2282,36 +2266,7 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) {
-        let metadata_valid = match (owner.write.framing(), meta) {
-            (RequestFraming::Raw, TransmissionMeta::Raw) => true,
-            (
-                RequestFraming::Sony {
-                    sequence: SonyRequestSequence::AllocateFresh,
-                },
-                TransmissionMeta::Sony { .. },
-            ) => true,
-            (
-                RequestFraming::Sony {
-                    sequence: SonyRequestSequence::Replay(requested),
-                },
-                TransmissionMeta::Sony { sequence },
-            ) => requested == sequence,
-            (RequestFraming::Raw, TransmissionMeta::Sony { .. })
-            | (RequestFraming::Sony { .. }, TransmissionMeta::Raw) => false,
-        };
-        if !metadata_valid {
-            self.finish_observed(
-                owner.request,
-                Error::InvalidState {
-                    reason: "transmission metadata conflicts with requested framing".into(),
-                },
-                AttemptEvidence::Written,
-                now,
-                effects,
-            );
-            return;
-        }
-        let _ = self.entries.transition(
+        self.entries.transition(
             owner.request,
             EntryChange::Written {
                 receipt: meta,
@@ -2332,7 +2287,7 @@ trait EngineMethods: EngineAccess {
                     SendingReply::Inquiry => {
                         self.transition(
                             owner.request,
-                            Lifecycle::AwaitingReply {
+                            UnsocketedLifecycle::AwaitingReply {
                                 sent_at: now,
                                 deadline: add_duration(now, context.timeout.inquiry.get()),
                                 attempt,
@@ -2344,7 +2299,7 @@ trait EngineMethods: EngineAccess {
                     SendingReply::Stop | SendingReply::AckThenCompletion => {
                         self.transition(
                             owner.request,
-                            Lifecycle::AwaitingAck {
+                            UnsocketedLifecycle::AwaitingAck {
                                 sent_at: now,
                                 deadline: add_duration(now, context.timeout.ack.get()),
                                 attempt,
@@ -2357,7 +2312,7 @@ trait EngineMethods: EngineAccess {
                     SendingReply::CompletionOnly => {
                         self.transition(
                             owner.request,
-                            Lifecycle::AwaitingCompletion {
+                            UnsocketedLifecycle::AwaitingCompletion {
                                 sent_at: now,
                                 deadline: add_duration(now, context.timeout.completion.get()),
                                 attempt,
@@ -2542,36 +2497,40 @@ trait EngineMethods: EngineAccess {
     fn resolve_sequence(
         &self,
         target: TargetSlot,
-        sequence: EnvelopeSequence,
+        sequence: FrameSequence,
     ) -> Result<(RequestId, CorrelationKind), IgnoreReason> {
-        let exact_candidates = self.entries.exact_owners(sequence.value);
-        if sequence.width == SequenceWidth::Full32 {
-            if exact_candidates.is_empty() {
-                return Err(IgnoreReason::UnmatchedSequencedFrame);
+        match sequence {
+            FrameSequence::Full32(value) => {
+                let exact_candidates = self.entries.exact_owners(value);
+                if exact_candidates.is_empty() {
+                    return Err(IgnoreReason::UnmatchedSequencedFrame);
+                }
+                let compatible = unique_requests(
+                    exact_candidates
+                        .iter()
+                        .copied()
+                        .filter(|owner| self.owner_target(*owner) == Some(target)),
+                );
+                match compatible.as_slice() {
+                    [owner] => Ok((owner.request, owner.kind)),
+                    [] => Err(IgnoreReason::TargetIncompatibleSequence),
+                    _ => Err(IgnoreReason::UnmatchedSequencedFrame),
+                }
             }
-            let compatible = unique_requests(
-                exact_candidates
-                    .iter()
-                    .copied()
-                    .filter(|owner| self.owner_target(*owner) == Some(target)),
-            );
-            return match compatible.as_slice() {
-                [owner] => Ok((owner.request, owner.kind)),
-                [] => Err(IgnoreReason::TargetIncompatibleSequence),
-                _ => Err(IgnoreReason::UnmatchedSequencedFrame),
-            };
-        }
-        let unique = unique_requests(
-            self.entries
-                .lower_owners(sequence.value as u16)
-                .iter()
-                .copied()
-                .filter(|owner| self.owner_target(*owner) == Some(target)),
-        );
-        match unique.as_slice() {
-            [owner] => Ok((owner.request, owner.kind)),
-            [] => Err(IgnoreReason::UnmatchedSequencedFrame),
-            _ => Err(IgnoreReason::AmbiguousLower16Sequence),
+            FrameSequence::MaybeTruncated(value) => {
+                let unique = unique_requests(
+                    self.entries
+                        .lower_owners(value)
+                        .iter()
+                        .copied()
+                        .filter(|owner| self.owner_target(*owner) == Some(target)),
+                );
+                match unique.as_slice() {
+                    [owner] => Ok((owner.request, owner.kind)),
+                    [] => Err(IgnoreReason::UnmatchedSequencedFrame),
+                    _ => Err(IgnoreReason::AmbiguousLower16Sequence),
+                }
+            }
         }
     }
 
@@ -3041,34 +3000,28 @@ trait EngineMethods: EngineAccess {
             .map_or(current, |dispatched| current.max(dispatched))
     }
 
-    fn socket_available(&self, target: TargetSlot, socket: ViscaSocket, id: RequestId) -> bool {
-        self.raw_hold(target, RawHoldScope::Socket(socket))
-            .is_none()
-            && self
-                .socket_owner(target, socket)
-                .is_none_or(|owner| owner == id)
-    }
-
     /// Chooses the camera's named socket, or the first free physical socket
     /// for an ACK that does not name one. Named ownership is reconciled by
     /// `assign_ack_socket` before this helper; inventing a different socket
     /// would send cancellation to the wrong command.
     fn assign_socket(
-        &self,
+        &mut self,
         target: TargetSlot,
         requested: Option<ViscaSocket>,
         id: RequestId,
-    ) -> Option<ViscaSocket> {
-        let assignment_socket_count = self.assignment_socket_count(target, id);
-        if let Some(socket) = requested {
-            if self.socket_available(target, socket, id) {
-                return Some(socket);
-            }
-            return None;
-        }
-        assignment_socket_count
-            .sockets()
-            .find(|socket| self.socket_available(target, *socket, id))
+    ) -> Option<SocketClaim<'_>> {
+        let candidates: SmallVec<[ViscaSocket; 2]> = match requested {
+            Some(socket) => std::iter::once(socket).collect(),
+            None => self.assignment_socket_count(target, id).sockets().collect(),
+        };
+        let unheld: SmallVec<[ViscaSocket; 2]> = candidates
+            .into_iter()
+            .filter(|socket| {
+                self.raw_hold(target, RawHoldScope::Socket(*socket))
+                    .is_none()
+            })
+            .collect();
+        self.entries.claim_socket(id, unheld)
     }
 
     /// A compatibility ACK cannot reconstruct physical socket occupancy after
@@ -3103,7 +3056,7 @@ trait EngineMethods: EngineAccess {
         id: RequestId,
         now: Instant,
         effects: &mut Decision,
-    ) -> Option<ViscaSocket> {
+    ) -> Option<SocketClaim<'_>> {
         if let Some(socket) = requested {
             if let Some(stale) = self
                 .socket_owner(target, socket)
@@ -3147,14 +3100,14 @@ trait EngineMethods: EngineAccess {
                 deadline,
                 attempt,
                 ..
-            } => Lifecycle::ExecutingDisplaced {
+            } => UnsocketedLifecycle::ExecutingDisplaced {
                 started_at,
                 deadline,
                 attempt,
             },
             Lifecycle::AwaitingCancellationResolution {
                 deadline, attempt, ..
-            } => Lifecycle::ExecutingDisplaced {
+            } => UnsocketedLifecycle::ExecutingDisplaced {
                 started_at: now,
                 deadline,
                 attempt,
@@ -3217,7 +3170,7 @@ trait EngineMethods: EngineAccess {
             self.end_attempt(id, ending, None, AttemptEvidence::Lifecycle, now, effects);
             return;
         }
-        let Some(socket) = self.assign_ack_socket(target, socket, id, now, effects) else {
+        let Some(claim) = self.assign_ack_socket(target, socket, id, now, effects) else {
             if !matches!(self.session, EngineSession::Running) {
                 return;
             }
@@ -3237,8 +3190,7 @@ trait EngineMethods: EngineAccess {
             }
             return;
         };
-        let next = Lifecycle::Executing {
-            socket,
+        let next = SocketedLifecycle::Executing {
             started_at: now,
             deadline,
             attempt,
@@ -3247,8 +3199,18 @@ trait EngineMethods: EngineAccess {
                 ExecutingCancellation::Requested,
             ),
         };
-        self.transition(id, next, now, effects);
-        if let Some(pending) = next.pending_cancellation() {
+        if let Some(changed) = claim.install(next) {
+            effects.push(Effect::Transition {
+                id,
+                from: changed.from,
+                to: changed.to,
+            });
+        }
+        if let Some(pending) = self
+            .entries
+            .get(&id)
+            .and_then(|entry| entry.lifecycle().pending_cancellation())
+        {
             self.emit_cancel(id, pending, now, effects);
         }
     }
@@ -3682,7 +3644,7 @@ trait EngineMethods: EngineAccess {
             .get(&id)
             .is_some_and(Entry::cancellation_observation_open)
         {
-            let _ = self.entries.transition(id, EntryChange::CloseObserver);
+            self.entries.transition(id, EntryChange::CloseObserver);
             effects.push(Effect::CancellationObservation {
                 id,
                 observation: CancellationObservation::Failed(error.clone()),
@@ -3722,7 +3684,9 @@ trait EngineMethods: EngineAccess {
             CancellationDecision::Refused(Error::InquiryNotCancellable)
         } else {
             entry.lifecycle().cancellation_decision(
-                entry.request.context().cancellation == CancellationPolicy::Supported,
+                self.targets[entry.request.context().target]
+                    .policy
+                    .is_some_and(|policy| policy.cancellation == CancellationPolicy::Supported),
                 add_duration(now, entry.request.context().timeout.ambiguity.get()),
             )
         };
@@ -3762,7 +3726,11 @@ trait EngineMethods: EngineAccess {
                     id,
                     observation: CancellationObservation::Recorded,
                 });
-                if let Some(pending) = next.pending_cancellation() {
+                if let Some(pending) = self
+                    .entries
+                    .get(&id)
+                    .and_then(|entry| entry.lifecycle().pending_cancellation())
+                {
                     self.emit_cancel(id, pending, now, effects);
                 }
             }
@@ -3799,7 +3767,7 @@ trait EngineMethods: EngineAccess {
         };
         self.transition(
             id,
-            pending.emitted(transmission, ambiguity_deadline, framing.expectation()),
+            pending.emitted(transmission, ambiguity_deadline),
             now,
             effects,
         );
@@ -3900,14 +3868,11 @@ trait EngineMethods: EngineAccess {
         }
         self.retire_answers(id, now, effects);
         self.release_attempt_ownership(id);
-        let to = Lifecycle::Backoff {
-            ready_at,
-            previous_attempt: retry.attempt(),
-        };
-        if let Ok(Some(changed)) = self.entries.transition(
+        if let Some(changed) = self.entries.transition(
             id,
             EntryChange::Retry {
-                to,
+                ready_at,
+                previous_attempt: retry.attempt(),
                 prior: PriorAttempts {
                     count: NonZeroU32::MIN.saturating_add(retry_count),
                     cause: error,
@@ -3944,7 +3909,7 @@ trait EngineMethods: EngineAccess {
     }
 
     fn release_attempt_ownership(&mut self, id: RequestId) {
-        let _ = self.entries.transition(id, EntryChange::DisplaceSocket);
+        self.entries.transition(id, EntryChange::DisplaceSocket);
     }
 
     fn run_due(&mut self, now: Instant, effects: &mut Decision) {
@@ -4193,7 +4158,7 @@ trait EngineMethods: EngineAccess {
     }
 
     fn close_cancellation_observer(&mut self, id: RequestId, effects: &mut Decision) {
-        let _ = self.entries.transition(id, EntryChange::CloseObserver);
+        self.entries.transition(id, EntryChange::CloseObserver);
         effects.push(Effect::CancellationObservation {
             id,
             observation: CancellationObservation::Failed(Error::timeout(
@@ -4250,7 +4215,7 @@ trait EngineMethods: EngineAccess {
                     if extended > now {
                         self.transition(
                             id,
-                            Lifecycle::AwaitingAck {
+                            UnsocketedLifecycle::AwaitingAck {
                                 sent_at,
                                 deadline: extended,
                                 attempt: retry.attempt(),
@@ -4297,7 +4262,6 @@ trait EngineMethods: EngineAccess {
                         );
                     }
                     CompletionDeadline::Cancelling {
-                        socket,
                         original_deadline,
                         attempt,
                         cancellation,
@@ -4305,8 +4269,7 @@ trait EngineMethods: EngineAccess {
                         if cancellation.ambiguity_deadline() > now {
                             self.transition(
                                 id,
-                                Lifecycle::AwaitingCancellationResolution {
-                                    socket,
+                                SocketedLifecycle::AwaitingCancellationResolution {
                                     deadline: original_deadline,
                                     attempt,
                                     cancellation,
@@ -4365,7 +4328,7 @@ trait EngineMethods: EngineAccess {
     ) {
         self.transition(
             id,
-            Lifecycle::Ready {
+            UnsocketedLifecycle::Ready {
                 previous_attempt: Some(previous_attempt),
             },
             now,
@@ -4535,7 +4498,7 @@ trait EngineMethods: EngineAccess {
                 Some(self.cancellation_send_at(entry))
             } else if entry.lifecycle().is_ready() {
                 // A blocked STOP on a byte stream is written at its bound.
-                self.stop_wait_bound_in(entry, &occupancy)
+                self.stop_wait_bound_in(entry)
                     .map(|bound| bound.max(self.candidate_send_at(entry)))
             } else {
                 None
@@ -5273,7 +5236,6 @@ mod cancellation_regression_tests {
             ),
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         }
     }
 
@@ -5392,10 +5354,8 @@ mod cancellation_regression_tests {
         );
         let ack = DecodedFrame {
             target: camera(),
-            sequence: (envelope == EnvelopeKind::Sony).then_some(EnvelopeSequence {
-                value: 0x1001,
-                width: SequenceWidth::Full32,
-            }),
+            sequence: (envelope == EnvelopeKind::Sony)
+                .then_some(FrameSequence::from_reply_header(0x1001)),
             response: DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },

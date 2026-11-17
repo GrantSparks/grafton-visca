@@ -50,7 +50,7 @@ fn fixture(scenario: Scenario) -> (ProtocolEngine, RequestId, Instant) {
             engine.handle(
                 frame(
                     1,
-                    Some((0x1001, SequenceWidth::Full32)),
+                    Some(0x1001),
                     DecodedResponse::Ack {
                         socket: Some(ViscaSocket::S1),
                     },
@@ -66,7 +66,7 @@ fn fixture(scenario: Scenario) -> (ProtocolEngine, RequestId, Instant) {
                     &mut engine,
                     request,
                     transmission,
-                    Ok(TransmissionMeta::Sony { sequence: 0x2001 }),
+                    Ok(TransmissionMeta::Allocated { sequence: 0x2001 }),
                     start,
                 );
                 if matches!(scenario, Scenario::CancellationResolution) {
@@ -180,12 +180,7 @@ fn immediate_timeout_retries_end_the_action_ready() {
         retry.maximum_backoff = Duration::ZERO;
         let request = match family {
             0 => command_with_retry(1, retry),
-            1 => command_with_reply_shape_and_retry(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-                retry,
-            ),
+            1 => command_with_reply_shape_and_retry(1, CommandReply::CompletionOnly, retry),
             _ => inquiry_with_retry(1, retry),
         };
         let (write, id) = admit(&mut engine, 1, request, now);
@@ -206,12 +201,8 @@ fn immediate_timeout_retries_end_the_action_ready() {
 fn raw_pair(minimum_ambiguity: bool) -> (ProtocolEngine, RequestId, RequestId, Instant) {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
-    let request = command_with_reply_shape_and_retry(
-        1,
-        CancellationPolicy::Supported,
-        CommandReply::CompletionOnly,
-        RetryPolicy::NEVER,
-    );
+    let request =
+        command_with_reply_shape_and_retry(1, CommandReply::CompletionOnly, RetryPolicy::NEVER);
     let (write, first) = admit(&mut engine, 1, request, now);
     send_ok(&mut engine, &write, None, now);
     let mut stop = command_with_retry(1, RetryPolicy::NEVER);
@@ -354,7 +345,7 @@ fn engine_construction_retuning_and_admission_refuse_unrepresentable_intervals()
         engine.policy.command_spacing, spacing,
         "failed retuning is atomic"
     );
-    let mut invalid = command(1, CancellationPolicy::Supported);
+    let mut invalid = command(1);
     invalid.context_mut().timeout.ambiguity = NonZeroDuration::new(Duration::MAX).unwrap();
     let rejected = engine.handle(
         Input::Admit {
@@ -369,12 +360,7 @@ fn engine_construction_retuning_and_admission_refuse_unrepresentable_intervals()
         [Effect::AdmissionRejected { .. }]
     ));
     assert!(engine.entries.is_empty());
-    let (_, id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (_, id) = admit(&mut engine, 2, command(1), now);
     assert_eq!(
         id.get(),
         1,

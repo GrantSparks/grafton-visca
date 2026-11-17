@@ -23,7 +23,6 @@ fn sending_stops_keep_the_ack_command_preack_quarantine() {
     ] {
         let lifecycle = Lifecycle::Sending {
             transmission,
-            framing: RequestFraming::Raw,
             started_at: now,
             attempt: AttemptFacts {
                 socket_capacity: Some(CommandSocketCount::TWO),

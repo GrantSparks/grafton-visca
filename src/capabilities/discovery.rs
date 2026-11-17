@@ -260,7 +260,7 @@ impl Capabilities {
             S::Hue => Dedicated(image.is_some_and(|domain| domain.hue_range.is_some())),
             S::Luminance => Dedicated(image.is_some_and(|domain| domain.luminance_range.is_some())),
             S::Gamma => Dedicated(image.is_some_and(|domain| domain.gamma_range.is_some())),
-            S::PictureEffect => Dedicated(image.is_some_and(|domain| domain.picture_effect)),
+            S::PictureEffect => Dedicated(image.is_some_and(|domain| !domain.picture_effects.is_empty())),
             S::PanTiltSpeedMode => Dedicated(
                 self.pan_tilt
                     .as_ref()
@@ -481,7 +481,7 @@ mod tests {
                 baseline.white_balance = caps.white_balance.clone();
             }
             if baseline.image.is_none() {
-                baseline.image = caps.image;
+                baseline.image = caps.image.clone();
             }
             if baseline.presets.is_none() {
                 baseline.presets = caps.presets;
@@ -708,7 +708,7 @@ mod tests {
             caps.exposure
                 .as_ref()
                 .and_then(|domain| domain.iris_range.clone()),
-            Some(CapabilityDomain::<u16>::new(0, 12))
+            Some(CapabilityDomain::<u16>::new(0, 12, &[][..]).expect("valid capability bounds"))
         );
         assert_eq!(
             caps.exposure
@@ -751,7 +751,7 @@ mod tests {
             caps.exposure
                 .as_ref()
                 .and_then(|domain| domain.brightness_range.clone()),
-            Some(CapabilityDomain::<u8>::new(0, 17))
+            Some(CapabilityDomain::<u8>::new(0, 17, &[][..]).expect("valid capability bounds"))
         );
         assert!(caps.image.is_some());
         assert_eq!(
@@ -785,7 +785,7 @@ mod tests {
         assert!(caps
             .image
             .as_ref()
-            .is_some_and(|domain| domain.picture_effect));
+            .is_some_and(|domain| !domain.picture_effects.is_empty()));
 
         assert!(
             caps.pan_tilt.is_some()
@@ -899,7 +899,7 @@ mod tests {
         assert!(!caps
             .image
             .as_ref()
-            .is_some_and(|domain| domain.picture_effect));
+            .is_some_and(|domain| !domain.picture_effects.is_empty()));
 
         // FR7 shares the one-shot capture concept even though it has no
         // standard OnePush mode variant or shared Kelvin-control family.
@@ -1086,7 +1086,7 @@ mod tests {
             assert!(caps
                 .image
                 .as_ref()
-                .is_some_and(|domain| domain.picture_effect));
+                .is_some_and(|domain| !domain.picture_effects.is_empty()));
             assert!(caps.supports(TypedSupportSurface::PictureEffect));
         }
 
@@ -1399,11 +1399,10 @@ mod tests {
                 .exposure
                 .as_ref()
                 .and_then(|domain| domain.brightness_range.clone()),
-            Some(CapabilityDomain::<u8>::with_gaps(
-                0x00,
-                0x1F,
-                &[0x01, 0x02, 0x03, 0x04]
-            ))
+            Some(
+                CapabilityDomain::<u8>::new(0x00, 0x1F, &[0x01, 0x02, 0x03, 0x04])
+                    .expect("valid capability bounds")
+            )
         );
         for caps in [
             profile_capabilities::<SonyBrc300>(),
@@ -1413,7 +1412,10 @@ mod tests {
                 caps.exposure
                     .as_ref()
                     .and_then(|domain| domain.brightness_range.clone()),
-                Some(CapabilityDomain::<u8>::new(0x00, 0x17))
+                Some(
+                    CapabilityDomain::<u8>::new(0x00, 0x17, &[][..])
+                        .expect("valid capability bounds")
+                )
             );
         }
         assert_eq!(

@@ -109,21 +109,6 @@ pub trait Executor: Clone + Send + Sync + 'static {
     /// Returns a future that completes after the specified duration.
     fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_;
 
-    /// Create a timeout future.
-    ///
-    /// Wraps the given future with a timeout. If the future doesn't complete
-    /// within the specified duration, returns an error. Implementations must
-    /// poll the operation before the timer: a completed operation wins even
-    /// when its timer is already ready.
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: std::time::Duration,
-        fut: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a;
-
     /// Spawn a background task and detach the join handle.
     ///
     /// This method guarantees that the task will continue running independently
@@ -184,19 +169,6 @@ where
     #[allow(clippy::manual_async_fn)]
     fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_ {
         async move { (**self).sleep(duration).await }
-    }
-
-    #[allow(clippy::manual_async_fn)]
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: std::time::Duration,
-        fut: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        (**self).timeout(duration, fut)
     }
 
     fn now(&self) -> Instant {
@@ -369,27 +341,6 @@ mod tokio_impl {
             TokioBoundFuture::new(self.handle.clone(), sleep)
         }
 
-        #[allow(clippy::manual_async_fn)]
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            let timeout = self
-                .in_selected_context(|| crate::timeout::within(fut, tokio::time::sleep(duration)));
-            let timeout = TokioBoundFuture::new(self.handle.clone(), timeout);
-            async move {
-                match timeout.await {
-                    Some(value) => Ok(value),
-                    None => Err(Error::io_timeout()),
-                }
-            }
-        }
-
         /// Return the current time based on Tokio's time source.
         ///
         /// Using Tokio's time here ensures tests annotated with
@@ -482,18 +433,6 @@ mod smol_impl {
         }
     }
 
-    /// Apply the shared operation-first timeout rule using smol's timer.
-    async fn race_timeout<T>(
-        duration: Duration,
-        fut: impl Future<Output = T> + Send,
-    ) -> Result<T, Error> {
-        crate::timeout::within(fut, async {
-            smol::Timer::after(duration).await;
-        })
-        .await
-        .ok_or_else(Error::io_timeout)
-    }
-
     impl Executor for SmolExecutor {
         type Join<T>
             = SmolJoin<T>
@@ -530,19 +469,6 @@ mod smol_impl {
             async move {
                 smol::Timer::after(duration).await;
             }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            race_timeout(duration, fut)
         }
     }
 
@@ -618,9 +544,15 @@ mod spawn_tests {
         executor.block_on(async {
             for _ in 0..10_000 {
                 assert!(matches!(
-                    executor
-                        .timeout(Duration::ZERO, std::future::ready(42))
-                        .await,
+                    async {
+                        crate::timeout::within(
+                            std::future::ready(42),
+                            executor.sleep(Duration::ZERO),
+                        )
+                        .await
+                        .ok_or_else(crate::Error::io_timeout)
+                    }
+                    .await,
                     Ok(42)
                 ));
             }
@@ -829,7 +761,11 @@ mod smol_tests {
     fn timeout_returns_error_for_never_completing_future() {
         let executor = SmolExecutor::new();
         let (never_complete, _poll_count) = NeverComplete::new();
-        let result = executor.block_on(executor.timeout(Duration::from_millis(10), never_complete));
+        let result = executor.block_on(async {
+            crate::timeout::within(never_complete, executor.sleep(Duration::from_millis(10)))
+                .await
+                .ok_or_else(Error::io_timeout)
+        });
         assert!(matches!(result, Err(Error::Timeout { .. })));
     }
 
@@ -837,7 +773,11 @@ mod smol_tests {
     #[test]
     fn timeout_returns_ok_for_immediate_completion() {
         let executor = SmolExecutor::new();
-        let result = executor.block_on(executor.timeout(Duration::from_secs(10), async { 42 }));
+        let result = executor.block_on(async {
+            crate::timeout::within(async { 42 }, executor.sleep(Duration::from_secs(10)))
+                .await
+                .ok_or_else(Error::io_timeout)
+        });
         assert!(matches!(result, Ok(42)));
     }
 
@@ -854,7 +794,11 @@ mod smol_tests {
         let executor = SmolExecutor::new();
         let (never_complete, poll_count) = NeverComplete::new();
 
-        let result = executor.block_on(executor.timeout(Duration::from_millis(50), never_complete));
+        let result = executor.block_on(async {
+            crate::timeout::within(never_complete, executor.sleep(Duration::from_millis(50)))
+                .await
+                .ok_or_else(Error::io_timeout)
+        });
         assert!(matches!(result, Err(Error::Timeout { .. })));
 
         let polls = poll_count.load(Ordering::SeqCst);
@@ -871,10 +815,17 @@ mod smol_tests {
     #[test]
     fn timeout_future_completing_before_deadline_succeeds() {
         let executor = SmolExecutor::new();
-        let result = executor.block_on(executor.timeout(Duration::from_millis(100), async {
-            smol::Timer::after(Duration::from_millis(10)).await;
-            "completed"
-        }));
+        let result = executor.block_on(async {
+            crate::timeout::within(
+                async {
+                    smol::Timer::after(Duration::from_millis(10)).await;
+                    "completed"
+                },
+                executor.sleep(Duration::from_millis(100)),
+            )
+            .await
+            .ok_or_else(Error::io_timeout)
+        });
         assert!(matches!(result, Ok("completed")));
     }
 }

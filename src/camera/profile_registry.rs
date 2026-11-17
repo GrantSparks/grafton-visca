@@ -146,7 +146,7 @@ macro_rules! __individual_camera_id {
 
 macro_rules! range {
     ($ty:ty, $min:expr, $max:expr) => {
-        $crate::capabilities::CapabilityRange::<$ty>::new($min, $max)
+        const { $crate::capabilities::CapabilityRange::<$ty>::from_registry($min, $max) }
     };
 }
 
@@ -154,10 +154,10 @@ macro_rules! range {
 /// positions, the unlisted ones.
 macro_rules! domain {
     ($ty:ty, $min:expr, $max:expr) => {
-        $crate::capabilities::CapabilityDomain::<$ty>::new($min, $max)
+        const { $crate::capabilities::CapabilityDomain::<$ty>::from_registry($min, $max, &[]) }
     };
     ($ty:ty, $min:expr, $max:expr, gaps: [$($gap:expr),+ $(,)?]) => {
-        $crate::capabilities::CapabilityDomain::<$ty>::with_gaps($min, $max, &[$($gap),+])
+        const { $crate::capabilities::CapabilityDomain::<$ty>::from_registry($min, $max, &[$($gap),+]) }
     };
 }
 
@@ -1340,7 +1340,7 @@ macro_rules! __define_builtin_profiles {
                     assert!(!focus.zones.is_empty());
                     assert!(!focus.near_limit_inquiry);
                     assert_eq!(presets.highest, 127);
-                    assert!(caps.image.as_ref().expect("image").picture_effect);
+                    assert_eq!(caps.image.as_ref().expect("image").picture_effects, vec![$crate::types::PictureEffectMode::Off, $crate::types::PictureEffectMode::BlackAndWhite]);
                     assert!(!presets.tour);
                 }
 
@@ -1656,7 +1656,7 @@ macro_rules! builtin_profile_registry {
                                 flip: true,
                                 mirror: true,
                                 hue_range: Some(range!(u8, 0, 14)),
-                                picture_effect: true,
+                                picture_effects: vec![$crate::types::PictureEffectMode::Off, $crate::types::PictureEffectMode::BlackAndWhite],
                                 luminance_range: Some(range!(u8, 0, 14)),
                                 requires_settings_save_for_flip: true,
                                 gamma_range: Some(range!(u8, 0, 4)),
@@ -1845,7 +1845,7 @@ macro_rules! builtin_profile_registry {
                                 flip: true,
                                 mirror: true,
                                 hue_range: Some(range!(u8, 0, 14)),
-                                picture_effect: true,
+                                picture_effects: vec![$crate::types::PictureEffectMode::Off, $crate::types::PictureEffectMode::BlackAndWhite],
                                 luminance_range: Some(range!(u8, 0, 14)),
                                 requires_settings_save_for_flip: true,
                                 gamma_range: Some(range!(u8, 0, 4)),
@@ -2034,7 +2034,7 @@ macro_rules! builtin_profile_registry {
                                 flip: true,
                                 mirror: true,
                                 hue_range: Some(range!(u8, 0, 14)),
-                                picture_effect: true,
+                                picture_effects: vec![$crate::types::PictureEffectMode::Off, $crate::types::PictureEffectMode::BlackAndWhite],
                                 luminance_range: Some(range!(u8, 0, 14)),
                                 requires_settings_save_for_flip: true,
                                 gamma_range: Some(range!(u8, 0, 4)),
@@ -2220,7 +2220,7 @@ macro_rules! builtin_profile_registry {
                                 flip: false,
                                 mirror: false,
                                 hue_range: None,
-                                picture_effect: false,
+                                picture_effects: vec![],
                                 luminance_range: None,
                                 requires_settings_save_for_flip: false,
                                 gamma_range: None,
@@ -2398,7 +2398,7 @@ macro_rules! builtin_profile_registry {
                                 flip: false,
                                 mirror: false,
                                 hue_range: None,
-                                picture_effect: false,
+                                picture_effects: vec![],
                                 luminance_range: None,
                                 requires_settings_save_for_flip: false,
                                 gamma_range: None,
@@ -2549,7 +2549,7 @@ macro_rules! builtin_profile_registry {
                                 flip: false,
                                 mirror: false,
                                 hue_range: Some(range!(u8, 0x00, 0x0E)),
-                                picture_effect: true,
+                                picture_effects: vec![$crate::types::PictureEffectMode::Off, $crate::types::PictureEffectMode::BlackAndWhite],
                                 luminance_range: None,
                                 requires_settings_save_for_flip: false,
                                 gamma_range: Some(range!(u8, 0, 4)),
@@ -2731,7 +2731,7 @@ macro_rules! builtin_profile_registry {
                                 flip: true,
                                 mirror: false,
                                 hue_range: None,
-                                picture_effect: false,
+                                picture_effects: vec![],
                                 luminance_range: None,
                                 requires_settings_save_for_flip: false,
                                 gamma_range: None,
@@ -2900,7 +2900,7 @@ macro_rules! builtin_profile_registry {
                                 flip: true,
                                 mirror: false,
                                 hue_range: None,
-                                picture_effect: false,
+                                picture_effects: vec![],
                                 luminance_range: None,
                                 requires_settings_save_for_flip: false,
                                 gamma_range: None,

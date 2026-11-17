@@ -15,17 +15,14 @@ use crate::runtime::engine::CommandOutcome;
 use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
-        CancellationPolicy, CommandReply, ControlPolicy, DecodedResponse, EncodedMessage,
-        ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeRequest, TargetPolicy,
-        TimeoutPolicy,
+        CommandReply, ControlPolicy, DecodedResponse, EncodedMessage, ProtocolPolicy,
+        RequestContext, RequestId, RetryPolicy, RuntimeRequest, TargetPolicy, TimeoutPolicy,
     },
     ViscaSocket,
 };
 
 #[cfg(feature = "runtime-tokio")]
-use crate::runtime::engine::{
-    EnvelopeKind, EnvelopeSequence, InquiryOutcome, SequenceWidth, TransportKind,
-};
+use crate::runtime::engine::{EnvelopeKind, FrameSequence, InquiryOutcome, TransportKind};
 
 use crate::observability::DiagnosticEvent;
 use crate::runtime::engine::{DecodedFrame, SessionState};
@@ -203,18 +200,6 @@ impl crate::executor::Executor for ManualRuntime {
                 std::task::Poll::Pending
             }
         })
-    }
-
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        future: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        crate::executor::Executor::timeout(&self.executor, duration, future)
     }
 
     fn now(&self) -> Instant {
@@ -420,7 +405,6 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         },
         applied_state: None,
     }
@@ -456,7 +440,6 @@ fn command_with_short_deadlines() -> RuntimeRequest {
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         },
         applied_state: None,
     }
@@ -489,7 +472,6 @@ fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> Run
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         },
         applied_state: None,
     }
@@ -550,10 +532,10 @@ const RAW_INQUIRY_REJECTION_BYTES: [u8; 4] = [0x90, 0x60, 0x41, 0xff];
 /// [`raw_inquiry_rejection`] through the actor's own receive turn, at the
 /// current virtual instant, for tests that drive `handle_event` directly.
 #[cfg(feature = "runtime-tokio")]
-async fn reject_raw_stream_predecessor<D: AsyncOwnerDriver>(
-    actor: &mut AsyncOwnerActor<ManualRuntime>,
+async fn reject_raw_stream_predecessor<R: Executor, D: AsyncOwnerDriver>(
+    actor: &mut AsyncOwnerActor<R>,
     driver: &mut D,
-    runtime: &ManualRuntime,
+    runtime: &R,
 ) {
     let now = Executor::now(runtime);
     actor
@@ -601,7 +583,6 @@ fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         },
     }
 }
@@ -635,10 +616,7 @@ fn completion(socket: ViscaSocket) -> DecodedFrame {
 fn sequenced(sequence: u32, response: DecodedResponse) -> DecodedFrame {
     DecodedFrame {
         target: TargetSlot::CAMERA_1,
-        sequence: Some(EnvelopeSequence {
-            value: sequence,
-            width: SequenceWidth::Full32,
-        }),
+        sequence: Some(FrameSequence::from_reply_header(sequence)),
         response,
     }
 }
@@ -703,7 +681,7 @@ struct RuntimeAffinityDriver {
 impl AsyncOwnerDriver for RuntimeAffinityDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -727,7 +705,7 @@ impl RetainedStreamInput for RuntimeAffinityDriver {}
 impl AsyncOwnerDriver for PanickingReceiveDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -754,7 +732,7 @@ struct PanickingAfterAdmissionDriver {
 impl AsyncOwnerDriver for PanickingAfterAdmissionDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -848,7 +826,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -869,7 +847,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -898,7 +876,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -918,7 +896,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         assert!(matches!(
             detached.wait_with_timeout(Duration::ZERO).await,
             Err(Error::ObservationTimeout { .. })
@@ -966,7 +944,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -981,7 +959,7 @@ where
         let replies = async {
             for _ in 0..2 {
                 let _ = started.recv_async().await.unwrap();
-                gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+                gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
                 frames
                     .send_async(batch(vec![DecodedFrame {
                         target: TargetSlot::CAMERA_1,
@@ -1114,7 +1092,7 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
                         .unwrap_or(Err(Error::RuntimeShutdown)),
                 )
             } else {
-                WriteOutcome::Sent(TransmissionMeta::Raw)
+                WriteOutcome::Sent(TransmissionMeta::Known)
             }
         }
     }
@@ -1652,7 +1630,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
     runtime.advance_silently(Duration::from_millis(1));
     harness
         .target_two_gate
-        .try_send(Ok(TransmissionMeta::Raw))
+        .try_send(Ok(TransmissionMeta::Known))
         .unwrap();
 
     enum BoundaryOrder {
@@ -1768,6 +1746,13 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
             matches!(next, BoundaryOrder::Read),
             "{description} must be consumed before the due release can write B"
         );
+        if description == "the fault" {
+            // #1020: the overdue hold no longer zero-clamps this failed
+            // probe's pause. Stale A stays queued until the paced re-probe,
+            // and still wins over the release timer at that instant.
+            assert!(harness.reads_observed.try_recv().is_err());
+            runtime.advance(crate::runtime::owner::turn::transient_receive_pause(1));
+        }
     }
     assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
     handle.metrics().await.unwrap();
@@ -1931,7 +1916,7 @@ impl AsyncOwnerDriver for AlwaysFailingReceive {
     // The private driver trait requires an explicitly `Send` future.
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -1964,7 +1949,7 @@ struct AlternatingFaultNoData {
 impl AsyncOwnerDriver for AlternatingFaultNoData {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -2007,7 +1992,7 @@ impl AsyncOwnerDriver for UngatedDriver {
     // The private driver trait requires an explicitly `Send` future.
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -2185,7 +2170,7 @@ struct BabblingDriver;
 impl AsyncOwnerDriver for BabblingDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -2218,7 +2203,7 @@ struct BufferedBabblingDriver;
 impl AsyncOwnerDriver for BufferedBabblingDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -2263,7 +2248,7 @@ struct CountingBabblingDriver {
 impl AsyncOwnerDriver for CountingBabblingDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -2398,7 +2383,7 @@ struct NoDataDriver {
 impl AsyncOwnerDriver for NoDataDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -2414,6 +2399,116 @@ impl AsyncOwnerDriver for NoDataDriver {
 }
 
 impl RetainedStreamInput for NoDataDriver {}
+
+/// #1020: retained bytes are an incomplete prefix, not receive progress.
+#[derive(Debug, Clone, Copy)]
+enum BufferedNoProgress {
+    EagerIdle,
+    Timeout,
+    Fault,
+}
+
+#[derive(Debug)]
+struct BufferedNoProgressDriver {
+    outcome: BufferedNoProgress,
+    reads: Arc<std::sync::atomic::AtomicU64>,
+    written: bool,
+    buffered: bool,
+}
+
+impl AsyncOwnerDriver for BufferedNoProgressDriver {
+    #[allow(clippy::manual_async_fn)]
+    fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
+        self.written = true;
+        self.buffered = true;
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn receive(
+        &mut self,
+        _buffers: &mut super::super::OwnerBuffers,
+    ) -> impl Future<Output = OwnerReceive> + Send {
+        async move {
+            if !self.written {
+                return future::pending().await;
+            }
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            match self.outcome {
+                BufferedNoProgress::EagerIdle => {
+                    OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
+                }
+                BufferedNoProgress::Timeout => OwnerReceive::read_error(Error::io_timeout()),
+                BufferedNoProgress::Fault => OwnerReceive::read_error(Error::transport_error(
+                    std::io::Error::other("injected buffered receive fault"),
+                )),
+            }
+        }
+    }
+}
+
+impl RetainedStreamInput for BufferedNoProgressDriver {
+    fn retained(&self) -> Option<super::super::RetainedInput> {
+        self.buffered.then_some(super::super::RetainedInput {
+            len: std::num::NonZeroUsize::new(1).unwrap(),
+            evidence: super::super::RetainedEvidence::Incomplete {
+                target: TargetSlot::CAMERA_1,
+                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            },
+        })
+    }
+
+    fn discard_first(&mut self) -> Result<(), Error> {
+        self.buffered = false;
+        Ok(())
+    }
+}
+
+async fn assert_buffered_no_progress_is_bounded<R: Runtime>(
+    runtime: R,
+    handle: AsyncOwnerHandle,
+    terminated: flume::Receiver<OwnerSnapshot>,
+    reads: Arc<std::sync::atomic::AtomicU64>,
+) {
+    let mut request = command();
+    let RuntimeRequest::Command { context, .. } = &mut request else {
+        unreachable!("command fixture");
+    };
+    context.timeout.ack =
+        crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(50)).unwrap();
+    let receipt = crate::timeout::within(
+        handle.submit(request),
+        Executor::sleep(&runtime, Duration::from_secs(1)),
+    )
+    .await
+    .expect("a buffered receive must not starve admission")
+    .unwrap();
+    let terminal = crate::timeout::within(
+        receipt.terminal(),
+        Executor::sleep(&runtime, Duration::from_millis(300)),
+    )
+    .await
+    .expect("the 50 ms ACK deadline must run within one maximum pause")
+    .unwrap();
+    assert!(matches!(
+        terminal,
+        RuntimeOutcome::Command(CommandOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
+    ));
+    Executor::sleep(&runtime, Duration::from_millis(450)).await;
+    assert!(
+        reads.load(Ordering::Relaxed) < 20,
+        "buffered no-progress read hot-spun"
+    );
+    handle.shutdown().unwrap();
+    let snapshot = crate::timeout::within(
+        terminated.recv_async(),
+        Executor::sleep(&runtime, Duration::from_secs(1)),
+    )
+    .await
+    .expect("shutdown must not be starved by a retained prefix")
+    .unwrap();
+    assert_eq!(snapshot.state, SessionState::Shutdown);
+}
 
 // ---------------------------------------------------------------------
 // #746: raw-release selection must tolerate non-parking custom transports.
@@ -2449,8 +2544,17 @@ struct ImmediateRawGraceDriver {
 /// progress but keeps stream framing buffered, so only the ordinary fairness
 /// ceiling can force the boundary lane.
 #[cfg(feature = "runtime-tokio")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RawFloodShape {
+    Buffered,
+    MalformedDatagram,
+    DiscardedBatch,
+}
+
+#[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct RawBufferedFloodDriver {
+    shape: RawFloodShape,
     reads: Arc<std::sync::atomic::AtomicU64>,
     buffered: Arc<std::sync::atomic::AtomicBool>,
     writes: flume::Sender<RequestId>,
@@ -2465,7 +2569,7 @@ impl AsyncOwnerDriver for RawBufferedFloodDriver {
             if writes.send_async(request).await.is_err() {
                 return WriteOutcome::Failed(Error::RuntimeShutdown);
             }
-            WriteOutcome::Sent(TransmissionMeta::Raw)
+            WriteOutcome::Sent(TransmissionMeta::Known)
         }
     }
 
@@ -2474,9 +2578,19 @@ impl AsyncOwnerDriver for RawBufferedFloodDriver {
         _buffers: &mut super::super::OwnerBuffers,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let reads = Arc::clone(&self.reads);
+        let shape = self.shape;
         async move {
             reads.fetch_add(1, Ordering::Relaxed);
-            OwnerReceive::Frames(crate::runtime::owner::FrameBatch::new())
+            if shape == RawFloodShape::MalformedDatagram {
+                return OwnerReceive::NoProgress(
+                    crate::runtime::owner::NoProgressReason::MalformedDatagram,
+                );
+            }
+            let mut frames = crate::runtime::owner::FrameBatch::new();
+            if shape == RawFloodShape::DiscardedBatch {
+                frames.discarded = 1;
+            }
+            OwnerReceive::Frames(frames)
         }
     }
 }
@@ -2512,7 +2626,7 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
             if writes.send_async(request).await.is_err() {
                 return WriteOutcome::Failed(Error::RuntimeShutdown);
             }
-            WriteOutcome::Sent(TransmissionMeta::Raw)
+            WriteOutcome::Sent(TransmissionMeta::Known)
         }
     }
 
@@ -2573,17 +2687,31 @@ async fn assert_babble_never_starves_boundaries<R>(
 {
     // Admission is a boundary source; it must be serviced within a bound
     // despite the continuous flood of valid frames.
-    let receipt = Executor::timeout(&runtime, Duration::from_secs(5), handle.submit(command()))
+    let receipt = async {
+        crate::timeout::within(
+            handle.submit(command()),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
         .await
-        .expect("a babbling peer must not starve admission")
-        .expect("admission rejected");
+        .ok_or_else(crate::Error::io_timeout)
+    }
+    .await
+    .expect("a babbling peer must not starve admission")
+    .expect("admission rejected");
     // Shutdown enters its one-slot lane; the actor must then terminate — the
     // `close()` liveness the P0 is about — within a bound.
     handle.shutdown().unwrap();
-    let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
+    let snapshot = async {
+        crate::timeout::within(
+            terminated.recv_async(),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
         .await
-        .expect("a babbling peer must not starve shutdown/close")
-        .expect("actor terminated");
+        .ok_or_else(crate::Error::io_timeout)
+    }
+    .await
+    .expect("a babbling peer must not starve shutdown/close")
+    .expect("actor terminated");
     assert_eq!(snapshot.state, SessionState::Shutdown);
     drop(receipt);
 }
@@ -2599,21 +2727,31 @@ async fn assert_stalled_write_never_parks_close<R>(
     // abandoned at its timeout, then the request settles on its own
     // deadline) completes quickly and is cleanly separated from the broken
     // "never returns" case the bound catches.
-    let receipt = Executor::timeout(
-        &runtime,
-        Duration::from_secs(5),
-        handle.submit(command_with_short_deadlines()),
-    )
+    let receipt = async {
+        crate::timeout::within(
+            handle.submit(command_with_short_deadlines()),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
+        .await
+        .ok_or_else(crate::Error::io_timeout)
+    }
     .await
     .expect("admission must resolve before the stalled write")
     .expect("admission rejected");
     // The write is abandoned at its 50 ms timeout, unparking the actor, so
     // shutdown/close is serviced rather than blocked behind the stalled peer.
     handle.shutdown().unwrap();
-    let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
+    let snapshot = async {
+        crate::timeout::within(
+            terminated.recv_async(),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
         .await
-        .expect("a stalled write must not park close")
-        .expect("actor terminated");
+        .ok_or_else(crate::Error::io_timeout)
+    }
+    .await
+    .expect("a stalled write must not park close")
+    .expect("actor terminated");
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
         matches!(
@@ -2636,7 +2774,15 @@ async fn assert_nodata_never_hot_spins<R>(
     Executor::sleep(&runtime, Duration::from_millis(500)).await;
     let observed = reads.load(Ordering::Relaxed);
     handle.shutdown().unwrap();
-    let _ = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async()).await;
+    let _ = async {
+        crate::timeout::within(
+            terminated.recv_async(),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
+        .await
+        .ok_or_else(crate::Error::io_timeout)
+    }
+    .await;
     // The escalating idle pause caps at 250 ms, so a correctly paced actor
     // does single digits of reads here; the unbounded spin does hundreds of
     // thousands.

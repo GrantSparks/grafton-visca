@@ -34,7 +34,7 @@ fn deadline_cause_insertion_preserves_the_sink_prefix_and_collecting_verdict() {
         let mut collecting = engine(envelope, TransportKind::Datagram);
         let mut appending = engine(envelope, TransportKind::Datagram);
         for engine in [&mut collecting, &mut appending] {
-            let mut request = command(1, CancellationPolicy::Supported);
+            let mut request = command(1);
             request.context_mut().retry = RetryPolicy::NEVER;
             let (effects, _) = admit(engine, 1, request, now);
             send_ok(
@@ -64,7 +64,7 @@ fn complete_input_appends_input_and_dispatch_effects_after_existing_work() {
     let mut appending = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let input = || Input::Admit {
         ticket: AdmissionTicket(1),
-        request: command(1, CancellationPolicy::Supported),
+        request: command(1),
         slot: AdmissionSlot::Ordinary,
     };
     let expected = collecting.handle(input(), now);

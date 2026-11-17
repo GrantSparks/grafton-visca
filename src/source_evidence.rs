@@ -413,7 +413,13 @@ pub(crate) mod checked {
         ) -> Result<(), String> {
             let subject = format!("grant.{surface:?}");
             self.validate(source, &subject, Some(&format!("{model:?}")), None, None)?;
-            let patterns = grant_patterns(surface, model);
+            // Compare the finite packet set one selector at a time. A source
+            // may list those choices separately even when one noun row stores
+            // them together in a compound selector pattern.
+            let patterns: Vec<_> = grant_patterns(surface, model)
+                .into_iter()
+                .flat_map(PacketPattern::variants)
+                .collect();
             if patterns.is_empty() {
                 return Err(format!("{subject}: no gated packet rows for {model:?}"));
             }
@@ -807,6 +813,66 @@ mod tests {
         index
             .require_complete(&HashSet::from(["positive"]))
             .expect("the fixture's only row is referenced");
+    }
+
+    #[test]
+    fn exact_selector_grants_require_every_choice_and_refuse_extra_packets() {
+        let document = include_str!("../docs/visca_reference.md");
+        for (key, source, model) in [
+            (
+                "r1-ptzopticsg2-pictureeffect-grant",
+                source!(R1, [PtzOpticsG2], "r1-ptzopticsg2-pictureeffect-grant"),
+                ProfileId::PtzOpticsG2,
+            ),
+            (
+                "r14-ptzopticsg3-pictureeffect-grant",
+                source!(R14, [PtzOpticsG3], "r14-ptzopticsg3-pictureeffect-grant"),
+                ProfileId::PtzOpticsG3,
+            ),
+            (
+                "r1-ptzoptics30x-pictureeffect-grant",
+                source!(R1, [PtzOptics30x], "r1-ptzoptics30x-pictureeffect-grant"),
+                ProfileId::PtzOptics30x,
+            ),
+        ] {
+            let surface = TypedSupportSurface::PictureEffect;
+            Index::parse(document)
+                .expect("checked source index")
+                .validate_grant(source, surface, model)
+                .expect("separate exact selectors cover the compound noun row");
+            let line = document
+                .lines()
+                .find(|line| line.starts_with(&format!("| {key} |")))
+                .expect("authored picture-effect grant");
+            let packet = "01 04 63 00;01 04 63 04;09 04 63";
+            assert!(line.contains(packet), "{key} changed its exact packet set");
+            for (changed_packet, expected_error) in [
+                (
+                    "01 04 63 00;09 04 63",
+                    "gated packet 01 04 63 04 is missing",
+                ),
+                (
+                    "01 04 63 04;09 04 63",
+                    "gated packet 01 04 63 00 is missing",
+                ),
+                (
+                    "01 04 63 00;01 04 63 04",
+                    "gated packet 09 04 63 is missing",
+                ),
+                (
+                    "01 04 63 00;01 04 63 04;01 04 63 05;09 04 63",
+                    "01 04 63 05 is not the packet of any gated row",
+                ),
+            ] {
+                let changed_line = line.replace(packet, changed_packet);
+                let changed = document.replace(line, &changed_line);
+                let error = Index::parse(&changed)
+                    .expect("changed selector evidence parses")
+                    .validate_grant(source, surface, model)
+                    .expect_err("missing or extra grant selectors must be refused");
+                assert!(error.contains(expected_error), "{key}: {error}");
+            }
+        }
     }
 
     #[test]
@@ -1252,6 +1318,7 @@ mod tests {
             (B::MenuDisplay, &[1, 6, 6][..], &[2, 3][..]),
             (B::MenuSelect, &[1, 6, 6][..], &[5][..]),
             (B::MenuCancel, &[1, 6, 6][..], &[4][..]),
+            (B::PictureEffect, &[1, 4, 0x63][..], &[0, 4][..]),
         ] {
             for selector in 0..=u8::MAX {
                 let frame = [vec![0x81], body.to_vec(), vec![selector, 0xff]].concat();

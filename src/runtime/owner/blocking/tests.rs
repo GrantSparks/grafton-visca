@@ -36,8 +36,7 @@ use crate::{
     protocol::sony::SonyHeader,
     request::builtin::{FocusModeCommand, PanTiltLimitClear, ZoomStop},
     runtime::engine::{
-        CancellationPolicy, CommandReply, ControlPolicy, EncodedMessage, RequestContext,
-        RetryPolicy, TimeoutPolicy,
+        CommandReply, ControlPolicy, EncodedMessage, RequestContext, RetryPolicy, TimeoutPolicy,
     },
     transport::{
         BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
@@ -69,6 +68,8 @@ enum Read {
     Overreported,
     EndOfStream,
     Fail(Error),
+    /// Return this eager failure on every subsequent read.
+    RepeatError(std::io::ErrorKind),
     Panic,
     Callback(TransportCallback),
 }
@@ -102,6 +103,7 @@ struct ChannelTransport {
     writes: flume::Sender<Vec<u8>>,
     fail_writes: bool,
     eager_idle: bool,
+    repeat_error: Option<std::io::ErrorKind>,
     read_calls: Arc<AtomicUsize>,
     dropped: Arc<AtomicBool>,
     scheduled: Option<(Instant, Vec<u8>)>,
@@ -151,6 +153,9 @@ impl BlockingTransport for ChannelTransport {
         if self.eager_idle {
             return Err(Error::io_timeout());
         }
+        if let Some(kind) = self.repeat_error {
+            return Err(repeated_read_error(kind));
+        }
         if let Some((at, bytes)) = self.scheduled.take() {
             self.clock
                 .sleep(at.saturating_duration_since(self.clock.now()).min(timeout));
@@ -179,6 +184,10 @@ impl BlockingTransport for ChannelTransport {
             Ok(Read::Overreported) => Ok(ReceiveOutcome::complete(dst.len() + 1)),
             Ok(Read::EndOfStream) => Ok(ReceiveOutcome::complete(0)),
             Ok(Read::Fail(error)) => Err(error),
+            Ok(Read::RepeatError(kind)) => {
+                self.repeat_error = Some(kind);
+                Err(repeated_read_error(kind))
+            }
             Ok(Read::Panic) => panic!("injected transport panic"),
             Ok(Read::Callback(callback)) => {
                 callback();
@@ -190,6 +199,14 @@ impl BlockingTransport for ChannelTransport {
                 Err(Error::io_timeout())
             }
         }
+    }
+}
+
+fn repeated_read_error(kind: std::io::ErrorKind) -> Error {
+    if kind == std::io::ErrorKind::TimedOut {
+        Error::io_timeout()
+    } else {
+        Error::transport_error(std::io::Error::from(kind))
     }
 }
 
@@ -289,6 +306,7 @@ impl Setup {
             writes,
             fail_writes: self.fail_writes,
             eager_idle: self.eager_idle,
+            repeat_error: None,
             read_calls: Arc::clone(&read_calls),
             dropped: Arc::clone(&dropped),
             scheduled: None,
@@ -422,7 +440,6 @@ fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         },
     }
 }
@@ -949,6 +966,101 @@ fn an_eager_idle_transport_is_paced() {
     let reads = peer.read_calls.load(Ordering::Relaxed);
     owner.close().unwrap();
     assert!(reads < 100, "eager idle reads hot-spun: {reads} in 500 ms");
+}
+
+/// #1020: a retained prefix cannot keep an eager idle or fault read ahead
+/// of the ACK timer, owner controls or close. Real blocking adapter + clock.
+#[test]
+fn buffered_no_progress_reaches_deadline_and_close_on_manual_clock() {
+    for kind in [
+        std::io::ErrorKind::WouldBlock,
+        std::io::ErrorKind::TimedOut,
+        std::io::ErrorKind::Other,
+    ] {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let (owner, peer) = Setup::stream().on(&clock).spawn();
+        let mut context = *raw_inquiry(Duration::from_secs(1)).context();
+        context.timeout.ack =
+            crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(50)).unwrap();
+        let request = RuntimeRequest::Command {
+            reply_shape: CommandReply::AckThenCompletion,
+            wire: Arc::new(EncodedMessage::new(ZOOM_STOP).unwrap()),
+            context,
+            applied_state: None,
+        };
+        let receipt = owner
+            .submit_with_timeout(request.into(), Duration::from_secs(1))
+            .unwrap();
+        peer.next_write();
+        let begun = clock.now();
+        peer.reply(&[0x90]);
+        peer.send(Read::RepeatError(kind));
+        let deadline = owner.deadline_after(Duration::from_millis(300)).unwrap();
+        assert!(
+            matches!(
+                owner.wait_core_until(&receipt, deadline),
+                Ok(RuntimeOutcome::Command(CommandOutcome::Failed(
+                    Error::UnsequencedCommandUnconfirmed
+                )))
+            ),
+            "{kind:?}"
+        );
+        assert!(clock.now().duration_since(begun) <= Duration::from_millis(300));
+        clock.sleep(Duration::from_millis(500).saturating_sub(clock.now().duration_since(begun)));
+        assert!(
+            peer.read_calls.load(Ordering::Relaxed) < 20,
+            "{kind:?} reads hot-spun"
+        );
+        let before_close = clock.now();
+        owner.close().unwrap();
+        assert!(clock.now().duration_since(before_close) <= Duration::from_secs(1));
+    }
+}
+
+#[test]
+fn a_latched_raw_release_paces_faults_on_manual_clock() {
+    const HOLD: Duration = Duration::from_secs(1);
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let (owner, peer) = Setup {
+        raw_inquiry_release_hold: Some(HOLD),
+        ..Setup::stream()
+    }
+    .on(&clock)
+    .spawn();
+    let receipt = owner
+        .submit_with_timeout(raw_inquiry(Duration::from_secs(10)).into(), PROMPTLY)
+        .unwrap();
+    peer.next_write();
+    peer.reply(&[0x90, 0x60, 0x41, 0xff]);
+    let deadline = owner.deadline_after(PROMPTLY).unwrap();
+    assert!(matches!(
+        owner.wait_core_until(&receipt, deadline),
+        Ok(RuntimeOutcome::Inquiry(InquiryOutcome::Failed(_)))
+    ));
+    let initial_reads = Arc::new(AtomicUsize::new(0));
+    let before_faults = Arc::clone(&initial_reads);
+    let reads = Arc::clone(&peer.read_calls);
+    let transport_clock = clock.clone();
+    // The idle read crosses H; the next fault is selected with the release
+    // latched, before a no-input proof can let its timer complete.
+    peer.send(Read::Callback(Box::new(move || {
+        before_faults.store(reads.load(Ordering::Relaxed), Ordering::Relaxed);
+        transport_clock.sleep(HOLD);
+    })));
+    peer.send(Read::RepeatError(std::io::ErrorKind::Other));
+    clock.sleep(Duration::from_secs(5));
+    assert!(
+        peer.transport_dropped(),
+        "permanent faults must end the worker in virtual time"
+    );
+    let reads = peer.read_calls.load(Ordering::Relaxed) - initial_reads.load(Ordering::Relaxed);
+    assert!(
+        reads <= usize::try_from(super::super::turn::TRANSIENT_RECEIVE_FAULT_LIMIT + 2).unwrap(),
+        "fault probe spun {reads} times"
+    );
+    assert!(matches!(owner.close(), Err(Error::ConnectionClosed { .. })));
 }
 
 /// Local fake: run the production bounded-read helper against a serial

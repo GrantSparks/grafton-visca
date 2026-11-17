@@ -146,7 +146,11 @@ assert!(ExposureSetting::from_wire(0xFF).is_err());
 ```
 
 Declare explicit, unique byte discriminants. `WireValue::from_wire` rejects an
-unrecognized code unless the enum declares its supported `Unknown(code)` form.
+unrecognized code unless the enum declares a tuple variant carrying a
+`#[value]` checked scalar. The payload's wire domain must exclude every active
+unit variant's code, including when the scalar uses sparse values or a biased
+wire mapping. Overlapping domains and primitive payloads such as `Unknown(u8)`
+are compile errors. Conditional variants are checked only when both are present.
 Use `to_wire` and `from_wire` for protocol bytes; Rust conversions are reserved
 for value construction and extraction.
 

@@ -57,12 +57,7 @@ fn executing_on(
     socket: ViscaSocket,
     now: Instant,
 ) -> RequestId {
-    let (effects, id) = admit(
-        engine,
-        ticket,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, id) = admit(engine, ticket, command(1), now);
     send_ok(engine, &effects, None, now);
     engine.handle(ack(1, socket), now);
     assert!(
@@ -113,12 +108,7 @@ fn named_error_on_a_free_socket_rejects_the_unique_unacknowledged_command() {
 
     // A movement-class command keeps its #566 pre-ACK retry: the rejected
     // attempt provably did not start.
-    let (effects, id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, id) = admit(&mut engine, 2, command(1), now);
     send_ok(&mut engine, &effects, None, now);
     let refused = engine.handle(named_error(1, ViscaSocket::S2, 0x41), now);
     assert_eq!(retry_scheduled(&refused).map(|retry| retry.0), Some(id));
@@ -165,19 +155,9 @@ fn named_error_on_a_free_socket_is_ignored_when_it_could_belong_to_another_reque
 
     // Two positional candidates (#714): bind to neither.
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (ordinary, ordinary_id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (ordinary, ordinary_id) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &ordinary, None, now);
-    let (urgent, urgent_id) = admit(
-        &mut engine,
-        2,
-        urgent_command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (urgent, urgent_id) = admit(&mut engine, 2, urgent_command(1), now);
     send_ok(&mut engine, &urgent, None, now);
     let ignored = engine.handle(named_error(1, ViscaSocket::S2, 0x41), now);
     assert_eq!(
@@ -197,12 +177,7 @@ fn named_error_on_a_free_socket_is_ignored_when_it_could_belong_to_another_reque
         Some(Error::UnsequencedCommandUnconfirmed)
     ));
     let later = now + Duration::from_millis(41);
-    let (successor, successor_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        later,
-    );
+    let (successor, successor_id) = admit(&mut engine, 2, command(1), later);
     send_ok(&mut engine, &successor, None, later);
     let ignored = engine.handle(named_error(1, ViscaSocket::S2, 0x41), later);
     assert_eq!(
@@ -225,12 +200,7 @@ fn named_error_on_a_busy_socket_is_ambiguous_while_a_command_is_unacknowledged()
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Datagram);
     let executing = executing_on(&mut engine, 1, ViscaSocket::S1, now);
-    let (effects, pending) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, pending) = admit(&mut engine, 2, command(1), now);
     send_ok(&mut engine, &effects, None, now);
 
     let ambiguous = engine.handle(named_error(1, ViscaSocket::S1, 0x41), now);
@@ -288,18 +258,13 @@ fn acknowledged_commands_are_never_rewritten_after_a_rejection() {
 
     // The Sony envelope's exact sequence does not make a replay safe either.
     let mut engine = fresh(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (effects, id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, id) = admit(&mut engine, 1, command(1), now);
     let sequence = sony_sequence(id);
     send_ok(&mut engine, &effects, Some(sequence), now);
     engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -309,7 +274,7 @@ fn acknowledged_commands_are_never_rewritten_after_a_rejection() {
     let rejected = engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
                 code: 0x41.into(),
@@ -349,12 +314,7 @@ fn acknowledged_commands_are_never_rewritten_after_a_rejection() {
 fn stream_owed_ack_never_binds_a_later_command() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (effects, stalled) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, stalled) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &effects, None, now);
     let unconfirmed = engine.advance(now + Duration::from_millis(20));
     assert!(matches!(
@@ -366,20 +326,10 @@ fn stream_owed_ack_never_binds_a_later_command() {
     // Inside the owing command's ambiguity window ordinary motion waits.
     let later = now + Duration::from_millis(60);
     engine.advance(later);
-    let (ordinary, ordinary_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        later,
-    );
+    let (ordinary, ordinary_id) = admit(&mut engine, 2, command(1), later);
     assert!(request_transmit_optional(&ordinary).is_none());
     // A STOP is still delivered.
-    let (urgent, stop) = admit(
-        &mut engine,
-        3,
-        urgent_command(1, CancellationPolicy::Supported),
-        later,
-    );
+    let (urgent, stop) = admit(&mut engine, 3, urgent_command(1), later);
     send_ok(&mut engine, &urgent, None, later);
     assert!(matches!(
         phase_of(&engine, stop),
@@ -425,18 +375,13 @@ fn stream_owed_ack_never_binds_a_later_command() {
 fn stream_owed_rejection_settles_the_debt() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (effects, _) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, _) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &effects, None, now);
     engine.advance(now + Duration::from_millis(20));
     assert_eq!(raw_owed(&engine, 1), 1);
     let later = now + Duration::from_millis(80);
     // A prepared typed STOP never retries `0x41` (see `prepared.rs`).
-    let mut stop_request = urgent_command(1, CancellationPolicy::Supported);
+    let mut stop_request = urgent_command(1);
     stop_request.context_mut().retry = no_not_executable_retry();
     let (urgent, stop) = admit(&mut engine, 2, stop_request, later);
     send_ok(&mut engine, &urgent, None, later);
@@ -459,19 +404,9 @@ fn stream_owed_rejection_settles_the_debt() {
 fn stream_order_resolves_two_open_candidates() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (ordinary, ordinary_id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (ordinary, ordinary_id) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &ordinary, None, now);
-    let (urgent, urgent_id) = admit(
-        &mut engine,
-        2,
-        urgent_command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (urgent, urgent_id) = admit(&mut engine, 2, urgent_command(1), now);
     send_ok(&mut engine, &urgent, None, now);
     engine.handle(ack(1, ViscaSocket::S1), now);
     assert_eq!(socket_of(&engine, ordinary_id), Some(ViscaSocket::S1));
@@ -493,24 +428,14 @@ fn stream_order_resolves_two_open_candidates() {
 fn stream_owed_answer_past_its_window_latches_only_the_command_lane() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (effects, _) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, _) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &effects, None, now);
     let unconfirmed_at = now + Duration::from_millis(20);
     engine.advance(unconfirmed_at);
     assert_eq!(command_lane(&engine, 1), LaneState::Window);
     let window_end = unconfirmed_at + Duration::from_millis(50);
     assert!(engine.next_wake(now).is_some_and(|wake| wake <= window_end));
-    let (queued, queued_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now + Duration::from_millis(30),
-    );
+    let (queued, queued_id) = admit(&mut engine, 2, command(1), now + Duration::from_millis(30));
     assert!(request_transmit_optional(&queued).is_none());
 
     let latched = engine.advance(window_end);
@@ -523,7 +448,7 @@ fn stream_owed_answer_past_its_window_latches_only_the_command_lane() {
     let rejected = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(3),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         window_end,
@@ -536,15 +461,10 @@ fn stream_owed_answer_past_its_window_latches_only_the_command_lane() {
         }
     )));
     // Another camera, and a STOP to this one, are unaffected.
-    let (other, other_id) = admit(
-        &mut engine,
-        4,
-        command(2, CancellationPolicy::Supported),
-        window_end,
-    );
+    let (other, other_id) = admit(&mut engine, 4, command(2), window_end);
     assert_eq!(request_transmit(&other).1, other_id);
     send_ok(&mut engine, &other, None, window_end);
-    let mut stop_request = urgent_command(1, CancellationPolicy::Supported);
+    let mut stop_request = urgent_command(1);
     stop_request.context_mut().retry = no_not_executable_retry();
     let (stop_effects, stop) = admit(&mut engine, 5, stop_request, window_end);
     assert_eq!(request_transmit(&stop_effects).1, stop);
@@ -573,23 +493,13 @@ fn stream_owed_answer_past_its_window_latches_only_the_command_lane() {
 fn datagram_unconfirmed_command_owes_nothing() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (effects, _) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, _) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &effects, None, now);
     engine.advance(now + Duration::from_millis(20));
     assert_eq!(raw_owed(&engine, 1), 0);
     let later = now + Duration::from_millis(80);
     engine.advance(later);
-    let (ordinary, ordinary_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        later,
-    );
+    let (ordinary, ordinary_id) = admit(&mut engine, 2, command(1), later);
     assert_eq!(request_transmit(&ordinary).1, ordinary_id);
     engine.assert_invariants().unwrap();
 }
@@ -609,12 +519,7 @@ fn superseded(error: Option<Error>) -> FailureContext {
 fn halt_superseding_never_written_motion_reports_not_accepted() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (blocking, _) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (blocking, _) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &blocking, None, now);
     let (queued, queued_id) = admit(
         &mut engine,
@@ -758,7 +663,7 @@ fn halt_after_a_possibly_applied_attempt_reports_unconfirmed() {
     let rejected = engine.handle(
         frame(
             1,
-            Some((sony_sequence(id), SequenceWidth::Full32)),
+            Some(sony_sequence(id)),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -801,7 +706,7 @@ fn socketless_error(target: u8, code: u8) -> Input {
 }
 
 fn stop_command(target: u8) -> RuntimeRequest {
-    let mut request = urgent_command(target, CancellationPolicy::Supported);
+    let mut request = urgent_command(target);
     request.context_mut().retry = no_not_executable_retry();
     request
 }
@@ -817,11 +722,7 @@ fn stream_owed_completion_only_answer_holds_back_ordinary_work() {
     let (effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         now,
     );
     send_ok(&mut engine, &effects, None, now);
@@ -839,14 +740,10 @@ fn stream_owed_completion_only_answer_holds_back_ordinary_work() {
     assert_eq!(command_lane(&engine, 1), LaneState::Latched);
     assert_eq!(inquiry_lane(&engine, 1), LaneState::Latched);
     for (ticket, request, inquiry_lost) in [
-        (2, command(1, CancellationPolicy::Supported), false),
+        (2, command(1), false),
         (
             3,
-            command_with_reply_shape(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-            ),
+            command_with_reply_shape(1, CommandReply::CompletionOnly),
             true,
         ),
         (6, inquiry(1), true),
@@ -896,12 +793,7 @@ fn stream_owed_completion_only_answer_holds_back_ordinary_work() {
 fn socketless_late_completion_never_completes_a_live_command() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (effects, _) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, _) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &effects, None, now);
     engine.advance(now + Duration::from_millis(20));
     let later = now + Duration::from_millis(30);
@@ -982,12 +874,7 @@ fn stream_order_settles_debts_across_lanes() {
     let start = Instant::now();
     let mut engine = single_flight_raw_stream_engine();
     let (_, timeout_at) = time_out_stream_inquiry(&mut engine, start);
-    let (effects, _) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        timeout_at,
-    );
+    let (effects, _) = admit(&mut engine, 2, command(1), timeout_at);
     send_ok(&mut engine, &effects, None, timeout_at);
     let unconfirmed_at = timeout_at + Duration::from_millis(20);
     engine.advance(unconfirmed_at);
@@ -1029,12 +916,7 @@ fn a_latched_owed_reply_is_settled_by_stream_order_before_a_later_command() {
     engine.advance(window_end);
     assert_eq!(owed_state(&engine, 1), Some(LaneState::Latched));
 
-    let (effects, id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        window_end,
-    );
+    let (effects, id) = admit(&mut engine, 2, command(1), window_end);
     send_ok(&mut engine, &effects, None, window_end);
     let late = engine.handle(socketless_error(1, 0x02), window_end);
     assert!(terminal_id(&late).is_none());
@@ -1072,12 +954,7 @@ fn executing_with_cancel(
 }
 
 fn command_awaiting_ack(engine: &mut ProtocolEngine, ticket: u64, now: Instant) -> RequestId {
-    let (effects, id) = admit(
-        engine,
-        ticket,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, id) = admit(engine, ticket, command(1), now);
     send_ok(engine, &effects, None, now);
     assert!(matches!(
         phase_of(engine, id),
@@ -1352,11 +1229,7 @@ fn owed_completion_only(engine: &mut ProtocolEngine, now: Instant) -> Instant {
     let (effects, completion_only) = admit(
         engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         now,
     );
     send_ok(engine, &effects, None, now);
@@ -1386,7 +1259,6 @@ fn disputed(engine: &mut ProtocolEngine, now: Instant) -> (RequestId, RequestId,
         1,
         command_with_reply_shape_and_retry(
             1,
-            CancellationPolicy::Supported,
             CommandReply::CompletionOnly,
             no_not_executable_retry(),
         ),
@@ -1545,18 +1417,13 @@ fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
     engine.assert_invariants().unwrap();
 
     let mut engine = fresh(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (effects, id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, id) = admit(&mut engine, 1, command(1), now);
     let sequence = sony_sequence(id);
     send_ok(&mut engine, &effects, Some(sequence), now);
     engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -1577,7 +1444,7 @@ fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
     let rejected = engine.handle(
         frame(
             1,
-            Some((cancel_sequence, SequenceWidth::Full32)),
+            Some(cancel_sequence),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
                 code: 0x05.into(),
@@ -1659,7 +1526,7 @@ fn reaching_the_debt_cap_keeps_queries_available_without_dropping_command_debt()
     let rejected = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(102),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         now,
@@ -1709,12 +1576,7 @@ fn reaching_the_debt_cap_keeps_queries_available_without_dropping_command_debt()
     // The acknowledged STOPs hold their sockets until they complete.
     engine.handle(completion(1, ViscaSocket::S1), now);
     engine.handle(completion(1, ViscaSocket::S2), now);
-    let (effects, id) = admit(
-        &mut engine,
-        105,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, id) = admit(&mut engine, 105, command(1), now);
     assert_eq!(request_transmit(&effects).1, id);
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
@@ -1895,12 +1757,7 @@ fn stream_socket_displacement_leaves_no_preack_hold() {
     // A stale owner.
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
     let stale = executing_on(&mut engine, 1, ViscaSocket::S1, now);
-    let (effects, successor) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (effects, successor) = admit(&mut engine, 2, command(1), now);
     send_ok(&mut engine, &effects, None, now);
     let displaced = engine.handle(ack(1, ViscaSocket::S1), now);
     assert!(matches!(
@@ -1919,12 +1776,7 @@ fn stream_socket_displacement_leaves_no_preack_hold() {
     assert!(engine
         .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
         .is_some());
-    let (effects, successor) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        ended,
-    );
+    let (effects, successor) = admit(&mut engine, 2, command(1), ended);
     send_ok(&mut engine, &effects, None, ended);
     engine.handle(ack(1, ViscaSocket::S1), ended);
     assert_eq!(socket_of(&engine, successor), Some(ViscaSocket::S1));
@@ -2029,12 +1881,7 @@ fn a_latched_command_lane_never_dispatches_a_queued_command() {
     let start = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
     let now = unanswered_stop(&mut engine, 1, start);
-    let (queued, id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (queued, id) = admit(&mut engine, 2, command(1), now);
     assert!(request_transmit_optional(&queued).is_none());
     assert!(dispatch_gated(&engine, id, now));
     let window_end = now + Duration::from_millis(50);
@@ -2100,7 +1947,7 @@ fn stop_inside_no_reply_hold(
     let (effects, no_reply) = admit(
         engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         now,
     );
     let written = send_ok(engine, &effects, None, now);
@@ -2110,7 +1957,7 @@ fn stop_inside_no_reply_hold(
     ));
     let (queued, inquiry_id) = admit(engine, 2, inquiry(1), now);
     assert!(request_transmit_optional(&queued).is_none());
-    let (queued, command_id) = admit(engine, 3, command(1, CancellationPolicy::Supported), now);
+    let (queued, command_id) = admit(engine, 3, command(1), now);
     assert!(request_transmit_optional(&queued).is_none());
     let (stop_effects, stop) = admit(engine, 4, stop_command(1), now);
     assert_eq!(request_transmit(&stop_effects).1, stop);
@@ -2214,7 +2061,7 @@ fn a_late_no_reply_rejection_never_reaches_a_later_command() {
     let (effects, no_reply) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         start,
     );
     let written = send_ok(&mut engine, &effects, None, start);
@@ -2225,12 +2072,7 @@ fn a_late_no_reply_rejection_never_reaches_a_later_command() {
     // Long past the hold, the link still stalled.
     let later = start + Duration::from_secs(5);
     engine.advance(later);
-    let (effects, moving) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        later,
-    );
+    let (effects, moving) = admit(&mut engine, 2, command(1), later);
     assert_eq!(request_transmit(&effects).1, moving);
     send_ok(&mut engine, &effects, None, later);
     let mut writes = 1;
@@ -2280,13 +2122,7 @@ fn leftover_ambiguous_completions_never_complete_a_later_command() {
     assert!(terminal_failure(&expired, executing).is_some());
     let now = start + Duration::from_millis(100);
     engine.advance(now);
-    let completion_only_request = || {
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        )
-    };
+    let completion_only_request = || command_with_reply_shape(1, CommandReply::CompletionOnly);
     let (effects, first) = admit(&mut engine, 2, completion_only_request(), now);
     assert_eq!(request_transmit(&effects).1, first);
     send_ok(&mut engine, &effects, None, now);
@@ -2487,17 +2323,11 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
     let (effects, _) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         start,
     );
     send_ok(&mut engine, &effects, None, start);
-    let completion_only_request = || {
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        )
-    };
+    let completion_only_request = || command_with_reply_shape(1, CommandReply::CompletionOnly);
     let (queued, waiting) = admit(&mut engine, 2, completion_only_request(), start);
     assert!(request_transmit_optional(&queued).is_none());
     let window_end = start + Duration::from_millis(50);
@@ -2568,7 +2398,6 @@ fn a_learned_completion_decides_its_dispute_accepted() {
         2,
         command_with_reply_shape_and_retry(
             1,
-            CancellationPolicy::Supported,
             CommandReply::CompletionOnly,
             no_not_executable_retry(),
         ),
@@ -2740,11 +2569,7 @@ fn late_first_answers_are_order_independent() {
             let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
             // Overlapping raw inquiries share one flight. Their timeout is
             // terminal, so every answer class has a nonempty outcome oracle.
-            let request = if class == 2 {
-                inquiry(1)
-            } else {
-                command(1, CancellationPolicy::Supported)
-            };
+            let request = if class == 2 { inquiry(1) } else { command(1) };
             let (write, id) = admit(&mut engine, 1, request, start);
             send_ok(&mut engine, &write, None, start);
             if class == 4 {
@@ -2850,12 +2675,7 @@ fn late_ack_preserves_its_socket_against_successor_errors_and_socketless_complet
     for socketless in [false, true] {
         let start = Instant::now();
         let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-        let (write, first) = admit(
-            &mut engine,
-            1,
-            command(1, CancellationPolicy::Supported),
-            start,
-        );
+        let (write, first) = admit(&mut engine, 1, command(1), start);
         send_ok(&mut engine, &write, None, start);
         let late = start + Duration::from_millis(21);
         engine.handle(ack(1, ViscaSocket::S1), late);
@@ -2863,12 +2683,7 @@ fn late_ack_preserves_its_socket_against_successor_errors_and_socketless_complet
         assert!(engine
             .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
             .is_some());
-        let (write, second) = admit(
-            &mut engine,
-            2,
-            command(1, CancellationPolicy::Supported),
-            late,
-        );
+        let (write, second) = admit(&mut engine, 2, command(1), late);
         send_ok(&mut engine, &write, None, late);
         if socketless {
             engine.handle(ack(1, ViscaSocket::S2), late);
@@ -2924,7 +2739,6 @@ fn accepting_a_dispute_preserves_the_second_stop_debt_in_the_engine() {
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
     let mut co = command_with_reply_shape_and_retry(
         1,
-        CancellationPolicy::Supported,
         CommandReply::CompletionOnly,
         no_not_executable_retry(),
     );

@@ -14,10 +14,7 @@ use std::{
 };
 
 use super::{Bell, ManualClock, ManualClockTimer, Source};
-use crate::{
-    executor::{ExecError, Executor},
-    Error,
-};
+use crate::executor::{ExecError, Executor};
 
 /// The runtime-free scheduling backend selected by `ManualClockExecutor::local`.
 ///
@@ -219,23 +216,6 @@ impl Executor for LocalExecutor {
 
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
         self.clock.sleep_async(duration)
-    }
-
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        future: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        let expiry = self.clock.sleep_async(duration);
-        async move {
-            crate::timeout::within(future, expiry)
-                .await
-                .ok_or_else(Error::io_timeout)
-        }
     }
 
     fn now(&self) -> Instant {

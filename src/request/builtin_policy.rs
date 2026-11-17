@@ -54,17 +54,17 @@ const fn resolve(
                     policy,
                     (
                         CommandTimeoutClass::Quick,
-                        CommandRetryClass::Movement,
+                        CommandRetryClass::Standard,
                         ControlClass::Urgent
                     )
                 ),
-            "a STOP ledger row requires the quick movement urgent policy",
+            "a STOP ledger row requires the quick standard urgent policy",
         );
         policy
     } else if stop {
         (
             CommandTimeoutClass::Quick,
-            CommandRetryClass::Movement,
+            CommandRetryClass::Standard,
             ControlClass::Urgent,
         )
     } else if operation {

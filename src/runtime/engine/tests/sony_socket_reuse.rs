@@ -5,7 +5,7 @@ const FIRST: u32 = 0x1001;
 const SECOND: u32 = 0x1002;
 
 fn response(sequence: u32, response: DecodedResponse) -> Input {
-    frame(1, Some((sequence, SequenceWidth::Full32)), response)
+    frame(1, Some(sequence), response)
 }
 
 fn ack(sequence: u32, socket: ViscaSocket) -> Input {
@@ -27,7 +27,7 @@ fn completion(sequence: u32) -> Input {
 }
 
 fn projected_command() -> RuntimeRequest {
-    let mut request = command(1, CancellationPolicy::Supported);
+    let mut request = command(1);
     let RuntimeRequest::Command { applied_state, .. } = &mut request else {
         unreachable!()
     };
@@ -85,12 +85,7 @@ fn sony_socket_reuse_preserves_both_sequence_terminals_and_allows_the_other_sock
         let start = Instant::now();
         let (mut engine, first, second) = reused_socket(start, transport);
         let at = start + Duration::from_millis(11);
-        let (third, third_id) = admit(
-            &mut engine,
-            3,
-            command(1, CancellationPolicy::Supported),
-            at,
-        );
+        let (third, third_id) = admit(&mut engine, 3, command(1), at);
         assert_eq!(
             request_transmit(&third).1,
             third_id,
@@ -232,12 +227,7 @@ fn sony_displaced_late_completion_and_due_order_agree() {
 fn sony_socket_reuse_resolves_an_open_cancellation_without_losing_the_request_sequence() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (first, first_id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (first, first_id) = admit(&mut engine, 1, command(1), start);
     send_ok(&mut engine, &first, Some(FIRST), start);
     engine.handle(ack(FIRST, ViscaSocket::S1), start);
     let cancellation = engine.handle(Input::Cancel { id: first_id }, start);
@@ -250,12 +240,7 @@ fn sony_socket_reuse_resolves_an_open_cancellation_without_losing_the_request_se
         },
         start,
     );
-    let (second, second_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (second, second_id) = admit(&mut engine, 2, command(1), start);
     send_ok(&mut engine, &second, Some(SECOND), start);
     let reused = engine.handle(ack(SECOND, ViscaSocket::S1), start);
     assert!(reused.iter().any(|effect| matches!(effect,
