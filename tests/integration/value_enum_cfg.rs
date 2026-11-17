@@ -35,6 +35,92 @@ enum ConditionalPayload {
     Zero,
     #[cfg(feature = "serde")]
     Nonzero(Level),
+    #[cfg(not(feature = "serde"))]
+    Overlapping = 1,
+    #[cfg(any())]
+    Unchecked(u8),
+}
+
+#[value(valid_values = [2, 4, 6])]
+struct Sparse(u8);
+
+#[value(valid_values = [-2, 0, 2], wire = biased(3, u8))]
+struct BiasedSparse(i8);
+
+#[value(min = -3, max = 3, wire = centered(3, u8))]
+struct Centered(i8);
+
+#[value(min = -2, max = 2, wire = biased(-3, i8))]
+struct SignedWire(i8);
+
+#[value_enum]
+enum SparseEnum {
+    Known = 1,
+    Extension(Sparse),
+}
+
+#[value_enum]
+enum BiasedEnum {
+    Known = 0,
+    Extension(BiasedSparse),
+}
+
+#[value_enum]
+enum CenteredEnum {
+    Known = 7,
+    Extension(Centered),
+}
+
+const _: () = {
+    assert!(!Sparse::__wire_domain_contains(1));
+    assert!(Sparse::__wire_domain_contains(2));
+    assert!(!Sparse::__wire_domain_contains(3));
+    assert!(BiasedSparse::__wire_domain_contains(1));
+    assert!(!BiasedSparse::__wire_domain_contains(2));
+    assert!(BiasedSparse::__wire_domain_contains(3));
+    assert!(!BiasedSparse::__wire_domain_contains(6));
+    assert!(Centered::__wire_domain_contains(0));
+    assert!(Centered::__wire_domain_contains(6));
+    assert!(!Centered::__wire_domain_contains(7));
+    assert!(SignedWire::__wire_domain_contains(-5));
+    assert!(SignedWire::__wire_domain_contains(-1));
+    assert!(!SignedWire::__wire_domain_contains(0));
+};
+
+#[test]
+fn payload_wire_domains_match_the_checked_codecs_and_round_trip() {
+    for code in u8::MIN..=u8::MAX {
+        assert_eq!(
+            Sparse::__wire_domain_contains(code),
+            Sparse::from_wire(code).is_ok()
+        );
+        assert_eq!(
+            BiasedSparse::__wire_domain_contains(code),
+            BiasedSparse::from_wire(code).is_ok()
+        );
+        assert_eq!(
+            Centered::__wire_domain_contains(code),
+            Centered::from_wire(code).is_ok()
+        );
+        if let Ok(value) = Sparse::from_wire(code) {
+            let value = SparseEnum::Extension(value);
+            assert_eq!(SparseEnum::from_wire(value.to_wire()).unwrap(), value);
+        }
+        if let Ok(value) = BiasedSparse::from_wire(code) {
+            let value = BiasedEnum::Extension(value);
+            assert_eq!(BiasedEnum::from_wire(value.to_wire()).unwrap(), value);
+        }
+        if let Ok(value) = Centered::from_wire(code) {
+            let value = CenteredEnum::Extension(value);
+            assert_eq!(CenteredEnum::from_wire(value.to_wire()).unwrap(), value);
+        }
+    }
+    for code in i8::MIN..=i8::MAX {
+        assert_eq!(
+            SignedWire::__wire_domain_contains(code),
+            SignedWire::from_wire(code).is_ok()
+        );
+    }
 }
 
 #[value_enum]

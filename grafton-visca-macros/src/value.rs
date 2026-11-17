@@ -655,6 +655,41 @@ fn expand_scalar(mut expansion: Expansion) -> Result<TokenStream> {
             ::core::result::Result::Ok(#checked)
         }
     };
+    // Check the wire domain without constructing an Error, whose destructor
+    // cannot run during the enum's compile-time disjointness checks.
+    let (wire_type, wire_value, domain_value) = if let Some((bias, wire)) = &args.bias {
+        (
+            quote!(#wire),
+            quote!(let value = (value as i64) - (#bias as i64);),
+            quote!(as i64),
+        )
+    } else {
+        (quote!(#inner), TokenStream::new(), TokenStream::new())
+    };
+    let finite_domain = (kind == ScalarKind::Float).then(|| {
+        quote!(if !value.is_finite() {
+            return false;
+        })
+    });
+    let wire_domain = if let Some(values) = &args.values {
+        quote! {
+            #wire_value
+            #finite_domain
+            const VALUES: &[#inner] = &#values;
+            let mut index = 0;
+            while index < VALUES.len() {
+                if value == VALUES[index] #domain_value { return true; }
+                index += 1;
+            }
+            false
+        }
+    } else {
+        quote! {
+            #wire_value
+            #finite_domain
+            value >= Self::MIN.0 #domain_value && value <= Self::MAX.0 #domain_value
+        }
+    };
     let display = match args
         .display
         .unwrap_or_else(|| Display::Format(parse_quote!("{}")))
@@ -801,6 +836,9 @@ fn expand_scalar(mut expansion: Expansion) -> Result<TokenStream> {
             /// Returns the checked scalar value.
             #[must_use]
             pub const fn value(self) -> #inner { self.0 }
+            #[doc(hidden)]
+            #[allow(clippy::cast_lossless, trivial_numeric_casts)]
+            pub const fn __wire_domain_contains(value: #wire_type) -> bool { #wire_domain }
         }
         #(#attrs)*
         impl ::core::convert::TryFrom<#inner> for #name {
@@ -939,6 +977,8 @@ fn expand_enum(mut expansion: Expansion) -> Result<TokenStream> {
     let mut known = Vec::new();
     let mut fallback = Vec::new();
     let mut payload_presence: Vec<Vec<Attribute>> = Vec::new();
+    let mut payload_domains = Vec::new();
+    let mut unit_codes = Vec::new();
     let mut to_wire = Vec::new();
     let mut display_arms = Vec::new();
     let mut keys: BTreeMap<String, Vec<Vec<Attribute>>> = BTreeMap::new();
@@ -1010,6 +1050,7 @@ fn expand_enum(mut expansion: Expansion) -> Result<TokenStream> {
                     });
                 }
                 same_code.push(presence.clone());
+                unit_codes.push((code.clone(), presence.clone()));
                 known.push(quote!(#(#presence)* #code => ::core::result::Result::Ok(Self::#id),));
                 to_wire.push(quote!(#(#presence)* Self::#id => #code,));
                 let label = display.unwrap_or_else(|| LitStr::new(&id.to_string(), id.span()));
@@ -1045,6 +1086,7 @@ fn expand_enum(mut expansion: Expansion) -> Result<TokenStream> {
                 }
                 payload_presence.push(presence.clone());
                 let inner = &fields.unnamed[0].ty;
+                payload_domains.push((inner.clone(), presence.clone()));
                 fallback.push(
                     quote!(#(#presence)* other => <#inner as #path::wire::WireValue>::from_wire(other).map(Self::#id),),
                 );
@@ -1070,6 +1112,27 @@ fn expand_enum(mut expansion: Expansion) -> Result<TokenStream> {
             data.enum_token,
             "value_enum requires at least one variant",
         ));
+    }
+    for (inner, payload_presence) in &payload_domains {
+        // Require a checked scalar even when this enum has no unit variants.
+        conditional_conflicts.push(quote! {
+            #(#attrs)*
+            #(#payload_presence)*
+            const _: fn(#wire) -> bool = <#inner>::__wire_domain_contains;
+        });
+        for (code, unit_presence) in &unit_codes {
+            conditional_conflicts.push(quote! {
+                #(#attrs)*
+                #(#payload_presence)*
+                #(#unit_presence)*
+                const _: () = {
+                    ::core::assert!(
+                        !<#inner>::__wire_domain_contains(#code),
+                        "value_enum payload domain contains a unit wire code"
+                    );
+                };
+            });
+        }
     }
     let payload_predicates = payload_presence
         .iter()
@@ -1324,6 +1387,8 @@ mod tests {
         .unwrap()
         .to_string();
         assert!(result.contains("CheckedLevel as :: visca :: wire :: WireValue"));
+        assert!(result.contains("< CheckedLevel > :: __wire_domain_contains (0)"));
+        assert!(result.contains("value_enum payload domain contains a unit wire code"));
         assert!(!result.contains("Off = 0"));
         assert!(value_enum(
             quote!(),
@@ -1335,6 +1400,27 @@ mod tests {
             )
         )
         .is_err());
+    }
+
+    #[test]
+    fn payload_disjointness_combines_both_variants_presence() {
+        let result = value_enum(
+            quote!(),
+            quote!(
+                #[cfg(feature = "outer")]
+                enum Conditional {
+                    #[cfg(feature = "unit")]
+                    Known = 1,
+                    #[cfg(feature = "payload")]
+                    Unknown(Extension),
+                }
+            ),
+        )
+        .unwrap()
+        .to_string();
+        assert!(result.contains(
+            "# [cfg (feature = \"outer\")] # [cfg (feature = \"payload\")] # [cfg (feature = \"unit\")] const _ : ()"
+        ));
     }
 
     #[test]

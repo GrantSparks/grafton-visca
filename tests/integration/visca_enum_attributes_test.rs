@@ -1,6 +1,6 @@
 //! Value-enum attributes share one display and wire conversion contract.
 
-use grafton_visca::{value_enum, wire::WireValue, Error};
+use grafton_visca::{value, value_enum, wire::WireValue, Error};
 
 #[value_enum]
 pub enum AdvancedMode {
@@ -16,8 +16,11 @@ pub enum AdvancedMode {
 pub enum ExtensibleMode {
     Active = 0x01,
     Inactive = 0x02,
-    Unknown(u8),
+    Unknown(ExtensionCode),
 }
+
+#[value(valid_values = [0, 3, 0xFF])]
+pub struct ExtensionCode(u8);
 
 #[test]
 fn custom_display_names_are_preserved() {
@@ -52,10 +55,11 @@ fn extensible_enum_preserves_unknown_codes_in_both_directions() {
         ExtensibleMode::Inactive
     );
     for code in [0, 3, 0xFF] {
+        let extension = ExtensionCode::new(code).unwrap();
         assert_eq!(
             ExtensibleMode::from_wire(code).unwrap(),
-            ExtensibleMode::Unknown(code)
+            ExtensibleMode::Unknown(extension)
         );
-        assert_eq!(ExtensibleMode::Unknown(code).to_wire(), code);
+        assert_eq!(ExtensibleMode::Unknown(extension).to_wire(), code);
     }
 }
