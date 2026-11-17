@@ -290,7 +290,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["serde", "schemars"] }
+//! grafton-visca = { version = "2.0.0", features = ["serde", "schemars"] }
 //! ```
 //!
 //! With these features enabled, you can serialize/deserialize all value types directly:
@@ -466,7 +466,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! ```rust
@@ -727,11 +727,11 @@
 //! ```toml
 //! [dependencies]
 //! # Single runtime:
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio"] }
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-smol"] }
+//! grafton-visca = { version = "2.0.0", features = ["runtime-tokio"] }
+//! grafton-visca = { version = "2.0.0", features = ["runtime-smol"] }
 //!
 //! # Multiple runtimes (choose executor at construction time):
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! Pass the runtime explicitly through `CameraSession::connect_tcp` or `connect`; standard
