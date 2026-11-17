@@ -1140,14 +1140,19 @@ impl ProfileSpec {
         let profile = Self {
             facts: facts.validate()?,
         };
+        profile.validate_stop_paths()?;
+        Ok(profile)
+    }
+
+    fn validate_stop_paths(&self) -> Result<()> {
         // A granted STOP must be preparable before any session can rely on its
         // reserved slot. Custom profiles retain their caller-owned authority.
         for stop in crate::command::semantics::StopCommand::ALL {
-            if crate::command::surface::row_gate(stop.row()).permits(profile.capabilities()) {
-                stop.validate(&profile)?;
+            if crate::command::surface::row_gate(stop.row()).permits(self.capabilities()) {
+                stop.validate(self)?;
             }
         }
-        Ok(profile)
+        Ok(())
     }
 
     /// Returns the human-readable name of this runtime profile.
@@ -2194,11 +2199,16 @@ mod tests {
             StopCommand::Fr7ZoomHighResolutionStop.validate(&forged),
             Err(Error::FeatureNotSupported { .. })
         ));
-        assert!(ProfileSpec::from_facts(facts.clone()).is_err());
+        // Exercise the exact granted-STOP validation performed by from_facts,
+        // without letting its separate built-in identity guard mask the cause.
+        assert!(matches!(forged.validate_stop_paths(),
+            Err(Error::FeatureNotSupported { feature })
+                if feature == crate::command::surface::surface_entry(
+                    StopCommand::Fr7ZoomHighResolutionStop.row()).feature()));
         facts.capabilities.profile_id = None;
         let custom = ProfileSpec { facts };
-        StopCommand::Fr7ZoomHighResolutionStop
-            .validate(&custom)
+        custom
+            .validate_stop_paths()
             .expect("custom specs explicitly own their protocol authority");
     }
 
