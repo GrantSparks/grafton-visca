@@ -2968,12 +2968,7 @@ fn zero_spacing_cancel_with_a_matured_retry_preserves_the_write_boundary() {
     {
         let start = Instant::now();
         let mut engine = engine(EnvelopeKind::Raw, transport);
-        let (first, executing) = admit(
-            &mut engine,
-            1,
-            command(1, CancellationPolicy::Supported),
-            start,
-        );
+        let (first, executing) = admit(&mut engine, 1, command(1), start);
         send_ok(&mut engine, &first, None, start);
         engine.handle(
             frame(
@@ -2985,12 +2980,7 @@ fn zero_spacing_cancel_with_a_matured_retry_preserves_the_write_boundary() {
             ),
             start,
         );
-        let (second, retry) = admit(
-            &mut engine,
-            2,
-            command(1, CancellationPolicy::Supported),
-            start,
-        );
+        let (second, retry) = admit(&mut engine, 2, command(1), start);
         send_ok(&mut engine, &second, None, start);
         let rejected = engine.handle(
             frame(
