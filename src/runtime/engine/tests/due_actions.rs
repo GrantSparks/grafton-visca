@@ -50,7 +50,7 @@ fn fixture(scenario: Scenario) -> (ProtocolEngine, RequestId, Instant) {
             engine.handle(
                 frame(
                     1,
-                    Some((0x1001, SequenceWidth::Full32)),
+                    Some(0x1001),
                     DecodedResponse::Ack {
                         socket: Some(ViscaSocket::S1),
                     },

@@ -103,7 +103,7 @@ use super::engine::{
 };
 
 #[cfg(test)]
-use super::engine::{CancelState, EnvelopeSequence, Phase};
+use super::engine::{CancelState, FrameSequence, Phase};
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};

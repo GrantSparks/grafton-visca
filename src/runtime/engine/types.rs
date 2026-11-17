@@ -589,20 +589,6 @@ impl ProtocolPolicy {
     }
 }
 
-/// Identifies full-width and known-truncated Sony envelope correlation data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct EnvelopeSequence {
-    pub(crate) value: u32,
-    pub(crate) width: SequenceWidth,
-}
-
-/// Width supplied by scheduler-independent envelope parsing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SequenceWidth {
-    Full32,
-    Lower16,
-}
-
 /// Owned scheduler-independent decoded response data.
 ///
 /// `Ack` and `Completion` carry an *optional* socket because the socket nibble
@@ -777,7 +763,7 @@ pub(crate) enum RawReleaseGateAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecodedFrame {
     pub(crate) target: TargetSlot,
-    pub(crate) sequence: Option<EnvelopeSequence>,
+    pub(crate) sequence: Option<crate::transport::envelope::FrameSequence>,
     pub(crate) response: DecodedResponse,
 }
 

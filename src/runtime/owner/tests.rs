@@ -720,8 +720,8 @@ mod metrics {
     use crate::{
         runtime::engine::{
             CancellationPolicy, CommandReply, ControlPolicy, DeadlineKind, DecodedFrame,
-            DecodedResponse, EncodedMessage, EnvelopeKind, EnvelopeSequence, RequestContext,
-            RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
+            DecodedResponse, EncodedMessage, EnvelopeKind, FrameSequence, RequestContext,
+            RetryPolicy, TimeoutPolicy, TransmissionMeta,
         },
         Error, ViscaSocket,
     };
@@ -811,10 +811,7 @@ mod metrics {
     fn frame(sequence: Option<u32>, response: DecodedResponse) -> Input {
         OwnerState::frame_input(DecodedFrame {
             target: TargetSlot::CAMERA_1,
-            sequence: sequence.map(|value| EnvelopeSequence {
-                value,
-                width: SequenceWidth::Full32,
-            }),
+            sequence: sequence.map(FrameSequence::from_reply_header),
             response,
         })
     }
@@ -2543,7 +2540,7 @@ mod lifecycle_trace {
             // target and socket rather than by envelope sequence.
             let target =
                 TargetSlot::from(crate::IndividualCameraId::try_from(decoded.source).unwrap());
-            let sequence: Option<EnvelopeSequence> = None;
+            let sequence: Option<FrameSequence> = None;
             let now = self.now;
             let pre_socket = |state: &OwnerState, id: RequestId| match state.request_state(id) {
                 Some((Phase::Executing { socket, .. }, _)) => Some(socket),

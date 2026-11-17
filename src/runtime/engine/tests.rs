@@ -334,10 +334,10 @@ fn send_ok(
     )
 }
 
-fn frame(target: u8, sequence: Option<(u32, SequenceWidth)>, response: DecodedResponse) -> Input {
+fn frame(target: u8, sequence: Option<u32>, response: DecodedResponse) -> Input {
     Input::Frame(DecodedFrame {
         target: camera(target),
-        sequence: sequence.map(|(value, width)| EnvelopeSequence { value, width }),
+        sequence: sequence.map(FrameSequence::from_reply_header),
         response,
     })
 }
@@ -610,7 +610,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
     let unique = engine.handle(
         frame(
             1,
-            Some((0xbeef, SequenceWidth::Lower16)),
+            Some(0xbeef),
             DecodedResponse::InquiryReply {
                 payload: smallvec![1],
             },
@@ -642,7 +642,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
     let collision = engine.handle(
         frame(
             1,
-            Some((0xbeef, SequenceWidth::Lower16)),
+            Some(0xbeef),
             DecodedResponse::InquiryReply {
                 payload: smallvec![2],
             },
@@ -656,7 +656,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
     let exact = engine.handle(
         frame(
             1,
-            Some((0x3333_beef, SequenceWidth::Full32)),
+            Some(0x3333_beef),
             DecodedResponse::InquiryReply {
                 payload: smallvec![3],
             },
@@ -667,7 +667,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
     let now_unique = engine.handle(
         frame(
             1,
-            Some((0xbeef, SequenceWidth::Lower16)),
+            Some(0xbeef),
             DecodedResponse::InquiryReply {
                 payload: smallvec![2],
             },
@@ -688,7 +688,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
     let ignored = engine.handle(
         frame(
             2,
-            Some((0x1234_5678, SequenceWidth::Full32)),
+            Some(0x1234_5678),
             DecodedResponse::InquiryReply {
                 payload: smallvec![0],
             },
@@ -726,7 +726,7 @@ fn sony_exact_request_and_cancellation_collision_is_ignored() {
     engine.handle(
         frame(
             1,
-            Some((0x1111_beef, SequenceWidth::Full32)),
+            Some(0x1111_beef),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -751,7 +751,7 @@ fn sony_exact_request_and_cancellation_collision_is_ignored() {
     let collision = engine.handle(
         frame(
             1,
-            Some((0x1111_beef, SequenceWidth::Full32)),
+            Some(0x1111_beef),
             DecodedResponse::Completion { socket: None },
         ),
         start,
@@ -794,7 +794,7 @@ fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
     engine.handle(
         frame(
             1,
-            Some((0x1111_beef, SequenceWidth::Full32)),
+            Some(0x1111_beef),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -820,7 +820,7 @@ fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
     let collision = engine.handle(
         frame(
             1,
-            Some((0xbeef, SequenceWidth::Lower16)),
+            Some(0xbeef),
             DecodedResponse::Completion { socket: None },
         ),
         start,
@@ -837,6 +837,42 @@ fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
         .any(|effect| matches!(effect, Effect::CancellationObservation { .. })));
     assert!(engine.entry(id).is_some());
     engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn sony_reply_headers_preserve_width_specific_non_unique_verdicts() {
+    for (second_sequence, reply_header, expected) in [
+        (0x10042, 0x10042, IgnoreReason::UnmatchedSequencedFrame),
+        (0x20042, 0x42, IgnoreReason::AmbiguousLower16Sequence),
+    ] {
+        let now = Instant::now();
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        for (ticket, sequence) in [(1, 0x10042), (2, second_sequence)] {
+            let (effects, _) = admit(
+                &mut engine,
+                ticket,
+                inquiry_with_retry(1, RetryPolicy::NEVER),
+                now,
+            );
+            send_ok(&mut engine, &effects, Some(sequence), now);
+        }
+        let effects = engine.handle(
+            frame(
+                1,
+                Some(reply_header),
+                DecodedResponse::InquiryReply {
+                    payload: smallvec![1],
+                },
+            ),
+            now,
+        );
+        assert!(effects.iter().any(|effect| matches!(effect,
+            Effect::Ignored(reason) if *reason == expected)));
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Terminal { .. })));
+        engine.assert_invariants().unwrap();
+    }
 }
 
 #[test]
@@ -979,7 +1015,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let retry_error = engine.handle(
         frame(
             1,
-            Some((first_sequence, SequenceWidth::Full32)),
+            Some(first_sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -1003,7 +1039,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let stale_backoff = engine.handle(
         frame(
             1,
-            Some((first_sequence, SequenceWidth::Full32)),
+            Some(first_sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -1045,7 +1081,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let blocker_ack = engine.handle(
         frame(
             1,
-            Some((blocker_sequence, SequenceWidth::Full32)),
+            Some(blocker_sequence),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -1082,7 +1118,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let stale_ready = engine.handle(
         frame(
             1,
-            Some((first_sequence, SequenceWidth::Full32)),
+            Some(first_sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -1093,7 +1129,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let stale_permanent = engine.handle(
         frame(
             1,
-            Some((first_sequence, SequenceWidth::Full32)),
+            Some(first_sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x01.into(),
@@ -1125,7 +1161,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let released = engine.handle(
         frame(
             1,
-            Some((blocker_sequence, SequenceWidth::Full32)),
+            Some(blocker_sequence),
             DecodedResponse::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -1228,7 +1264,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let retry_error = engine.handle(
         frame(
             1,
-            Some((first_sequence, SequenceWidth::Full32)),
+            Some(first_sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x02.into(),
@@ -1244,7 +1280,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let stale_backoff = engine.handle(
         frame(
             1,
-            Some((first_sequence, SequenceWidth::Full32)),
+            Some(first_sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x02.into(),
@@ -1278,7 +1314,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let stale_ready = engine.handle(
         frame(
             1,
-            Some((first_sequence, SequenceWidth::Full32)),
+            Some(first_sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x02.into(),
@@ -1289,7 +1325,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let stale_permanent = engine.handle(
         frame(
             1,
-            Some((first_sequence, SequenceWidth::Full32)),
+            Some(first_sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x01.into(),
@@ -1319,7 +1355,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let released = engine.handle(
         frame(
             1,
-            Some((0x4050_6070, SequenceWidth::Full32)),
+            Some(0x4050_6070),
             DecodedResponse::InquiryReply {
                 payload: smallvec![1],
             },
@@ -1811,8 +1847,8 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_request_order() {
 #[test]
 fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
     for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
-        let sequence = (envelope == EnvelopeKind::Sony).then_some((0x1001, SequenceWidth::Full32));
-        let transmission_sequence = sequence.map(|(value, _)| value);
+        let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
+        let transmission_sequence = sequence;
 
         // Both envelopes correlate an ACK to the one AwaitingAck request, but
         // raw does so by its target lane while Sony uses the envelope sequence.
@@ -2013,7 +2049,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                 deadline,
                 frame(
                     1,
-                    Some((sequence, SequenceWidth::Full32)),
+                    Some(sequence),
                     DecodedResponse::Completion { socket: None },
                 ),
             )
@@ -2112,7 +2148,7 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
             engine.handle(
                 frame(
                     1,
-                    request_sequence.map(|value| (value, SequenceWidth::Full32)),
+                    request_sequence,
                     DecodedResponse::Ack {
                         socket: Some(ViscaSocket::S1),
                     },
@@ -2142,7 +2178,7 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
                 deadline,
                 frame(
                     1,
-                    cancellation_sequence.map(|value| (value, SequenceWidth::Full32)),
+                    cancellation_sequence,
                     DecodedResponse::Error {
                         socket: Some(ViscaSocket::S1),
                         code: 0x04.into(),
@@ -2598,7 +2634,7 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
     let ack = engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -2611,7 +2647,7 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
     let duplicate = engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -2636,7 +2672,7 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
     let cancelled = engine.handle(
         frame(
             1,
-            Some((0x2001, SequenceWidth::Full32)),
+            Some(0x2001),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
                 code: 0x04.into(),
@@ -3135,7 +3171,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
     let completed_at_boundary = engine.handle(
         frame(
             1,
-            Some((0x1010, SequenceWidth::Full32)),
+            Some(0x1010),
             DecodedResponse::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -4107,7 +4143,7 @@ fn replaying_identical_ordered_trace_produces_identical_effects() {
         let ack = engine.handle(
             frame(
                 1,
-                Some((0x1234, SequenceWidth::Full32)),
+                Some(0x1234),
                 DecodedResponse::Ack {
                     socket: Some(ViscaSocket::S2),
                 },
@@ -4118,7 +4154,7 @@ fn replaying_identical_ordered_trace_produces_identical_effects() {
         let done = engine.handle(
             frame(
                 1,
-                Some((0x1234, SequenceWidth::Full32)),
+                Some(0x1234),
                 DecodedResponse::Completion {
                     socket: Some(ViscaSocket::S2),
                 },
@@ -4240,13 +4276,15 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
             "frame" => {
                 let engine = engine.as_mut().unwrap();
                 let target = fixture_required(&fields, "target").parse::<u8>().unwrap();
-                let sequence = fields.get("sequence").map(|value| EnvelopeSequence {
-                    value: fixture_u32(value),
-                    width: if fields.get("sequence-width").map(String::as_str) == Some("lower16") {
-                        SequenceWidth::Lower16
-                    } else {
-                        SequenceWidth::Full32
-                    },
+                let sequence = fields.get("sequence").map(|value| {
+                    let number = fixture_u32(value);
+                    FrameSequence::from_reply_header(
+                        if fields.get("sequence-width").map(String::as_str) == Some("lower16") {
+                            number & 0xFFFF
+                        } else {
+                            number
+                        },
+                    )
                 });
                 let response_name = fixture_required(&fields, "response");
                 let response = match response_name {
@@ -4573,18 +4611,13 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
         target: entry.request.context().target,
         // Sony correlation is by envelope sequence, so a directed frame quotes
         // the sequence the request actually registered — at either width.
-        sequence: entry
-            .sequences
-            .records()
-            .next_back()
-            .map(|record| EnvelopeSequence {
-                value: record.sequence,
-                width: if action & 0x400 == 0 {
-                    SequenceWidth::Full32
-                } else {
-                    SequenceWidth::Lower16
-                },
-            }),
+        sequence: entry.sequences.records().next_back().map(|record| {
+            FrameSequence::from_reply_header(if action & 0x400 == 0 {
+                record.sequence
+            } else {
+                record.sequence & 0xFFFF
+            })
+        }),
         response,
     }))
 }
@@ -4614,15 +4647,11 @@ fn fuzz_step(
     // The socket nibble is genuinely optional on the wire: a camera may answer
     // `90 40 FF` / `90 50 FF` with no socket at all.
     let named_socket = (action & 0x200 == 0).then_some(socket);
-    let sequence_value = ((action >> 24) & 0xffff) as u32;
-    // Sony correlation runs on the envelope sequence; raw framing carries none,
-    // and each width is a different index (exact and lower-16).
-    let width = if action & 0x400 == 0 {
-        SequenceWidth::Full32
-    } else {
-        SequenceWidth::Lower16
-    };
-    let sequence = (envelope == EnvelopeKind::Sony).then_some((sequence_value, width));
+    // Full-width generated headers have a nonzero upper half, as on the wire;
+    // the other headers exercise production's potentially truncated path.
+    let sequence_value =
+        ((action >> 24) & 0xffff) as u32 | if action & 0x400 == 0 { 0x10000 } else { 0 };
+    let sequence = (envelope == EnvelopeKind::Sony).then_some(sequence_value);
     let write_sequence = (envelope == EnvelopeKind::Sony).then_some(sequence_value);
     let effects = match action % 12 {
         0 => {
@@ -4735,9 +4764,7 @@ fn fuzz_step(
         _ => {
             // A frame whose envelope sequence contradicts the session shape:
             // raw framing never carries one, Sony framing always does.
-            let mismatched = sequence
-                .is_none()
-                .then_some((sequence_value, SequenceWidth::Lower16));
+            let mismatched = sequence.is_none().then_some(sequence_value);
             engine.handle(frame(target, mismatched, DecodedResponse::Unknown), *now)
         }
     };
@@ -4935,8 +4962,7 @@ fn seed_fuzz_coverage(
     coverage: &mut FuzzCoverage,
 ) {
     let envelope = configuration.envelope;
-    let sequence =
-        |value| (envelope == EnvelopeKind::Sony).then_some((value, SequenceWidth::Full32));
+    let sequence = |value| (envelope == EnvelopeKind::Sony).then_some(value);
     let write_sequence = |value| (envelope == EnvelopeKind::Sony).then_some(value);
 
     // A normal command reaches Applied, exercising ACK and completion
@@ -5648,7 +5674,7 @@ fn full_width_sony_miss_never_uses_lower16_fallback() {
     let miss = engine.handle(
         frame(
             1,
-            Some((0x2222_beef, SequenceWidth::Full32)),
+            Some(0x2222_beef),
             DecodedResponse::InquiryReply {
                 payload: smallvec![1],
             },
@@ -6583,7 +6609,7 @@ fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_
         engine.handle(
             frame(
                 1,
-                Some((sequence, SequenceWidth::Full32)),
+                Some(sequence),
                 DecodedResponse::Ack {
                     socket: Some(socket),
                 },
@@ -7043,20 +7069,12 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
     let id = admitted(&admission);
     send_ok(&mut engine, &admission, Some(7), start);
     engine.handle(
-        frame(
-            1,
-            Some((7, SequenceWidth::Full32)),
-            DecodedResponse::Ack { socket: None },
-        ),
+        frame(1, Some(7), DecodedResponse::Ack { socket: None }),
         start,
     );
     assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
     let done = engine.handle(
-        frame(
-            1,
-            Some((7, SequenceWidth::Full32)),
-            DecodedResponse::Completion { socket: None },
-        ),
+        frame(1, Some(7), DecodedResponse::Completion { socket: None }),
         start,
     );
     assert_eq!(terminal_id(&done), Some(id));
@@ -7624,7 +7642,7 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
         let rejected = uncapped_engine.handle(
             frame(
                 1,
-                Some((uncapped_sequence, SequenceWidth::Full32)),
+                Some(uncapped_sequence),
                 DecodedResponse::Error {
                     socket: None,
                     code: 0x03.into(),
@@ -7933,7 +7951,7 @@ fn initial_active_phases_expire_at_admission_budget() {
         engine.handle(
             frame(
                 1,
-                Some((sequence, SequenceWidth::Full32)),
+                Some(sequence),
                 DecodedResponse::Ack {
                     socket: Some(ViscaSocket::S1),
                 },
@@ -8266,7 +8284,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         let retried = engine.handle(
             frame(
                 1,
-                Some((first_sequence, SequenceWidth::Full32)),
+                Some(first_sequence),
                 DecodedResponse::Error {
                     socket: None,
                     code: 0x03.into(),
@@ -8454,7 +8472,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         let reply = equal_engine.handle(
             frame(
                 1,
-                Some((sequence, SequenceWidth::Full32)),
+                Some(sequence),
                 DecodedResponse::InquiryReply {
                     payload: smallvec![1],
                 },
@@ -8490,7 +8508,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         let late = late_engine.handle(
             frame(
                 1,
-                Some((late_sequence, SequenceWidth::Full32)),
+                Some(late_sequence),
                 DecodedResponse::InquiryReply {
                     payload: smallvec![1],
                 },
@@ -8578,7 +8596,7 @@ fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
     engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -8613,7 +8631,7 @@ fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
     let resolved = engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -8695,7 +8713,7 @@ fn retry_budget_expires_while_awaiting_sony_ack() {
     let retried = engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -8751,7 +8769,7 @@ fn retry_budget_expires_while_executing_sony_command() {
     let retried = engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -8763,7 +8781,7 @@ fn retry_budget_expires_while_executing_sony_command() {
     let acknowledged = engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -8812,7 +8830,7 @@ fn retry_budget_expires_while_awaiting_inquiry_reply() {
     let retried = engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -9486,7 +9504,7 @@ fn a_post_ack_completion_timeout_never_rewrites_the_command() {
     engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -11665,7 +11683,7 @@ fn sony_completion_only_does_not_block_same_target_inquiry() {
     let stray_ack = runtime.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -11696,7 +11714,7 @@ fn sony_completion_only_does_not_block_same_target_inquiry() {
     let completed = runtime.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Completion { socket: None },
         ),
         start,
@@ -11708,7 +11726,7 @@ fn sony_completion_only_does_not_block_same_target_inquiry() {
     let replied = runtime.handle(
         frame(
             1,
-            Some((0x1002, SequenceWidth::Full32)),
+            Some(0x1002),
             DecodedResponse::InquiryReply {
                 payload: smallvec![1],
             },
@@ -11867,7 +11885,7 @@ fn pre_ack_cancellation_extends_correlation_before_due_work() {
         let ack = engine.handle(
             frame(
                 1,
-                sequence.map(|value| (value, SequenceWidth::Full32)),
+                sequence,
                 DecodedResponse::Ack {
                     socket: Some(ViscaSocket::S1),
                 },
@@ -11912,11 +11930,7 @@ fn completion_only_refused_cancel_does_not_extend_correlation() {
         assert_eq!(engine.entry(id).unwrap().cancellation(), CancelState::None);
 
         let completion = engine.handle(
-            frame(
-                1,
-                sequence.map(|value| (value, SequenceWidth::Full32)),
-                DecodedResponse::Completion { socket: None },
-            ),
+            frame(1, sequence, DecodedResponse::Completion { socket: None }),
             start + Duration::from_millis(40) + Duration::from_nanos(1),
         );
         if envelope == EnvelopeKind::Sony {
@@ -12112,10 +12126,7 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
             socket: Some(ViscaSocket::S1),
         },
     ] {
-        let effects = engine.handle(
-            frame(1, Some((sequence, SequenceWidth::Full32)), response),
-            now,
-        );
+        let effects = engine.handle(frame(1, Some(sequence), response), now);
         if let Some(outcome) = terminal_outcome(&effects, first) {
             assert!(matches!(
                 outcome,

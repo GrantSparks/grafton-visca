@@ -61,20 +61,14 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
         runtime.advance(Duration::from_secs(ack_at));
         let mut ack = ack(ViscaSocket::S1);
         if sony {
-            ack.sequence = Some(EnvelopeSequence {
-                value: 1,
-                width: SequenceWidth::Full32,
-            });
+            ack.sequence = Some(FrameSequence::from_reply_header(1));
         }
         harness.frames.send_async(batch(vec![ack])).await.unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 1);
         runtime.advance(completion_at - Duration::from_secs(ack_at));
         let mut completed = completion(ViscaSocket::S1);
         if sony {
-            completed.sequence = Some(EnvelopeSequence {
-                value: 1,
-                width: SequenceWidth::Full32,
-            });
+            completed.sequence = Some(FrameSequence::from_reply_header(1));
         }
         harness
             .frames

@@ -150,7 +150,7 @@ fn conclusive_pre_ack_rejection_keeps_previously_known_projection() {
     let effects = engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -177,8 +177,7 @@ fn every_uncertain_terminal_invalidates_from_attempt_facts() {
                 (envelope == EnvelopeKind::Sony).then_some(0x1001),
                 now,
             );
-            let sequence =
-                (envelope == EnvelopeKind::Sony).then_some((0x1001, SequenceWidth::Full32));
+            let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
             let effects = match terminal {
                 0 => engine.advance(now + Duration::from_millis(20)),
                 1 => {
@@ -272,7 +271,7 @@ fn refusing_a_retry_after_conclusive_rejection_preserves_known_state() {
     let rejected = engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -688,8 +687,7 @@ fn attempt_endings_preserve_error_certainty_recovery_holds_and_cache() {
                             engine.handle(
                                 frame(
                                     1,
-                                    (envelope == EnvelopeKind::Sony)
-                                        .then_some((0x1001, SequenceWidth::Full32)),
+                                    (envelope == EnvelopeKind::Sony).then_some(0x1001),
                                     DecodedResponse::Ack {
                                         socket: Some(ViscaSocket::S1),
                                     },
@@ -853,7 +851,7 @@ mod ending_properties {
             engine.assert_invariants().unwrap();
             assert_occupancy_agrees(&engine, at);
             let late_at = at + Duration::from_micros(late_frame_us);
-            engine.handle(frame(1, sony.then_some((0x1001, SequenceWidth::Full32)),
+            engine.handle(frame(1, sony.then_some(0x1001),
                 DecodedResponse::Completion { socket: Some(ViscaSocket::S1) }), late_at);
             engine.assert_invariants().unwrap();
             assert_occupancy_agrees(&engine, late_at);

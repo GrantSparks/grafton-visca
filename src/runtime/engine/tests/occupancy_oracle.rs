@@ -194,7 +194,7 @@ fn a_single_admission_slot_excludes_a_second_inquiry_for_every_envelope() {
         let replied = engine.handle(
             frame(
                 1,
-                sequence.map(|value| (value, SequenceWidth::Full32)),
+                sequence,
                 DecodedResponse::InquiryReply {
                     payload: smallvec![0x01],
                 },
@@ -253,7 +253,7 @@ proptest::proptest! {
                     };
                     (entry.current_sequence(), length)
                 });
-                frame(target, sequence.map(|value| (value, SequenceWidth::Full32)),
+                frame(target, sequence,
                     DecodedResponse::InquiryReply { payload: std::iter::repeat_n(1, length).collect() })
             };
             let mut effects = engine.handle(input, now);

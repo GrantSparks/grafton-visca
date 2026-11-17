@@ -18,7 +18,7 @@ use crate::{
     request::Request,
     runtime::engine::{
         CommandReply, ControlPolicy, DecodedFrame, DecodedResponse, EncodedMessage, EnvelopeKind,
-        EnvelopeSequence, RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy,
+        FrameSequence, RequestContext, RetryPolicy, TimeoutPolicy,
     },
     target::TargetSlot,
     transport::{
@@ -350,9 +350,9 @@ impl TurnProbe {
             self.shell.core.state.engine.envelope_kind(),
             EnvelopeKind::Sony
         )
-        .then_some(EnvelopeSequence {
-            value: u32::MAX,
-            width: SequenceWidth::Full32,
+        .then(|| {
+            self.sequence()
+                .unwrap_or(FrameSequence::from_reply_header(0))
         });
         self.receive(
             &[DecodedResponse::Completion {
@@ -369,17 +369,16 @@ impl TurnProbe {
         }
     }
 
-    fn sequence(&self) -> Option<EnvelopeSequence> {
+    fn sequence(&self) -> Option<FrameSequence> {
         match self.driver.metadata {
-            Some(TransmissionMeta::Allocated { sequence }) => Some(EnvelopeSequence {
-                value: sequence,
-                width: SequenceWidth::Full32,
-            }),
+            Some(TransmissionMeta::Allocated { sequence }) => {
+                Some(FrameSequence::from_reply_header(sequence))
+            }
             _ => None,
         }
     }
 
-    fn receive(&mut self, responses: &[DecodedResponse], sequence: Option<EnvelopeSequence>) {
+    fn receive(&mut self, responses: &[DecodedResponse], sequence: Option<FrameSequence>) {
         let mut frames = self.shell.core.state.buffers().take_frames();
         for response in responses {
             assert!(
@@ -419,6 +418,12 @@ mod tests {
                     TurnProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
                 probe.stage_command().unwrap();
                 probe.command_turn().unwrap();
+                if probe.shell.core.state.engine.envelope_kind() == EnvelopeKind::Sony {
+                    assert!(matches!(
+                        probe.sequence(),
+                        Some(FrameSequence::MaybeTruncated(_))
+                    ));
+                }
                 probe.frame_turn().unwrap();
             }
         }

@@ -154,7 +154,7 @@ Construct them with `Error::connection_closed(cause)` and
 without adding another session-death wrapper.
 
 Named patterns need `..` even when the parent enum was already non-exhaustive.
-Matches over `InquiryKind`, `InquiryData`, `FrameSequence`, `ReceiveOutcome`,
+Matches over `InquiryKind`, `InquiryData`, `FrameMeta`, `ReceiveOutcome`,
 and `Step` also need a wildcard arm. These registries can grow;
 fixed wire/value records and command payloads retain their literal construction
 and exhaustive field patterns. Opaque types with private fields continue to use
@@ -1578,7 +1578,9 @@ when model documentation establishes their packets. The orphan `DefogLevel`,
 Envelope implementations now select the exact `ProfileEnvelope` through
 `Envelope::KIND`. Match `FrameMeta::Raw` or `FrameMeta::Sony { sequence }` when
 protocol identity matters, or call `meta.sequence()` for an optional Sony
-identity. The former `FrameMeta::new` constructor and public sequence field
+identity. The Sony field and `sequence()` getter carry the outgoing `u32`
+sequence number directly; reply-width provenance stays internal, and the former
+public `FrameSequence` type is removed. The former `FrameMeta::new` constructor and public sequence field
 are removed.
 
 `Envelope::extract_response` and `Envelope::extract_with_meta` are removed (#988).

@@ -23,9 +23,7 @@ use crate::{
 };
 
 #[cfg(feature = "runtime-tokio")]
-use crate::runtime::engine::{
-    EnvelopeKind, EnvelopeSequence, InquiryOutcome, SequenceWidth, TransportKind,
-};
+use crate::runtime::engine::{EnvelopeKind, FrameSequence, InquiryOutcome, TransportKind};
 
 use crate::observability::DiagnosticEvent;
 use crate::runtime::engine::{DecodedFrame, SessionState};
@@ -619,10 +617,7 @@ fn completion(socket: ViscaSocket) -> DecodedFrame {
 fn sequenced(sequence: u32, response: DecodedResponse) -> DecodedFrame {
     DecodedFrame {
         target: TargetSlot::CAMERA_1,
-        sequence: Some(EnvelopeSequence {
-            value: sequence,
-            width: SequenceWidth::Full32,
-        }),
+        sequence: Some(FrameSequence::from_reply_header(sequence)),
         response,
     }
 }

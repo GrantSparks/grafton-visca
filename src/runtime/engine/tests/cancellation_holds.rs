@@ -185,7 +185,7 @@ fn pre_ack_cancel_never_shortens_a_long_ack_window() {
         let ack = engine.handle(
             frame(
                 1,
-                sequence.map(|value| (value, SequenceWidth::Full32)),
+                sequence,
                 DecodedResponse::Ack {
                     socket: Some(ViscaSocket::S1),
                 },
@@ -224,7 +224,7 @@ fn pre_ack_cancel_never_shortens_a_long_ack_window() {
         let cancelled = engine.handle(
             frame(
                 1,
-                cancel_sequence.map(|value| (value, SequenceWidth::Full32)),
+                cancel_sequence,
                 DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
                     code: 0x04.into(),

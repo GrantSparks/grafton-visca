@@ -902,9 +902,12 @@ reply can retire one colliding owner, after which the same lower-16 value may
 again be unique. Registering a retry of one request under the same sequence
 does not manufacture a collision.
 
-This full-width-first, unique-lower-16-only rule is the complete correlation
-decision from review item 16. Socket, FIFO, admission order, and temporal
-recency never break a sequence collision.
+The decoder carries this closed reply identity through the adapter to the
+engine. The header selects exactly one correlation index: full-width headers
+use the exact index, and zero-upper-half headers use the lower-16 index. The
+owner probes and engine fixtures use the same header decoder, so small sequence
+numbers exercise the same path as a new production session. Socket, FIFO,
+admission order, and temporal recency never break a sequence collision.
 
 Fixed-format ACK, completion, error, and network-change frames are classified
 only at their exact lengths. A known fixed prefix with trailing bytes is

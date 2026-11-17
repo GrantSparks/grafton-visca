@@ -39,6 +39,7 @@ use smallvec::SmallVec;
 use crate::protocol::framer::RawIncompletePrefix;
 use crate::protocol::response::CameraErrorCode;
 use crate::target::{PerTarget, TargetSlot};
+pub(crate) use crate::transport::envelope::FrameSequence;
 use crate::{
     Certainty, CommandSocketCount, Error, FailureContext, FailureStage, PayloadShape, ViscaSocket,
 };
@@ -2502,36 +2503,40 @@ trait EngineMethods: EngineAccess {
     fn resolve_sequence(
         &self,
         target: TargetSlot,
-        sequence: EnvelopeSequence,
+        sequence: FrameSequence,
     ) -> Result<(RequestId, CorrelationKind), IgnoreReason> {
-        let exact_candidates = self.entries.exact_owners(sequence.value);
-        if sequence.width == SequenceWidth::Full32 {
-            if exact_candidates.is_empty() {
-                return Err(IgnoreReason::UnmatchedSequencedFrame);
+        match sequence {
+            FrameSequence::Full32(value) => {
+                let exact_candidates = self.entries.exact_owners(value);
+                if exact_candidates.is_empty() {
+                    return Err(IgnoreReason::UnmatchedSequencedFrame);
+                }
+                let compatible = unique_requests(
+                    exact_candidates
+                        .iter()
+                        .copied()
+                        .filter(|owner| self.owner_target(*owner) == Some(target)),
+                );
+                match compatible.as_slice() {
+                    [owner] => Ok((owner.request, owner.kind)),
+                    [] => Err(IgnoreReason::TargetIncompatibleSequence),
+                    _ => Err(IgnoreReason::UnmatchedSequencedFrame),
+                }
             }
-            let compatible = unique_requests(
-                exact_candidates
-                    .iter()
-                    .copied()
-                    .filter(|owner| self.owner_target(*owner) == Some(target)),
-            );
-            return match compatible.as_slice() {
-                [owner] => Ok((owner.request, owner.kind)),
-                [] => Err(IgnoreReason::TargetIncompatibleSequence),
-                _ => Err(IgnoreReason::UnmatchedSequencedFrame),
-            };
-        }
-        let unique = unique_requests(
-            self.entries
-                .lower_owners(sequence.value as u16)
-                .iter()
-                .copied()
-                .filter(|owner| self.owner_target(*owner) == Some(target)),
-        );
-        match unique.as_slice() {
-            [owner] => Ok((owner.request, owner.kind)),
-            [] => Err(IgnoreReason::UnmatchedSequencedFrame),
-            _ => Err(IgnoreReason::AmbiguousLower16Sequence),
+            FrameSequence::MaybeTruncated(value) => {
+                let unique = unique_requests(
+                    self.entries
+                        .lower_owners(value)
+                        .iter()
+                        .copied()
+                        .filter(|owner| self.owner_target(*owner) == Some(target)),
+                );
+                match unique.as_slice() {
+                    [owner] => Ok((owner.request, owner.kind)),
+                    [] => Err(IgnoreReason::UnmatchedSequencedFrame),
+                    _ => Err(IgnoreReason::AmbiguousLower16Sequence),
+                }
+            }
         }
     }
 
@@ -5355,10 +5360,8 @@ mod cancellation_regression_tests {
         );
         let ack = DecodedFrame {
             target: camera(),
-            sequence: (envelope == EnvelopeKind::Sony).then_some(EnvelopeSequence {
-                value: 0x1001,
-                width: SequenceWidth::Full32,
-            }),
+            sequence: (envelope == EnvelopeKind::Sony)
+                .then_some(FrameSequence::from_reply_header(0x1001)),
             response: DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },

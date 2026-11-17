@@ -264,7 +264,7 @@ fn acknowledged_commands_are_never_rewritten_after_a_rejection() {
     engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -274,7 +274,7 @@ fn acknowledged_commands_are_never_rewritten_after_a_rejection() {
     let rejected = engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
                 code: 0x41.into(),
@@ -663,7 +663,7 @@ fn halt_after_a_possibly_applied_attempt_reports_unconfirmed() {
     let rejected = engine.handle(
         frame(
             1,
-            Some((sony_sequence(id), SequenceWidth::Full32)),
+            Some(sony_sequence(id)),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),
@@ -1423,7 +1423,7 @@ fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
     engine.handle(
         frame(
             1,
-            Some((sequence, SequenceWidth::Full32)),
+            Some(sequence),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -1444,7 +1444,7 @@ fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
     let rejected = engine.handle(
         frame(
             1,
-            Some((cancel_sequence, SequenceWidth::Full32)),
+            Some(cancel_sequence),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
                 code: 0x05.into(),

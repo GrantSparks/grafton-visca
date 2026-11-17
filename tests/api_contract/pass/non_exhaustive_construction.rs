@@ -1,6 +1,6 @@
 use grafton_visca::{
     __macro_support::InquiryData, __macro_support::InquiryKind, error::Certainty,
-    error::FailureStage, transport::BufferConfig, transport::FrameMeta, transport::FrameSequence,
+    error::FailureStage, transport::BufferConfig, transport::FrameMeta,
     transport::TransportConfig, types::ImageFlipMode, types::MovementTolerance, types::ViscaSocket,
     wire::Response, Error,
 };
@@ -14,7 +14,7 @@ fn main() {
         config,
         tolerance,
         FrameMeta::Sony {
-            sequence: FrameSequence::Full32(1),
+            sequence: 1,
         },
     );
     let error = Error::invalid_parameter("zoom", "invalid", "outside range");

@@ -10,7 +10,7 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
     engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },
@@ -67,7 +67,7 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
     let late = engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -82,7 +82,7 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
     let completed = engine.handle(
         frame(
             1,
-            Some((0x1002, SequenceWidth::Full32)),
+            Some(0x1002),
             DecodedResponse::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -102,7 +102,7 @@ fn occupied_socket_cannot_mint_an_installation_claim() {
     engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S1),
             },

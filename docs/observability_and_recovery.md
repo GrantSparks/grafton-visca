@@ -26,7 +26,7 @@ without granting control over the protocol engine.
 | `protocol_errors` | Every other error frame, excluding the cancellation reply. |
 | `retries_scheduled` | Requests re-queued for another attempt, for any reason. |
 | `received_frames` | Valid decoded VISCA response frames received from the camera; compare snapshots around an application heartbeat for positive liveness evidence. |
-| `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request. |
+| `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request, or a non-unique full-width identity. Ambiguous lower-16 matches are excluded. |
 | `ignored_malformed_frames` | Delimited frames, and consumed oversized/malformed datagrams rejected before framing, discarded because they did not classify as a valid VISCA response. |
 | `dropped_staged_diagnostics` | Events evicted from bounded pre-admission staging before any subscriber could receive them. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
@@ -61,6 +61,14 @@ camera, an eligible expired deadline, or an eligible sequenced receive fault
 all count the same. A raw receive fault while an unsequenced command awaits ACK
 neither replays it nor (by default) ends the session — the command rides to its
 own ACK deadline — so it does not increment this retry path.
+
+Sony replies whose upper sixteen bits are zero use the lower-16 correlation
+index, including replies to a new session's first 65,536 transmissions. A
+non-unique lower-16 match emits `AmbiguousLower16Sequence` diagnostics and keeps
+all candidates live. It does not increment `ignored_unmatched_sequenced_replies`,
+which retains its existing `UnmatchedSequencedFrame` classification; a non-unique
+full-width identity does increment it. This preserves the counter's behavior
+while making the probes and fixtures exercise the production header path.
 
 ## Diagnostics
 

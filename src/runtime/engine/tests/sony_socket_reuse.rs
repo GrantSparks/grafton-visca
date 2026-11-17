@@ -5,7 +5,7 @@ const FIRST: u32 = 0x1001;
 const SECOND: u32 = 0x1002;
 
 fn response(sequence: u32, response: DecodedResponse) -> Input {
-    frame(1, Some((sequence, SequenceWidth::Full32)), response)
+    frame(1, Some(sequence), response)
 }
 
 fn ack(sequence: u32, socket: ViscaSocket) -> Input {

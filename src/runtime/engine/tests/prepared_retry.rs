@@ -54,7 +54,6 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
         let (admission, id) = admit(&mut engine, 1, request, start);
         let sequence = (envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));
         send_ok(&mut engine, &admission, sequence, start);
-        let sequence = sequence.map(|sequence| (sequence, SequenceWidth::Full32));
         let acked = engine.handle(
             frame(
                 1,

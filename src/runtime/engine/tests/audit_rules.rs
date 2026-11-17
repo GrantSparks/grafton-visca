@@ -101,7 +101,7 @@ fn ready_and_backoff_have_no_active_attempt() {
     engine.handle(
         frame(
             1,
-            Some((0x1001, SequenceWidth::Full32)),
+            Some(0x1001),
             DecodedResponse::Error {
                 socket: None,
                 code: 0x03.into(),

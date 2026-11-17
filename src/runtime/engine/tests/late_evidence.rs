@@ -8,7 +8,7 @@ const SEQUENCE: u32 = 0x1234_1001;
 fn answer(envelope: EnvelopeKind, response: DecodedResponse) -> Input {
     frame(
         1,
-        (envelope == EnvelopeKind::Sony).then_some((SEQUENCE, SequenceWidth::Full32)),
+        (envelope == EnvelopeKind::Sony).then_some(SEQUENCE),
         response,
     )
 }
@@ -145,7 +145,7 @@ fn sony_lower16_ack_keeps_the_written_attempt_socket_capacity() {
     let accepted = engine.handle(
         frame(
             1,
-            Some((SEQUENCE & 0xffff, SequenceWidth::Lower16)),
+            Some(SEQUENCE & 0xffff),
             DecodedResponse::Ack {
                 socket: Some(ViscaSocket::S2),
             },
@@ -476,7 +476,7 @@ proptest! {
                     let index = usize::from(advance) % written.len();
                     let (id, sequence) = written.iter().nth(index).unwrap();
                     accepted.insert(*id);
-                    frame(1, Some((*sequence, SequenceWidth::Full32)),
+                    frame(1, Some(*sequence),
                         if action == 2 { DecodedResponse::Ack { socket: Some(ViscaSocket::S1) } }
                         else { DecodedResponse::Completion { socket: Some(ViscaSocket::S1) } })
                 }
