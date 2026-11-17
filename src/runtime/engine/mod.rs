@@ -161,12 +161,45 @@ struct RawHold {
 enum CompletionSockets {
     /// Nothing learned yet: socketless completions take the conservative
     /// path.
-    Unknown,
-    /// A completion named its socket.
-    Named,
+    Unknown { dropped: u32, retired: u32 },
+    /// A completion named its socket; prior ambiguous completions await payment.
+    Named { unpaid: u32 },
     /// A socketless completion arrived with no `CompletionOnly` command
     /// outstanding. Permanent for the session.
     Omitted,
+}
+
+impl Default for CompletionSockets {
+    fn default() -> Self {
+        Self::Unknown {
+            dropped: 0,
+            retired: 0,
+        }
+    }
+}
+
+impl CompletionSockets {
+    const fn is_named(self) -> bool {
+        matches!(self, Self::Named { .. })
+    }
+
+    fn learn_named(&mut self) {
+        if let Self::Unknown { dropped, .. } = *self {
+            *self = Self::Named { unpaid: dropped };
+        }
+    }
+
+    fn drop_ambiguous(&mut self) {
+        if let Self::Unknown { dropped, .. } = self {
+            *dropped = dropped.saturating_add(1);
+        }
+    }
+
+    fn retire_completion(&mut self) {
+        if let Self::Unknown { retired, .. } = self {
+            *retired = retired.saturating_add(1);
+        }
+    }
 }
 
 /// Time-bounded retained-input decision for one due raw release (#713).
@@ -179,7 +212,7 @@ struct RawReleaseGate {
 /// Socketless completions that could belong to a held predecessor or a live
 /// holder. Identity snapshots prevent an old frame from completing a successor
 /// after socket reuse; only a complete count proves that every candidate ended.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PendingSocketlessCompletions {
     candidates: [Option<RequestId>; 2],
     count: u8,
@@ -843,7 +876,7 @@ trait EngineMethods: EngineAccess {
                     || self.raw_target_hold_active(target)
                     || mode.ledger().owes_rejection(target)
                     || (self.raw_socket_hold_running(target, now)
-                        && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets == CompletionSockets::Named))
+                        && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets.is_named()))
             }
             (_, SendingReply::AckThenCompletion) => false,
         }
@@ -2041,7 +2074,7 @@ trait EngineMethods: EngineAccess {
                     || self.raw_target_hold_active(target)
                     || mode.ledger().owes_rejection(target)
                     || (self.raw_socket_hold_running(target, now)
-                        && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets == CompletionSockets::Named))
+                        && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets.is_named()))
             }
             (_, SendingReply::AckThenCompletion) => false,
         }
@@ -3046,7 +3079,10 @@ trait EngineMethods: EngineAccess {
         let learning = &stream.learning[target];
         self.raw_socket_hold_count(target) != 0
             || learning.pending_socketless_completions.is_some()
-            || learning.unlearned_completions != 0
+            || matches!(
+                learning.completion_sockets,
+                CompletionSockets::Unknown { dropped: 1.., .. }
+            )
             || self
                 .command_sockets(target)
                 .sockets()
@@ -3934,7 +3970,7 @@ trait EngineMethods: EngineAccess {
         if let CorrelationState::RawStream(stream) = mode {
             stream.release_gate = None;
             stream.ledger.latch_due(now);
-            StreamContext { core, stream }.pay_unlearned_completions(now, effects);
+            StreamContext { core, stream }.pay_learned_completions(now, effects);
         }
         self.expire_raw_holds(now);
         #[cfg(debug_assertions)]
@@ -4717,10 +4753,7 @@ trait EngineMethods: EngineAccess {
             CorrelationState::Sequenced => {}
             CorrelationState::RawDatagram(holds) => holds.clear(),
             CorrelationState::RawStream(stream) => {
-                stream.holds.clear();
-                stream.ledger.clear();
-                stream.learning = PerTarget::default();
-                stream.release_gate = None;
+                *stream = correlation::StreamCorrelation::new();
             }
         }
         effects.clear_deferred();
@@ -4780,6 +4813,13 @@ trait EngineMethods: EngineAccess {
                 || !self.mode().ledger().is_empty())
         {
             return Err("ended session retains lifecycle or correlation work".into());
+        }
+        if !matches!(self.session, EngineSession::Running)
+            && self.mode().stream().is_some_and(|stream| {
+                stream.learning != PerTarget::default() || stream.release_gate.is_some()
+            })
+        {
+            return Err("ended session retains stream learning or release work".into());
         }
         let ordinary = self
             .entries

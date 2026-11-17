@@ -1578,3 +1578,189 @@ fn next_random(state: &mut u64) -> u64 {
     *state ^= *state << 17;
     *state
 }
+
+/// The same camera frames must keep the same meaning across receive chunking.
+/// A CompletionOnly command is written before two urgent STOPs. Its ambiguous
+/// socketless completion is retained until the first STOP names its socket in
+/// completion; the second STOP's socketless ACK must then bind normally.
+fn learned_completion_chunking(
+    now: Instant,
+    split_after: &[bool],
+    named: bool,
+) -> (Vec<String>, String) {
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    if !named {
+        engine.handle(
+            frame(1, None, DecodedResponse::Completion { socket: None }),
+            now,
+        );
+    }
+    let (write, completion_only) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        now,
+    );
+    send_ok(&mut engine, &write, None, now);
+    let (write, first) = admit(
+        &mut engine,
+        2,
+        urgent_command(1, CancellationPolicy::Supported),
+        now,
+    );
+    send_ok(&mut engine, &write, None, now);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        now,
+    );
+    assert_eq!(socket_of(&engine, first), Some(ViscaSocket::S1));
+    let mut stop = urgent_command(1, CancellationPolicy::Supported);
+    stop.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
+    let (mut write, second) = admit(&mut engine, 3, stop, now);
+    let at = now + Duration::from_millis(10);
+    if request_transmit_optional(&write).is_none() {
+        write = engine.advance(at);
+    }
+    assert_eq!(request_transmit(&write).1, second);
+    send_ok(&mut engine, &write, None, at);
+    let responses = [
+        DecodedResponse::Completion { socket: None },
+        DecodedResponse::Completion {
+            socket: named.then_some(ViscaSocket::S1),
+        },
+        DecodedResponse::Ack { socket: None },
+    ];
+    let mut observed = Vec::new();
+    for (index, response) in responses.into_iter().enumerate() {
+        let effects = engine.handle_turn(frame(1, None, response), at, EngineTurn::InputOnly);
+        observed.extend(effects.into_iter().filter_map(|effect| match effect {
+            Effect::Terminal { id, outcome } => Some(format!("{id:?}:{outcome:?}")),
+            _ => None,
+        }));
+        if split_after[index] {
+            observed.extend(
+                engine
+                    .advance(at)
+                    .into_iter()
+                    .filter_map(|effect| match effect {
+                        Effect::Terminal { id, outcome } => Some(format!("{id:?}:{outcome:?}")),
+                        _ => None,
+                    }),
+            );
+        }
+        engine.assert_invariants().unwrap();
+    }
+    observed.extend(
+        engine
+            .advance(at)
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Terminal { id, outcome } => Some(format!("{id:?}:{outcome:?}")),
+                _ => None,
+            }),
+    );
+    observed.sort();
+    if named {
+        assert!(engine.entry(completion_only).is_none());
+        assert!(engine.entry(first).is_none());
+        assert_eq!(socket_of(&engine, second), Some(ViscaSocket::S1));
+    }
+    let state = format!(
+        "{:?}/{:?}/{:?}",
+        phase_of(&engine, second),
+        engine.correlation.holds(),
+        engine.correlation.ledger()
+    );
+    (observed, state)
+}
+
+#[test]
+fn completion_learning_and_socketless_ack_are_receive_chunking_invariant() {
+    let now = Instant::now();
+    assert_eq!(
+        learned_completion_chunking(now, &[false, false, false], true),
+        learned_completion_chunking(now, &[false, true, false], true),
+    );
+}
+
+proptest::proptest! {
+    #[test]
+    fn learned_completion_frames_keep_their_meaning_under_arbitrary_receive_splits(
+        splits in proptest::array::uniform3(proptest::bool::ANY),
+        named in proptest::bool::ANY,
+    ) {
+        let now = Instant::now();
+        proptest::prop_assert_eq!(
+            learned_completion_chunking(now, &[false; 3], named),
+            learned_completion_chunking(now, &splits, named),
+        );
+    }
+}
+
+#[test]
+fn terminal_stream_reset_clears_and_audits_every_learning_field() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    let (write, id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        now,
+    );
+    send_ok(&mut engine, &write, None, now);
+    let stream = engine.correlation.stream_mut().unwrap();
+    stream.learning[camera(1)] = correlation::CompletionLearning {
+        socket_capacity_seen: Some(CommandSocketCount::TWO),
+        completion_sockets: CompletionSockets::Named { unpaid: 7 },
+        pending_socketless_completions: Some(PendingSocketlessCompletions {
+            candidates: [Some(id), None],
+            count: 1,
+        }),
+    };
+    stream.release_gate = Some(RawReleaseGate {
+        releases: RawCorrelationReleaseSet::default(),
+        await_until: now,
+    });
+    engine.handle(Input::Shutdown(ShutdownReason::Explicit), now);
+    engine.assert_invariants().unwrap();
+    let stream = engine.correlation.stream_mut().unwrap();
+    assert_eq!(stream.learning, PerTarget::default());
+    assert!(stream.release_gate.is_none());
+
+    // The audit catches a forgotten reset even after all lifecycle/ledger work
+    // is gone. Exercise every learning field and the independent release gate.
+    for field in 0..4 {
+        let stream = engine.correlation.stream_mut().unwrap();
+        *stream = correlation::StreamCorrelation::new();
+        match field {
+            0 => stream.learning[camera(1)].socket_capacity_seen = Some(CommandSocketCount::ONE),
+            1 => {
+                stream.learning[camera(1)].completion_sockets =
+                    CompletionSockets::Named { unpaid: 0 }
+            }
+            2 => {
+                stream.learning[camera(1)].pending_socketless_completions =
+                    Some(PendingSocketlessCompletions {
+                        candidates: [None, None],
+                        count: 1,
+                    })
+            }
+            _ => {
+                stream.release_gate = Some(RawReleaseGate {
+                    releases: RawCorrelationReleaseSet::default(),
+                    await_until: now,
+                })
+            }
+        }
+        assert_eq!(
+            engine.assert_invariants().unwrap_err().as_ref(),
+            "ended session retains stream learning or release work"
+        );
+    }
+}

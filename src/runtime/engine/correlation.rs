@@ -8,26 +8,13 @@ use super::{
 };
 use crate::target::{PerTarget, TargetSlot};
 
-#[derive(Debug)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct CompletionLearning {
     /// Largest dispatched or camera-proven physical socket capacity. Retuning
     /// cannot erase the possible execution of an older owed ACK.
     pub(super) socket_capacity_seen: Option<crate::CommandSocketCount>,
     pub(super) completion_sockets: CompletionSockets,
-    pub(super) unlearned_completions: u32,
     pub(super) pending_socketless_completions: Option<PendingSocketlessCompletions>,
-    pub(super) retired_completion_only: u32,
-}
-impl Default for CompletionLearning {
-    fn default() -> Self {
-        Self {
-            socket_capacity_seen: None,
-            completion_sockets: CompletionSockets::Unknown,
-            unlearned_completions: 0,
-            pending_socketless_completions: None,
-            retired_completion_only: 0,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -53,12 +40,7 @@ impl CorrelationMode {
                 holds: HoldTable::new(),
             },
             (EnvelopeKind::Raw, TransportKind::Stream) => {
-                Self::RawStream(Box::new(StreamCorrelation {
-                    holds: HoldTable::new(),
-                    ledger: StreamLedger::new(),
-                    learning: PerTarget::default(),
-                    release_gate: None,
-                }))
+                Self::RawStream(Box::new(StreamCorrelation::new()))
             }
         }
     }
@@ -164,6 +146,14 @@ impl<'a> CorrelationRef<'a> {
 }
 
 impl StreamCorrelation {
+    pub(super) fn new() -> Self {
+        Self {
+            holds: HoldTable::new(),
+            ledger: StreamLedger::new(),
+            learning: PerTarget::default(),
+            release_gate: None,
+        }
+    }
     pub(super) fn update_learning(
         &mut self,
         target: TargetSlot,
@@ -245,17 +235,15 @@ impl StreamCorrelation {
     ) -> Option<(TargetSlot, super::Outstanding, super::Answered)> {
         for target in TargetSlot::ALL {
             let learning = &mut self.learning[target];
-            match learning.completion_sockets {
-                CompletionSockets::Omitted => learning.unlearned_completions = 0,
-                CompletionSockets::Unknown => {}
-                CompletionSockets::Named if learning.unlearned_completions > 0 => {
-                    if let Some((entry, answered)) = self.ledger.take_completion(target) {
-                        learning.unlearned_completions -= 1;
-                        return Some((target, entry, answered));
-                    }
-                    learning.unlearned_completions = 0;
+            if let CompletionSockets::Named { unpaid } = &mut learning.completion_sockets {
+                if *unpaid == 0 {
+                    continue;
                 }
-                CompletionSockets::Named => {}
+                if let Some((entry, answered)) = self.ledger.take_completion(target) {
+                    *unpaid -= 1;
+                    return Some((target, entry, answered));
+                }
+                *unpaid = 0;
             }
         }
         None
@@ -263,10 +251,12 @@ impl StreamCorrelation {
     pub(super) fn learn_socketless_completion(&mut self, target: TargetSlot) -> CompletionSockets {
         if !self.ledger.owes_completion(target) {
             let learning = &mut self.learning[target];
-            if learning.retired_completion_only > 0 {
-                learning.retired_completion_only -= 1;
-            } else {
-                learning.completion_sockets = CompletionSockets::Omitted;
+            match &mut learning.completion_sockets {
+                CompletionSockets::Unknown {
+                    retired: retired @ 1..,
+                    ..
+                } => *retired -= 1,
+                _ => learning.completion_sockets = CompletionSockets::Omitted,
             }
         }
         self.learning[target].completion_sockets

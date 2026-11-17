@@ -1298,6 +1298,7 @@ impl StreamLedger {
             .min()
     }
 
+    #[cfg(test)]
     pub(crate) fn clear(&mut self) {
         self.targets = PerTarget::default();
     }
