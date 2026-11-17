@@ -7,17 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-11-17
-
 2.0 is a breaking upgrade from 1.x, with owner-backed sessions, matching
 blocking and async camera APIs, checked values and source-backed profiles.
 See [the migration guide](docs/migration_2_0.md) for caller changes.
 
-Hardware coverage is limited to the exact models, firmware and scenarios in
-[the hardware checklist](docs/hardware_release_checklist.md). Raw serial and
-Sony UDP remain accepted known limitations: implemented and covered by software
-tests, but not verified on physical cameras. Source-backed packet fixtures and
-software tests do not establish physical FR7 verification.
+Raw serial and Sony UDP remain accepted known limitations. Source-backed
+packet fixtures and software tests do not establish physical-camera
+verification.
 
 ### Added
 
@@ -84,6 +80,12 @@ software tests do not establish physical FR7 verification.
   draining periodic background tasks, and panicked task joins return an error.
 
 ### Changed
+
+- Release publication uses software, source, tag and package-provenance gates.
+  Hardware smoke checks are optional and private; publishing device inventories,
+  firmware details, transcripts or a hardware sign-off record is no longer
+  required. This supersedes the public hardware-record requirements from
+  #753/#795 (#1008).
 
 - Halt preparation and control-reserve sizing share one source- and
   value-validated STOP path per axis. Profile construction verifies granted
