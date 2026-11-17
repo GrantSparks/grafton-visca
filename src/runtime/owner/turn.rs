@@ -15,6 +15,16 @@ use crate::runtime::engine::RawCorrelationReleaseSet;
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod coordinator;
+#[cfg(any(
+    feature = "blocking",
+    all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    )
+))]
+pub(super) use coordinator::Source;
+
 // The async actor tests build only with an executor adapter.
 #[cfg(all(
     test,
@@ -26,7 +36,7 @@ pub(super) use coordinator::SourcePhase;
 pub(super) use coordinator::{
     BoundaryPoll, BoundarySource, Disposition, NonBoundarySelected, NonBoundarySource,
     OwnerCoordinator, PlannedTurn, ReceiveArm, ReceiveClass, Selected, SelectedInput, Selection,
-    SelectionPoll, Source, TimerArm, TurnOutcome, TurnPlan, VacantSlot,
+    SelectionPoll, TimerArm, TurnOutcome, TurnPlan, VacantSlot,
 };
 
 /// Pause applied after the first transient receive fault or immediately-idle

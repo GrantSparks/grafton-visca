@@ -216,6 +216,7 @@ impl EntryTable {
     pub(super) fn new() -> Self {
         Self::default()
     }
+    #[cfg(any(test, debug_assertions))]
     pub(super) fn len(&self) -> usize {
         self.entries.len()
     }

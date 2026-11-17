@@ -73,6 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Halt preparation and control-reserve sizing share one source- and
+  value-validated STOP path per axis. Profile construction verifies granted
+  paths before relying on their reserved admission capacity (#999).
+
 - Engine admission retains its validated nonzero capacity and uses ordinary
   admission as the sole inquiry count bound. The separate internal inquiry-only
   limit was never configurable through a session; raw payload-overlap exclusion
@@ -982,9 +986,7 @@ on hardware; both are accepted known limitations.
   ordinary requests only (D26). Each registered camera also has a control
   reserve, one admission slot per typed STOP its profile supports
   (pan/tilt, zoom, focus; at most three), that only an urgent typed STOP may
-  use. Halt preparation and reserve sizing share one source- and value-validated
-  STOP path per axis; profile construction verifies granted paths (#999).
-  A STOP takes its camera's reserve first and an ordinary slot only when
+  use. A STOP takes its camera's reserve first and an ordinary slot only when
   the reserve is held, so queued ordinary work can no longer lock a STOP out
   with `RuntimeQueueFull`, and one camera's stops cannot use another's
   reserve. Up to `capacity` plus the reserves can be pending or active at
