@@ -595,7 +595,10 @@ mod tests {
     fn session_open_refuses_a_shutdown_tokio_runtime() {
         let selected = tokio::runtime::Runtime::new().unwrap();
         let executor = crate::executor::TokioExecutor::from_handle(selected.handle().clone());
-        selected.shutdown_background();
+        // This plain test can wait for worker teardown before opening. Background
+        // shutdown could instead drop a spawned actor after open's synchronous
+        // terminal check, which the construction contract cannot detect.
+        drop(selected);
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
