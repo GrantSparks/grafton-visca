@@ -97,12 +97,7 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
 fn occupied_socket_cannot_mint_an_installation_claim() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (first, predecessor) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (first, predecessor) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &first, Some(0x1001), now);
     engine.handle(
         frame(
@@ -114,12 +109,7 @@ fn occupied_socket_cannot_mint_an_installation_claim() {
         ),
         now,
     );
-    let (_, successor) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (_, successor) = admit(&mut engine, 2, command(1), now);
     assert!(engine
         .entries
         .claim_socket(successor, [ViscaSocket::S1])

@@ -2427,7 +2427,7 @@ impl AsyncOwnerDriver for BufferedNoProgressDriver {
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
         self.written = true;
         self.buffered = true;
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     #[allow(clippy::manual_async_fn)]
