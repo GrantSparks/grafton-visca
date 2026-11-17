@@ -1386,7 +1386,8 @@ rows (the retry class, which decides what may be replayed, is a separate
 
 | Commands | 1.x category | 2.0 category | Why |
 | --- | --- | --- | --- |
-| `PanTiltStop`, `ZoomStop`, `FocusStop`, `FocusOnePush`, `FocusSnap` | Movement | Quick | Urgent stops and applied-only triggers use the quick deadline and keep movement retry/error semantics. |
+| `PanTiltStop`, `ZoomStop`, `FocusStop` | Movement | Quick | Urgent stops use standard retries; a standing not-executable refusal is final, while capacity rejections can retry. |
+| `FocusOnePush`, `FocusSnap` | Movement | Quick | Applied-only focus triggers keep movement retry/error semantics. |
 | `PanTiltLimitSet`, `PanTiltLimitClear`, `FocusAuto`, `FocusManual`, `FocusToggle` | Movement | Quick | Limit-state and focus-mode edits are plain configuration, not actuation. |
 | `IrisReset`, `IrisUp`, `IrisDown`, `IrisDirect`, `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown` | Quick | Movement | Targeted iris and ND-filter operations settle through profile-selected protocol inquiries. |
 | `Sharpness*`, `Gamma`, `NoiseReduction2d`/`3d` and their `Off` forms, `ImageFlipBoth`, `ImageFlipCombined` | Custom (an uncategorized 60 s fallback) | Quick | Explicit quick configuration writes. |

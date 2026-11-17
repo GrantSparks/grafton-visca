@@ -443,10 +443,7 @@ mod tests {
                 .expect("maximum reply"),
             UnitInterval::MAX
         );
-        assert_eq!(
-            crate::request::policy_parts(&query).timeout,
-            crate::TimeoutClass::Inquiry
-        );
+        let _: crate::request::InquiryPolicy = query.policy();
         assert_eq!(
             query.policy().retry_class(),
             crate::request::InquiryRetryClass::Inquiry

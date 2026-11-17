@@ -58,7 +58,3 @@ pub use crate::requests::{
 
 pub(crate) mod policy;
 pub use policy::{CommandPolicy, InquiryPolicy, OperationPolicy};
-
-pub(crate) fn policy_parts<R: Request + ?Sized>(request: &R) -> policy::Parts {
-    policy::Sealed::parts(request.policy())
-}

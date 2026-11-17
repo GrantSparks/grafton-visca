@@ -4,7 +4,6 @@ use std::time::Duration;
 #[cfg(any(feature = "async", feature = "blocking", test))]
 use std::time::Instant;
 
-use crate::TimeoutClass;
 use crate::{Error, Result};
 
 /// Bounds an operation with a timer on any executor. A completed operation
@@ -113,7 +112,7 @@ pub(crate) struct ResolvedTiming {
     command: [NonZeroDuration; CommandTimeoutClass::ALL.len()],
     // Inquiries have always retained the untuned Quick value in their unused
     // completion field. Keeping that separate preserves the inert context.
-    inquiry_completion: NonZeroDuration,
+    pub(crate) inquiry_completion: NonZeroDuration,
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
     settlement: Option<NonZeroDuration>,
@@ -195,13 +194,12 @@ impl ResolvedTiming {
     }
 
     #[cfg(any(feature = "blocking", feature = "async"))]
-    pub(crate) fn completion(self, class: TimeoutClass) -> NonZeroDuration {
-        CommandTimeoutClass::of(class)
-            .map_or(self.inquiry_completion, |category| self.command(category))
+    pub(crate) fn completion(self, class: CommandTimeoutClass) -> NonZeroDuration {
+        self.command(class)
     }
 
     #[cfg(any(feature = "blocking", feature = "async"))]
-    pub(crate) fn settlement_budget(self, class: TimeoutClass) -> Duration {
+    pub(crate) fn settlement_budget(self, class: CommandTimeoutClass) -> Duration {
         self.settlement
             .unwrap_or_else(|| self.completion(class))
             .get()
@@ -292,40 +290,6 @@ command_timeout_classes!(
     /// Network configuration commands.
     Network,
 );
-
-impl CommandTimeoutClass {
-    /// Returns the request timeout class for this command category.
-    #[must_use]
-    pub(crate) const fn lower(self) -> TimeoutClass {
-        match self {
-            Self::Quick => TimeoutClass::Quick,
-            Self::Movement => TimeoutClass::Movement,
-            Self::Preset => TimeoutClass::Preset,
-            Self::LongRunning => TimeoutClass::LongRunning,
-            Self::Network => TimeoutClass::Network,
-        }
-    }
-
-    /// The command category a request's timeout class selects, or `None` for
-    /// an inquiry.
-    #[cfg(any(feature = "blocking", feature = "async", test))]
-    pub(crate) const fn of(class: TimeoutClass) -> Option<Self> {
-        match class {
-            TimeoutClass::Quick => Some(Self::Quick),
-            TimeoutClass::Movement => Some(Self::Movement),
-            TimeoutClass::Preset => Some(Self::Preset),
-            TimeoutClass::LongRunning => Some(Self::LongRunning),
-            TimeoutClass::Network => Some(Self::Network),
-            TimeoutClass::Inquiry => None,
-        }
-    }
-}
-
-impl From<CommandTimeoutClass> for TimeoutClass {
-    fn from(category: CommandTimeoutClass) -> Self {
-        category.lower()
-    }
-}
 
 /// Exact completion values for the five command timeout classes.
 ///
@@ -619,16 +583,6 @@ mod tests {
                 timeouts.network_timeout(),
             ]
         );
-        assert_eq!(CommandTimeoutClass::of(TimeoutClass::Inquiry), None);
-        for (class, category) in [
-            (TimeoutClass::Quick, CommandTimeoutClass::Quick),
-            (TimeoutClass::Movement, CommandTimeoutClass::Movement),
-            (TimeoutClass::Preset, CommandTimeoutClass::Preset),
-            (TimeoutClass::LongRunning, CommandTimeoutClass::LongRunning),
-            (TimeoutClass::Network, CommandTimeoutClass::Network),
-        ] {
-            assert_eq!(CommandTimeoutClass::of(class), Some(category));
-        }
         assert_eq!(CommandTimeouts::default(), CommandTimeouts::DEFAULT);
     }
 

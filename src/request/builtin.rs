@@ -58,15 +58,17 @@ pub(crate) fn request_value_validation_count() -> usize {
 }
 
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+use crate::request::CommandRetryClass;
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 use crate::types::SpeedLevel;
 use crate::types::{FocusPosition, IrisLevel, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed};
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+use crate::CommandTimeoutClass;
 use crate::{
     capabilities::PanTiltWireCodec,
     command::pan_tilt_wire::{MoveSpeeds, PanTiltFraming, PanTiltProfiled},
 };
 use crate::{units::Degrees, PanTiltCoordinateConversion};
-#[cfg(all(test, any(feature = "blocking", feature = "async")))]
-use crate::{RetryClass, TimeoutClass};
 
 /// Implements the typed request contract of built-in request types from
 /// their ledger rows.
@@ -76,7 +78,7 @@ use crate::{RetryClass, TimeoutClass};
 /// ```text
 /// <type> => <BuiltinCommand row>: <Plain | Targeted | AppliedOnly> [(profile_axes)] {
 ///     size: <MAX_SIZE>
-///     [, policy: (<TimeoutClass>, <RetryClass>, <ControlClass>)]
+///     [, policy: (<CommandTimeoutClass>, <CommandRetryClass>, <ControlClass>)]
 ///     [, wire: <closure from &type to its wire value>]
 ///     [, rows: |<value>| match <value>[.<field>] { <Variant path> => <BuiltinCommand row>, ... }]
 /// };
@@ -4162,134 +4164,134 @@ mod tests {
     fn write_only_state_requests_use_their_exact_plain_policies() {
         assert_policy::<PanTiltLimitSet>(
             17,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<PanTiltLimitClear>(
             17,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<crate::command::PresetRecallSpeedCommand>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<FocusLockCommand>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<SpotlightOn>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<SpotlightOff>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<AutoSlowShutterOn>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<AutoSlowShutterOff>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<NdFilterModeCommand>(
             7,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<AutoNdCommand>(
             7,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<ImageFreeze>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<DigitalZoom>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<MulticastStreamingCommand>(
             6,
-            TimeoutClass::Network,
-            RetryClass::Standard,
+            CommandTimeoutClass::Network,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<SetNdiQuality>(
             6,
-            TimeoutClass::Network,
-            RetryClass::Standard,
+            CommandTimeoutClass::Network,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<TallyBrightLo>(
             8,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<TallyBrightHi>(
             8,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<crate::command::SetVariableSpeedMode>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<TallyOn>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<TallyOff>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<TallyFlash>(
             6,
-            TimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<PresetSet>(
             7,
-            TimeoutClass::Preset,
-            RetryClass::Preset,
+            CommandTimeoutClass::Preset,
+            CommandRetryClass::Preset,
             ControlClass::Normal,
         );
         assert_policy::<PresetReset>(
             7,
-            TimeoutClass::Preset,
-            RetryClass::Preset,
+            CommandTimeoutClass::Preset,
+            CommandRetryClass::Preset,
             ControlClass::Normal,
         );
     }
@@ -4312,13 +4314,13 @@ mod tests {
 
     fn assert_policy<R: BuiltinRequestContract>(
         max_size: usize,
-        timeout: TimeoutClass,
-        retry: RetryClass,
+        timeout: CommandTimeoutClass,
+        retry: CommandRetryClass,
         control: ControlClass,
     ) {
         assert_eq!(R::MAX_SIZE, max_size);
-        assert_eq!(R::POLICY.timeout.lower(), timeout);
-        assert_eq!(R::POLICY.retry.lower(), retry);
+        assert_eq!(R::POLICY.timeout, timeout);
+        assert_eq!(R::POLICY.retry, retry);
         assert_eq!(R::POLICY.class, control);
     }
 
@@ -4578,56 +4580,56 @@ mod tests {
 
         assert_policy::<IrisReset>(
             6,
-            TimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandTimeoutClass::Movement,
+            CommandRetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<IrisUp>(
             6,
-            TimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandTimeoutClass::Movement,
+            CommandRetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<IrisDown>(
             6,
-            TimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandTimeoutClass::Movement,
+            CommandRetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<IrisDirect>(
             9,
-            TimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandTimeoutClass::Movement,
+            CommandRetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<NdFilterDirect>(
             10,
-            TimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandTimeoutClass::Movement,
+            CommandRetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<NdFilterStepUp>(
             7,
-            TimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandTimeoutClass::Movement,
+            CommandRetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<NdFilterStepDown>(
             7,
-            TimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandTimeoutClass::Movement,
+            CommandRetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<PushAfPress>(
             7,
-            TimeoutClass::Quick,
-            RetryClass::Movement,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<PushAfRelease>(
             7,
-            TimeoutClass::Quick,
-            RetryClass::Movement,
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Movement,
             ControlClass::User,
         );
     }

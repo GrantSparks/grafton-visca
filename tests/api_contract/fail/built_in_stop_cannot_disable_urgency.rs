@@ -24,7 +24,7 @@ const POLICY: builtin_policy::BuiltinPolicy = builtin_policy::policy(
     true,
     Some((
         CommandTimeoutClass::Quick,
-        CommandRetryClass::Movement,
+        CommandRetryClass::Standard,
         ControlClass::Normal,
     )),
 );
@@ -32,4 +32,4 @@ fn main() {
     let _ = POLICY;
 }
 //~ E0080
-//~ "a STOP ledger row requires the quick movement urgent policy"
+//~ "a STOP ledger row requires the quick standard urgent policy"

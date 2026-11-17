@@ -57,38 +57,6 @@ impl BuiltinInquiryAuthority {
     }
 }
 
-/// Deadline family selected by a request implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum TimeoutClass {
-    /// A short command with no expected mechanical movement.
-    Quick,
-    /// A mechanical movement command.
-    Movement,
-    /// A preset operation, which commonly has a longer deadline.
-    Preset,
-    /// An unusually long-running command.
-    LongRunning,
-    /// A transport or network-management command.
-    Network,
-    /// An inquiry response.
-    Inquiry,
-}
-
-/// Retry family selected by a request implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum RetryClass {
-    /// Never replay the request automatically.
-    Never,
-    /// Conservative retries for an ordinary idempotent command.
-    Standard,
-    /// Inquiry-specific retries, including bounded response loss recovery.
-    Inquiry,
-    /// Movement-specific retries for transient camera state.
-    Movement,
-    /// Preset-specific retries for transient camera state.
-    Preset,
-}
-
 /// Retry families meaningful for a command or physical operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -107,17 +75,6 @@ pub enum CommandRetryClass {
     Preset,
 }
 
-impl CommandRetryClass {
-    pub(crate) const fn lower(self) -> RetryClass {
-        match self {
-            Self::Never => RetryClass::Never,
-            Self::Standard => RetryClass::Standard,
-            Self::Movement => RetryClass::Movement,
-            Self::Preset => RetryClass::Preset,
-        }
-    }
-}
-
 /// Retry families meaningful for an inquiry's reply-only lifecycle.
 ///
 /// Every inquiry policy accepts only these families. The sealed inquiry class
@@ -134,15 +91,6 @@ pub enum InquiryRetryClass {
     Never,
     /// Retry transient inquiry failures, including bounded reply loss.
     Inquiry,
-}
-
-impl InquiryRetryClass {
-    pub(crate) const fn retry_class(self) -> RetryClass {
-        match self {
-            Self::Never => RetryClass::Never,
-            Self::Inquiry => RetryClass::Inquiry,
-        }
-    }
 }
 
 /// Intrinsic scheduling class of one request.
@@ -905,7 +853,7 @@ pub trait Request: Send + Sync {
     #[doc(hidden)]
     #[allow(private_interfaces)]
     fn admission_control_class(&self, _authority: RequestContractAuthority) -> ControlClass {
-        request::policy_parts(self).class
+        request::policy::Sealed::control_class(self.policy())
     }
 
     /// Returns the fixed encoded-size declaration used for owner admission.

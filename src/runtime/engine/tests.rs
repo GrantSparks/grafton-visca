@@ -9366,8 +9366,10 @@ fn command_not_executable_retries_only_where_the_policy_allows_it() {
     assert_eq!(attempt, 1);
     assert!(terminal_outcome(&refused, movement_id).is_none());
 
-    let mut standard = retrying();
-    standard.movement_not_executable = false;
+    let standard = RetryPolicy {
+        movement_not_executable: false,
+        ..retrying()
+    };
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),

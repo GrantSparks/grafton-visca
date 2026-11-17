@@ -951,9 +951,9 @@ mod tests {
     /// retry class is a deliberate decision rather than the generic default for
     /// its domain, so that changing one is a visible, reviewed edit here.
     ///
-    /// - Urgent stops and focus triggers complete on the quick deadline but keep
-    ///   the movement retry class, because an unacknowledged stop must still be
-    ///   retried on movement error evidence.
+    /// - Urgent stops complete on the quick deadline with standard retries.
+    ///   A camera's standing not-executable refusal cannot be changed by a resend.
+    ///   Applied-only focus triggers retain the movement retry class.
     /// - Pan/tilt limit edits and focus-mode settings change configuration, not
     ///   position, so they are plain quick/standard writes.
     /// - Targeted iris and ND-filter operations settle through profile-selected
@@ -966,7 +966,8 @@ mod tests {
     #[test]
     fn deliberate_request_timeout_and_retry_policies_are_pinned() {
         use crate::request::builtin as req;
-        use crate::{RetryClass as Retry, TimeoutClass as Timeout};
+        use crate::request::CommandRetryClass as Retry;
+        use crate::CommandTimeoutClass as Timeout;
 
         fn pin<R: BuiltinRequestContract>(
             command: BuiltinCommand,
@@ -974,12 +975,8 @@ mod tests {
             retry: Retry,
             pinned: &mut HashSet<BuiltinCommand>,
         ) {
-            assert_eq!(
-                R::POLICY.timeout.lower(),
-                timeout,
-                "{command:?} timeout class"
-            );
-            assert_eq!(R::POLICY.retry.lower(), retry, "{command:?} retry class");
+            assert_eq!(R::POLICY.timeout, timeout, "{command:?} timeout class");
+            assert_eq!(R::POLICY.retry, retry, "{command:?} retry class");
             assert_eq!(
                 matches!(R::POLICY.class, crate::ControlClass::Urgent),
                 command.classification().is_stop(),
@@ -995,19 +992,25 @@ mod tests {
         let mut pinned = HashSet::new();
         let p = &mut pinned;
 
-        // Urgent stops and applied-only focus triggers: quick deadline,
-        // movement retry class.
+        // Urgent stops: quick deadline and standard retries. Applied-only
+        // focus triggers use the quick deadline and movement retries.
         pin::<req::PanTiltStop>(
             BuiltinCommand::PanTiltStop,
             Timeout::Quick,
-            Retry::Movement,
+            Retry::Standard,
             p,
         );
-        pin::<req::ZoomStop>(BuiltinCommand::ZoomStop, Timeout::Quick, Retry::Movement, p);
+        pin::<req::ZoomStop>(BuiltinCommand::ZoomStop, Timeout::Quick, Retry::Standard, p);
         pin::<req::FocusStop>(
             BuiltinCommand::FocusStop,
             Timeout::Quick,
-            Retry::Movement,
+            Retry::Standard,
+            p,
+        );
+        pin::<crate::command::Fr7ZoomHighResolutionStop>(
+            BuiltinCommand::Fr7ZoomHighResolutionStop,
+            Timeout::Quick,
+            Retry::Standard,
             p,
         );
         pin::<req::FocusTrigger>(
