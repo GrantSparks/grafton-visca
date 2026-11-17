@@ -183,7 +183,7 @@ impl ZoomCaps {
             self.optical_max,
             self.digital_max,
         )?;
-        CapabilityRange::<u16>::new(0, max).normalize(position.value())
+        CapabilityRange::<u16>::new(0, max)?.normalize(position.value())
     }
 }
 
@@ -573,14 +573,15 @@ impl ZoomCaps {
     /// Derives the zero-based optical position interval.
     #[must_use]
     pub const fn optical_range(&self) -> CapabilityRange<u16> {
-        CapabilityRange::<u16>::new(0, self.optical_max)
+        CapabilityRange::<u16>::from_registry(0, self.optical_max)
     }
 
     /// Derives the digital position interval sharing the optical boundary.
+    /// Returns `None` when no digital maximum exists or it is below the optical maximum.
     #[must_use]
     pub fn digital_range(&self) -> Option<CapabilityRange<u16>> {
         self.digital_max
-            .map(|maximum| CapabilityRange::<u16>::new(self.optical_max, maximum))
+            .and_then(|maximum| CapabilityRange::<u16>::new(self.optical_max, maximum).ok())
     }
 }
 

@@ -530,8 +530,8 @@ impl CompileTimeProfile for DownstreamProfile {
         caps.typed_support = Self::TYPED_SUPPORT;
         caps.inquiry_support = InquirySupport::Full;
         let pan_tilt = caps.pan_tilt.as_mut().expect("base pan/tilt");
-        pan_tilt.pan_speed = CapabilityRange::<u8>::new(1, 9);
-        pan_tilt.tilt_speed = CapabilityRange::<u8>::new(1, 7);
+        pan_tilt.pan_speed = CapabilityRange::<u8>::new(1, 9).expect("valid capability bounds");
+        pan_tilt.tilt_speed = CapabilityRange::<u8>::new(1, 7).expect("valid capability bounds");
         pan_tilt.coordinates = visca_renamed::profiles::PanTiltCoordinateConversion::new(
             capabilities::CoordinateSystem::SignedCentered,
             capabilities::PanTiltWireCodec::StandardVisca,
@@ -543,7 +543,7 @@ impl CompileTimeProfile for DownstreamProfile {
         zoom.direct = false;
         zoom.variable = true;
         let focus = caps.focus.as_mut().expect("base focus");
-        focus.speed = CapabilityRange::<u8>::new(0, 7);
+        focus.speed = CapabilityRange::<u8>::new(0, 7).expect("valid capability bounds");
         focus.auto_focus = true;
         focus.one_push = false;
         focus.near_limit_inquiry = true;
@@ -570,7 +570,7 @@ impl CompileTimeProfile for DownstreamProfile {
         });
         image.flip = true;
         image.mirror = true;
-        image.hue_range = Some(CapabilityRange::<u8>::new(0, 14));
+        image.hue_range = Some(CapabilityRange::<u8>::new(0, 14).expect("valid capability bounds"));
         caps.image = Some(image);
         let presets = caps.presets.as_mut().expect("base presets");
         presets.highest = 8;
@@ -651,7 +651,7 @@ fn renamed_dependency_derive_and_profile_contract() -> visca_renamed::Result<()>
             .image
             .as_ref()
             .and_then(|image| image.hue_range),
-        Some(capabilities::CapabilityRange::<u8>::new(0, 14))
+        Some(capabilities::CapabilityRange::<u8>::new(0, 14).expect("valid capability bounds"))
     );
     assert_eq!(profile.transports().tcp_port(), Some(9876));
     Ok(())

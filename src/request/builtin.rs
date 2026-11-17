@@ -2433,7 +2433,7 @@ impl BuiltinValidation for ZoomTarget {
         require_in_range(
             "zoom position",
             self.0.value(),
-            &crate::capabilities::CapabilityRange::<u16>::new(0, maximum),
+            &crate::capabilities::CapabilityRange::<u16>::new(0, maximum)?,
         )
     }
 }
@@ -2529,7 +2529,7 @@ pub(crate) fn validate_preset(profile: &crate::ProfileSpec, preset: u8) -> Resul
     require_in_range(
         "preset number",
         preset,
-        &crate::capabilities::CapabilityRange::<u8>::new(0, facts.highest),
+        &crate::capabilities::CapabilityRange::<u8>::new(0, facts.highest)?,
     )
 }
 

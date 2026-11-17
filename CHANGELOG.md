@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING**: `CapabilityRange::new` and `CapabilityDomain::new` return checked
+  results instead of panicking. Domains take a third `gaps` argument accepting
+  a static slice or owned vector; pass an empty vector for a contiguous domain.
+  The former `CapabilityDomain::with_gaps` constructor is removed. Invalid
+  hand-built digital zoom limits now return no digital range (#1029).
 - **BREAKING**: `Request::policy()` returns the policy selected by its sealed
   class: `request::CommandPolicy`, `OperationPolicy`, or `InquiryPolicy`.
   Custom requests replace flat policy constants and accessors with this method;

@@ -146,7 +146,7 @@ macro_rules! __individual_camera_id {
 
 macro_rules! range {
     ($ty:ty, $min:expr, $max:expr) => {
-        $crate::capabilities::CapabilityRange::<$ty>::new($min, $max)
+        const { $crate::capabilities::CapabilityRange::<$ty>::from_registry($min, $max) }
     };
 }
 
@@ -154,10 +154,10 @@ macro_rules! range {
 /// positions, the unlisted ones.
 macro_rules! domain {
     ($ty:ty, $min:expr, $max:expr) => {
-        $crate::capabilities::CapabilityDomain::<$ty>::new($min, $max)
+        const { $crate::capabilities::CapabilityDomain::<$ty>::from_registry($min, $max, &[]) }
     };
     ($ty:ty, $min:expr, $max:expr, gaps: [$($gap:expr),+ $(,)?]) => {
-        $crate::capabilities::CapabilityDomain::<$ty>::with_gaps($min, $max, &[$($gap),+])
+        const { $crate::capabilities::CapabilityDomain::<$ty>::from_registry($min, $max, &[$($gap),+]) }
     };
 }
 

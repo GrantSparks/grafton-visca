@@ -267,9 +267,10 @@ mod tests {
             .expect("registered target");
         assert_eq!(
             target.tilt_range(),
-            Some(crate::capabilities::CapabilityRange::<i32>::new(
-                -49539, 3538
-            ))
+            Some(
+                crate::capabilities::CapabilityRange::<i32>::new(-49539, 3538)
+                    .expect("valid capability bounds")
+            )
         );
         assert_eq!(target.mount(), Some(MountPosition::Ceiling));
         assert!(absolute(target, 0.0, 15.0).is_ok());

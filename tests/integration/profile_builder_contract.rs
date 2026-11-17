@@ -41,6 +41,53 @@ fn community_profile_builds_without_a_metadata_trait_forest() {
     assert!(spec.capabilities().zoom.is_none());
     assert!(!spec.supports_command_cancel());
 }
+
+#[test]
+fn runtime_capability_bounds_and_gap_vectors_build_a_checked_profile() -> grafton_visca::Result<()>
+{
+    use grafton_visca::capabilities::{CapabilityDomain, CapabilityRange};
+
+    let baseline = GenericVisca::spec()?;
+    let mut facts = baseline.capabilities().clone();
+    facts.profile_id = None;
+    let bounds = [-100_i32, 100];
+    facts.pan_tilt.as_mut().expect("pan/tilt").pan_range =
+        CapabilityRange::<i32>::new(bounds[0], bounds[1])?;
+    facts.exposure.as_mut().expect("exposure").iris_range =
+        Some(CapabilityDomain::<u16>::new(0, 17, vec![1, 2, 3, 4])?);
+    let mut builder = ProfileSpec::builder(facts)
+        .transports(baseline.transports())
+        .envelope(baseline.envelope())
+        .timing(baseline.timing())
+        .maximum_command_sockets(baseline.maximum_command_sockets())
+        .supports_operation_complete(baseline.supports_operation_complete())
+        .supports_command_cancel(baseline.supports_command_cancel())
+        .position_inquiries(baseline.position_inquiries());
+    for selection in baseline.encodings().iter() {
+        builder = builder.encoding(selection);
+    }
+    let profile = builder.build()?;
+    assert_eq!(
+        profile
+            .capabilities()
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt")
+            .pan_range
+            .as_inclusive(),
+        -100..=100
+    );
+    assert!(!profile
+        .capabilities()
+        .exposure
+        .as_ref()
+        .expect("exposure")
+        .iris_range
+        .as_ref()
+        .expect("iris")
+        .contains(2));
+    Ok(())
+}
 #[test]
 fn builder_requires_explicit_operational_facts() {
     let error = ProfileSpec::builder(community_facts())

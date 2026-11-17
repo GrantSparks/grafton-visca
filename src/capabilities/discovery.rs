@@ -708,7 +708,7 @@ mod tests {
             caps.exposure
                 .as_ref()
                 .and_then(|domain| domain.iris_range.clone()),
-            Some(CapabilityDomain::<u16>::new(0, 12))
+            Some(CapabilityDomain::<u16>::new(0, 12, &[][..]).expect("valid capability bounds"))
         );
         assert_eq!(
             caps.exposure
@@ -751,7 +751,7 @@ mod tests {
             caps.exposure
                 .as_ref()
                 .and_then(|domain| domain.brightness_range.clone()),
-            Some(CapabilityDomain::<u8>::new(0, 17))
+            Some(CapabilityDomain::<u8>::new(0, 17, &[][..]).expect("valid capability bounds"))
         );
         assert!(caps.image.is_some());
         assert_eq!(
@@ -1399,11 +1399,10 @@ mod tests {
                 .exposure
                 .as_ref()
                 .and_then(|domain| domain.brightness_range.clone()),
-            Some(CapabilityDomain::<u8>::with_gaps(
-                0x00,
-                0x1F,
-                &[0x01, 0x02, 0x03, 0x04]
-            ))
+            Some(
+                CapabilityDomain::<u8>::new(0x00, 0x1F, &[0x01, 0x02, 0x03, 0x04])
+                    .expect("valid capability bounds")
+            )
         );
         for caps in [
             profile_capabilities::<SonyBrc300>(),
@@ -1413,7 +1412,10 @@ mod tests {
                 caps.exposure
                     .as_ref()
                     .and_then(|domain| domain.brightness_range.clone()),
-                Some(CapabilityDomain::<u8>::new(0x00, 0x17))
+                Some(
+                    CapabilityDomain::<u8>::new(0x00, 0x17, &[][..])
+                        .expect("valid capability bounds")
+                )
             );
         }
         assert_eq!(

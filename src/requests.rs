@@ -758,7 +758,7 @@ mod bound_temperature_decoder_tests {
                 .ok_or(Error::FeatureNotSupported {
                     feature: "test white balance",
                 })?;
-        white_balance.color_temp_range = Some(CapabilityRange::<u16>::new(3100, 6300));
+        white_balance.color_temp_range = Some(CapabilityRange::<u16>::new(3100, 6300)?);
         white_balance.color_temperature_steps = steps;
         let mut builder = ProfileSpec::builder(capabilities)
             .transports(baseline.transports())

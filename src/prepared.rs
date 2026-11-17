@@ -1451,14 +1451,18 @@ mod tests {
                     16.0,
                 )
                 .expect("coordinates");
-                pan_tilt.pan_range = crate::capabilities::CapabilityRange::<i32>::new(-160, 160);
+                pan_tilt.pan_range = crate::capabilities::CapabilityRange::<i32>::new(-160, 160)
+                    .expect("valid capability bounds");
                 pan_tilt.tilt_ranges = crate::capabilities::TiltRanges::Single(
-                    crate::capabilities::CapabilityRange::<i32>::new(-80, 80),
+                    crate::capabilities::CapabilityRange::<i32>::new(-80, 80)
+                        .expect("valid capability bounds"),
                 );
                 pan_tilt.variable_speed = variable_speed;
                 if !variable_speed {
-                    pan_tilt.pan_speed = crate::capabilities::CapabilityRange::<u8>::new(1, 24);
-                    pan_tilt.tilt_speed = crate::capabilities::CapabilityRange::<u8>::new(1, 24);
+                    pan_tilt.pan_speed = crate::capabilities::CapabilityRange::<u8>::new(1, 24)
+                        .expect("valid capability bounds");
+                    pan_tilt.tilt_speed = crate::capabilities::CapabilityRange::<u8>::new(1, 24)
+                        .expect("valid capability bounds");
                     facts.capabilities.typed_support = facts
                         .capabilities
                         .typed_support

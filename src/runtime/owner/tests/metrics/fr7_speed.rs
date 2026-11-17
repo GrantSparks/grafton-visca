@@ -180,9 +180,10 @@ fn a_non_fr7_codec_requires_the_confirmed_fine_mode_for_fast_drives() {
         )
         .unwrap();
     let pan_tilt = facts.capabilities.pan_tilt.as_mut().unwrap();
-    pan_tilt.pan_range = crate::capabilities::CapabilityRange::<i32>::new(-160, 160);
+    pan_tilt.pan_range = crate::capabilities::CapabilityRange::<i32>::new(-160, 160)
+        .expect("valid capability bounds");
     pan_tilt.tilt_ranges = crate::capabilities::TiltRanges::Single(
-        crate::capabilities::CapabilityRange::<i32>::new(-80, 80),
+        crate::capabilities::CapabilityRange::<i32>::new(-80, 80).expect("valid capability bounds"),
     );
     let registration = TargetRegistration::new(
         crate::IndividualCameraId::CAMERA_1,

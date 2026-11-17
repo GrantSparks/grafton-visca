@@ -1063,6 +1063,13 @@ p. 44) lists `00` CLOSE and `05`..`11` and its Bright table (p. 45) `00` and
 every iris position `00`..`11` (R12, R21). Generic VISCA admits the iris
 positions all three list: `00` and `05`..`11`. The PTZOptics sources (R1, R14)
 give no iris or bright tables, so those profiles keep their contiguous ranges.
+
+Runtime profile builders construct ranges with `CapabilityRange::<T>::new(min,
+max)?` and domains with `CapabilityDomain::<T>::new(min, max, gaps)?`. Both return
+profile-field errors for invalid bounds; domains also reject unsorted, duplicate
+or non-interior gaps. `gaps` accepts an owned `Vec<T>` from configuration, or a
+static slice; pass an empty vector for a contiguous domain. Serde uses these
+same checked constructors.
 The unsourced auto/manual status inquiry is removed from the typed surface.
 Caller-owned requests and decoders can model an extension once its packet and
 reply are established for that camera. The FR7 command list

@@ -543,7 +543,7 @@ fn mutated_specs_cannot_advertise_unpreparable_facts() {
                     == Some(PresetRecallSpeedEncoding::PtzOptics) =>
                 {
                     caps.presets.as_mut().expect("presets").recall_speed_range =
-                        Some(CapabilityRange::<u8>::new(1, 50));
+                        Some(CapabilityRange::<u8>::new(1, 50).expect("valid capability bounds"));
                     "recall_speed_range"
                 }
                 5 => {
