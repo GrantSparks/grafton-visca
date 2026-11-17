@@ -820,7 +820,7 @@ impl fmt::Display for Error {
             Self::SerialChainTooLong { port, reported } => {
                 write!(f, "Serial chain on {port} reports {reported} devices; VISCA addresses at most 7")
             }
-            Self::ConnectionClosed { source } => {
+            Self::ConnectionClosed { source, .. } => {
                 write!(f, "Connection closed{}", source.as_ref().map(|cause| format!(": {cause}")).unwrap_or_default())
             }
             Self::CommandPending => f.write_str("Command acknowledged and pending completion"),
@@ -919,16 +919,16 @@ impl fmt::Display for Error {
             Self::ControlReserveExhausted { target, reserve } => {
                 write!(f, "Control reserve for camera {target} is full ({reserve} slots)")
             }
-            Self::InquiryShapeCapacityExhausted { camera, capacity } => {
+            Self::InquiryShapeCapacityExhausted { camera, capacity, .. } => {
                 write!(f, "Raw inquiry payload-shape capacity exhausted for camera {camera} (maximum {capacity} tracked declarations)")
             }
-            Self::StreamPoisoned { source } => {
+            Self::StreamPoisoned { source, .. } => {
                 write!(f, "Stream transport poisoned: {source}")
             }
             Self::InvalidCameraId { id } => {
                 write!(f, "Invalid camera ID {id}: must be 1-7 for individual cameras or 8 for broadcast")
             }
-            Self::ResponseTooLarge { max_size } => {
+            Self::ResponseTooLarge { max_size, .. } => {
                 write!(f, "Response too large: exceeds maximum of {max_size} bytes")
             }
             Self::InquiryNotCancellable => f.write_str("Inquiries cannot be canceled: an inquiry holds no VISCA socket and completes with its reply"),
@@ -952,14 +952,14 @@ impl std::error::Error for Error {
             Self::ConnectionFailed { source, .. } => Some(source.as_ref()),
             // Preserve the other variants' established concrete source types;
             // recursively unwrapping an Arc or Box would remove a chain layer.
-            Self::ConnectionClosed { source } => source
+            Self::ConnectionClosed { source, .. } => source
                 .as_ref()
                 .map(|source| -> &(dyn std::error::Error + 'static) { source }),
             Self::Io { source } => Some(source),
             Self::TransportError { source }
             | Self::TransmissionNotSent { source, .. }
             | Self::InquiryFailed { source }
-            | Self::StreamPoisoned { source } => Some(source),
+            | Self::StreamPoisoned { source, .. } => Some(source),
             Self::SettlementObservationFailed { source, .. }
             | Self::CancellationObservationFailed { source }
             | Self::CommandFailedAfterAck { source }
