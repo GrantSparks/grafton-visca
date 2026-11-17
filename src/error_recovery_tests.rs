@@ -607,6 +607,80 @@ fn cases() -> Vec<Case> {
     ]
 }
 
+/// Captured from 1a6c49ef before replacing the independent classifications.
+/// Each source row is checked bare and through every classification wrapper.
+#[test]
+fn every_wrapper_preserves_the_characterized_classification() {
+    use std::fmt::Write as _;
+
+    let mut rendered = String::new();
+    for case in cases() {
+        let source = case.error;
+        let mut wrapped = vec![
+            ("bare".to_owned(), source.clone()),
+            (
+                "WithContext".to_owned(),
+                source.clone().with_context("outer"),
+            ),
+            (
+                "InquiryFailed".to_owned(),
+                Error::InquiryFailed {
+                    source: Arc::new(source.clone()),
+                },
+            ),
+            (
+                "TransportError".to_owned(),
+                Error::TransportError {
+                    source: Arc::new(source.clone()),
+                },
+            ),
+            (
+                "SettlementObservationFailed".to_owned(),
+                Error::settlement_observation_failed(OperationId::from_raw(1), source.clone()),
+            ),
+            (
+                "CancellationObservationFailed".to_owned(),
+                Error::CancellationObservationFailed {
+                    source: Box::new(source.clone()),
+                },
+            ),
+        ];
+        for certainty in [
+            Certainty::NotAccepted,
+            Certainty::FailedConclusively,
+            Certainty::StillLive,
+            Certainty::Unconfirmed,
+        ] {
+            wrapped.push((
+                format!("TransmissionNotSent/{certainty:?}"),
+                Error::TransmissionNotSent {
+                    source: Arc::new(source.clone()),
+                    context: FailureContext::new(FailureStage::Terminal, certainty),
+                },
+            ));
+        }
+        for (wrapper, error) in wrapped {
+            writeln!(
+                rendered,
+                "{}/{}/{wrapper}\t{:?}\t{}\t{:?}\t{:?}",
+                case.variant,
+                case.condition,
+                error.kind(),
+                error.requires_new_session(),
+                error.failure_context(),
+                error.recovery(),
+            )
+            .expect("string write");
+        }
+    }
+    assert_eq!(
+        rendered.lines().collect::<Vec<_>>(),
+        include_str!("../tests/fixtures/issue_1015_error_classification.txt")
+            .lines()
+            .collect::<Vec<_>>(),
+    );
+}
+
 #[test]
 fn every_public_variant_has_one_checked_recovery_contract() {
     let source = grafton_visca_test_support::source_scan::production_code(include_str!("error.rs"));
@@ -948,6 +1022,35 @@ fn inquiry_terminal_context_overrides_arbitrary_nested_source_certainty() {
         assert!(Arc::ptr_eq(retained_source, &source));
         assert_ne!(error.recovery(), Recovery::Reconcile);
         assert_ne!(error.recovery(), Recovery::WaitAgain);
+    }
+}
+
+#[test]
+fn terminal_wrappers_preserve_permanent_sources_through_context() {
+    for source in [
+        Error::MaxRetriesExceeded,
+        Error::InquiryShapeCapacityExhausted {
+            camera: crate::CameraId::CAMERA_1,
+            capacity: 16,
+        },
+    ] {
+        let source = Arc::new(source.with_context("preparation refused"));
+        let inquiry = Error::InquiryFailed {
+            source: source.clone(),
+        };
+        assert_eq!(inquiry.recovery(), Recovery::Abandon);
+        for (certainty, expected) in [
+            (Certainty::NotAccepted, Recovery::Abandon),
+            (Certainty::FailedConclusively, Recovery::Abandon),
+            (Certainty::StillLive, Recovery::WaitAgain),
+            (Certainty::Unconfirmed, Recovery::Reconcile),
+        ] {
+            let error = Error::TransmissionNotSent {
+                source: source.clone(),
+                context: FailureContext::new(FailureStage::Terminal, certainty),
+            };
+            assert_eq!(error.recovery(), expected);
+        }
     }
 }
 

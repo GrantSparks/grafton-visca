@@ -1043,17 +1043,111 @@ pub enum Recovery {
     Abandon,
 }
 
+/// A delegated fact carries its source, so an incomplete delegation cannot be built.
+#[derive(Clone, Copy)]
+enum Fact<'a, T> {
+    Own(T),
+    Source(&'a Error),
+}
+
+impl<T: Copy> Fact<'_, T> {
+    fn resolve(self, project: impl FnOnce(&Error) -> T) -> T {
+        match self {
+            Self::Own(value) => value,
+            Self::Source(source) => project(source),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Verdict<'a> {
+    Derived,
+    Source(&'a Error),
+    Live,
+    Permanent,
+}
+
+#[derive(Clone, Copy)]
+struct Classification<'a> {
+    kind: Fact<'a, ErrorKind>,
+    session: Fact<'a, bool>,
+    context: Fact<'a, Option<FailureContext>>,
+    verdict: Verdict<'a>,
+}
+
+impl Classification<'_> {
+    const fn own(kind: ErrorKind) -> Self {
+        Self {
+            kind: Fact::Own(kind),
+            session: Fact::Own(false),
+            context: Fact::Own(None),
+            verdict: Verdict::Derived,
+        }
+    }
+
+    fn conclusive_recovery(self) -> Recovery {
+        if matches!(self.verdict, Verdict::Permanent) {
+            return Recovery::Abandon;
+        }
+        match self.kind {
+            Fact::Own(kind) => conclusive_recovery(kind),
+            Fact::Source(source) => source.classification().conclusive_recovery(),
+        }
+    }
+
+    fn recovery(self) -> Recovery {
+        if let Verdict::Source(source) = self.verdict {
+            return source.recovery();
+        }
+        // D28: session death precedes liveness, uncertainty and conclusive recovery.
+        if self.session.resolve(Error::requires_new_session) {
+            return Recovery::ReopenSession;
+        }
+        if matches!(self.verdict, Verdict::Live) {
+            return Recovery::WaitAgain;
+        }
+        match self
+            .context
+            .resolve(Error::failure_context)
+            .map(|context| context.certainty)
+        {
+            Some(Certainty::StillLive) => Recovery::WaitAgain,
+            Some(Certainty::Unconfirmed) => Recovery::Reconcile,
+            Some(Certainty::NotAccepted | Certainty::FailedConclusively) | None => {
+                self.conclusive_recovery()
+            }
+        }
+    }
+}
+
+fn io_error_kind(kind: io::ErrorKind) -> ErrorKind {
+    match kind {
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => ErrorKind::Timeout,
+        io::ErrorKind::ConnectionRefused => ErrorKind::IoRefused,
+        io::ErrorKind::ConnectionReset
+        | io::ErrorKind::ConnectionAborted
+        | io::ErrorKind::BrokenPipe
+        | io::ErrorKind::UnexpectedEof
+        | io::ErrorKind::NotConnected => ErrorKind::IoClosed,
+        _ => ErrorKind::Other,
+    }
+}
+
+const TIMEOUT_RETRY_DELAY: Duration = Duration::from_secs(2);
+const CAPACITY_RETRY_DELAY: Duration = Duration::from_millis(200);
+const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(50);
+
 /// Recovery for an effect-free terminal failure, after session validity is known.
 fn conclusive_recovery(kind: ErrorKind) -> Recovery {
     match kind {
         ErrorKind::Timeout => Recovery::Resubmit {
-            after: Duration::from_secs(2),
+            after: TIMEOUT_RETRY_DELAY,
         },
         ErrorKind::BufferFull => Recovery::Resubmit {
-            after: Duration::from_millis(200),
+            after: CAPACITY_RETRY_DELAY,
         },
         ErrorKind::Busy | ErrorKind::Transport => Recovery::Resubmit {
-            after: Duration::from_millis(50),
+            after: TRANSIENT_RETRY_DELAY,
         },
         ErrorKind::IoClosed
         | ErrorKind::IoRefused
@@ -1410,6 +1504,170 @@ impl Error {
         Self::SettlementSuperseded { operation, axes }
     }
 
+    /// One exhaustive choice of facts and recovery exceptions for every variant.
+    fn classification(&self) -> Classification<'_> {
+        use Fact::{Own, Source};
+
+        const PROTOCOL: Classification<'static> = Classification::own(ErrorKind::Protocol);
+        const INVALID_INPUT: Classification<'static> =
+            Classification::own(ErrorKind::InvalidParameter);
+        const CAPACITY: Classification<'static> = Classification::own(ErrorKind::BufferFull);
+        const NOT_EXECUTABLE: Classification<'static> =
+            Classification::own(ErrorKind::NotExecutable);
+        const CLOSED: Classification<'static> = Classification::own(ErrorKind::IoClosed);
+        const SESSION_DEATH: Classification<'static> = Classification {
+            session: Own(true),
+            ..CLOSED
+        };
+        const TIMEOUT: Classification<'static> = Classification::own(ErrorKind::Timeout);
+        const CANCELLED: Classification<'static> = Classification::own(ErrorKind::Cancelled);
+        const UNCONFIRMED: Classification<'static> = Classification::own(ErrorKind::Unconfirmed);
+        const UNSUPPORTED: Classification<'static> = Classification::own(ErrorKind::Unsupported);
+        const OTHER: Classification<'static> = Classification::own(ErrorKind::Other);
+
+        match self {
+            Self::ConnectionFailed { .. } => Classification::own(ErrorKind::IoRefused),
+            Self::ConnectionClosed { .. } | Self::StreamPoisoned { .. } | Self::OwnerTerminated => {
+                SESSION_DEATH
+            }
+            Self::RuntimeShutdown => CLOSED,
+            Self::InvalidResponseFormat
+            | Self::InvalidResponseLength { .. }
+            | Self::UnexpectedResponseType
+            | Self::MessageLengthError
+            | Self::InvalidResponse { .. }
+            | Self::Unknown { .. }
+            | Self::ResponseTooLarge { .. } => PROTOCOL,
+            Self::CameraNotAddressed { .. }
+            | Self::SerialChainTooLong { .. }
+            | Self::InvalidParameter { .. }
+            | Self::ParameterOutOfRange { .. }
+            | Self::SyntaxError
+            | Self::InvalidRequest { .. }
+            | Self::BufferTooSmall { .. }
+            | Self::InvalidCameraId { .. }
+            | Self::InquiryNotCancellable
+            | Self::InvalidAddress { .. } => INVALID_INPUT,
+            Self::CommandBufferFull
+            | Self::RuntimeQueueFull { .. }
+            | Self::ControlReserveExhausted { .. }
+            | Self::NoSocket => CAPACITY,
+            Self::CommandNotExecutable | Self::InvalidState { .. } => NOT_EXECUTABLE,
+            Self::FeatureNotSupported { .. }
+            | Self::CancellationNotSupported
+            | Self::MissingRuntime
+            | Self::UnsupportedTransport { .. } => UNSUPPORTED,
+            Self::RuntimeIdentityExhausted | Self::DiagnosticSubscriberLimit { .. } => OTHER,
+            Self::CommandCancelled | Self::SettlementSuperseded { .. } => CANCELLED,
+            Self::Timeout { context } => Classification {
+                context: Own(Some(*context)),
+                ..TIMEOUT
+            },
+            Self::MotionSuperseded { context, .. } => Classification {
+                context: Own(Some(*context)),
+                ..CANCELLED
+            },
+            Self::ObservationTimeout { .. } => Classification {
+                context: Own(Some(FailureContext::new(
+                    FailureStage::Observation,
+                    Certainty::StillLive,
+                ))),
+                ..TIMEOUT
+            },
+            Self::CancellationUnconfirmed => Classification {
+                context: Own(Some(FailureContext::new(
+                    FailureStage::CancellationAttempt,
+                    Certainty::Unconfirmed,
+                ))),
+                ..UNCONFIRMED
+            },
+            Self::UnsequencedCommandUnconfirmed
+            | Self::CommandFailedAfterAck { .. }
+            | Self::RequestUnconfirmed { .. } => Classification {
+                context: Own(Some(FailureContext::new(
+                    FailureStage::Terminal,
+                    Certainty::Unconfirmed,
+                ))),
+                ..UNCONFIRMED
+            },
+            Self::InquiryCorrelationLost { .. } | Self::CommandCorrelationLost { .. } => {
+                Classification {
+                    context: Own(Some(FailureContext::new(
+                        FailureStage::Terminal,
+                        Certainty::NotAccepted,
+                    ))),
+                    ..NOT_EXECUTABLE
+                }
+            }
+            // CommandPending represents an ACK with an outcome still pending,
+            // including Response::into_result() outside an owner lifecycle.
+            Self::CommandPending => Classification {
+                verdict: Verdict::Live,
+                ..Classification::own(ErrorKind::Busy)
+            },
+            // Serial startup exhausted its complete retry budget; the
+            // MaxRetriesExceeded contract never authorizes an automatic replay.
+            Self::MaxRetriesExceeded => Classification {
+                verdict: Verdict::Permanent,
+                ..TIMEOUT
+            },
+            // This shape's documented capacity refusal requires a policy
+            // change rather than an automatic capacity retry.
+            Self::InquiryShapeCapacityExhausted { .. } => Classification {
+                context: Own(Some(FailureContext::new(
+                    FailureStage::PreAdmission,
+                    Certainty::NotAccepted,
+                ))),
+                verdict: Verdict::Permanent,
+                ..CAPACITY
+            },
+            Self::Io { source } => Classification::own(io_error_kind(source.kind())),
+            Self::TransportError { source } => Classification {
+                context: Source(source),
+                ..Classification::own(ErrorKind::Transport)
+            },
+            Self::TransmissionNotSent { source, context } => Classification {
+                kind: Source(source),
+                session: Own(false),
+                context: Own(Some(*context)),
+                verdict: Verdict::Derived,
+            },
+            Self::InquiryFailed { source } => Classification {
+                kind: Source(source),
+                session: Source(source),
+                context: Own(Some(FailureContext::new(
+                    FailureStage::Terminal,
+                    Certainty::FailedConclusively,
+                ))),
+                verdict: Verdict::Derived,
+            },
+            Self::SettlementObservationFailed { source, .. } => Classification {
+                kind: Source(source),
+                session: Source(source),
+                context: Own(Some(FailureContext::new(
+                    FailureStage::Observation,
+                    Certainty::Unconfirmed,
+                ))),
+                verdict: Verdict::Derived,
+            },
+            Self::CancellationObservationFailed { source } => Classification {
+                kind: Source(source),
+                session: Source(source),
+                context: Own(Some(FailureContext::new(
+                    FailureStage::CancellationAttempt,
+                    Certainty::StillLive,
+                ))),
+                verdict: Verdict::Derived,
+            },
+            Self::WithContext { source, .. } => Classification {
+                kind: Source(source),
+                session: Source(source),
+                context: Source(source),
+                verdict: Verdict::Source(source),
+            },
+        }
+    }
+
     /// Get the kind of this error for categorized handling.
     ///
     /// # Examples
@@ -1421,104 +1679,7 @@ impl Error {
     /// ```
     #[must_use]
     pub fn kind(&self) -> ErrorKind {
-        match self {
-            // Timeout: transient timing failures
-            Self::Timeout { .. } | Self::ObservationTimeout { .. } | Self::MaxRetriesExceeded => {
-                ErrorKind::Timeout
-            }
-
-            // Cancelled: explicit cancellation
-            Self::CommandCancelled => ErrorKind::Cancelled,
-
-            // BufferFull: capacity exhaustion; recovery distinguishes its conditions.
-            Self::CommandBufferFull
-            | Self::RuntimeQueueFull { .. }
-            | Self::ControlReserveExhausted { .. }
-            | Self::InquiryShapeCapacityExhausted { .. }
-            | Self::NoSocket => ErrorKind::BufferFull,
-
-            // NotExecutable: command invalid in current state
-            Self::CommandNotExecutable
-            | Self::InvalidState { .. }
-            | Self::InquiryCorrelationLost { .. }
-            | Self::CommandCorrelationLost { .. } => ErrorKind::NotExecutable,
-
-            // IoClosed: connection/transport no longer usable
-            Self::ConnectionClosed { .. }
-            | Self::RuntimeShutdown
-            | Self::StreamPoisoned { .. }
-            | Self::OwnerTerminated => ErrorKind::IoClosed,
-
-            // Transport: one failed operation on a live session.
-            Self::TransportError { .. } => ErrorKind::Transport,
-            Self::TransmissionNotSent { source, .. } | Self::InquiryFailed { source, .. } => {
-                source.kind()
-            }
-
-            // Unconfirmed: one transmitted operation has an unknowable result
-            Self::CancellationUnconfirmed
-            | Self::UnsequencedCommandUnconfirmed
-            | Self::CommandFailedAfterAck { .. }
-            | Self::RequestUnconfirmed { .. } => ErrorKind::Unconfirmed,
-
-            // IoRefused: connection attempt rejected
-            Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
-
-            // Protocol: malformed or unexpected wire data
-            Self::InvalidResponseFormat
-            | Self::InvalidResponseLength { .. }
-            | Self::UnexpectedResponseType
-            | Self::MessageLengthError
-            | Self::InvalidResponse { .. }
-            | Self::Unknown { .. }
-            | Self::ResponseTooLarge { .. } => ErrorKind::Protocol,
-
-            // Unsupported: feature/capability not available
-            Self::FeatureNotSupported { .. }
-            | Self::CancellationNotSupported
-            | Self::MissingRuntime => ErrorKind::Unsupported,
-
-            // InvalidParameter: caller-supplied value is invalid
-            Self::InvalidParameter { .. }
-            | Self::ParameterOutOfRange { .. }
-            | Self::SyntaxError
-            | Self::InvalidRequest { .. }
-            | Self::BufferTooSmall { .. }
-            | Self::InvalidCameraId { .. }
-            | Self::InquiryNotCancellable { .. }
-            | Self::InvalidAddress { .. }
-            | Self::CameraNotAddressed { .. }
-            | Self::SerialChainTooLong { .. } => ErrorKind::InvalidParameter,
-            Self::UnsupportedTransport { .. } => ErrorKind::Unsupported,
-
-            // Busy: transient contention
-            Self::CommandPending => ErrorKind::Busy,
-
-            // Other: truly uncategorizable
-            Self::RuntimeIdentityExhausted | Self::DiagnosticSubscriberLimit { .. } => {
-                ErrorKind::Other
-            }
-
-            // Delegated: unwrap context wrapper
-            Self::WithContext { source, .. }
-            | Self::SettlementObservationFailed { source, .. }
-            | Self::CancellationObservationFailed { source, .. } => source.kind(),
-            Self::MotionSuperseded { .. } | Self::SettlementSuperseded { .. } => {
-                ErrorKind::Cancelled
-            }
-
-            // Io: inspect inner io::ErrorKind
-            Self::Io { source: arc } => match arc.kind() {
-                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => ErrorKind::Timeout,
-                io::ErrorKind::ConnectionRefused => ErrorKind::IoRefused,
-                io::ErrorKind::ConnectionReset
-                | io::ErrorKind::ConnectionAborted
-                | io::ErrorKind::BrokenPipe
-                | io::ErrorKind::UnexpectedEof
-                | io::ErrorKind::NotConnected => ErrorKind::IoClosed,
-                _ => ErrorKind::Other,
-            },
-        }
+        self.classification().kind.resolve(Self::kind)
     }
 
     /// Reports whether the session that produced this error is permanently
@@ -1582,83 +1743,9 @@ impl Error {
     /// ```
     #[must_use]
     pub fn requires_new_session(&self) -> bool {
-        match self {
-            // Terminal session death that the application did not ask for. The
-            // engine and both owners report exactly these variants when a
-            // session stops being usable because of the transport.
-            Self::ConnectionClosed { .. } | Self::StreamPoisoned { .. } | Self::OwnerTerminated => {
-                true
-            }
-
-            // Deliberate shutdown. The session is over because the application
-            // ended it, so reconnecting is a policy decision, not a repair.
-            Self::RuntimeShutdown => false,
-
-            // Delegated: an added context string never changes the condition.
-            Self::WithContext { source, .. }
-            | Self::SettlementObservationFailed { source, .. }
-            | Self::CancellationObservationFailed { source, .. } => source.requires_new_session(),
-
-            Self::InquiryFailed { source, .. } => source.requires_new_session(),
-
-            // Everything else is either a per-request outcome or a condition
-            // the session survives. `Io` and `TransportError` stay here on
-            // purpose: a datagram request-write failure is isolated to its own
-            // transmission, and a stream failure reaches the caller as
-            // `StreamPoisoned` from the owner, so the raw transport error is
-            // never the proof of session death. `UnsequencedCommandUnconfirmed`
-            // is also here (issue #671): by default it fails one raw command
-            // while the session keeps running, and the strict opt-in reports
-            // session death separately as `StreamPoisoned`. A live session must
-            // never hand out a replacement-session verdict.
-            Self::ConnectionFailed { .. }
-            | Self::CameraNotAddressed { .. }
-            | Self::SerialChainTooLong { .. }
-            | Self::CommandPending
-            | Self::InvalidResponse { .. }
-            | Self::FeatureNotSupported { .. }
-            | Self::Io { .. }
-            | Self::SyntaxError
-            | Self::CommandBufferFull
-            | Self::CommandCancelled
-            | Self::NoSocket
-            | Self::CommandNotExecutable
-            | Self::InvalidResponseFormat
-            | Self::InvalidResponseLength { .. }
-            | Self::UnexpectedResponseType
-            | Self::Unknown { .. }
-            | Self::InvalidRequest { .. }
-            | Self::MessageLengthError
-            | Self::TransportError { .. }
-            | Self::TransmissionNotSent { .. }
-            | Self::InvalidParameter { .. }
-            | Self::BufferTooSmall { .. }
-            | Self::ParameterOutOfRange { .. }
-            | Self::Timeout { .. }
-            | Self::ObservationTimeout { .. }
-            | Self::MotionSuperseded { .. }
-            | Self::SettlementSuperseded { .. }
-            | Self::MaxRetriesExceeded
-            | Self::CancellationNotSupported
-            | Self::InvalidState { .. }
-            | Self::CancellationUnconfirmed
-            | Self::UnsequencedCommandUnconfirmed
-            | Self::InquiryCorrelationLost { .. }
-            | Self::CommandCorrelationLost { .. }
-            | Self::CommandFailedAfterAck { .. }
-            | Self::RequestUnconfirmed { .. }
-            | Self::RuntimeIdentityExhausted
-            | Self::DiagnosticSubscriberLimit { .. }
-            | Self::RuntimeQueueFull { .. }
-            | Self::ControlReserveExhausted { .. }
-            | Self::InquiryShapeCapacityExhausted { .. }
-            | Self::InvalidCameraId { .. }
-            | Self::ResponseTooLarge { .. }
-            | Self::InquiryNotCancellable
-            | Self::InvalidAddress { .. }
-            | Self::UnsupportedTransport { .. }
-            | Self::MissingRuntime => false,
-        }
+        self.classification()
+            .session
+            .resolve(Self::requires_new_session)
     }
 
     /// Create an `Error` from a VISCA error response code.
@@ -1694,115 +1781,18 @@ impl Error {
     /// condition is temporary. Only [`crate::error::Recovery::Resubmit`] permits submitting
     /// the request again; its delay is part of that verdict. An acknowledged or
     /// unconfirmed command is never automatically replayed.
+    ///
+    /// The rule order is session death (`ReopenSession`), a live request
+    /// (`WaitAgain`), an uncertain effect (`Reconcile`), then conclusive recovery
+    /// by kind. Three conditions name an exception: [`Self::CommandPending`]
+    /// is live even without a failure context; [`Self::MaxRetriesExceeded`] and
+    /// [`Self::InquiryShapeCapacityExhausted`] are permanent (`Abandon`). A
+    /// terminal wrapper overrides source liveness and uncertainty while
+    /// preserving a permanent source's conclusive verdict. An added context
+    /// string is fully transparent.
     #[must_use]
     pub fn recovery(&self) -> Recovery {
-        const CAPACITY: Recovery = Recovery::Resubmit {
-            after: Duration::from_millis(200),
-        };
-        const TIMEOUT: Recovery = Recovery::Resubmit {
-            after: Duration::from_secs(2),
-        };
-        match self {
-            Self::WithContext { source, .. } => source.recovery(),
-            Self::ConnectionClosed { .. } | Self::StreamPoisoned { .. } | Self::OwnerTerminated => {
-                Recovery::ReopenSession
-            }
-            Self::SettlementObservationFailed { source, .. } => {
-                if source.requires_new_session() {
-                    Recovery::ReopenSession
-                } else {
-                    Recovery::Reconcile
-                }
-            }
-            Self::CancellationObservationFailed { source, .. } => {
-                if source.requires_new_session() {
-                    Recovery::ReopenSession
-                } else {
-                    Recovery::WaitAgain
-                }
-            }
-            Self::CommandPending | Self::ObservationTimeout { .. } => Recovery::WaitAgain,
-            Self::CancellationUnconfirmed
-            | Self::UnsequencedCommandUnconfirmed
-            | Self::CommandFailedAfterAck { .. }
-            | Self::RequestUnconfirmed { .. } => Recovery::Reconcile,
-            Self::Timeout { context } => match context.certainty {
-                Certainty::StillLive => Recovery::WaitAgain,
-                Certainty::Unconfirmed => Recovery::Reconcile,
-                Certainty::NotAccepted | Certainty::FailedConclusively => TIMEOUT,
-            },
-            Self::InquiryFailed { source, .. } => {
-                if source.requires_new_session() {
-                    Recovery::ReopenSession
-                } else {
-                    conclusive_recovery(source.kind())
-                }
-            }
-            Self::TransmissionNotSent { source, context } => match context.certainty {
-                Certainty::Unconfirmed => Recovery::Reconcile,
-                Certainty::StillLive => Recovery::WaitAgain,
-                Certainty::NotAccepted | Certainty::FailedConclusively => {
-                    conclusive_recovery(source.kind())
-                }
-            },
-            Self::TransportError { source, .. } => {
-                match source.failure_context().map(|context| context.certainty) {
-                    Some(Certainty::StillLive) => Recovery::WaitAgain,
-                    Some(Certainty::Unconfirmed) => Recovery::Reconcile,
-                    Some(Certainty::NotAccepted | Certainty::FailedConclusively) | None => {
-                        Recovery::Resubmit {
-                            after: Duration::from_millis(50),
-                        }
-                    }
-                }
-            }
-            Self::MotionSuperseded { context, .. } => match context.certainty {
-                Certainty::StillLive => Recovery::WaitAgain,
-                Certainty::Unconfirmed => Recovery::Reconcile,
-                Certainty::NotAccepted | Certainty::FailedConclusively => Recovery::Abandon,
-            },
-            Self::CommandBufferFull
-            | Self::NoSocket
-            | Self::RuntimeQueueFull { .. }
-            | Self::ControlReserveExhausted { .. } => CAPACITY,
-            Self::Io { source } => match source.kind() {
-                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => TIMEOUT,
-                _ => Recovery::Abandon,
-            },
-            Self::ConnectionFailed { .. }
-            | Self::CameraNotAddressed { .. }
-            | Self::SerialChainTooLong { .. }
-            | Self::InvalidResponse { .. }
-            | Self::FeatureNotSupported { .. }
-            | Self::SyntaxError
-            | Self::CommandCancelled
-            | Self::CommandNotExecutable
-            | Self::InvalidResponseFormat
-            | Self::InvalidResponseLength { .. }
-            | Self::UnexpectedResponseType
-            | Self::Unknown { .. }
-            | Self::InvalidRequest { .. }
-            | Self::MessageLengthError
-            | Self::InvalidParameter { .. }
-            | Self::BufferTooSmall { .. }
-            | Self::ParameterOutOfRange { .. }
-            | Self::SettlementSuperseded { .. }
-            | Self::MaxRetriesExceeded
-            | Self::CancellationNotSupported
-            | Self::InvalidState { .. }
-            | Self::RuntimeShutdown
-            | Self::DiagnosticSubscriberLimit { .. }
-            | Self::InquiryShapeCapacityExhausted { .. }
-            | Self::InquiryCorrelationLost { .. }
-            | Self::CommandCorrelationLost { .. }
-            | Self::RuntimeIdentityExhausted
-            | Self::InvalidCameraId { .. }
-            | Self::ResponseTooLarge { .. }
-            | Self::InquiryNotCancellable
-            | Self::InvalidAddress { .. }
-            | Self::UnsupportedTransport { .. }
-            | Self::MissingRuntime => Recovery::Abandon,
-        }
+        self.classification().recovery()
     }
 
     /// Where a deadline or certainty failure happened, and what is known
@@ -1828,85 +1818,7 @@ impl Error {
     /// ```
     #[must_use]
     pub fn failure_context(&self) -> Option<FailureContext> {
-        match self {
-            Self::Timeout { context } | Self::TransmissionNotSent { context, .. } => Some(*context),
-            Self::InquiryShapeCapacityExhausted { .. } => Some(FailureContext::new(
-                FailureStage::PreAdmission,
-                Certainty::NotAccepted,
-            )),
-            Self::InquiryFailed { .. } => Some(FailureContext::new(
-                FailureStage::Terminal,
-                Certainty::FailedConclusively,
-            )),
-            Self::SettlementObservationFailed { .. } => Some(FailureContext::new(
-                FailureStage::Observation,
-                Certainty::Unconfirmed,
-            )),
-            Self::MotionSuperseded { context, .. } => Some(*context),
-            Self::ObservationTimeout { .. } => Some(FailureContext::new(
-                FailureStage::Observation,
-                Certainty::StillLive,
-            )),
-            Self::UnsequencedCommandUnconfirmed => Some(FailureContext::new(
-                FailureStage::Terminal,
-                Certainty::Unconfirmed,
-            )),
-            Self::CancellationUnconfirmed => Some(FailureContext::new(
-                FailureStage::CancellationAttempt,
-                Certainty::Unconfirmed,
-            )),
-            Self::InquiryCorrelationLost { .. } | Self::CommandCorrelationLost { .. } => Some(
-                FailureContext::new(FailureStage::Terminal, Certainty::NotAccepted),
-            ),
-            Self::CommandFailedAfterAck { .. } | Self::RequestUnconfirmed { .. } => Some(
-                FailureContext::new(FailureStage::Terminal, Certainty::Unconfirmed),
-            ),
-            Self::CancellationObservationFailed { .. } => Some(FailureContext::new(
-                FailureStage::CancellationAttempt,
-                Certainty::StillLive,
-            )),
-            Self::WithContext { source, .. } => source.failure_context(),
-            Self::TransportError { source, .. } => source.failure_context(),
-            Self::ConnectionFailed { .. }
-            | Self::CameraNotAddressed { .. }
-            | Self::SerialChainTooLong { .. }
-            | Self::ConnectionClosed { .. }
-            | Self::CommandPending
-            | Self::InvalidResponse { .. }
-            | Self::FeatureNotSupported { .. }
-            | Self::Io { .. }
-            | Self::SyntaxError
-            | Self::CommandBufferFull
-            | Self::CommandCancelled
-            | Self::NoSocket
-            | Self::CommandNotExecutable
-            | Self::InvalidResponseFormat
-            | Self::InvalidResponseLength { .. }
-            | Self::UnexpectedResponseType
-            | Self::Unknown { .. }
-            | Self::InvalidRequest { .. }
-            | Self::MessageLengthError
-            | Self::InvalidParameter { .. }
-            | Self::BufferTooSmall { .. }
-            | Self::ParameterOutOfRange { .. }
-            | Self::SettlementSuperseded { .. }
-            | Self::MaxRetriesExceeded
-            | Self::CancellationNotSupported
-            | Self::InvalidState { .. }
-            | Self::RuntimeShutdown
-            | Self::OwnerTerminated
-            | Self::DiagnosticSubscriberLimit { .. }
-            | Self::RuntimeIdentityExhausted
-            | Self::RuntimeQueueFull { .. }
-            | Self::ControlReserveExhausted { .. }
-            | Self::StreamPoisoned { .. }
-            | Self::InvalidCameraId { .. }
-            | Self::ResponseTooLarge { .. }
-            | Self::InquiryNotCancellable
-            | Self::InvalidAddress { .. }
-            | Self::UnsupportedTransport { .. }
-            | Self::MissingRuntime => None,
-        }
+        self.classification().context.resolve(Self::failure_context)
     }
 
     /// A pre-I/O refusal carries certainty for the whole logical request,
