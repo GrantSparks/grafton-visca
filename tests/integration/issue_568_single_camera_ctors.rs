@@ -300,18 +300,6 @@ mod async_single_camera {
             self.inner.sleep(duration)
         }
 
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            self.inner.timeout(duration, fut)
-        }
-
         fn now(&self) -> std::time::Instant {
             self.inner.now()
         }

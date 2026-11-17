@@ -65,7 +65,7 @@ If you're new to the library, start with these examples in order:
 - **[serial_async_demo.rs](serial_async_demo.rs)** - Tokio serial `CameraConfig`, checked camera ID, read-only inquiries, and explicit session close
 
 ### Advanced Patterns
-- **[runtime_agnostic.rs](runtime_agnostic.rs)** - Runnable custom `Executor` adapter exercising spawn, sleep, and timeout behavior
+- **[runtime_agnostic.rs](runtime_agnostic.rs)** - Runnable custom `Executor` adapter exercising spawn, sleep, reusable timers, and operation-first application deadlines
 - **[runtime_demo.rs](runtime_demo.rs)** - Tokio runtime setup with concurrent read-only inquiries
 - **[concurrent_control.rs](concurrent_control.rs)** - A read and movement joined concurrently under one serialized async owner
 - **[error_handling.rs](error_handling.rs)** - Error classification with propagated connection and inquiry failures

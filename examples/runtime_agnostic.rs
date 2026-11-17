@@ -107,25 +107,6 @@ impl Executor for CustomExecutor {
             async_io::Timer::after(duration).await;
         }
     }
-
-    #[allow(clippy::manual_async_fn)]
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        future: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        async move {
-            futures_lite::future::race(async move { Ok(future.await) }, async move {
-                async_io::Timer::after(duration).await;
-                Err(Error::io_timeout())
-            })
-            .await
-        }
-    }
 }
 
 fn main() -> Result<(), Error> {
@@ -146,13 +127,22 @@ fn main() -> Result<(), Error> {
     executor.block_on(timer.as_mut());
     println!("reusable timer reset completed");
 
-    let quick =
-        executor.block_on(executor.timeout(Duration::from_millis(50), async { "ready" }))?;
+    let quick = executor.block_on(futures_lite::future::or(async { Ok("ready") }, async {
+        executor.sleep(Duration::from_millis(50)).await;
+        Err(grafton_visca::Error::io_timeout())
+    }))?;
     println!("quick timeout-wrapped future: {quick}");
 
-    let timed_out = executor.block_on(executor.timeout(Duration::from_millis(5), async {
-        async_io::Timer::after(Duration::from_millis(50)).await;
-    }));
+    let timed_out = executor.block_on(futures_lite::future::or(
+        async {
+            async_io::Timer::after(Duration::from_millis(50)).await;
+            Ok(())
+        },
+        async {
+            executor.sleep(Duration::from_millis(5)).await;
+            Err(grafton_visca::Error::io_timeout())
+        },
+    ));
     match timed_out {
         Err(Error::Timeout { .. }) => println!("slow future timed out as expected"),
         Err(error) => return Err(error),

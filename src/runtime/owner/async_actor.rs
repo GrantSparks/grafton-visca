@@ -216,6 +216,11 @@ pub(crate) struct AsyncOwnerHandle {
 }
 
 impl AsyncOwnerHandle {
+    /// The terminal verdict already published if spawning dropped the actor.
+    pub(crate) fn terminal_error(&self) -> Option<Error> {
+        self.core.terminal_error()
+    }
+
     fn bind_diagnostics(
         &self,
         subscription: super::DiagnosticSubscription,

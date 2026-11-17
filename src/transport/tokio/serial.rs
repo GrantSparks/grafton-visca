@@ -125,7 +125,11 @@ where
     F: Future<Output = T> + Send + 'a,
     T: Send + 'a,
 {
-    Box::pin(exec.timeout(duration, future))
+    Box::pin(async move {
+        crate::timeout::within(future, exec.sleep(duration))
+            .await
+            .ok_or_else(Error::io_timeout)
+    })
 }
 
 fn sleep<E: Executor>(exec: &E, duration: Duration) -> SendFuture<'_, ()> {

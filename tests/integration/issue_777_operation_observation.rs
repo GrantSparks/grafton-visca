@@ -586,7 +586,12 @@ mod async_facade {
         .await;
         assert!(lost.is_none(), "the timer wins the race");
         assert!(
-            executor.timeout(SHORT, moving.applied()).await.is_err(),
+            futures_lite::future::or(async { Ok(moving.applied().await) }, async {
+                executor.sleep(SHORT).await;
+                Err(grafton_visca::Error::io_timeout())
+            })
+            .await
+            .is_err(),
             "an executor timeout drops the wait future"
         );
 
@@ -624,7 +629,12 @@ mod async_facade {
         ));
         camera.wait_for_writes_async(&executor, 2).await;
         assert!(
-            executor.timeout(SHORT, moving.cancel()).await.is_err(),
+            futures_lite::future::or(async { Ok(moving.cancel().await) }, async {
+                executor.sleep(SHORT).await;
+                Err(grafton_visca::Error::io_timeout())
+            })
+            .await
+            .is_err(),
             "an executor timeout drops the cancel future"
         );
 
@@ -660,13 +670,15 @@ mod async_facade {
         let (session, camera, _) = open(&executor).await;
         let mut moving = running_zoom(&executor, &session, &camera).await;
 
-        let (waited, shutdown) = executor
-            .timeout(
-                WAIT_BUDGET,
-                future::zip(moving.applied(), async { session.shutdown() }),
-            )
-            .await
-            .expect("neither the wait nor shutdown hangs");
+        let (waited, shutdown) = futures_lite::future::or(
+            async { Ok(future::zip(moving.applied(), async { session.shutdown() }).await) },
+            async {
+                executor.sleep(WAIT_BUDGET).await;
+                Err(grafton_visca::Error::io_timeout())
+            },
+        )
+        .await
+        .expect("neither the wait nor shutdown hangs");
         shutdown.expect("owner shutdown");
         let error = waited.expect_err("the operation never concluded");
         let again = moving.applied().await.expect_err("still unconcluded");
@@ -679,7 +691,14 @@ mod async_facade {
     async fn dropping_a_handle_whose_cancel_future_was_dropped<E: Executor>(executor: E) {
         let (session, camera, _) = open(&executor).await;
         let mut moving = running_zoom(&executor, &session, &camera).await;
-        assert!(executor.timeout(SHORT, moving.cancel()).await.is_err());
+        assert!(
+            futures_lite::future::or(async { Ok(moving.cancel().await) }, async {
+                executor.sleep(SHORT).await;
+                Err(grafton_visca::Error::io_timeout())
+            })
+            .await
+            .is_err()
+        );
         camera.wait_for_writes_async(&executor, 2).await;
         drop(moving);
         camera.push(frames::canceled(1));

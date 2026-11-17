@@ -205,18 +205,6 @@ impl crate::executor::Executor for ManualRuntime {
         })
     }
 
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        future: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        crate::executor::Executor::timeout(&self.executor, duration, future)
-    }
-
     fn now(&self) -> Instant {
         let mut now = self.now.lock().unwrap();
         let observed = *now;
@@ -2569,17 +2557,31 @@ async fn assert_babble_never_starves_boundaries<R>(
 {
     // Admission is a boundary source; it must be serviced within a bound
     // despite the continuous flood of valid frames.
-    let receipt = Executor::timeout(&runtime, Duration::from_secs(5), handle.submit(command()))
+    let receipt = async {
+        crate::timeout::within(
+            handle.submit(command()),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
         .await
-        .expect("a babbling peer must not starve admission")
-        .expect("admission rejected");
+        .ok_or_else(crate::Error::io_timeout)
+    }
+    .await
+    .expect("a babbling peer must not starve admission")
+    .expect("admission rejected");
     // Shutdown enters its one-slot lane; the actor must then terminate — the
     // `close()` liveness the P0 is about — within a bound.
     handle.shutdown().unwrap();
-    let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
+    let snapshot = async {
+        crate::timeout::within(
+            terminated.recv_async(),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
         .await
-        .expect("a babbling peer must not starve shutdown/close")
-        .expect("actor terminated");
+        .ok_or_else(crate::Error::io_timeout)
+    }
+    .await
+    .expect("a babbling peer must not starve shutdown/close")
+    .expect("actor terminated");
     assert_eq!(snapshot.state, SessionState::Shutdown);
     drop(receipt);
 }
@@ -2595,21 +2597,31 @@ async fn assert_stalled_write_never_parks_close<R>(
     // abandoned at its timeout, then the request settles on its own
     // deadline) completes quickly and is cleanly separated from the broken
     // "never returns" case the bound catches.
-    let receipt = Executor::timeout(
-        &runtime,
-        Duration::from_secs(5),
-        handle.submit(command_with_short_deadlines()),
-    )
+    let receipt = async {
+        crate::timeout::within(
+            handle.submit(command_with_short_deadlines()),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
+        .await
+        .ok_or_else(crate::Error::io_timeout)
+    }
     .await
     .expect("admission must resolve before the stalled write")
     .expect("admission rejected");
     // The write is abandoned at its 50 ms timeout, unparking the actor, so
     // shutdown/close is serviced rather than blocked behind the stalled peer.
     handle.shutdown().unwrap();
-    let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
+    let snapshot = async {
+        crate::timeout::within(
+            terminated.recv_async(),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
         .await
-        .expect("a stalled write must not park close")
-        .expect("actor terminated");
+        .ok_or_else(crate::Error::io_timeout)
+    }
+    .await
+    .expect("a stalled write must not park close")
+    .expect("actor terminated");
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
         matches!(
@@ -2632,7 +2644,15 @@ async fn assert_nodata_never_hot_spins<R>(
     Executor::sleep(&runtime, Duration::from_millis(500)).await;
     let observed = reads.load(Ordering::Relaxed);
     handle.shutdown().unwrap();
-    let _ = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async()).await;
+    let _ = async {
+        crate::timeout::within(
+            terminated.recv_async(),
+            Executor::sleep(&runtime, Duration::from_secs(5)),
+        )
+        .await
+        .ok_or_else(crate::Error::io_timeout)
+    }
+    .await;
     // The escalating idle pause caps at 250 ms, so a correctly paced actor
     // does single digits of reads here; the unbounded spin does hundreds of
     // thousands.
