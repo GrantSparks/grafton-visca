@@ -42,10 +42,9 @@ struct RetainedRelease {
 
 impl RetainedRelease {
     async fn new(capacity: usize, live_commands: usize) -> Self {
-        // Admission capacity covers every boundary a case offers, while one
-        // raw inquiry slot keeps successors behind A's correlation hold.
-        let mut owner_policy = stream_policy(capacity);
-        owner_policy.protocol.inquiry_capacity = 1;
+        // Admission covers every offered boundary. Overlapping raw inquiry
+        // declarations keep successors behind A's correlation hold.
+        let owner_policy = stream_policy(capacity);
         Self::build(owner_policy, live_commands, None).await
     }
 

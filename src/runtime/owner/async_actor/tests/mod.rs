@@ -265,8 +265,7 @@ type RecordedWrites = Arc<Mutex<Vec<(RequestId, Vec<u8>, bool)>>>;
 fn policy(capacity: usize) -> OwnerPolicy {
     OwnerPolicy::single_target(
         ProtocolPolicy {
-            capacity,
-            inquiry_capacity: capacity,
+            capacity: std::num::NonZeroUsize::new(capacity).unwrap(),
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_secs(1),
             ..ProtocolPolicy::test_default()
@@ -307,9 +306,8 @@ fn stream_policy(capacity: usize) -> OwnerPolicy {
 #[cfg(feature = "runtime-tokio")]
 fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
     let protocol = ProtocolPolicy {
-        capacity: 3,
+        capacity: std::num::NonZeroUsize::new(3).unwrap(),
         transport,
-        inquiry_capacity: 1,
         inquiry_cooldown: Duration::ZERO,
         raw_inquiry_release_hold: Duration::from_secs(1),
         ..ProtocolPolicy::test_default()

@@ -2,7 +2,7 @@
 use crate::target::{PerTarget, TargetSlot};
 
 use std::{
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -508,10 +508,9 @@ pub(crate) enum AdmissionSlot {
 /// Session-wide scheduling policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProtocolPolicy {
-    pub(crate) capacity: usize,
+    pub(crate) capacity: NonZeroUsize,
     pub(crate) wire: super::WireProtocol,
     pub(crate) transport: TransportKind,
-    pub(crate) inquiry_capacity: usize,
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
     pub(crate) inquiry_cooldown: Duration,
@@ -557,16 +556,15 @@ impl ProtocolPolicy {
 
 #[cfg(test)]
 impl ProtocolPolicy {
-    /// Shared test fixture: a raw datagram policy with capacity 16, inquiry
-    /// capacity 8, no command or inquiry spacing, a 25 ms inquiry cooldown and
+    /// Shared test fixture: a raw datagram policy with capacity 16,
+    /// no command or inquiry spacing, a 25 ms inquiry cooldown and
     /// non-strict recovery. Tests override fields
     /// with `..ProtocolPolicy::test_default()`.
     pub(crate) fn test_default() -> Self {
         Self {
-            capacity: 16,
+            capacity: NonZeroUsize::MIN.saturating_add(15),
             wire: super::WireProtocol::new(EnvelopeKind::Raw, crate::transport::AddressingMode::Ip),
             transport: TransportKind::Datagram,
-            inquiry_capacity: 8,
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::from_millis(25),

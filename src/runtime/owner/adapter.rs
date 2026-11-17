@@ -259,16 +259,15 @@ pub(crate) fn owner_policy_for_registry_with_tuning(
 
     let transport = identity.send_semantics().into();
 
-    // Raw targets exclude only overlapping inquiry declarations. Admission
-    // capacity still bounds total concurrent inquiries, as for Sony sequences.
-    let inquiry_capacity = admission_capacity.get();
+    // Every inquiry holds an ordinary admission slot. That per-target bound
+    // leaves room for a Ready candidate without a separate inquiry limit; raw
+    // dispatch additionally excludes overlapping inquiry declarations.
     let wire = crate::runtime::engine::WireProtocol::new(envelope, identity.addressing());
     let mut policy = OwnerPolicy::with_targets(
         ProtocolPolicy {
-            capacity: admission_capacity.get(),
+            capacity: admission_capacity,
             wire,
             transport,
-            inquiry_capacity,
             command_spacing,
             inquiry_spacing,
             // A syntax-error inquiry retry needs to respect the strictest
@@ -1705,7 +1704,6 @@ mod tests {
         let policy = owner_policy_for_targets(&profiles, &config, SendSemantics::Stream).unwrap();
         assert!(policy.targets[TargetSlot::CAMERA_1].is_some());
         assert!(policy.targets[TargetSlot::CAMERA_2].is_some());
-        assert_eq!(policy.protocol.inquiry_capacity, policy.protocol.capacity);
         assert_eq!(
             policy.protocol.command_spacing,
             profile.timing().command_spacing()
@@ -1735,7 +1733,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(raw_policy.protocol.wire.kind(), EnvelopeKind::Raw);
-        assert_eq!(raw_policy.protocol.inquiry_capacity, capacity.get());
+        assert_eq!(raw_policy.protocol.capacity, capacity);
         assert_eq!(
             raw_policy.protocol.raw_inquiry_release_hold,
             raw.timing().raw_inquiry_reply_skew()
@@ -1752,7 +1750,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(sony_policy.protocol.wire.kind(), EnvelopeKind::Sony);
-        assert_eq!(sony_policy.protocol.inquiry_capacity, capacity.get());
+        assert_eq!(sony_policy.protocol.capacity, capacity);
     }
 
     #[test]

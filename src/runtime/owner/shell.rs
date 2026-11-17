@@ -1197,13 +1197,12 @@ mod tests {
     fn owner_with_capacity(capacity: usize) -> (OwnerHandleCore, OwnerShellCore) {
         let policy = OwnerPolicy::single_target(
             ProtocolPolicy {
-                capacity,
+                capacity: std::num::NonZeroUsize::new(capacity).unwrap(),
                 wire: crate::runtime::engine::WireProtocol::new(
                     EnvelopeKind::Raw,
                     crate::transport::AddressingMode::Ip,
                 ),
                 transport: crate::runtime::engine::TransportKind::Datagram,
-                inquiry_capacity: 1,
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,

@@ -122,8 +122,7 @@ impl Session {
     fn new(transport: TransportKind, capacity: usize, seed: u64) -> Self {
         let now = Instant::now();
         let mut configured = policy(EnvelopeKind::Raw, transport);
-        configured.capacity = capacity;
-        configured.inquiry_capacity = 8.min(capacity);
+        configured.capacity = std::num::NonZeroUsize::new(capacity).unwrap();
         configured.inquiry_spacing = Duration::from_millis(2);
         configured.raw_inquiry_release_hold = Duration::from_millis(5);
         configured.raw_release_grace = Duration::from_millis(8);
@@ -571,8 +570,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
     configured.wire =
         WireProtocol::new(EnvelopeKind::Raw, crate::transport::AddressingMode::Serial);
-    configured.capacity = 1;
-    configured.inquiry_capacity = 1;
+    configured.capacity = std::num::NonZeroUsize::new(1).unwrap();
     configured.raw_inquiry_release_hold = Duration::from_millis(1);
     let mut engine = ProtocolEngine::new(configured, now).unwrap();
     for target in 1..=7 {

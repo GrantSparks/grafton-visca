@@ -2704,10 +2704,8 @@ fn late_first_answers_are_order_independent() {
     for class in 0..5 {
         let setup = || {
             let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-            // Production raw streams use a single inquiry flight. Its timeout
-            // is terminal, so every answer class exercises a nonempty outcome
-            // oracle rather than comparing two empty retry-only effect sets.
-            engine.policy.inquiry_capacity = 1;
+            // Overlapping raw inquiries share one flight. Their timeout is
+            // terminal, so every answer class has a nonempty outcome oracle.
             let request = if class == 2 {
                 inquiry(1)
             } else {

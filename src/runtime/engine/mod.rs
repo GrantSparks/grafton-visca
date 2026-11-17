@@ -582,11 +582,6 @@ impl EngineAccess for ProtocolEngine {
 impl ProtocolEngine {
     /// Constructs an empty session engine. Targets are registered separately.
     pub(crate) fn new(policy: ProtocolPolicy, now: Instant) -> Result<Self, Error> {
-        if policy.capacity == 0 || policy.inquiry_capacity == 0 {
-            return Err(Error::InvalidRequest {
-                reason: "engine and inquiry capacity must be non-zero".into(),
-            });
-        }
         policy.validate_at(now)?;
         let correlation = CorrelationMode::new(policy.wire.kind(), policy.transport);
         Ok(Self {
@@ -944,11 +939,6 @@ trait EngineMethods: EngineAccess {
         match entry.request.lane() {
             Lane::Inquiry => {
                 self.hold_blocks_in(entry, target, occupancy)
-                    || (if self.mode().is_raw() {
-                        state.inquiries
-                    } else {
-                        occupancy.total_inquiries
-                    }) >= self.policy.inquiry_capacity
                     || self.uncorrelated_shape_blocked_in(entry, target, now, occupancy)
                     || (self.mode().is_raw()
                         && entry.request.payload_shape().is_some_and(|shape| {
@@ -1273,9 +1263,9 @@ trait EngineMethods: EngineAccess {
         let target = request.context().target;
         match slot {
             AdmissionSlot::Ordinary => {
-                if self.entries_holding(slot, target) >= self.policy.capacity {
+                if self.entries_holding(slot, target) >= self.policy.capacity.get() {
                     return Err(Error::RuntimeQueueFull {
-                        capacity: self.policy.capacity,
+                        capacity: self.policy.capacity.get(),
                     });
                 }
             }
@@ -1656,7 +1646,6 @@ trait EngineMethods: EngineAccess {
         match entry.request.lane() {
             Lane::Inquiry => {
                 self.raw_hold_blocks_dispatch(entry, target)
-                    || self.inquiries_inflight_for(target) >= self.policy.inquiry_capacity
                     || self.uncorrelated_raw_shape_blocked(entry, target, now)
                     || (self.mode().is_raw()
                         && entry.request.payload_shape().is_some_and(|shape| {
@@ -1723,17 +1712,13 @@ trait EngineMethods: EngineAccess {
         })
     }
 
-    /// Inquiry capacity is session-wide for Sony envelopes because sequence
-    /// correlation shares one transport namespace. Raw VISCA has no sequence
-    /// field, but its response source identifies the camera, so independent
-    /// targets have independent positional inquiry lanes.
+    /// Independent per-target inquiry count for the occupancy model.
     #[cfg(test)]
     fn inquiries_inflight_for(&self, target: TargetSlot) -> usize {
         self.entries
             .values()
             .filter(|entry| {
-                (!self.mode().is_raw() || entry.request.context().target == target)
-                    && entry.lifecycle().is_live_inquiry()
+                entry.request.context().target == target && entry.lifecycle().is_live_inquiry()
             })
             .count()
     }
@@ -4816,11 +4801,32 @@ trait EngineMethods: EngineAccess {
             .values()
             .filter(|entry| entry.slot == AdmissionSlot::Ordinary)
             .count();
-        if ordinary > self.policy.capacity {
+        if ordinary > self.policy.capacity.get() {
             return Err("ordinary entry capacity exceeded".into());
+        }
+        // Inquiries hold ordinary admission slots, never STOP reserve:
+        // in-flight inquiries are <= capacity, and strictly < capacity while
+        // an ordinary Ready inquiry candidate holds another slot. Derive the
+        // audit's bounded counts once rather than scanning for every target.
+        let mut inquiry_occupancy = PerTarget::<(usize, bool)>::default();
+        for entry in self
+            .entries
+            .values()
+            .filter(|entry| entry.request.is_inquiry())
+        {
+            let (in_flight, ready) = &mut inquiry_occupancy[entry.request.context().target];
+            *in_flight += usize::from(entry.lifecycle().is_live_inquiry());
+            *ready |= entry.slot == AdmissionSlot::Ordinary
+                && matches!(entry.lifecycle(), Lifecycle::Ready { .. });
         }
         for (index, state) in self.targets.iter() {
             let policy = &state.policy;
+            let (inquiries, ready) = inquiry_occupancy[index];
+            if inquiries > self.policy.capacity.get()
+                || (ready && inquiries == self.policy.capacity.get())
+            {
+                return Err("inquiry occupancy exceeds ordinary admission capacity".into());
+            }
             let reserved = self
                 .entries
                 .values()
@@ -4862,6 +4868,7 @@ trait EngineMethods: EngineAccess {
             let admissible = self
                 .policy
                 .capacity
+                .get()
                 .saturating_add(usize::from(policy.control_reserve));
             if self.mode().ledger().len(target) > stream_ledger::max_entries_per_target(admissible)
             {

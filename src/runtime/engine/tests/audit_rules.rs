@@ -60,14 +60,18 @@ fn request_pacing_follows_the_latest_lane_write() {
 #[cfg(debug_assertions)]
 fn corrupt_capacity() -> ProtocolEngine {
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        Instant::now(),
-    );
-    // Capacity is a meaningful cross-domain rule, independent of table indexes.
-    engine.policy.capacity = 0;
+    let turn = engine.begin_input_turn(Instant::now());
+    for _ in 0..2 {
+        engine
+            .admit_in_turn(
+                &turn,
+                command(1, CancellationPolicy::Supported),
+                AdmissionSlot::Ordinary,
+            )
+            .unwrap();
+    }
+    // Lower an existing valid proof beneath the admitted population.
+    engine.policy.capacity = std::num::NonZeroUsize::MIN;
     engine
 }
 

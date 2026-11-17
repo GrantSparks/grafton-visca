@@ -1656,7 +1656,7 @@ impl OwnerState {
             transport: protocol.transport,
         };
         let permits = AdmissionPermitPool::new(
-            protocol.capacity,
+            protocol.capacity.get(),
             PerTarget::from_fn(|target| targets[target].map_or(0, |policy| policy.control_reserve)),
         );
         let mut engine = ProtocolEngine::new(protocol, now)?;

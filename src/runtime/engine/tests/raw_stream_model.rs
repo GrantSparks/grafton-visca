@@ -585,8 +585,7 @@ struct Session {
 impl Session {
     fn run(kind: Kind, seed: u64) -> Coverage {
         let start = Instant::now();
-        let mut configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
-        configured.inquiry_capacity = 1;
+        let configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
         let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
         for target in [camera(1), camera(2)] {
             engine
