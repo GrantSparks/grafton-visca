@@ -76,16 +76,13 @@ impl OwnerState {
                 // The engine budget expires queued STOPs at the SAME absolute
                 // deadline; a stale STOP must not follow newer post-halt motion.
                 request.context_mut().retry.total_budget = Some(remaining);
-                let permit = self
-                    .permits
-                    .try_acquire(request.context())
-                    .inspect_err(|error| {
-                        self.record_admission_rejection(
-                            request.context().target,
-                            request.lane(),
-                            error,
-                        );
-                    })?;
+                let permit = self.permits.try_acquire(&request).inspect_err(|error| {
+                    self.record_admission_rejection(
+                        request.context().target,
+                        request.lane(),
+                        error,
+                    );
+                })?;
                 let (completion, observer) = TerminalObserver::pair();
                 let admitted = self.admit_in_turn(&turn, request.into_inner(), permit, observer)?;
                 Ok(ReceiptCore::admitted(admitted, completion, remaining.get()))

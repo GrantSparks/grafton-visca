@@ -85,6 +85,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
+    protocol::response::CameraErrorCode,
     target::{PerTarget, TargetSlot},
     PayloadShape, ViscaSocket,
 };
@@ -364,7 +365,7 @@ enum Resolution {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Evidence {
     Ack(Option<ViscaSocket>),
-    Error(u8),
+    Error(CameraErrorCode),
     /// A completion or error naming a socket, which follows an ACK.
     Named(NamedFrame),
     Other,
@@ -374,7 +375,7 @@ pub(crate) enum Evidence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NamedFrame {
     Completion(ViscaSocket),
-    Error(ViscaSocket, u8),
+    Error(ViscaSocket, CameraErrorCode),
 }
 
 impl NamedFrame {
@@ -857,11 +858,6 @@ impl StreamLedger {
                     DisputeEvent::Touched,
                     &mut answered,
                 );
-                let step = |entry: &Outstanding, evidence| OpeningStep {
-                    order: entry.order,
-                    request: entry.request,
-                    evidence,
-                };
                 let head_owes = queue
                     .iter()
                     .find(|entry| entry.order == first)
@@ -872,7 +868,7 @@ impl StreamLedger {
                         entry.order == first
                             && matches!(entry.owes, Owes::Completion | Owes::Rejection)
                     })
-                    .map(|entry| step(entry, Evidence::Error(0)));
+                    .copied();
                 // Each entry behind the first that the frame could be the own
                 // answer of is disputed, through the first that certainly
                 // still owes it (a `NoReply` command's, which may answer
@@ -883,8 +879,9 @@ impl StreamLedger {
                 {
                     state.dispute = Some(Dispute {
                         command: OpeningStep {
+                            order: completion_only.order,
+                            request: completion_only.request,
                             evidence: Evidence::Error(code),
-                            ..completion_only
                         },
                         opening: if head_owes == Some(Owes::Rejection) {
                             Opening::NoReply
@@ -1598,7 +1595,7 @@ mod tests {
     fn evidence(answer: Answer<'_>) -> Evidence {
         match answer {
             Answer::Ack => Evidence::Ack(None),
-            Answer::SocketlessError | Answer::NamedRejection => Evidence::Error(0x41),
+            Answer::SocketlessError | Answer::NamedRejection => Evidence::Error(0x41.into()),
             _ => Evidence::Other,
         }
     }
@@ -1659,7 +1656,11 @@ mod tests {
             ledger.push(TARGET, request(id), owes);
             ledger.mark_written(TARGET, request(id), false);
         }
-        let answered = ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+        let answered = ledger.answer(
+            TARGET,
+            Answer::SocketlessError,
+            Evidence::Error(0x41.into()),
+        );
         assert!(matches!(answered.resolved, Resolved::Disputed(_)));
         assert!(ledger.awaits_dispute(TARGET, request(2)));
         let (paid, decided) = ledger.take_completion(TARGET).unwrap();
@@ -1668,7 +1669,7 @@ mod tests {
             decided.retro.as_slice(),
             [Retro {
                 request: request(2),
-                evidence: Evidence::Error(0x41),
+                evidence: Evidence::Error(0x41.into()),
             }]
         );
         assert!(!ledger.awaits_dispute(TARGET, request(2)));
@@ -1683,7 +1684,11 @@ mod tests {
                 .chain(std::iter::repeat_n(Owes::Ack, count))
                 .collect();
             let mut ledger = owed(&kinds);
-            let disputed = ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+            let disputed = ledger.answer(
+                TARGET,
+                Answer::SocketlessError,
+                Evidence::Error(0x41.into()),
+            );
             assert!(matches!(disputed.resolved, Resolved::Disputed(_)));
             ledger.check_disputes().unwrap();
             ledger.answer(TARGET, Answer::Completion, Evidence::Other);
@@ -1707,7 +1712,11 @@ mod tests {
     #[test]
     fn the_dispute_audit_detects_a_member_lost_without_a_frame() {
         let mut ledger = owed(&[Owes::Completion, Owes::Ack, Owes::Ack]);
-        ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+        ledger.answer(
+            TARGET,
+            Answer::SocketlessError,
+            Evidence::Error(0x41.into()),
+        );
         ledger.check_disputes().unwrap();
         ledger
             .queue_mut(TARGET)
@@ -1732,7 +1741,11 @@ mod tests {
                 Owes::Ack,
                 Owes::Ack,
             ]);
-            ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+            ledger.answer(
+                TARGET,
+                Answer::SocketlessError,
+                Evidence::Error(0x41.into()),
+            );
             ledger.push(TARGET, request(99), Owes::Ack);
             ledger.mark_written(TARGET, request(99), false);
             for _ in 0..paid {
@@ -1810,12 +1823,20 @@ mod tests {
     fn a_disputed_error_is_assigned_by_decisive_evidence() {
         let mut ledger = owed(&[Owes::Completion, Owes::Completion]);
         assert_eq!(shape(&ledger), [(Owes::Completion, 2)]);
-        let answered = ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x02));
+        let answered = ledger.answer(
+            TARGET,
+            Answer::SocketlessError,
+            Evidence::Error(0x02.into()),
+        );
         assert!(matches!(answered.resolved, Resolved::Debt(_)));
 
         for (proof, retro_to) in [(Answer::Ack, 1), (Answer::Completion, 2)] {
             let mut ledger = owed(&[Owes::Completion, Owes::Ack]);
-            let answered = ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x02));
+            let answered = ledger.answer(
+                TARGET,
+                Answer::SocketlessError,
+                Evidence::Error(0x02.into()),
+            );
             assert!(matches!(answered.resolved, Resolved::Disputed(_)));
             assert_eq!(
                 shape(&ledger),
@@ -1829,7 +1850,7 @@ mod tests {
                 answered.retro.as_slice(),
                 [Retro {
                     request: request(retro_to),
-                    evidence: Evidence::Error(0x02),
+                    evidence: Evidence::Error(0x02.into()),
                 }],
                 "{proof:?}"
             );
@@ -1844,7 +1865,11 @@ mod tests {
     #[test]
     fn a_dispute_is_handed_off_to_the_next_waiting_stop() {
         let mut ledger = owed(&[Owes::Completion, Owes::Ack]);
-        ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x02));
+        ledger.answer(
+            TARGET,
+            Answer::SocketlessError,
+            Evidence::Error(0x02.into()),
+        );
         ledger.push(TARGET, request(9), Owes::Ack);
         ledger.mark_written(TARGET, request(9), false);
         // While a dispute is tracked nothing crosses, and no inquiry is
@@ -1866,7 +1891,7 @@ mod tests {
                 .map(|retro| (retro.request, retro.evidence))
                 .collect::<Vec<_>>(),
             [
-                (request(2), Evidence::Error(0x02)),
+                (request(2), Evidence::Error(0x02.into())),
                 (request(9), Evidence::Ack(socket)),
             ]
         );
@@ -1876,7 +1901,11 @@ mod tests {
     #[test]
     fn the_largest_dispute_decision_fits_its_exact_inline_bound() {
         let mut ledger = owed(&[Owes::Completion, Owes::Ack]);
-        ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+        ledger.answer(
+            TARGET,
+            Answer::SocketlessError,
+            Evidence::Error(0x41.into()),
+        );
         for (id, socket) in [
             (3, ViscaSocket::S1),
             (4, ViscaSocket::S2),
@@ -1894,7 +1923,7 @@ mod tests {
         assert_eq!(answered.retro.len(), MAX_RETRO_FRAMES);
         assert_eq!(MAX_RETRO_FRAMES, 7);
         assert!(!answered.retro.spilled());
-        assert_eq!(answered.retro[0].evidence, Evidence::Error(0x41));
+        assert_eq!(answered.retro[0].evidence, Evidence::Error(0x41.into()));
         assert_eq!(
             answered.retro.last().map(|retro| retro.evidence),
             Some(Evidence::Named(NamedFrame::Completion(ViscaSocket::S1)))
@@ -1961,7 +1990,7 @@ mod tests {
         // inquiry is always a real separator between command debt runs.
         assert_eq!(ledger.len(TARGET), 5);
         assert!(
-            matches!(ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(2)).resolved,
+            matches!(ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(2.into())).resolved,
             Resolved::Debt(entry) if entry.request == request(1))
         );
         // Bytes(4) admits this; Nibbles(4) does not. Equality/merging keeps

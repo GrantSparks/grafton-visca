@@ -15,7 +15,11 @@
 //!   progress never buys a fresh timeout, and a budget too large for the
 //!   monotonic clock is rejected as [`Error::InvalidParameter`], exactly as
 //!   configuration validation rejects it.
-//! - **Writes.** [`write_all_bounded`] retries `Interrupted` in place and reports
+//! - **Errors.** [`TimedIo::verdict`] gives each medium and direction one
+//!   retry, idle or fault verdict. [`bounded_io`] re-arms retries and early idle
+//!   results within the original precise deadline, for reads and writes alike.
+//!   Unix TCP `TimedOut` faults retain their OS cause; `WouldBlock` is idle.
+//! - **Writes.** [`write_all_bounded`] keeps partial progress and reports
 //!   expiry as [`Error::io_timeout`]. A zero-byte timed serial write also means
 //!   its device timeout elapsed; a zero-byte socket write is `WriteZero`.
 //!   Claiming more bytes than supplied is always [`Error::Io`].
@@ -44,36 +48,43 @@ pub use udp::Udp;
 #[cfg(test)]
 mod tests;
 
-/// Which bounded operation produced an I/O error, for deciding whether it
-/// ended idle (nothing transferred) rather than failing.
+/// Medium and direction of a bounded operation. Unix stream socket timeouts
+/// distinguish an elapsed OS timer (`WouldBlock`) from a dead connection
+/// (`TimedOut`), on writes as well as reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TimedIo {
-    /// A write on any transport, or a read whose `TimedOut` can only mean the
-    /// armed timeout (datagram sockets, serial devices).
-    Bounded,
-    /// A serial-device operation, where a zero-byte timed write reports an
-    /// elapsed device timeout rather than a socket's `WriteZero`.
+    StreamSocketRead,
+    StreamSocketWrite,
+    Datagram,
+    /// A zero-byte timed serial write also means the device timer elapsed.
     #[cfg(feature = "transport-serial")]
     SerialDevice,
-    /// A read from a connected TCP stream. Unix reports an expired
-    /// `SO_RCVTIMEO` as `EAGAIN` / `WouldBlock`, while `ETIMEDOUT` is the
-    /// connection-level result of exhausted keepalive probes and must reach
-    /// the owner as session death (#719). Other platforms may report the armed
-    /// read timeout itself as `TimedOut`.
-    StreamSocketRead,
+}
+
+/// The one interpretation of an I/O error inside the blocking transport loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IoVerdict {
+    Retry,
+    Idle,
+    Fault,
 }
 
 impl TimedIo {
-    /// Whether `error` means the operation ended idle: its armed timeout
-    /// elapsed, or a signal interrupted it before any byte moved.
-    pub(crate) fn ended_idle(self, error: &io::Error) -> bool {
-        match (self, error.kind()) {
-            (_, io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => true,
-            (Self::Bounded, io::ErrorKind::TimedOut) => true,
+    pub(crate) const fn verdict(self, error: io::ErrorKind) -> IoVerdict {
+        match (self, error) {
+            (_, io::ErrorKind::Interrupted) => IoVerdict::Retry,
+            (_, io::ErrorKind::WouldBlock) => IoVerdict::Idle,
+            (Self::Datagram, io::ErrorKind::TimedOut) => IoVerdict::Idle,
             #[cfg(feature = "transport-serial")]
-            (Self::SerialDevice, io::ErrorKind::TimedOut) => true,
-            (Self::StreamSocketRead, io::ErrorKind::TimedOut) => cfg!(not(unix)),
-            _ => false,
+            (Self::SerialDevice, io::ErrorKind::TimedOut) => IoVerdict::Idle,
+            (Self::StreamSocketRead | Self::StreamSocketWrite, io::ErrorKind::TimedOut) => {
+                if cfg!(unix) {
+                    IoVerdict::Fault
+                } else {
+                    IoVerdict::Idle
+                }
+            }
+            _ => IoVerdict::Fault,
         }
     }
 }
@@ -81,11 +92,54 @@ impl TimedIo {
 /// Sets the per-call timeout of one I/O handle before its next syscall.
 pub(crate) type Arm<Io> = fn(&mut Io, Duration) -> io::Result<()>;
 
-/// Write all of `bytes` before `deadline`.
-///
-/// Each syscall is armed with the remaining budget, so a partial write keeps
-/// the one whole-frame deadline. See the module policy for the
-/// error contract.
+/// Keep a syscall error unboxed until its verdict is known. Retrying an idle
+/// timer or signal interruption must not allocate an `Error::Io` source.
+#[derive(Debug)]
+pub(crate) enum AttemptError {
+    Io(io::Error),
+    Other(Error),
+}
+
+impl From<io::Error> for AttemptError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl From<Error> for AttemptError {
+    fn from(error: Error) -> Self {
+        Self::Other(error)
+    }
+}
+
+/// Run one bounded operation. An attempt returns `None` for partial progress or
+/// a discarded datagram, and `Some` when the operation finishes. Signal retries
+/// and idle results both recheck the precise deadline before another syscall.
+/// Arming failures and non-I/O errors retain their original error unchanged.
+pub(crate) fn bounded_io<Io: ?Sized, T>(
+    io: &mut Io,
+    arm: Arm<Io>,
+    deadline: Deadline,
+    kind: TimedIo,
+    mut now: impl FnMut() -> Instant,
+    mut attempt: impl FnMut(&mut Io) -> std::result::Result<Option<T>, AttemptError>,
+) -> Result<T> {
+    loop {
+        let remaining = deadline.remaining_or(now(), Error::io_timeout)?;
+        arm(io, remaining)?;
+        match attempt(io) {
+            Ok(Some(value)) => return Ok(value),
+            Ok(None) => {}
+            Err(AttemptError::Io(error)) => match kind.verdict(error.kind()) {
+                IoVerdict::Retry | IoVerdict::Idle => {}
+                IoVerdict::Fault => return Err(error.into()),
+            },
+            Err(AttemptError::Other(error)) => return Err(error),
+        }
+    }
+}
+
+/// Write all of `bytes` before `deadline`, retaining one whole-frame budget.
 pub(crate) fn write_all_bounded<Io: Write + ?Sized>(
     io: &mut Io,
     arm: Arm<Io>,
@@ -93,38 +147,43 @@ pub(crate) fn write_all_bounded<Io: Write + ?Sized>(
     deadline: Deadline,
     kind: TimedIo,
 ) -> Result<()> {
-    let mut written = 0;
-    while written < bytes.len() {
-        let remaining = deadline.remaining_or(Instant::now(), Error::io_timeout)?;
-        arm(io, remaining)?;
+    write_before(io, arm, bytes, deadline, kind, Instant::now)
+}
 
+/// The write attempt with a clock seam shared with reads and datagrams.
+fn write_before<Io: Write + ?Sized>(
+    io: &mut Io,
+    arm: Arm<Io>,
+    bytes: &[u8],
+    deadline: Deadline,
+    kind: TimedIo,
+    now: impl FnMut() -> Instant,
+) -> Result<()> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let mut written = 0;
+    bounded_io(io, arm, deadline, kind, now, |io| {
         let pending = bytes.len() - written;
-        match io.write(&bytes[written..]) {
-            Ok(0) => {
+        match io.write(&bytes[written..])? {
+            0 => {
                 #[cfg(feature = "transport-serial")]
                 if kind == TimedIo::SerialDevice {
-                    return Err(Error::io_timeout());
+                    return Err(Error::io_timeout().into());
                 }
-                return Err(
-                    io::Error::new(io::ErrorKind::WriteZero, "write made no progress").into(),
-                );
+                Err(io::Error::new(io::ErrorKind::WriteZero, "write made no progress").into())
             }
-            Ok(count) if count <= pending => written += count,
-            Ok(count) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("write reported {count} bytes for a {pending}-byte buffer"),
-                )
-                .into());
+            count if count <= pending => {
+                written += count;
+                Ok((written == bytes.len()).then_some(()))
             }
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) if kind.ended_idle(&error) => {
-                return Err(Error::io_timeout());
-            }
-            Err(error) => return Err(error.into()),
+            count => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("write reported {count} bytes for a {pending}-byte buffer"),
+            )
+            .into()),
         }
-    }
-    Ok(())
+    })
 }
 
 /// Read within `timeout`, retrying signal interruptions and early idle results
@@ -142,26 +201,16 @@ pub(crate) fn read_once_bounded<Io: Read + ?Sized>(
     read_before(io, arm, dst, deadline, kind, Instant::now)
 }
 
-/// The bounded read loop; its clock seam pins signal and idle retries at the deadline.
+/// A read attempt using the shared bounded loop and its clock seam.
 pub(crate) fn read_before<Io: Read + ?Sized>(
     io: &mut Io,
     arm: Arm<Io>,
     dst: &mut [u8],
     deadline: Deadline,
     kind: TimedIo,
-    mut now: impl FnMut() -> Instant,
+    now: impl FnMut() -> Instant,
 ) -> Result<usize> {
-    loop {
-        let remaining = deadline.remaining_or(now(), Error::io_timeout)?;
-        arm(io, remaining)?;
-        match io.read(dst) {
-            Ok(read) => return Ok(read),
-            // Device and socket timers may return before the precise budget,
-            // so an idle result rechecks the same deadline before re-arming.
-            Err(error) if kind.ended_idle(&error) => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
+    bounded_io(io, arm, deadline, kind, now, |io| Ok(Some(io.read(dst)?)))
 }
 
 #[cfg(test)]
@@ -206,7 +255,7 @@ mod helper_tests {
 
     fn write(io: &mut ScriptedIo, bytes: &[u8], budget: Duration) -> Result<()> {
         let deadline = Deadline::after(Instant::now(), budget, "write_timeout")?;
-        write_all_bounded(io, ScriptedIo::arm, bytes, deadline, TimedIo::Bounded)
+        write_all_bounded(io, ScriptedIo::arm, bytes, deadline, TimedIo::Datagram)
     }
 
     #[test]
@@ -297,7 +346,7 @@ mod helper_tests {
     #[test]
     fn interrupted_reads_retry_only_with_the_original_budget_remaining() {
         for kind in [
-            TimedIo::Bounded,
+            TimedIo::Datagram,
             TimedIo::StreamSocketRead,
             #[cfg(feature = "transport-serial")]
             TimedIo::SerialDevice,
@@ -377,7 +426,7 @@ mod helper_tests {
     fn idle_reads_rearm_until_the_precise_deadline() {
         let budget = Duration::from_micros(10_500);
         for (kind, idle_kind) in [
-            (TimedIo::Bounded, ErrorKind::TimedOut),
+            (TimedIo::Datagram, ErrorKind::TimedOut),
             (TimedIo::StreamSocketRead, ErrorKind::WouldBlock),
             #[cfg(feature = "transport-serial")]
             (TimedIo::SerialDevice, ErrorKind::TimedOut),
@@ -446,15 +495,92 @@ mod helper_tests {
     }
 
     #[test]
-    fn stream_socket_reads_keep_unix_connection_timeouts_distinct() {
-        assert!(TimedIo::StreamSocketRead.ended_idle(&ErrorKind::WouldBlock.into()));
-        assert!(TimedIo::StreamSocketRead.ended_idle(&ErrorKind::Interrupted.into()));
-        assert_eq!(
-            TimedIo::StreamSocketRead.ended_idle(&ErrorKind::TimedOut.into()),
-            cfg!(not(unix)),
-            "Unix ETIMEDOUT must reach the owner as keepalive/session failure"
-        );
-        assert!(TimedIo::Bounded.ended_idle(&ErrorKind::TimedOut.into()));
-        assert!(!TimedIo::Bounded.ended_idle(&ErrorKind::BrokenPipe.into()));
+    fn an_early_idle_write_can_finish_within_the_original_budget() {
+        let started = Instant::now();
+        let budget = Duration::from_millis(10);
+        let deadline = Deadline::after(started, budget, "write_timeout").expect("deadline");
+        let mut samples = [started, started + Duration::from_millis(4)].into_iter();
+        let mut io = ScriptedIo {
+            write_results: vec![Err(ErrorKind::WouldBlock.into()), Ok(5)],
+            ..ScriptedIo::default()
+        };
+        write_before(
+            &mut io,
+            ScriptedIo::arm,
+            b"VISCA",
+            deadline,
+            TimedIo::StreamSocketWrite,
+            || samples.next().expect("one deadline check per attempt"),
+        )
+        .expect("write after early idle");
+        assert_eq!(io.armed, [budget, Duration::from_millis(6)]);
+        assert_eq!(io.written, b"VISCA");
+    }
+
+    #[test]
+    fn stream_writes_retain_connection_timeouts_and_recheck_idle_deadlines() {
+        for error_kind in [
+            ErrorKind::TimedOut,
+            ErrorKind::WouldBlock,
+            ErrorKind::BrokenPipe,
+        ] {
+            let started = Instant::now();
+            let budget = Duration::from_millis(10);
+            let deadline = Deadline::after(started, budget, "write_timeout").expect("deadline");
+            let mut samples = [started, started + budget].into_iter();
+            let mut io = ScriptedIo {
+                write_results: vec![Err(io::Error::new(error_kind, "original write cause"))],
+                ..ScriptedIo::default()
+            };
+            let error = write_before(
+                &mut io,
+                ScriptedIo::arm,
+                b"VISCA",
+                deadline,
+                TimedIo::StreamSocketWrite,
+                || samples.next().expect("one deadline check per attempt"),
+            )
+            .expect_err("scripted write fails");
+            if error_kind == ErrorKind::BrokenPipe
+                || cfg!(unix) && error_kind == ErrorKind::TimedOut
+            {
+                assert!(
+                    matches!(error, Error::Io { ref source } if source.kind() == error_kind && source.to_string() == "original write cause")
+                );
+            } else {
+                assert!(matches!(error, Error::Timeout { .. }));
+            }
+            assert_eq!(io.armed, [budget], "no syscall after the precise deadline");
+        }
+    }
+
+    #[test]
+    fn the_verdict_table_distinguishes_retries_idle_and_faults() {
+        for kind in [
+            TimedIo::StreamSocketRead,
+            TimedIo::StreamSocketWrite,
+            TimedIo::Datagram,
+            #[cfg(feature = "transport-serial")]
+            TimedIo::SerialDevice,
+        ] {
+            for (error, expected) in [
+                (ErrorKind::Interrupted, IoVerdict::Retry),
+                (ErrorKind::WouldBlock, IoVerdict::Idle),
+                (
+                    ErrorKind::TimedOut,
+                    if cfg!(unix)
+                        && matches!(kind, TimedIo::StreamSocketRead | TimedIo::StreamSocketWrite)
+                    {
+                        IoVerdict::Fault
+                    } else {
+                        IoVerdict::Idle
+                    },
+                ),
+                (ErrorKind::BrokenPipe, IoVerdict::Fault),
+                (ErrorKind::ConnectionReset, IoVerdict::Fault),
+            ] {
+                assert_eq!(kind.verdict(error), expected, "{kind:?}: {error:?}");
+            }
+        }
     }
 }

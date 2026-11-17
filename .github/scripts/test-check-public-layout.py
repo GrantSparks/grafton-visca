@@ -239,6 +239,36 @@ class ExportGraphTests(unittest.TestCase):
         crate.module("architecture")
         self.assertTrue(crate.check()["ok"])
 
+    def test_class_policies_have_one_canonical_request_home(self):
+        crate = valid_crate()
+        request = crate.module("request")
+        crate.enum("CommandRetryClass", request, ("Never", "Standard", "Movement", "Preset"))
+        crate.enum("InquiryRetryClass", request, ("Never", "Inquiry"))
+        policies = [crate.struct(name, request) for name in ("CommandPolicy", "OperationPolicy", "InquiryPolicy")]
+        self.assertTrue(crate.check()["ok"])
+
+        raw = crate.module("raw")
+        for policy in policies:
+            name = crate.document["index"][str(policy)]["name"]
+            crate.use(name, policy, raw)
+        report = crate.check()
+        misplaced = {entry["path"] for entry in report["violations"] if entry["code"] == "wrong_home"}
+        self.assertTrue({f"visca::raw::{name}" for name in ("CommandPolicy", "OperationPolicy", "InquiryPolicy")} <= misplaced)
+
+    def test_flat_policy_enums_stay_private_even_through_renamed_exports(self):
+        crate = valid_crate()
+        internal = crate.module("requests", visibility="default")
+        retry = crate.enum("RetryClass", internal)
+        timeout = crate.enum("TimeoutClass", internal)
+        self.assertTrue(crate.check()["ok"], "private lowering enums are permitted")
+
+        request = crate.module("request")
+        crate.use("LegacyRetry", retry, request)
+        crate.use("LegacyTimeout", timeout, crate.prelude)
+        report = crate.check()
+        removed = {entry["path"] for entry in report["violations"] if entry["code"] == "removed_public_item"}
+        self.assertTrue({"visca::request::LegacyRetry", "visca::prelude::LegacyTimeout"} <= removed)
+
     def test_removed_modules_family_enums_and_fr7_requests_fail(self):
         crate = valid_crate()
         crate.module("camera")

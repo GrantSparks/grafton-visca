@@ -519,7 +519,7 @@ const CAUSES: [Cause; 5] = [
 
 #[derive(Debug, Clone, Copy)]
 enum Job {
-    Command { id: RequestId, shape: ReplyShape },
+    Command { id: RequestId, shape: CommandReply },
     Inquiry(RequestId),
     Cancel { id: RequestId, socket: ViscaSocket },
 }
@@ -781,7 +781,7 @@ impl Session {
             let request = command_with_reply_shape(
                 target,
                 CancellationPolicy::Supported,
-                ReplyShape::NoReply,
+                CommandReply::NoReply,
             );
             self.admit(request, AdmissionSlot::Ordinary);
             return;
@@ -805,7 +805,7 @@ impl Session {
                 command_with_reply_shape(
                     target,
                     CancellationPolicy::Supported,
-                    ReplyShape::CompletionOnly,
+                    CommandReply::CompletionOnly,
                 ),
                 AdmissionSlot::Ordinary,
             ),
@@ -1014,7 +1014,7 @@ impl Session {
                 && !matches!(
                     job,
                     Job::Command {
-                        shape: ReplyShape::CompletionOnly,
+                        shape: CommandReply::CompletionOnly,
                         ..
                     }
                 )
@@ -1035,7 +1035,10 @@ impl Session {
                 let response = if self.roll(10) == 0 {
                     self.coverage.inquiry_rejections += 1;
                     let code = [0x02, 0x41][usize::try_from(self.roll(2)).unwrap()];
-                    DecodedResponse::Error { socket: None, code }
+                    DecodedResponse::Error {
+                        socket: None,
+                        code: code.into(),
+                    }
                 } else {
                     DecodedResponse::InquiryReply {
                         payload: SmallVec::from_slice(&id.get().to_le_bytes()),
@@ -1045,7 +1048,7 @@ impl Session {
             }
             Job::Command {
                 id,
-                shape: ReplyShape::NoReply,
+                shape: CommandReply::NoReply,
             } => {
                 self.coverage.no_reply += 1;
                 if self.roll(6) == 0 {
@@ -1054,7 +1057,7 @@ impl Session {
                         target,
                         DecodedResponse::Error {
                             socket: None,
-                            code: 0x41,
+                            code: 0x41.into(),
                         },
                         id,
                     ));
@@ -1062,7 +1065,7 @@ impl Session {
             }
             Job::Command {
                 id,
-                shape: ReplyShape::CompletionOnly,
+                shape: CommandReply::CompletionOnly,
             } => {
                 self.coverage.completion_only += 1;
                 if self.roll(6) == 0 {
@@ -1072,7 +1075,7 @@ impl Session {
                         target,
                         DecodedResponse::Error {
                             socket: None,
-                            code: 0x02,
+                            code: 0x02.into(),
                         },
                         id,
                     ));
@@ -1088,7 +1091,7 @@ impl Session {
             }
             Job::Command {
                 id,
-                shape: ReplyShape::AckThenCompletion,
+                shape: CommandReply::Stop | CommandReply::AckThenCompletion,
             } => {
                 let roll = self.roll(100);
                 let latency = self.latency();
@@ -1109,7 +1112,7 @@ impl Session {
                         self.coverage.socketless_rejections += 1;
                         DecodedResponse::Error {
                             socket: None,
-                            code: 0x03,
+                            code: 0x03.into(),
                         }
                     }
                     Some(index) if roll < 8 => {
@@ -1119,12 +1122,15 @@ impl Session {
                         self.coverage.named_rejections += 1;
                         DecodedResponse::Error {
                             socket: Some(socket_at(index)),
-                            code: 0x41,
+                            code: 0x41.into(),
                         }
                     }
                     Some(_) if roll < 14 => {
                         self.coverage.socketless_rejections += 1;
-                        DecodedResponse::Error { socket: None, code }
+                        DecodedResponse::Error {
+                            socket: None,
+                            code: code.into(),
+                        }
                     }
                     Some(index) => {
                         camera.rotation = (index + 1) % 2;
@@ -1159,7 +1165,7 @@ impl Session {
                     target,
                     DecodedResponse::Error {
                         socket: Some(socket),
-                        code,
+                        code: code.into(),
                     },
                     id,
                 ));
@@ -1193,7 +1199,7 @@ impl Session {
                         self.coverage.execution_errors += 1;
                         DecodedResponse::Error {
                             socket: Some(socket_at(socket)),
-                            code: 0x41,
+                            code: 0x41.into(),
                         }
                     } else {
                         DecodedResponse::Completion {
@@ -1643,7 +1649,11 @@ fn learned_completion_chunking(
     let (write, completion_only) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         now,
     );
     observed.extend(write.iter().map(|effect| format!("{effect:?}")));

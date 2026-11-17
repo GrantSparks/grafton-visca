@@ -5,7 +5,7 @@
 //! the retry class and nothing else.
 
 use grafton_visca::{
-    request::{self, ControlClass, Request, RetryClass, TimeoutClass},
+    request::{self, Request},
     types::CameraId,
     Error,
 };
@@ -21,9 +21,13 @@ pub struct StandardCommand;
 impl Request for StandardCommand {
     type Class = request::PlainClass;
     const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Standard;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+    fn policy(&self) -> request::CommandPolicy {
+        request::CommandPolicy::new(
+            grafton_visca::profiles::CommandTimeoutClass::Quick,
+            request::CommandRetryClass::Standard,
+            request::SubmissionClass::Normal,
+        )
+    }
 
     fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
         out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
@@ -42,9 +46,13 @@ pub struct MovementCommand;
 impl Request for MovementCommand {
     type Class = request::PlainClass;
     const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Movement;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+    fn policy(&self) -> request::CommandPolicy {
+        request::CommandPolicy::new(
+            grafton_visca::profiles::CommandTimeoutClass::Quick,
+            request::CommandRetryClass::Movement,
+            request::SubmissionClass::Normal,
+        )
+    }
 
     fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
         out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);

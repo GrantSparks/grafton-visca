@@ -11,6 +11,107 @@ use crate::{
     ViscaSocket,
 };
 
+/// A decoded VISCA camera error, shared by routing, retries and diagnostics.
+///
+/// A named `NoSocket` answers a cancellation; without a socket it may reject
+/// a request before it starts. Consumers decide socket ownership first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CameraErrorCode {
+    MessageLength,
+    Syntax,
+    BufferFull,
+    Cancelled,
+    NoSocket,
+    NotExecutable,
+    Other(u8),
+}
+
+impl CameraErrorCode {
+    pub(crate) const fn from_byte(byte: u8) -> Self {
+        match byte {
+            0x01 => Self::MessageLength,
+            0x02 => Self::Syntax,
+            0x03 => Self::BufferFull,
+            0x04 => Self::Cancelled,
+            0x05 => Self::NoSocket,
+            0x41 => Self::NotExecutable,
+            other => Self::Other(other),
+        }
+    }
+
+    // Keep the public Error::from_code constructor usable in const contexts.
+    pub(crate) const fn into_error(self) -> crate::Error {
+        match self {
+            Self::MessageLength => crate::Error::MessageLengthError,
+            Self::Syntax => crate::Error::SyntaxError,
+            Self::BufferFull => crate::Error::CommandBufferFull,
+            Self::Cancelled => crate::Error::CommandCancelled,
+            Self::NoSocket => crate::Error::NoSocket,
+            Self::NotExecutable => crate::Error::CommandNotExecutable,
+            Self::Other(code) => crate::Error::Unknown { code },
+        }
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl CameraErrorCode {
+    /// Only a cancellation can own these errors when they name a socket.
+    pub(crate) const fn answers_named_cancellation(self) -> bool {
+        match self {
+            Self::Cancelled | Self::NoSocket => true,
+            Self::MessageLength
+            | Self::Syntax
+            | Self::BufferFull
+            | Self::NotExecutable
+            | Self::Other(_) => false,
+        }
+    }
+
+    pub(crate) const fn confirms_cancellation(self) -> bool {
+        match self {
+            Self::Cancelled => true,
+            Self::MessageLength
+            | Self::Syntax
+            | Self::BufferFull
+            | Self::NoSocket
+            | Self::NotExecutable
+            | Self::Other(_) => false,
+        }
+    }
+
+    /// Rejection evidence is conclusive only before the request's ACK.
+    pub(crate) const fn refuses_before_start(self) -> bool {
+        match self {
+            Self::MessageLength
+            | Self::Syntax
+            | Self::BufferFull
+            | Self::NoSocket
+            | Self::NotExecutable => true,
+            Self::Cancelled | Self::Other(_) => false,
+        }
+    }
+
+    /// Camera backpressure is distinct from a successful cancellation answer.
+    pub(crate) const fn is_busy(self) -> bool {
+        match self {
+            Self::BufferFull | Self::NoSocket | Self::NotExecutable => true,
+            Self::MessageLength | Self::Syntax | Self::Cancelled | Self::Other(_) => false,
+        }
+    }
+}
+
+impl From<u8> for CameraErrorCode {
+    fn from(byte: u8) -> Self {
+        Self::from_byte(byte)
+    }
+}
+
+impl From<CameraErrorCode> for crate::Error {
+    fn from(code: CameraErrorCode) -> Self {
+        code.into_error()
+    }
+}
+
 /// Basic VISCA response kind.
 ///
 /// This enum represents the fundamental response types in the VISCA protocol,
@@ -31,7 +132,7 @@ pub enum BasicKind<'a> {
     /// Error response with code (z0 6y zz FF).
     Error {
         socket: Option<ViscaSocket>,
-        code: u8,
+        code: CameraErrorCode,
     },
     /// Network change message (z0 38 FF).
     NetworkChange,
@@ -128,7 +229,7 @@ pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<
             }
             BasicKind::Error {
                 socket: decode_fixed_socket(byte & 0x0f)?,
-                code: frame[2],
+                code: CameraErrorCode::from(frame[2]),
             }
         }
         0x38 => {
@@ -178,6 +279,69 @@ mod tests {
     /// Reply address byte for the camera at chain address `id`.
     fn reply_address(id: u8) -> u8 {
         (8 + id) << 4
+    }
+
+    #[test]
+    fn decoder_carries_the_closed_code_and_public_constructor_stays_const() {
+        const NO_SOCKET: crate::Error = crate::Error::from_code(0x05);
+        assert!(matches!(NO_SOCKET, crate::Error::NoSocket));
+        for (byte, code) in [
+            (0x01, CameraErrorCode::MessageLength),
+            (0x02, CameraErrorCode::Syntax),
+            (0x03, CameraErrorCode::BufferFull),
+            (0x04, CameraErrorCode::Cancelled),
+            (0x05, CameraErrorCode::NoSocket),
+            (0x41, CameraErrorCode::NotExecutable),
+            (0x7f, CameraErrorCode::Other(0x7f)),
+        ] {
+            assert_eq!(
+                decode_basic(&[0x90, 0x61, byte, VISCA_TERMINATOR])
+                    .unwrap()
+                    .kind,
+                BasicKind::Error {
+                    socket: Some(ViscaSocket::S1),
+                    code
+                },
+            );
+            assert_eq!(
+                crate::Error::from(code).to_string(),
+                crate::Error::from_code(byte).to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn every_camera_code_preserves_decoding_and_public_error() {
+        for code in 0..=u8::MAX {
+            for socket in [None, Some(ViscaSocket::S1), Some(ViscaSocket::S2)] {
+                let nibble = socket.map_or(0, |socket| socket.to_wire());
+                let frame = [0x90, 0x60 | nibble, code, VISCA_TERMINATOR];
+                assert_eq!(
+                    decode_basic(&frame).unwrap().kind,
+                    BasicKind::Error {
+                        socket,
+                        code: code.into()
+                    }
+                );
+            }
+            let expected = match code {
+                1 => crate::Error::MessageLengthError,
+                2 => crate::Error::SyntaxError,
+                3 => crate::Error::CommandBufferFull,
+                4 => crate::Error::CommandCancelled,
+                5 => crate::Error::NoSocket,
+                0x41 => crate::Error::CommandNotExecutable,
+                _ => crate::Error::Unknown { code },
+            };
+            assert_eq!(
+                std::mem::discriminant(&crate::Error::from_code(code)),
+                std::mem::discriminant(&expected)
+            );
+            assert_eq!(
+                crate::Error::from_code(code).to_string(),
+                expected.to_string()
+            );
+        }
     }
 
     #[test]
@@ -242,7 +406,7 @@ mod tests {
                 error.kind,
                 BasicKind::Error {
                     socket: Some(ViscaSocket::S1),
-                    code: 0x41
+                    code: 0x41.into()
                 }
             );
             assert_eq!(error.source, camera);
@@ -310,7 +474,7 @@ mod tests {
             response.kind,
             BasicKind::Error {
                 socket: None,
-                code: 0x02
+                code: 0x02.into()
             }
         );
 
@@ -320,7 +484,7 @@ mod tests {
             response.kind,
             BasicKind::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x03
+                code: 0x03.into()
             }
         );
     }
@@ -398,7 +562,7 @@ mod tests {
                 error.kind,
                 BasicKind::Error {
                     socket: expected,
-                    code: 0x02
+                    code: 0x02.into()
                 }
             );
         }
@@ -460,7 +624,7 @@ mod tests {
             source: CameraId::CAMERA_1,
             kind: BasicKind::Error {
                 socket: None,
-                code: 0x02,
+                code: 0x02.into(),
             },
         };
         let lifted =

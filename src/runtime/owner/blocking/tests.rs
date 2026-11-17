@@ -36,8 +36,8 @@ use crate::{
     protocol::sony::SonyHeader,
     request::builtin::{FocusModeCommand, PanTiltLimitClear, ZoomStop},
     runtime::engine::{
-        CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape, RequestContext, RetryPolicy,
-        TimeoutPolicy,
+        CancellationPolicy, CommandReply, ControlPolicy, EncodedMessage, RequestContext,
+        RetryPolicy, TimeoutPolicy,
     },
     transport::{
         BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
@@ -1479,7 +1479,7 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     context.timeout.completion =
         crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(6)).unwrap();
     let request = RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(ZOOM_STOP).unwrap()),
         context,
         applied_state: None,

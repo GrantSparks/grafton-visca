@@ -20,23 +20,26 @@ The rule is intentionally narrow:
 
 Custom wire frames use the single canonical raw namespace. The four request
 classes are `raw::PlainRequest`, `raw::InquiryRequest`, `raw::TargetedRequest`, and
-`raw::AppliedOnlyRequest`; plain commands use `raw::CommandPolicy`, operations use
-`raw::OperationPolicy`, and inquiries use `raw::InquiryPolicy`. Each class
-has one primary `new` constructor and one
-`with_policy` constructor where a prebuilt policy is useful. Inquiry decoders
-use `from_fn` or `with_context`, and operation values expose `bytes()` and
-`affected_axes()`. All inquiry convenience constructors select the `Inquiry`
-timeout category. Inquiry policies store neither timeout nor command reply
-shape. Command and operation policies take `CommandTimeoutClass`, which has no
-`Inquiry` variant. Inquiry policies and convenience constructors take
-`request::InquiryRetryClass::{Never, Inquiry}`: `Never` disables automatic replay,
-and `Inquiry` enables bounded lost-reply recovery. `Standard`, `Movement` and
-`Preset` are command families and cannot be constructed or deserialized into an
-inquiry policy. Preparation rejects those families on downstream inquiry
-`Request` implementations before encoding or I/O. All policies take
-`SubmissionClass`, which has no urgent lane.
-Policy construction is infallible, and raw request construction validates only
-wire bytes.
+`raw::AppliedOnlyRequest`. Plain commands use `request::CommandPolicy`, operations
+use `request::OperationPolicy`, and inquiries use `request::InquiryPolicy`. Each
+class has one primary `new` constructor and one `with_policy` constructor where
+a prebuilt policy is useful. Inquiry decoders use `from_fn` or `with_context`,
+and operation values expose `bytes()` and `affected_axes()`.
+
+The sealed `Request::Class` selects the same policy type for custom `Request`
+implementations. A plain request's `policy()` returns `CommandPolicy`; an
+operation returns `OperationPolicy`; an inquiry returns `InquiryPolicy`.
+Command and operation policies take `profiles::CommandTimeoutClass`, whose five
+variants exclude inquiry timing, and `request::CommandRetryClass::{Never,
+Standard, Movement, Preset}`. An inquiry's timeout and reply protocol are fixed
+by its class, so its policy stores neither a timeout nor a command reply shape.
+Its retry family is `request::InquiryRetryClass::{Never, Inquiry}`: `Never`
+disables automatic replay, and `Inquiry` enables bounded lost-reply recovery.
+Command retry families cannot be constructed or deserialized into an inquiry
+policy, and the inquiry retry family cannot be used on commands or operations.
+All policies take `SubmissionClass`, which has no urgent lane. These restrictions
+are checked by the policy types before submission. Policy construction is
+infallible, and raw request construction validates only wire bytes.
 
 The raw namespace is the explicit escape hatch for callers that need to supply
 wire bytes or a custom response decoder. Public built-in requests live under `command::<noun>::<Request>`, with
@@ -312,8 +315,8 @@ primitive.
 
 A raw command declares the reply protocol the camera will use, so the owner does
 not assume every command follows the ACK-then-completion shape. The axis is
-`raw::RawReplyShape`, carried on `raw::CommandPolicy` and set with
-`CommandPolicy::with_reply_shape`. Operations use `raw::OperationPolicy` and
+`raw::RawReplyShape`, carried on `request::CommandPolicy` and set with
+`CommandPolicy::with_reply_shape`. Operations use `request::OperationPolicy` and
 `raw::OperationReplyShape`, which omit `NoReply`:
 
 - `AckThenCompletion` (the default) — the command is acknowledged, assigned a
@@ -349,10 +352,10 @@ not assume every command follows the ACK-then-completion shape. The axis is
   window (see `docs/architecture_2_0.md`).
 
 The shape is a command axis only. An inquiry always awaits its reply, so
-`raw::InquiryPolicy` has no command reply-shape field. Shared inquiry
-preparation still rejects a non-default shape from a downstream `Request`
-implementation. Unconfirmed completion, quarantine, and the strict
-opt-in follow the canonical
+`request::InquiryPolicy` has no command reply-shape field. The inquiry class
+requires this policy type on downstream `Request` implementations too, so no
+command reply shape can be declared. Unconfirmed completion, quarantine, and
+the strict opt-in follow the canonical
 [raw recovery rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery);
 this page does not define a second recovery policy.
 

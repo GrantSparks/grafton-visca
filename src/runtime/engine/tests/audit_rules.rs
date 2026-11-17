@@ -118,7 +118,7 @@ fn ready_and_backoff_have_no_active_attempt() {
             Some((0x1001, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start,

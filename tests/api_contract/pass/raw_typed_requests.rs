@@ -27,7 +27,7 @@ fn main() {
     let plain = raw::PlainRequest::new(
         [0x81, 0x01, 0x02, 0xff],
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        grafton_visca::request::RetryClass::Never,
+        grafton_visca::request::CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("plain");
@@ -43,7 +43,7 @@ fn main() {
         [0x81, 0x01, 0x06, 0xff],
         axes,
         grafton_visca::profiles::CommandTimeoutClass::Movement,
-        grafton_visca::request::RetryClass::Movement,
+        grafton_visca::request::CommandRetryClass::Movement,
         grafton_visca::request::SubmissionClass::User,
     )
     .expect("targeted");
@@ -51,9 +51,9 @@ fn main() {
         [0x81, 0x01, 0x07, 0xff],
         grafton_visca::types::AffectedAxes::ZOOM,
         // The urgent lane is owner-only; `User` is the ceiling for raw (#679).
-        grafton_visca::raw::OperationPolicy::new(
+        grafton_visca::request::OperationPolicy::new(
             grafton_visca::profiles::CommandTimeoutClass::Quick,
-            grafton_visca::request::RetryClass::Never,
+            grafton_visca::request::CommandRetryClass::Never,
             grafton_visca::request::SubmissionClass::User,
         ),
     )

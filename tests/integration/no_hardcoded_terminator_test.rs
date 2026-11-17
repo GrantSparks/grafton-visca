@@ -26,7 +26,7 @@
 use bytes::BytesMut;
 use grafton_visca::{
     raw,
-    request::{Request, RetryClass},
+    request::{CommandRetryClass, Request},
     transport::{AddressingMode, Envelope, RawVisca, SonyEncapsulated},
     types::{CameraId, PresetNumber, ZoomSpeed},
     wire::{CommandKind, VISCA_TERMINATOR},
@@ -182,7 +182,7 @@ fn raw_frames_are_admitted_against_the_exported_terminator() {
     let accepted = raw::PlainRequest::new(
         terminated,
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("a frame ending in the exported terminator must be admitted");
@@ -194,7 +194,7 @@ fn raw_frames_are_admitted_against_the_exported_terminator() {
     let rejected = raw::PlainRequest::new(
         unterminated,
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::Normal,
     );
     assert!(

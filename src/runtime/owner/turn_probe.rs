@@ -12,13 +12,14 @@ use super::{
     shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep},
     turn::{Selection, TurnOutcome, TurnPlan},
     CommandOutcome, Effect, Observed, Observer, OwnerInputTurn, OwnerReceive, OwnerState,
-    RequestContext, RetainedStreamInput, RuntimeRequest, TransmissionMeta, WireWrite, WriteOutcome,
+    RetainedStreamInput, RuntimeRequest, TransmissionMeta, WireWrite, WriteOutcome,
 };
 use crate::{
     request::Request,
     runtime::engine::{
-        CancellationPolicy, ControlPolicy, DecodedFrame, DecodedResponse, EncodedMessage,
-        EnvelopeKind, EnvelopeSequence, ReplyShape, RetryPolicy, SequenceWidth, TimeoutPolicy,
+        CancellationPolicy, CommandReply, ControlPolicy, DecodedFrame, DecodedResponse,
+        EncodedMessage, EnvelopeKind, EnvelopeSequence, RequestContext, RetryPolicy, SequenceWidth,
+        TimeoutPolicy,
     },
     target::TargetSlot,
     transport::{
@@ -220,7 +221,13 @@ impl TurnProbe {
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
         };
-        let permit = self.shell.core.state.permits().try_acquire(&context)?;
+        let request = RuntimeRequest::Command {
+            wire: Arc::clone(&self.wire),
+            context,
+            reply_shape: CommandReply::AckThenCompletion,
+            applied_state: None,
+        };
+        let permit = self.shell.core.state.permits().try_acquire(&request)?;
         let (observer, cell) = Observer::<CommandOutcome>::pair();
         // flume lazily allocates its bounded one-slot queue on first delivery.
         // That per-request lifecycle storage is permitted by the contract;
@@ -241,17 +248,10 @@ impl TurnProbe {
                 reason: "probe observer warm-up was not delivered".into(),
             })?;
         let turn = self.shell.core.state.begin_input_turn(self.shell.io.now);
-        self.shell.core.state.admit_in_turn(
-            &turn,
-            RuntimeRequest::Command {
-                wire: Arc::clone(&self.wire),
-                context,
-                reply_shape: ReplyShape::AckThenCompletion,
-                applied_state: None,
-            },
-            permit,
-            cell,
-        )?;
+        self.shell
+            .core
+            .state
+            .admit_in_turn(&turn, request, permit, cell)?;
         self.pending = Some(observer);
         self.submission += 1;
         self.driver.metadata = None;
@@ -274,7 +274,7 @@ impl TurnProbe {
         self.receive(
             &[DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             }],
             self.sequence(),
         );
@@ -382,11 +382,16 @@ impl TurnProbe {
     fn receive(&mut self, responses: &[DecodedResponse], sequence: Option<EnvelopeSequence>) {
         let mut frames = self.shell.core.state.buffers().take_frames();
         for response in responses {
-            frames.push_back(DecodedFrame {
-                target: TargetSlot::ALL[0],
-                sequence,
-                response: response.clone(),
-            });
+            assert!(
+                frames
+                    .try_push(DecodedFrame {
+                        target: TargetSlot::ALL[0],
+                        sequence,
+                        response: response.clone(),
+                    })
+                    .is_ok(),
+                "probe frames fit the receive bound"
+            );
         }
         self.shell.handle_event(
             OwnerEvent::Receive {

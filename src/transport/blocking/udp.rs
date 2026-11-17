@@ -9,7 +9,7 @@ use crate::{
     timeout::Deadline,
     transport::{
         address::{bind_address_for, resolve_blocking},
-        blocking::{Arm, TimedIo},
+        blocking::{bounded_io, TimedIo},
         builder::TransportConfig,
         connect::{connect_deadline, preflight, socket_setup, udp_target},
         datagram::{deliverable, recv_datagram},
@@ -72,54 +72,6 @@ fn arm_write(socket: &mut UdpSocket, timeout: Duration) -> std::io::Result<()> {
     socket.set_write_timeout(Some(timeout))
 }
 
-/// Send one datagram before `deadline`.
-///
-/// A send interrupted by a signal moved nothing and is retried in place,
-/// re-armed with the remaining budget, exactly as
-/// [`crate::transport::blocking::write_all_bounded`] retries it.
-fn send_datagram<S: ?Sized>(
-    socket: &mut S,
-    arm: Arm<S>,
-    deadline: Deadline,
-    mut send: impl FnMut(&mut S) -> std::io::Result<usize>,
-) -> Result<(), Error> {
-    loop {
-        let remaining = deadline.remaining_or(Instant::now(), Error::io_timeout)?;
-        arm(socket, remaining)?;
-        match send(socket) {
-            Ok(_) => return Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) if TimedIo::Bounded.ended_idle(&error) => return Err(Error::io_timeout()),
-            Err(error) => return Err(error.into()),
-        }
-    }
-}
-
-/// Receive one nonempty datagram within one budget. Empty datagrams and
-/// signal interruptions keep the same deadline and re-arm its remainder.
-fn receive_datagram<S: ?Sized>(
-    socket: &mut S,
-    arm: Arm<S>,
-    deadline: Deadline,
-    capacity: usize,
-    mut receive: impl FnMut(&mut S) -> std::io::Result<ReceiveOutcome>,
-) -> Result<ReceiveOutcome, Error> {
-    loop {
-        let remaining = deadline.remaining_or(Instant::now(), Error::io_timeout)?;
-        arm(socket, remaining)?;
-        match receive(socket) {
-            Ok(outcome) => {
-                if let Some(outcome) = deliverable(outcome, capacity)? {
-                    return Ok(outcome);
-                }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) if TimedIo::Bounded.ended_idle(&error) => return Err(Error::io_timeout()),
-            Err(error) => return Err(error.into()),
-        }
-    }
-}
-
 impl HasTransportConfig for Udp {
     fn identity(&self) -> crate::transport::TransportIdentity<'_> {
         crate::transport::TransportIdentity::Udp
@@ -133,9 +85,14 @@ impl HasTransportConfig for Udp {
 impl BlockingTransport for Udp {
     fn send_with_timeout(&mut self, data: &[u8], timeout: Duration) -> Result<(), Error> {
         let deadline = Deadline::after(Instant::now(), timeout, "write_timeout")?;
-        send_datagram(&mut self.socket, arm_write, deadline, |socket| {
-            socket.send(data)
-        })
+        bounded_io(
+            &mut self.socket,
+            arm_write,
+            deadline,
+            TimedIo::Datagram,
+            Instant::now,
+            |socket| Ok(Some(socket.send(data).map(|_| ())?)),
+        )
     }
 
     fn recv_into_with_timeout(
@@ -144,9 +101,14 @@ impl BlockingTransport for Udp {
         timeout: Duration,
     ) -> Result<ReceiveOutcome, Error> {
         let deadline = Deadline::after(Instant::now(), timeout, "read_timeout")?;
-        receive_datagram(&mut self.socket, arm_read, deadline, dst.len(), |socket| {
-            recv_datagram(socket, dst)
-        })
+        bounded_io(
+            &mut self.socket,
+            arm_read,
+            deadline,
+            TimedIo::Datagram,
+            Instant::now,
+            |socket| Ok(deliverable(recv_datagram(socket, dst)?, dst.len())?),
+        )
     }
 }
 
@@ -185,9 +147,14 @@ mod tests {
         };
         let deadline = Deadline::after(Instant::now(), Duration::from_secs(1), "write_timeout")
             .expect("budget");
-        send_datagram(&mut socket, arm, deadline, |socket| {
-            socket.results.remove(0)
-        })
+        bounded_io(
+            &mut socket,
+            arm,
+            deadline,
+            TimedIo::Datagram,
+            Instant::now,
+            |socket| Ok(Some(socket.results.remove(0)?)),
+        )
         .expect("the retried send succeeds");
         assert_eq!(socket.arms, 2, "re-armed before the retried syscall");
         assert!(socket.results.is_empty());
@@ -213,15 +180,75 @@ mod tests {
         };
         let budget = Duration::from_secs(1);
         let deadline = Deadline::after(Instant::now(), budget, "read_timeout").expect("deadline");
-        let outcome = receive_datagram(&mut socket, arm, deadline, 16, |socket| {
-            socket.results.remove(0)
-        })
+        let outcome = bounded_io(
+            &mut socket,
+            arm,
+            deadline,
+            TimedIo::Datagram,
+            Instant::now,
+            |socket| Ok(deliverable(socket.results.remove(0)?, 16)?),
+        )
         .expect("the reply after EINTR is delivered");
         assert_eq!(outcome, ReceiveOutcome::complete(3));
         assert_eq!(socket.armed.len(), 2);
         assert!(socket.armed[1] <= socket.armed[0]);
         assert!(socket.armed[0] <= budget);
         assert!(socket.results.is_empty());
+    }
+
+    #[test]
+    fn early_idle_receive_rearms_until_data_or_the_precise_deadline() {
+        struct FakeSocket {
+            armed: Vec<Duration>,
+            reads: usize,
+        }
+        fn arm(socket: &mut FakeSocket, timeout: Duration) -> std::io::Result<()> {
+            socket.armed.push(timeout);
+            Ok(())
+        }
+        for idle_kind in [std::io::ErrorKind::WouldBlock, std::io::ErrorKind::TimedOut] {
+            for data_on_retry in [false, true] {
+                let started = Instant::now();
+                let budget = Duration::from_millis(10);
+                let clock = std::cell::Cell::new(started);
+                let mut socket = FakeSocket {
+                    armed: Vec::new(),
+                    reads: 0,
+                };
+                let deadline = Deadline::after(started, budget, "read_timeout").expect("deadline");
+                let result = bounded_io(
+                    &mut socket,
+                    arm,
+                    deadline,
+                    TimedIo::Datagram,
+                    || clock.get(),
+                    |socket| {
+                        socket.reads += 1;
+                        if socket.reads == 2 && data_on_retry {
+                            return Ok(deliverable(ReceiveOutcome::complete(3), 16)?);
+                        }
+                        let spent = if socket.reads == 1 {
+                            Duration::from_millis(4)
+                        } else {
+                            Duration::from_millis(6)
+                        };
+                        clock.set(clock.get() + spent);
+                        Err(std::io::Error::from(idle_kind).into())
+                    },
+                );
+                assert_eq!(socket.armed, [budget, Duration::from_millis(6)]);
+                assert_eq!(socket.reads, 2);
+                if data_on_retry {
+                    assert_eq!(
+                        result.expect("datagram within original budget"),
+                        ReceiveOutcome::complete(3)
+                    );
+                } else {
+                    assert!(matches!(result, Err(Error::Timeout { .. })));
+                    assert_eq!(clock.get().duration_since(started), budget);
+                }
+            }
+        }
     }
 
     fn invalid_buffer_config() -> TransportConfig {

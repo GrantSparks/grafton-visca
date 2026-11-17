@@ -183,7 +183,7 @@ fn immediate_timeout_retries_end_the_action_ready() {
             1 => command_with_reply_shape_and_retry(
                 1,
                 CancellationPolicy::Supported,
-                ReplyShape::CompletionOnly,
+                CommandReply::CompletionOnly,
                 retry,
             ),
             _ => inquiry_with_retry(1, retry),
@@ -209,13 +209,15 @@ fn raw_pair(minimum_ambiguity: bool) -> (ProtocolEngine, RequestId, RequestId, I
     let request = command_with_reply_shape_and_retry(
         1,
         CancellationPolicy::Supported,
-        ReplyShape::CompletionOnly,
+        CommandReply::CompletionOnly,
         RetryPolicy::NEVER,
     );
     let (write, first) = admit(&mut engine, 1, request, now);
     send_ok(&mut engine, &write, None, now);
     let mut stop = command_with_retry(1, RetryPolicy::NEVER);
-    stop.context_mut().control.class = ControlClass::Urgent;
+    if let RuntimeRequest::Command { reply_shape, .. } = &mut stop {
+        *reply_shape = CommandReply::Stop;
+    }
     if minimum_ambiguity {
         stop.context_mut().timeout.ambiguity =
             NonZeroDuration::new(Duration::from_nanos(1)).unwrap();
@@ -234,7 +236,7 @@ fn a_disputed_ack_at_equality_gets_a_strictly_later_minimum_ambiguity_deadline()
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         now,
@@ -325,7 +327,7 @@ fn preexisting_requests_make_progress_when_the_clock_reaches_its_last_instant() 
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         now,

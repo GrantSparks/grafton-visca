@@ -30,7 +30,7 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
             [0x81, 0x01, 0x04, 0x07, 0x02, 0xff],
             crate::AffectedAxes::ZOOM,
             crate::CommandTimeoutClass::Quick,
-            crate::RetryClass::Standard,
+            crate::request::CommandRetryClass::Standard,
             crate::SubmissionClass::Normal,
         )
         .unwrap();

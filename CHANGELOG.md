@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: `Request::policy()` returns the policy selected by its sealed
+  class: `request::CommandPolicy`, `OperationPolicy`, or `InquiryPolicy`.
+  Custom requests replace flat policy constants and accessors with this method;
+  raw policies share the same canonical `request` home. Commands and operations
+  use `CommandRetryClass`, which excludes inquiry retry semantics, while
+  inquiries use `InquiryRetryClass`. The former class-agnostic policy enums
+  leave the public API; persisted command and operation policies reject the
+  former `"inquiry"` retry alias (#1016, #909, #970).
+
 ### Fixed
 
+- Blocking TCP writes on Unix retain an OS `TimedOut` as the `StreamPoisoned`
+  source, matching Tokio and smol. Blocking UDP receives honour their full
+  precise read budget after an early idle result (#1014).
 - Generated integer scalar JSON Schemas describe their checked bounds and sparse
   membership while preserving scalar metadata and named references. Biased
   values retain their serialized semantic units (#1010).

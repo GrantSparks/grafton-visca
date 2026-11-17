@@ -199,7 +199,7 @@ mod async_registry {
     #[cfg(feature = "runtime-tokio")]
     use std::num::NonZeroUsize;
 
-    use grafton_visca::request::{self, ControlClass, Request, RetryClass, TimeoutClass};
+    use grafton_visca::request::{self, Request};
 
     use fake_camera::AsyncWire;
 
@@ -244,9 +244,13 @@ mod async_registry {
     impl Request for Ping {
         type Class = request::PlainClass;
         const MAX_SIZE: usize = 3;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-        const RETRY_CLASS: RetryClass = RetryClass::Never;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+        fn policy(&self) -> grafton_visca::request::CommandPolicy {
+            grafton_visca::request::CommandPolicy::new(
+                grafton_visca::profiles::CommandTimeoutClass::Quick,
+                grafton_visca::request::CommandRetryClass::Never,
+                grafton_visca::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(
             &self,
@@ -266,9 +270,12 @@ mod async_registry {
     impl Request for RawPowerInquiry {
         type Class = request::InquiryClass;
         const MAX_SIZE: usize = 4;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-        const RETRY_CLASS: RetryClass = RetryClass::Never;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+        fn policy(&self) -> grafton_visca::request::InquiryPolicy {
+            grafton_visca::request::InquiryPolicy::new(
+                grafton_visca::request::InquiryRetryClass::Never,
+                grafton_visca::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(
             &self,
@@ -665,12 +672,13 @@ mod blocking_registry {
     impl grafton_visca::request::Request for Ping {
         type Class = grafton_visca::request::PlainClass;
         const MAX_SIZE: usize = 3;
-        const TIMEOUT_CLASS: grafton_visca::request::TimeoutClass =
-            grafton_visca::request::TimeoutClass::Quick;
-        const RETRY_CLASS: grafton_visca::request::RetryClass =
-            grafton_visca::request::RetryClass::Never;
-        const CONTROL_CLASS: grafton_visca::request::ControlClass =
-            grafton_visca::request::ControlClass::Normal;
+        fn policy(&self) -> grafton_visca::request::CommandPolicy {
+            grafton_visca::request::CommandPolicy::new(
+                grafton_visca::profiles::CommandTimeoutClass::Quick,
+                grafton_visca::request::CommandRetryClass::Never,
+                grafton_visca::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(
             &self,

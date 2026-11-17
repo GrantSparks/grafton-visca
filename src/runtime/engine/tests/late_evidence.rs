@@ -99,7 +99,7 @@ fn sony_late_completion_applies_each_unacknowledged_retry_path() {
                 command_with_reply_shape(
                     1,
                     CancellationPolicy::Supported,
-                    ReplyShape::CompletionOnly,
+                    CommandReply::CompletionOnly,
                 )
             } else {
                 command(1, CancellationPolicy::Supported)
@@ -185,7 +185,7 @@ fn sony_late_camera_error_does_not_spend_another_retry() {
             EnvelopeKind::Sony,
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(21),

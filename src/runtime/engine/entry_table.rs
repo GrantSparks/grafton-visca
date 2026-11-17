@@ -188,12 +188,10 @@ impl IndexFacts {
             }
         }
         Self {
-            ready: entry.lifecycle().is_ready().then(|| {
-                (
-                    entry.request.lane(),
-                    entry.request.context().control.class.priority_index(),
-                )
-            }),
+            ready: entry
+                .lifecycle()
+                .is_ready()
+                .then(|| (entry.request.lane(), entry.request.priority_index())),
             socket: entry
                 .lifecycle
                 .active_socket()

@@ -19,7 +19,7 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
         let command = crate::raw::PlainRequest::new(
             [0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
             crate::CommandTimeoutClass::Quick,
-            crate::RetryClass::Standard,
+            crate::request::CommandRetryClass::Standard,
             crate::SubmissionClass::Normal,
         )
         .unwrap();

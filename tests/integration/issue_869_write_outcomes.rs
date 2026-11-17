@@ -21,7 +21,7 @@ use grafton_visca::{
     operation::AppliedOnly,
     profiles::SonyFr7,
     raw,
-    request::RetryClass,
+    request::CommandRetryClass,
     transport::SendSemantics,
     Error,
 };
@@ -122,7 +122,7 @@ facade_matrix! {
             let mut bytes = vec![0; 18];
             bytes[..4].copy_from_slice(&[0x81, 0x01, 0x04, 0x99]);
             bytes[17] = 0xff;
-            let request = raw::PlainRequest::new(bytes, grafton_visca::profiles::CommandTimeoutClass::Quick, RetryClass::Never, grafton_visca::request::SubmissionClass::Normal).unwrap();
+            let request = raw::PlainRequest::new(bytes, grafton_visca::profiles::CommandTimeoutClass::Quick, CommandRetryClass::Never, grafton_visca::request::SubmissionClass::Normal).unwrap();
             assert!(matches!(wait!(camera.execute(&request)), Err(Error::InvalidRequest { .. })));
             let metrics = wait!(session.metrics()).unwrap();
             assert_eq!(metrics.admitted, 0);

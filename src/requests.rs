@@ -59,12 +59,7 @@ impl BuiltinInquiryAuthority {
 
 /// Deadline family selected by a request implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[non_exhaustive]
-pub enum TimeoutClass {
+pub(crate) enum TimeoutClass {
     /// A short command with no expected mechanical movement.
     Quick,
     /// A mechanical movement command.
@@ -81,12 +76,7 @@ pub enum TimeoutClass {
 
 /// Retry family selected by a request implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[non_exhaustive]
-pub enum RetryClass {
+pub(crate) enum RetryClass {
     /// Never replay the request automatically.
     Never,
     /// Conservative retries for an ordinary idempotent command.
@@ -99,11 +89,40 @@ pub enum RetryClass {
     Preset,
 }
 
+/// Retry families meaningful for a command or physical operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
+pub enum CommandRetryClass {
+    /// Never replay the request automatically.
+    Never,
+    /// Conservative retries for an ordinary idempotent command.
+    Standard,
+    /// Movement-specific retries for transient camera state.
+    Movement,
+    /// Preset-specific retries for transient camera state.
+    Preset,
+}
+
+impl CommandRetryClass {
+    pub(crate) const fn lower(self) -> RetryClass {
+        match self {
+            Self::Never => RetryClass::Never,
+            Self::Standard => RetryClass::Standard,
+            Self::Movement => RetryClass::Movement,
+            Self::Preset => RetryClass::Preset,
+        }
+    }
+}
+
 /// Retry families meaningful for an inquiry's reply-only lifecycle.
 ///
-/// Raw inquiry policies accept only these families. Downstream inquiry
-/// implementations of [`Request`] still declare [`RetryClass`], and preparation
-/// rejects a command-only family before encoding or transport I/O.
+/// Every inquiry policy accepts only these families. The sealed inquiry class
+/// selects [`crate::request::InquiryPolicy`], so custom and raw requests share
+/// the same guarantee before submission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
@@ -124,26 +143,11 @@ impl InquiryRetryClass {
             Self::Inquiry => RetryClass::Inquiry,
         }
     }
-
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    pub(crate) const fn of(class: RetryClass) -> Option<Self> {
-        match class {
-            RetryClass::Never => Some(Self::Never),
-            RetryClass::Inquiry => Some(Self::Inquiry),
-            RetryClass::Standard | RetryClass::Movement | RetryClass::Preset => None,
-        }
-    }
-}
-
-impl From<InquiryRetryClass> for RetryClass {
-    fn from(class: InquiryRetryClass) -> Self {
-        class.retry_class()
-    }
 }
 
 /// Intrinsic scheduling class of one request.
 ///
-/// Every request classifies itself through [`crate::request::Request::control_class`]. The
+/// Every request selects an ordinary class through its typed policy. The
 /// urgent class is reserved for safety and protocol-control work and cannot be
 /// selected or demoted by a submission override. Request implementations and
 /// raw policies classify their own semantics; caller QoS uses
@@ -877,53 +881,13 @@ pub trait Request: Send + Sync {
     /// Maximum encoded byte length for this request type, including the target
     /// address and final terminator. The encoder may write a shorter frame.
     const MAX_SIZE: usize;
-    /// Deadline family for this request.
-    const TIMEOUT_CLASS: TimeoutClass;
-    /// Retry family for this request.
+    /// Returns the policy selected by this request's lifecycle class.
     ///
-    /// An [`Inquiry`] accepts only [`RetryClass::Never`] or
-    /// [`RetryClass::Inquiry`]; preparation rejects command families before
-    /// encoding or owner admission.
-    const RETRY_CLASS: RetryClass;
-    /// Scheduling class for this request.
-    ///
-    /// [`crate::request::ControlClass::Urgent`] is reserved for crate-owned typed stops and
-    /// owner-issued protocol cancellation. A downstream request may continue
-    /// to use any ordinary class, but an attempt to submit `Urgent` is rejected
-    /// at owner admission.
-    const CONTROL_CLASS: ControlClass;
-
-    /// Returns this value's timeout class.
-    ///
-    /// Built-in and ordinary downstream requests use the associated constant.
-    /// Explicit raw requests override this accessor with the policy selected
-    /// during construction; preparation therefore never has to infer policy
-    /// from inert wire bytes.
-    #[must_use]
-    fn timeout_class(&self) -> TimeoutClass {
-        Self::TIMEOUT_CLASS
-    }
-
-    /// Returns this value's retry class.
-    ///
-    /// The default keeps the zero-cost associated-constant path for fixed
-    /// request types while allowing bounded raw values to carry an explicit
-    /// per-instance class.
-    #[must_use]
-    fn retry_class(&self) -> RetryClass {
-        Self::RETRY_CLASS
-    }
-
-    /// Returns this value's control class.
-    ///
-    /// This is the request's own classification. A caller may select ordinary
-    /// submission QoS through [`crate::request::SubmissionClass`], but an urgent intrinsic
-    /// class is immutable. The owner lowers the resolved class to private ready
-    /// queues; callers never select the safety lane or a queue position.
-    #[must_use]
-    fn control_class(&self) -> ControlClass {
-        Self::CONTROL_CLASS
-    }
+    /// Plain commands return [`crate::request::CommandPolicy`], operations
+    /// return [`crate::request::OperationPolicy`], and inquiries return
+    /// [`crate::request::InquiryPolicy`]. Invalid lifecycle combinations cannot
+    /// be declared, including an urgent ordinary submission class.
+    fn policy(&self) -> <Self::Class as request::Class>::Policy;
 
     /// Declares axes moved by a plain custom command for owner halt fencing.
     ///
@@ -936,39 +900,12 @@ pub trait Request: Send + Sync {
 
     /// Resolves the request's class for owner admission.
     ///
-    /// The private authority makes this an unforgeable crate-only hook. The
-    /// default accepts every ordinary class and refuses `Urgent`; the built-in
-    /// request implementations use the hook to carry their reviewed stop and
-    /// protocol-cancellation authority through generic preparation.
+    /// The private authority reserves STOP urgency for reviewed built-ins.
+    /// The default derives an ordinary class from the typed policy.
     #[doc(hidden)]
     #[allow(private_interfaces)]
-    fn admission_control_class(
-        &self,
-        _authority: RequestContractAuthority,
-    ) -> Result<ControlClass> {
-        match self.control_class() {
-            ControlClass::Urgent => Err(Error::InvalidRequest { reason: "ControlClass::Urgent is reserved for crate-owned stops and protocol cancellation"
-                    .into() }),
-            class => Ok(class),
-        }
-    }
-
-    /// Returns the reply protocol the camera will use for this command.
-    ///
-    /// Built-in and ordinary downstream commands use the default,
-    /// [`crate::raw::RawReplyShape::AckThenCompletion`] — the camera
-    /// acknowledges, is assigned a socket, then completes. A custom command
-    /// whose vendor frame is answered by a completion with no acknowledgement,
-    /// or (for a plain fire-and-forget command only) by nothing at all,
-    /// overrides this so preparation can lower the fact into the engine's
-    /// lifecycle; the engine never infers it from the wire bytes. Operation
-    /// preparation rejects `NoReply` because `applied()` requires a terminal
-    /// camera response. It is meaningful only for commands: an inquiry always
-    /// awaits its reply, and shared preparation rejects any non-default value
-    /// rather than silently ignoring it.
-    #[must_use]
-    fn reply_shape(&self) -> crate::raw::RawReplyShape {
-        crate::raw::RawReplyShape::AckThenCompletion
+    fn admission_control_class(&self, _authority: RequestContractAuthority) -> ControlClass {
+        request::policy_parts(self).class
     }
 
     /// Returns the fixed encoded-size declaration used for owner admission.
@@ -1052,7 +989,7 @@ pub trait Request: Send + Sync {
 
 #[cfg(any(feature = "blocking", feature = "async"))]
 /// Reads a request's authorized scheduling class at the owner boundary.
-pub(crate) fn admission_control_class<R: Request + ?Sized>(request: &R) -> Result<ControlClass> {
+pub(crate) fn admission_control_class<R: Request + ?Sized>(request: &R) -> ControlClass {
     request.admission_control_class(RequestContractAuthority::new())
 }
 
@@ -1361,9 +1298,12 @@ mod payload_shape_tests {
     impl Request for UndeclaredInquiry {
         type Class = crate::request::InquiryClass;
         const MAX_SIZE: usize = 4;
-        const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
-        const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Never;
-        const CONTROL_CLASS: crate::ControlClass = crate::ControlClass::Normal;
+        fn policy(&self) -> crate::request::InquiryPolicy {
+            crate::request::InquiryPolicy::new(
+                crate::request::InquiryRetryClass::Never,
+                crate::request::SubmissionClass::Normal,
+            )
+        }
         fn write_into(&self, target: crate::CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
             let available = buffer.len();
             let frame = buffer

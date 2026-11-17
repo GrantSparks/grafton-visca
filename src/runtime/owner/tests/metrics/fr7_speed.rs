@@ -102,7 +102,7 @@ fn queued_mode_refusal(invalidate: bool) {
         now,
     );
     let request = drive_request(&registration, OperationalTuning::new());
-    let permit = state.permits().try_acquire(request.context()).unwrap();
+    let permit = state.permits().try_acquire(&request).unwrap();
     let (input, observer, _admitted) = super::super::stage_admission(&mut state, request, permit);
     for effect in input.complete(&mut state, now) {
         assert!(
@@ -120,7 +120,7 @@ fn queued_mode_refusal(invalidate: bool) {
     let response = if invalidate {
         DecodedResponse::Error {
             socket: Some(ViscaSocket::S1),
-            code: 0x41,
+            code: 0x41.into(),
         }
     } else {
         DecodedResponse::Completion {
@@ -191,7 +191,7 @@ fn a_non_fr7_codec_requires_the_confirmed_fine_mode_for_fast_drives() {
     let initial = Instant::now();
     let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), initial).unwrap();
     let request = drive_request(&registration, OperationalTuning::new());
-    let permit = state.permits().try_acquire(request.context()).unwrap();
+    let permit = state.permits().try_acquire(&request).unwrap();
     let (input, observer, _) = super::super::stage_admission(&mut state, request, permit);
     let effects = input.complete(&mut state, initial);
     for effect in effects {
@@ -237,7 +237,7 @@ fn a_non_fr7_codec_requires_the_confirmed_fine_mode_for_fast_drives() {
         now,
     );
     let request = drive_request(&registration, OperationalTuning::new());
-    let permit = state.permits().try_acquire(request.context()).unwrap();
+    let permit = state.permits().try_acquire(&request).unwrap();
     let (input, _observer, _) = super::super::stage_admission(&mut state, request, permit);
     let mut accepted = false;
     let now = now + Duration::from_secs(1);
@@ -326,7 +326,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
             Some(3),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S2),
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         mode_at,

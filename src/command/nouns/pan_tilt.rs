@@ -430,7 +430,10 @@ mod tests {
         Drive::for_target(&brc, PanTiltDirection::Up, unequal)
             .expect("drive permits independent speeds");
         let stop = Stop::for_target(&brc).expect("safe stop");
-        assert_eq!(stop.control_class(), crate::ControlClass::Urgent);
+        assert_eq!(
+            stop.admission_control_class(crate::requests::RequestContractAuthority::new()),
+            crate::ControlClass::Urgent
+        );
         assert!(Drive::for_target(&brc, PanTiltDirection::Stop, SpeedLevel::Medium).is_err());
     }
 }

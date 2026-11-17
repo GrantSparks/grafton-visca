@@ -443,8 +443,14 @@ mod tests {
                 .expect("maximum reply"),
             UnitInterval::MAX
         );
-        assert_eq!(query.timeout_class(), crate::TimeoutClass::Inquiry);
-        assert_eq!(query.retry_class(), crate::RetryClass::Inquiry);
+        assert_eq!(
+            crate::request::policy_parts(&query).timeout,
+            crate::TimeoutClass::Inquiry
+        );
+        assert_eq!(
+            query.policy().retry_class(),
+            crate::request::InquiryRetryClass::Inquiry
+        );
         let optical =
             NormalizedInquiry::for_target(&target, ZoomDomain::Optical).expect("optical getter");
         assert!(matches!(

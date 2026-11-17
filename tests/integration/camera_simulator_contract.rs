@@ -12,7 +12,7 @@ use grafton_visca::{
     profiles::{GenericVisca, ProfileSpec},
     r#async::Session,
     raw,
-    request::{ControlClass, Inquiry, Request, ResponseDecoder, RetryClass, TimeoutClass},
+    request::{CommandRetryClass, Inquiry, Request, ResponseDecoder},
     runtime::TokioExecutor,
     testing::{CommandType, ViscaCameraSimulator},
     transport::{AsyncTransport, HasTransportConfig, SendSemantics},
@@ -46,7 +46,7 @@ fn plain_power() -> raw::PlainRequest {
     raw::PlainRequest::new(
         POWER_ON,
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("valid power command")
@@ -224,9 +224,12 @@ struct UnknownInquiry;
 impl Request for UnknownInquiry {
     type Class = grafton_visca::request::InquiryClass;
     const MAX_SIZE: usize = 5;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+    fn policy(&self) -> grafton_visca::request::InquiryPolicy {
+        grafton_visca::request::InquiryPolicy::new(
+            grafton_visca::request::InquiryRetryClass::Never,
+            grafton_visca::request::SubmissionClass::Normal,
+        )
+    }
 
     fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         buffer[..5].copy_from_slice(&[0x80 | target.value(), 0x09, 0x04, 0x7e, 0xff]);

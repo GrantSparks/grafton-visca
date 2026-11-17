@@ -56,19 +56,14 @@ where
         }
     }
 
-    fn receive(
-        &mut self,
-        buffers: &mut OwnerBuffers,
-        frame_limit: usize,
-        timeout: Duration,
-    ) -> OwnerReceive {
-        if let Some(buffered) = self.buffered(buffers, frame_limit) {
+    fn receive(&mut self, buffers: &mut OwnerBuffers, timeout: Duration) -> OwnerReceive {
+        if let Some(buffered) = self.buffered(buffers) {
             return buffered;
         }
         let read = self
             .transport
             .recv_into_with_timeout(buffers.receive_mut(), timeout);
-        self.classify_read(buffers, frame_limit, read)
+        self.classify_read(buffers, read)
     }
 }
 
@@ -106,6 +101,7 @@ mod tests {
         config: TransportConfig,
         sent: Arc<Mutex<Vec<Vec<u8>>>>,
         write_timeouts: Arc<Mutex<Vec<Duration>>>,
+        write_error: Option<Error>,
         receives: VecDeque<Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
         addressing: AddressingMode,
@@ -124,6 +120,7 @@ mod tests {
                 config,
                 sent: Arc::new(Mutex::new(Vec::new())),
                 write_timeouts: Arc::new(Mutex::new(Vec::new())),
+                write_error: None,
                 receives: receives.into_iter().collect(),
                 semantics: SendSemantics::Datagram,
                 addressing: AddressingMode::Ip,
@@ -158,7 +155,7 @@ mod tests {
         fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
             self.sent.lock().unwrap().push(bytes.to_vec());
             self.write_timeouts.lock().unwrap().push(timeout);
-            Ok(())
+            self.write_error.take().map_or(Ok(()), Err)
         }
 
         fn recv_into_with_timeout(
@@ -203,7 +200,13 @@ mod tests {
     }
 
     fn buffers(adapter: &BlockingTransportAdapter<ScriptedTransport>) -> OwnerBuffers {
-        OwnerBuffers::new(adapter.receive_limits).unwrap()
+        OwnerBuffers::new(super::super::OwnerLimits {
+            receive_bytes: std::num::NonZeroUsize::new(
+                adapter.transport.config.buffer_config.recv_buffer_size,
+            )
+            .unwrap(),
+            ..super::super::OwnerLimits::default()
+        })
     }
 
     /// One receive with a short timeout and the default frame limit.
@@ -211,7 +214,7 @@ mod tests {
         adapter: &mut BlockingTransportAdapter<ScriptedTransport>,
         buffers: &mut OwnerBuffers,
     ) -> OwnerReceive {
-        adapter.receive(buffers, 4, Duration::from_millis(1))
+        adapter.receive(buffers, Duration::from_millis(1))
     }
 
     fn frames(result: OwnerReceive) -> crate::runtime::owner::FrameBatch {
@@ -279,7 +282,7 @@ mod tests {
         let (mut adapter, policy) = sony_adapter(transport);
 
         adapter
-            .send_sony_sequence_reset(policy.write_timeout)
+            .send_sony_sequence_reset(policy.write_timeout.get())
             .unwrap();
 
         assert_eq!(
@@ -313,6 +316,51 @@ mod tests {
             ),
             "only a zero-length read reports end of stream"
         );
+    }
+
+    #[test]
+    fn a_stream_write_timeout_poisons_the_session_with_its_original_io_source() {
+        use std::error::Error as _;
+
+        let io_cause = Arc::new(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "connection exhausted",
+        ));
+        let mut transport = ScriptedTransport::new([]).stream();
+        transport.write_error = Some(Error::Io {
+            source: Arc::clone(&io_cause),
+        });
+        let (adapter, policy) = adapter(transport);
+        let owner = BlockingOwnerHandle::spawn(policy, adapter, Clock::System).unwrap();
+        let prepared = prepare_command(
+            &crate::request::builtin::FocusModeCommand::Manual,
+            &crate::TargetRegistration::new(
+                crate::target::TargetSlot::CAMERA_1.individual_camera(),
+                ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+            ),
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .unwrap();
+        let receipt = owner.submit_command(prepared).unwrap();
+        let error = receipt.wait().unwrap_err();
+        assert!(matches!(error, Error::StreamPoisoned { .. }));
+        assert_eq!(error.recovery(), crate::Recovery::ReopenSession);
+        // #1009 preserves the concrete Arc layers in source(), including the
+        // original transport's shared io::Error, rather than flattening them.
+        let transport_cause = error
+            .source()
+            .unwrap()
+            .downcast_ref::<Arc<Error>>()
+            .unwrap();
+        let original = transport_cause
+            .source()
+            .unwrap()
+            .downcast_ref::<Arc<std::io::Error>>()
+            .unwrap();
+        assert!(Arc::ptr_eq(original, &io_cause));
+        assert_eq!(original.kind(), std::io::ErrorKind::TimedOut);
+        assert!(matches!(owner.close(), Err(Error::StreamPoisoned { .. })));
     }
 
     /// Issue #637/#719: raw `WouldBlock` and `Interrupted` mean an idle read;
@@ -441,10 +489,16 @@ mod tests {
             crate::target::TargetSlot::CAMERA_1,
         )
         .unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.receive_limits).unwrap();
+        let mut buffers = OwnerBuffers::new(super::super::OwnerLimits {
+            receive_bytes: std::num::NonZeroUsize::new(
+                adapter.transport.config.buffer_config.recv_buffer_size,
+            )
+            .unwrap(),
+            ..super::super::OwnerLimits::default()
+        });
         let receive = |adapter: &mut BlockingTransportAdapter<UnobservedTruncation>,
                        buffers: &mut OwnerBuffers| {
-            adapter.receive(buffers, 4, Duration::from_millis(1))
+            adapter.receive(buffers, Duration::from_millis(1))
         };
         assert!(matches!(
             receive(&mut adapter, &mut buffers),
@@ -509,8 +563,11 @@ mod tests {
         let (mut adapter, _) = adapter(
             ScriptedTransport::new([Ok(vec![0x90, 0x41, 0xff, 0x90, 0x51, 0xff])]).stream(),
         );
-        let mut buffers = buffers(&adapter);
-        let first = match adapter.receive(&mut buffers, 1, Duration::from_millis(1)) {
+        let mut buffers = OwnerBuffers::new(super::super::OwnerLimits {
+            frames_per_receive: std::num::NonZeroUsize::new(1).unwrap(),
+            ..super::super::OwnerLimits::default()
+        });
+        let first = match adapter.receive(&mut buffers, Duration::from_millis(1)) {
             OwnerReceive::Frames(frames) => frames,
             other => panic!("expected one frame, got {other:?}"),
         };
@@ -518,7 +575,7 @@ mod tests {
             matches!(first.iter().collect::<Vec<_>>().as_slice(), [ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
         );
         assert!(adapter.retained().is_some());
-        let second = match adapter.receive(&mut buffers, 1, Duration::from_millis(1)) {
+        let second = match adapter.receive(&mut buffers, Duration::from_millis(1)) {
             OwnerReceive::Frames(frames) => frames,
             other => panic!("expected the buffered frame, got {other:?}"),
         };

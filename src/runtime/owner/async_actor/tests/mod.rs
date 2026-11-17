@@ -15,8 +15,8 @@ use crate::runtime::engine::CommandOutcome;
 use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
-        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, ProtocolPolicy,
-        ReplyShape, RequestContext, RequestId, RetryPolicy, RuntimeRequest, TargetPolicy,
+        CancellationPolicy, CommandReply, ControlPolicy, DecodedResponse, EncodedMessage,
+        ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeRequest, TargetPolicy,
         TimeoutPolicy,
     },
     ViscaSocket,
@@ -24,7 +24,7 @@ use crate::{
 
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::engine::{
-    ControlClass, EnvelopeKind, EnvelopeSequence, InquiryOutcome, SequenceWidth, TransportKind,
+    EnvelopeKind, EnvelopeSequence, InquiryOutcome, SequenceWidth, TransportKind,
 };
 
 use crate::observability::DiagnosticEvent;
@@ -336,10 +336,10 @@ fn command() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn urgent_command() -> RuntimeRequest {
     let mut request = command();
-    let RuntimeRequest::Command { context, .. } = &mut request else {
+    let RuntimeRequest::Command { reply_shape, .. } = &mut request else {
         unreachable!("command helper always builds a command request");
     };
-    context.control.class = ControlClass::Urgent;
+    *reply_shape = CommandReply::Stop;
     request
 }
 
@@ -349,11 +349,14 @@ fn urgent_command() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn urgent_stop_command() -> RuntimeRequest {
     let mut request = command();
-    let RuntimeRequest::Command { wire, context, .. } = &mut request else {
+    let RuntimeRequest::Command {
+        wire, reply_shape, ..
+    } = &mut request
+    else {
         unreachable!("command helper always constructs a command");
     };
     *wire = Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap());
-    context.control.class = ControlClass::Urgent;
+    *reply_shape = CommandReply::Stop;
     request
 }
 
@@ -370,7 +373,7 @@ fn no_reply_command_for(target: TargetSlot, ambiguity: Duration) -> RuntimeReque
     else {
         unreachable!("command helper always builds a command request");
     };
-    *reply_shape = ReplyShape::NoReply;
+    *reply_shape = CommandReply::NoReply;
     context.timeout.ambiguity = crate::runtime::engine::NonZeroDuration::new(ambiguity).unwrap();
     request
 }
@@ -387,7 +390,7 @@ fn command_with_ack_timeout(timeout: Duration) -> RuntimeRequest {
 
 fn command_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(
             EncodedMessage::new(&[
                 0x80_u8.saturating_add(target.camera().value()),
@@ -427,7 +430,7 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
 /// in flight settles quickly on the fix's success path (#675).
 fn command_with_short_deadlines() -> RuntimeRequest {
     RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff]).unwrap()),
         context: RequestContext {
             requires_extended_pan_tilt_speed: false,
@@ -466,7 +469,7 @@ fn command_with_short_deadlines() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> RuntimeRequest {
     RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, marker, 0xff]).unwrap()),
         context: RequestContext {
             requires_extended_pan_tilt_speed: false,
@@ -534,7 +537,7 @@ fn raw_inquiry_rejection() -> DecodedFrame {
         sequence: None,
         response: DecodedResponse::Error {
             socket: None,
-            code: 0x41,
+            code: 0x41.into(),
         },
     }
 }
@@ -671,7 +674,6 @@ impl AsyncOwnerDriver for FakeAsyncDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let frames = self.frames.clone();
         async move {
@@ -707,7 +709,6 @@ impl AsyncOwnerDriver for RuntimeAffinityDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let observed = self.observed.clone();
         async move {
@@ -733,7 +734,6 @@ impl AsyncOwnerDriver for PanickingReceiveDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         async {
             panic!("test driver panic before terminal publication");
@@ -761,7 +761,6 @@ impl AsyncOwnerDriver for PanickingAfterAdmissionDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let panic_signal = self.panic_signal.clone();
         async move {
@@ -881,7 +880,7 @@ where
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
-                    code: 0x02,
+                    code: 0x02.into(),
                 },
             }]))
             .await
@@ -1123,7 +1122,6 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let reads = self.reads.clone();
         let reads_observed = self.reads_observed.clone();
@@ -1939,7 +1937,6 @@ impl AsyncOwnerDriver for AlwaysFailingReceive {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         self.reads.fetch_add(1, Ordering::Relaxed);
         async {
@@ -1973,7 +1970,6 @@ impl AsyncOwnerDriver for AlternatingFaultNoData {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let reads = Arc::clone(&self.reads);
         let faults = Arc::clone(&self.faults);
@@ -2017,7 +2013,6 @@ impl AsyncOwnerDriver for UngatedDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let receives = self.receives.clone();
         async move {
@@ -2197,7 +2192,6 @@ impl AsyncOwnerDriver for BabblingDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         async {
             OwnerReceive::Frames(
@@ -2231,7 +2225,6 @@ impl AsyncOwnerDriver for BufferedBabblingDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         async {
             OwnerReceive::Frames(
@@ -2276,7 +2269,6 @@ impl AsyncOwnerDriver for CountingBabblingDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let reads = Arc::clone(&self.reads);
         let empty_batches = self.empty_batches;
@@ -2388,7 +2380,6 @@ impl AsyncOwnerDriver for StallingWriteDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         async { future::pending().await }
     }
@@ -2413,7 +2404,6 @@ impl AsyncOwnerDriver for NoDataDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let reads = Arc::clone(&self.reads);
         async move {
@@ -2482,7 +2472,6 @@ impl AsyncOwnerDriver for RawBufferedFloodDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let reads = Arc::clone(&self.reads);
         async move {
@@ -2530,7 +2519,6 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
     fn receive(
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
-        _frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let idle = self.idle;
         let reads = Arc::clone(&self.reads);
@@ -2731,7 +2719,7 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
         runtime.block_on(async move {
             let actor_runtime = TokioRuntime::from_current().map_err(|error| error.to_string())?;
             let owner_policy = policy(1);
-            let fairness_ceiling = owner_policy.limits.frames_per_receive.max(1) as u64;
+            let fairness_ceiling = owner_policy.limits.frames_per_receive.get() as u64;
             let ready_reads = if empty_batches { 1 } else { fairness_ceiling };
             let (handle, actor) = AsyncOwnerActor::new(owner_policy, actor_runtime)
                 .map_err(|error| error.to_string())?;

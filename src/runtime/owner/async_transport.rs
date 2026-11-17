@@ -50,17 +50,13 @@ where
     // The private driver trait requires an explicitly `Send` future, so this
     // implementation keeps the `impl Future` form instead of `async fn`.
     #[allow(clippy::manual_async_fn)]
-    fn receive(
-        &mut self,
-        buffers: &mut OwnerBuffers,
-        frame_limit: usize,
-    ) -> impl Future<Output = OwnerReceive> + Send {
+    fn receive(&mut self, buffers: &mut OwnerBuffers) -> impl Future<Output = OwnerReceive> + Send {
         async move {
-            if let Some(buffered) = self.buffered(buffers, frame_limit) {
+            if let Some(buffered) = self.buffered(buffers) {
                 return buffered;
             }
             let read = self.transport.recv_into(buffers.receive_mut()).await;
-            self.classify_read(buffers, frame_limit, read)
+            self.classify_read(buffers, read)
         }
     }
 }
@@ -173,8 +169,8 @@ mod tests {
             crate::runtime::engine::TransportKind::Datagram
         );
 
-        let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
-        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+        let mut buffers = OwnerBuffers::new(adapter_policy.limits);
+        let received = futures_lite::future::block_on(adapter.receive(&mut buffers));
         let OwnerReceive::Frames(frames) = received else {
             panic!("a nonzero read must not report the transport as closed");
         };
@@ -222,9 +218,9 @@ mod tests {
         let (mut adapter, adapter_policy) =
             AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
-        let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter_policy.limits);
 
-        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+        let received = futures_lite::future::block_on(adapter.receive(&mut buffers));
 
         assert!(matches!(
             received,
@@ -251,14 +247,14 @@ mod tests {
             crate::target::TargetSlot::CAMERA_1,
         )
         .unwrap();
-        let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter_policy.limits);
 
-        let discarded = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+        let discarded = futures_lite::future::block_on(adapter.receive(&mut buffers));
         assert!(matches!(
             discarded,
             OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::MalformedDatagram)
         ));
-        let next = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+        let next = futures_lite::future::block_on(adapter.receive(&mut buffers));
         let OwnerReceive::Frames(frames) = next else {
             panic!("the next datagram must decode, got {next:?}");
         };
@@ -287,11 +283,11 @@ mod tests {
             AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
         assert_eq!(
-            adapter_policy.read_timeout,
+            adapter_policy.read_timeout.get(),
             std::time::Duration::from_millis(111)
         );
         assert_eq!(
-            adapter_policy.write_timeout,
+            adapter_policy.write_timeout.get(),
             std::time::Duration::from_millis(222)
         );
     }
@@ -310,15 +306,15 @@ mod tests {
         let (mut adapter, adapter_policy) =
             AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
-        let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter_policy.limits);
 
-        let first = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+        let first = futures_lite::future::block_on(adapter.receive(&mut buffers));
         let OwnerReceive::Frames(frames) = first else {
             panic!("a partial frame must not be reported as a transport close");
         };
         assert!(frames.is_empty());
 
-        let second = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+        let second = futures_lite::future::block_on(adapter.receive(&mut buffers));
         let OwnerReceive::Frames(frames) = second else {
             panic!("the completing read must decode the buffered frame");
         };
@@ -328,7 +324,7 @@ mod tests {
             crate::runtime::engine::DecodedResponse::Ack { .. }
         ));
 
-        let third = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+        let third = futures_lite::future::block_on(adapter.receive(&mut buffers));
         assert!(
             matches!(
                 third,
@@ -394,8 +390,8 @@ mod tests {
                 crate::target::TargetSlot::CAMERA_1,
             )
             .unwrap();
-            let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
-            let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+            let mut buffers = OwnerBuffers::new(adapter_policy.limits);
+            let received = futures_lite::future::block_on(adapter.receive(&mut buffers));
             assert!(matches!(received, OwnerReceive::Frames(ref frames) if frames.is_empty()));
             assert_eq!(
                 adapter.retained().and_then(|input| input.evidence.raw()),
@@ -424,8 +420,8 @@ mod tests {
                 crate::target::TargetSlot::CAMERA_1,
             )
             .unwrap();
-            let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
-            let _ = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+            let mut buffers = OwnerBuffers::new(adapter_policy.limits);
+            let _ = futures_lite::future::block_on(adapter.receive(&mut buffers));
             assert_eq!(
                 adapter.retained().and_then(|input| input.evidence.raw()),
                 Some(RawPrefixEvidence::Malformed),
@@ -460,8 +456,8 @@ mod tests {
                 crate::target::TargetSlot::CAMERA_1,
             )
             .unwrap();
-            let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
-            let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+            let mut buffers = OwnerBuffers::new(adapter_policy.limits);
+            let received = futures_lite::future::block_on(adapter.receive(&mut buffers));
             assert!(
                 matches!(
                     received,
@@ -494,8 +490,8 @@ mod tests {
                 crate::target::TargetSlot::CAMERA_1,
             )
             .unwrap();
-            let mut buffers = OwnerBuffers::new(adapter_policy.limits).unwrap();
-            let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+            let mut buffers = OwnerBuffers::new(adapter_policy.limits);
+            let received = futures_lite::future::block_on(adapter.receive(&mut buffers));
             assert!(matches!(
                 received,
                 OwnerReceive::Transient(_) | OwnerReceive::Fatal(_)

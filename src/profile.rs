@@ -2168,7 +2168,7 @@ mod tests {
                             request.context().motion.map(|motion| motion.axes),
                             Some(stop.axes())
                         );
-                        assert!(request.context().is_stop());
+                        assert!(request.is_stop());
                     }
                 }
             }

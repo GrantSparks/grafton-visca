@@ -140,7 +140,10 @@ impl Session {
 
             if config.sony_sequence_reset_on_connect() {
                 executor
-                    .timeout(policy.write_timeout, adapter.send_sony_sequence_reset())
+                    .timeout(
+                        policy.write_timeout.get(),
+                        adapter.send_sony_sequence_reset(),
+                    )
                     .await??;
             }
             let (owner, actor) = AsyncOwnerActor::new(policy, executor.clone())?;

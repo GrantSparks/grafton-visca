@@ -147,7 +147,7 @@ impl Session {
             config.strict_unconfirmed_poison(),
         )?;
         if config.sony_sequence_reset_on_connect() {
-            adapter.send_sony_sequence_reset(policy.write_timeout)?;
+            adapter.send_sony_sequence_reset(policy.write_timeout.get())?;
         }
         Ok(Self {
             owner: BlockingOwnerHandle::spawn(policy, adapter, clock)?,

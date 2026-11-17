@@ -58,7 +58,7 @@ impl AsyncOwnerDriver for ProbeDriver {
         })
     }
 
-    async fn receive(&mut self, buffers: &mut OwnerBuffers, _frame_limit: usize) -> OwnerReceive {
+    async fn receive(&mut self, buffers: &mut OwnerBuffers) -> OwnerReceive {
         std::future::poll_fn(|context| {
             let mut signal = self
                 .signal
@@ -82,13 +82,18 @@ impl AsyncOwnerDriver for ProbeDriver {
         })
         .await;
         let mut frames = buffers.take_frames();
-        frames.push_back(DecodedFrame {
-            target: TargetSlot::ALL[0],
-            sequence: None,
-            response: DecodedResponse::Completion {
-                socket: Some(ViscaSocket::S1),
-            },
-        });
+        assert!(
+            frames
+                .try_push(DecodedFrame {
+                    target: TargetSlot::ALL[0],
+                    sequence: None,
+                    response: DecodedResponse::Completion {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                })
+                .is_ok(),
+            "one probe frame fits the receive bound"
+        );
         OwnerReceive::Frames(frames)
     }
 }

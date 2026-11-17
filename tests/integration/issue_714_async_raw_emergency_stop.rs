@@ -19,7 +19,7 @@ use std::{
 #[cfg(feature = "blocking")]
 use grafton_visca::{config::OperationalTuning, types::CameraId};
 use grafton_visca::{
-    operation::AppliedOnly, r#async::Session, raw, request::RetryClass, runtime::Executor,
+    operation::AppliedOnly, r#async::Session, raw, request::CommandRetryClass, runtime::Executor,
     transport::AddressingMode, types::AffectedAxes, Error,
 };
 
@@ -63,9 +63,9 @@ fn assert_written_within(camera: &FakeCamera, count: usize, since: Instant, boun
 }
 
 fn ordinary_operation() -> raw::AppliedOnlyRequest {
-    let policy = grafton_visca::raw::OperationPolicy::new(
+    let policy = grafton_visca::request::OperationPolicy::new(
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .with_reply_shape(raw::OperationReplyShape::AckThenCompletion);
@@ -80,9 +80,9 @@ fn ordinary_operation_for(target: CameraId) -> raw::AppliedOnlyRequest {
     raw::AppliedOnlyRequest::with_policy(
         wire,
         AffectedAxes::ZOOM,
-        grafton_visca::raw::OperationPolicy::new(
+        grafton_visca::request::OperationPolicy::new(
             grafton_visca::profiles::CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             grafton_visca::request::SubmissionClass::Normal,
         )
         .with_reply_shape(raw::OperationReplyShape::AckThenCompletion),

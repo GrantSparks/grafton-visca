@@ -201,7 +201,7 @@ impl StreamCorrelation {
         entry: &super::Entry,
         uncorrelated_write: impl FnOnce() -> bool,
     ) -> Option<Instant> {
-        if !super::urgent_stop(entry) || uncorrelated_write() {
+        if !entry.request.is_stop() || uncorrelated_write() {
             return None;
         }
         let context = entry.request.context();
@@ -223,7 +223,9 @@ impl StreamCorrelation {
     pub(super) fn owes(&self, entry: &super::Entry) -> Option<super::Owes> {
         match entry.reply_family() {
             super::SendingReply::Inquiry => entry.request.payload_shape().map(super::Owes::Reply),
-            super::SendingReply::AckThenCompletion => Some(super::Owes::Ack),
+            super::SendingReply::Stop | super::SendingReply::AckThenCompletion => {
+                Some(super::Owes::Ack)
+            }
             super::SendingReply::CompletionOnly => Some(super::Owes::Completion),
             super::SendingReply::NoReply => Some(super::Owes::Rejection),
         }
@@ -280,7 +282,7 @@ pub(super) fn quarantine_datagram(
         Lifecycle::AwaitingAck { .. } => Some(RawHoldScope::PreAck),
         Lifecycle::AwaitingCompletion { .. } => Some(RawHoldScope::AllResponses),
         Lifecycle::Sending {
-            reply: SendingReply::AckThenCompletion,
+            reply: SendingReply::Stop | SendingReply::AckThenCompletion,
             ..
         } => Some(RawHoldScope::PreAck),
         Lifecycle::Sending {

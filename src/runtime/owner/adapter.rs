@@ -219,6 +219,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     )
 }
 
+#[allow(clippy::expect_used)] // TransportConfig::validate has already proved these bounds.
 pub(crate) fn owner_policy_for_registry_with_tuning(
     profiles: &PerTarget<Option<&ProfileSpec>>,
     config: &TransportConfig,
@@ -292,14 +293,17 @@ pub(crate) fn owner_policy_for_registry_with_tuning(
         tuning,
         baseline,
     );
-    policy.limits.receive_bytes = config.buffer_config.recv_buffer_size;
+    policy.limits.receive_bytes = NonZeroUsize::new(config.buffer_config.recv_buffer_size)
+        .expect("validated receive buffer has a positive minimum size");
     // Lower the caller's advertised read/write timeouts onto the owner policy so
     // both owners enforce them (#675): the async owner around each read,
     // because the runtime-agnostic async transports hold no timer of their own,
     // and the blocking worker as the idle span its sliced reads accumulate
     // before reporting no data (#780).
-    policy.read_timeout = config.read_timeout;
-    policy.write_timeout = config.write_timeout;
+    policy.read_timeout = crate::timeout::NonZeroDuration::new(config.read_timeout)
+        .expect("validated read timeout is positive");
+    policy.write_timeout = crate::timeout::NonZeroDuration::new(config.write_timeout)
+        .expect("validated write timeout is positive");
     Ok(policy)
 }
 
@@ -325,7 +329,7 @@ pub(crate) enum AsyncIo {}
 pub(crate) struct TransportAdapter<T, F> {
     pub(super) transport: T,
     pub(super) framing: AdapterFraming,
-    pub(super) receive_limits: super::OwnerLimits,
+
     facade: std::marker::PhantomData<fn() -> F>,
 }
 
@@ -363,7 +367,7 @@ where
             Self {
                 transport,
                 framing,
-                receive_limits: policy.limits,
+
                 facade: std::marker::PhantomData,
             },
             policy,
@@ -403,12 +407,8 @@ where
 impl<T, F> TransportAdapter<T, F> {
     /// Complete frames a prior receive left buffered, delivered before the
     /// adapter reads again; see [`AdapterFraming::drain_buffered`].
-    pub(super) fn buffered(
-        &mut self,
-        buffers: &mut OwnerBuffers,
-        frame_limit: usize,
-    ) -> Option<OwnerReceive> {
-        match self.framing.drain_buffered(buffers, frame_limit) {
+    pub(super) fn buffered(&mut self, buffers: &mut OwnerBuffers) -> Option<OwnerReceive> {
+        match self.framing.drain_buffered(buffers) {
             Ok(frames) => frames.map(OwnerReceive::Frames),
             Err(error) => Some(error.owner_receive(self.framing.transport)),
         }
@@ -434,22 +434,20 @@ impl<T, F> TransportAdapter<T, F> {
     pub(super) fn classify_read(
         &mut self,
         buffers: &mut OwnerBuffers,
-        frame_limit: usize,
+
         read: Result<ReceiveOutcome, Error>,
     ) -> OwnerReceive {
         let decoded = match read {
             Ok(outcome) if !outcome.is_complete() => Err(ReceiveDecodeFailure::Fatal {
                 error: Error::ResponseTooLarge {
-                    max_size: self.receive_limits.receive_bytes,
+                    max_size: buffers.receive_mut().len(),
                 },
                 discarded: 0,
             }),
             Ok(outcome) if outcome.copied_len() == 0 => {
                 return OwnerReceive::Fatal(ReceiveFatal::TransportClosed { cause: None })
             }
-            Ok(outcome) => self
-                .framing
-                .decode(buffers, outcome.copied_len(), frame_limit),
+            Ok(outcome) => self.framing.decode(buffers, outcome.copied_len()),
             Err(error) => return OwnerReceive::read_error(error),
         };
         match decoded {
@@ -593,12 +591,11 @@ impl AdapterFraming {
         }
     }
 
-    /// Decode `received` newly read bytes, at most `frame_limit` frames.
+    /// Decode newly read bytes within the receive storage's frame bound.
     pub(crate) fn decode(
         &mut self,
         buffers: &mut OwnerBuffers,
         received: usize,
-        frame_limit: usize,
     ) -> Result<FrameBatch, ReceiveDecodeFailure> {
         match &mut self.framing {
             EnvelopeFraming::Raw { envelope, framer } => decode_frames_with_routing(
@@ -607,7 +604,6 @@ impl AdapterFraming {
                 self.routing,
                 buffers,
                 received,
-                frame_limit,
                 self.transport,
             ),
             EnvelopeFraming::Sony { envelope, framer } => decode_frames_with_routing(
@@ -616,7 +612,6 @@ impl AdapterFraming {
                 self.routing,
                 buffers,
                 received,
-                frame_limit,
                 self.transport,
             ),
         }
@@ -631,9 +626,8 @@ impl AdapterFraming {
     pub(crate) fn drain_buffered(
         &mut self,
         buffers: &mut OwnerBuffers,
-        frame_limit: usize,
     ) -> Result<Option<FrameBatch>, ReceiveDecodeFailure> {
-        let buffered = self.decode(buffers, 0, frame_limit)?;
+        let buffered = self.decode(buffers, 0)?;
         if !buffered.is_empty() || buffered.discarded > 0 {
             Ok(Some(buffered))
         } else {
@@ -731,7 +725,7 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
     routing: RoutingState,
     buffers: &mut OwnerBuffers,
     received: usize,
-    frame_limit: usize,
+
     transport: TransportKind,
 ) -> Result<FrameBatch, ReceiveDecodeFailure> {
     let received = crate::transport::buffer::checked_read(received, buffers.receive_mut().len())
@@ -742,6 +736,7 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
     if received == 0 && (transport == TransportKind::Datagram || !framer.has_buffered_data()) {
         return Ok(FrameBatch::new());
     }
+    let frame_limit = buffers.receive_bounds().frames.get();
     let mut frames = buffers.take_frames();
     let mut discarded = 0_usize;
     let result: Result<(), ReceiveDecodeFailure> = match transport {
@@ -763,31 +758,39 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
                 if let Some(frame) =
                     decode_frame(envelope, routing, &input[offset..offset + length])?
                 {
-                    frames.push_back(frame);
+                    frames
+                        .try_push(frame)
+                        .map_err(|_| MalformedFrame::DatagramFrameLimit { limit: frame_limit })?;
                 }
                 offset += length;
             }
             Ok(())
         })(),
-        TransportKind::Stream => (|| {
-            framer.push_slice(&buffers.receive_mut()[..received])?;
-            while frames.len() < frame_limit {
-                let Some(next) =
-                    framer.visit_next_frame(|frame| decode_frame(envelope, routing, frame))
-                else {
-                    break;
-                };
-                match next {
-                    Ok(Ok(Some(frame))) => frames.push_back(frame),
-                    Ok(Ok(None)) => {}
-                    Ok(Err(_)) | Err(FramingError::OversizedRawFrame { .. }) => {
-                        discarded = discarded.saturating_add(1);
+        TransportKind::Stream => {
+            (|| {
+                framer.push_slice(&buffers.receive_mut()[..received])?;
+                while frames.len() < frame_limit {
+                    let Some(next) =
+                        framer.visit_next_frame(|frame| decode_frame(envelope, routing, frame))
+                    else {
+                        break;
+                    };
+                    match next {
+                        Ok(Ok(Some(frame))) => {
+                            frames.try_push(frame).map_err(|_| {
+                                MalformedFrame::DatagramFrameLimit { limit: frame_limit }
+                            })?;
+                        }
+                        Ok(Ok(None)) => {}
+                        Ok(Err(_)) | Err(FramingError::OversizedRawFrame { .. }) => {
+                            discarded = discarded.saturating_add(1);
+                        }
+                        Err(error) => return Err(error.into()),
                     }
-                    Err(error) => return Err(error.into()),
                 }
-            }
-            Ok(())
-        })(),
+                Ok(())
+            })()
+        }
     };
     match result {
         Ok(()) => {
@@ -1196,7 +1199,7 @@ mod tests {
             error.response,
             DecodedResponse::Error {
                 socket: Some(crate::ViscaSocket::S1),
-                code: 0x04
+                code: crate::protocol::response::CameraErrorCode::Cancelled
             }
         ));
     }
@@ -1348,7 +1351,10 @@ mod tests {
             TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = RawFramer::new_with_limits(32, 32, 32);
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(4).unwrap(),
+            ..OwnerLimits::default()
+        });
         let capacity = buffers.receive_mut().len();
         let failure = decode_frames_with_routing(
             &envelope,
@@ -1356,7 +1362,6 @@ mod tests {
             routing,
             &mut buffers,
             capacity + 1,
-            4,
             TransportKind::Stream,
         )
         .unwrap_err();
@@ -1373,7 +1378,10 @@ mod tests {
             TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = RawFramer::new_with_limits(32, 32, 32);
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(4).unwrap(),
+            ..OwnerLimits::default()
+        });
 
         buffers.receive_mut()[..2].copy_from_slice(&[0x90, 0x41]);
         assert!(matches!(
@@ -1383,7 +1391,6 @@ mod tests {
                 routing,
                 &mut buffers,
                 2,
-                4,
                 TransportKind::Datagram,
             ),
             Err(ReceiveDecodeFailure::Malformed(
@@ -1399,7 +1406,6 @@ mod tests {
             routing,
             &mut buffers,
             3,
-            4,
             TransportKind::Datagram,
         )
         .expect("a valid later datagram must not inherit the partial prefix");
@@ -1415,7 +1421,10 @@ mod tests {
             TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = RawFramer::new_with_limits(32, 32, 32);
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(1).unwrap(),
+            ..OwnerLimits::default()
+        });
         buffers.receive_mut()[..6].copy_from_slice(&[0x90, 0x41, 0xff, 0x90, 0x51, 0xff]);
         assert!(matches!(
             decode_frames_with_routing(
@@ -1424,7 +1433,6 @@ mod tests {
                 routing,
                 &mut buffers,
                 6,
-                1,
                 TransportKind::Datagram,
             ),
             // A frame-count limit is reported as an invalid (over-limit) batch,
@@ -1443,7 +1451,6 @@ mod tests {
                 routing,
                 &mut buffers,
                 3,
-                1,
                 TransportKind::Datagram,
             )
             .unwrap()
@@ -1460,7 +1467,10 @@ mod tests {
             TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = RawFramer::new_with_limits(8, 32, 5);
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(4).unwrap(),
+            ..OwnerLimits::default()
+        });
 
         buffers.receive_mut()[..4].copy_from_slice(&[0x90, 0x41, 0x00, 0x00]);
         assert!(decode_frames_with_routing(
@@ -1468,7 +1478,6 @@ mod tests {
             &mut framer,
             routing,
             &mut buffers,
-            4,
             4,
             TransportKind::Stream,
         )
@@ -1482,7 +1491,6 @@ mod tests {
                 routing,
                 &mut buffers,
                 2,
-                4,
                 TransportKind::Stream,
             ),
             Err(ReceiveDecodeFailure::Fatal {
@@ -1501,7 +1509,10 @@ mod tests {
             TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = SonyFramer::new_with_limits(64, 16, 64);
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(8).unwrap(),
+            ..OwnerLimits::default()
+        });
         let mut bytes = Vec::new();
         for sequence in 0..3 {
             // A delimited Sony response carrying an invalid padded VISCA ACK.
@@ -1517,7 +1528,6 @@ mod tests {
             routing,
             &mut buffers,
             bytes.len(),
-            8,
             TransportKind::Stream,
         )
         .expect_err("oversized Sony frame is fatal");
@@ -1552,7 +1562,10 @@ mod tests {
             TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = RawFramer::new_with_limits(64, 64, 64);
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(8).unwrap(),
+            ..OwnerLimits::default()
+        });
 
         // A padded ACK (four bytes where an ACK is exactly three) followed by a
         // well-formed completion, in one stream read.
@@ -1564,7 +1577,6 @@ mod tests {
             routing,
             &mut buffers,
             bytes.len(),
-            8,
             TransportKind::Stream,
         )
         .expect("a malformed stream frame is discarded, not a framing failure");
@@ -1592,7 +1604,10 @@ mod tests {
             TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = RawFramer::new_with_limits(64, 64, 64);
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(8).unwrap(),
+            ..OwnerLimits::default()
+        });
         let bytes = [0x90, 0x41, 0x00, 0xff, 0x90, 0x51, 0xff];
         buffers.receive_mut()[..bytes.len()].copy_from_slice(&bytes);
         assert!(matches!(
@@ -1602,7 +1617,6 @@ mod tests {
                 routing,
                 &mut buffers,
                 bytes.len(),
-                8,
                 TransportKind::Datagram,
             ),
             Err(ReceiveDecodeFailure::Malformed(
@@ -1624,7 +1638,10 @@ mod tests {
             TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = RawFramer::new_with_limits(64, 64, 64);
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(2).unwrap(),
+            ..OwnerLimits::default()
+        });
 
         // Three well-formed frames in one read, with a per-receive limit of two.
         let bytes = [0x90, 0x41, 0xff, 0x90, 0x51, 0xff, 0x90, 0x38, 0xff];
@@ -1635,7 +1652,6 @@ mod tests {
             routing,
             &mut buffers,
             bytes.len(),
-            2,
             TransportKind::Stream,
         )
         .expect("an over-limit stream read is not a framing failure");
@@ -1653,7 +1669,6 @@ mod tests {
             routing,
             &mut buffers,
             0,
-            2,
             TransportKind::Stream,
         )
         .expect("draining the remainder is not a framing failure");
@@ -1673,7 +1688,10 @@ mod tests {
             TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = RawFramer::new_with_limits(64, 64, 64);
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(2).unwrap(),
+            ..OwnerLimits::default()
+        });
 
         let bytes = [0x90, 0x41, 0xff, 0x90, 0x51, 0xff];
         buffers.receive_mut()[..bytes.len()].copy_from_slice(&bytes);
@@ -1683,7 +1701,6 @@ mod tests {
             routing,
             &mut buffers,
             bytes.len(),
-            2,
             TransportKind::Stream,
         )
         .expect("exactly the frame limit is not a framing failure");
@@ -1790,7 +1807,31 @@ mod tests {
         for semantics in [SendSemantics::Datagram, SendSemantics::Stream] {
             let policy = owner_policy_for_targets(&profiles, &config, semantics)
                 .expect("equal receive and maximum sizes are valid");
-            assert_eq!(policy.limits.receive_bytes, 64);
+            assert_eq!(policy.limits.receive_bytes.get(), 64);
+        }
+    }
+
+    #[test]
+    fn minimum_validated_receive_storage_retains_its_checked_bounds() {
+        let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
+        let minimum = crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE;
+        let config = TransportConfig {
+            buffer_config: crate::transport::BufferConfig {
+                recv_buffer_size: minimum,
+                max_buffer_size: minimum,
+            },
+            ..TransportConfig::default()
+        };
+        for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
+            let policy =
+                owner_policy_for_targets(&[(TargetSlot::CAMERA_1, &profile)], &config, semantics)
+                    .unwrap();
+            let frames = policy.limits.frames_per_receive;
+            let mut buffers = OwnerBuffers::new(policy.limits);
+            assert_eq!(buffers.receive_bounds().bytes.get(), minimum);
+            assert_eq!(buffers.receive_bounds().frames, frames);
+            assert_eq!(buffers.receive_mut().len(), minimum);
+            assert_eq!(buffers.take_frames().limit, frames.get());
         }
     }
 
@@ -1826,7 +1867,7 @@ mod tests {
         );
         for transport in [TransportKind::Stream, TransportKind::Datagram] {
             let mut framer = SonyFramer::new_with_limits(64, 64, 128);
-            let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+            let mut buffers = OwnerBuffers::new(OwnerLimits::default());
             // A valid ACK follows an invalid header; the stream must never
             // deliver it by guessing a new Sony boundary.
             let packet = [0x90, 0x41, 1, 0x11, 0, 3, 0, 0, 0, 1, 0x90, 0x41, 0xff];
@@ -1837,7 +1878,6 @@ mod tests {
                 routing,
                 &mut buffers,
                 packet.len(),
-                4,
                 transport,
             )
             .unwrap_err();
@@ -1866,7 +1906,10 @@ mod tests {
         );
         let mut framer = RawFramer::new_with_limits(64, 64, 128);
         framer.push_slice(&[0x90]).unwrap();
-        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let mut buffers = OwnerBuffers::new(OwnerLimits {
+            frames_per_receive: NonZeroUsize::new(4).unwrap(),
+            ..OwnerLimits::default()
+        });
         let packet = [0x90, 0x41, 0xff];
         buffers.receive_mut()[..packet.len()].copy_from_slice(&packet);
         let frames = decode_frames_with_routing(
@@ -1875,7 +1918,6 @@ mod tests {
             routing,
             &mut buffers,
             packet.len(),
-            4,
             TransportKind::Datagram,
         )
         .unwrap();
@@ -1942,12 +1984,12 @@ impl ReceiveProbe {
             crate::DEFAULT_ADMISSION_CAPACITY,
             false,
         )?;
-        let buffers = OwnerBuffers::new(policy.limits)?;
+        let buffers = OwnerBuffers::new(policy.limits);
         Ok(Self {
             adapter: TransportAdapter {
                 transport,
                 framing,
-                receive_limits: policy.limits,
+
                 facade: std::marker::PhantomData,
             },
             buffers,
@@ -1956,11 +1998,7 @@ impl ReceiveProbe {
 
     pub(crate) fn receive(&mut self, chunk: &[u8]) -> Result<usize, Error> {
         let outcome = ReceiveOutcome::copy_message(chunk, self.buffers.receive_mut());
-        let limit = self.adapter.receive_limits.frames_per_receive;
-        match self
-            .adapter
-            .classify_read(&mut self.buffers, limit, Ok(outcome))
-        {
+        match self.adapter.classify_read(&mut self.buffers, Ok(outcome)) {
             OwnerReceive::Frames(mut frames) => {
                 let count = frames.len();
                 while let Some(frame) = frames.pop_front() {

@@ -147,8 +147,8 @@ fn a_refused_typed_stop_is_terminal() {
 }
 
 /// `helpers::not_executable_sequence_then_success`: several consecutive
-/// refusals still resolve. `MovementCommand` is `RetryClass::Movement` but
-/// `TimeoutClass::Quick`, so the *count* it is allowed comes from the quick
+/// refusals still resolve. `MovementCommand` is `CommandRetryClass::Movement` but
+/// `CommandTimeoutClass::Quick`, so the *count* it is allowed comes from the quick
 /// class; the movement retry class is what decides that `0x41` is replayable
 /// here at all.
 #[test]

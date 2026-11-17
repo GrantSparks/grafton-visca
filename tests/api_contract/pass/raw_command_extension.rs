@@ -1,7 +1,7 @@
 use grafton_visca::{
     request::ControlClass, request::Inquiry, request::InquiryClass, request::PlainClass,
-    request::PlainCommand, request::Request, request::ResponseDecoder, request::RetryClass,
-    request::TimeoutClass, types::CameraId, wire::Response, wire::ResponseParser,
+    request::PlainCommand, request::Request, request::ResponseDecoder, request::CommandRetryClass,
+    profiles::CommandTimeoutClass, types::CameraId, wire::Response, wire::ResponseParser,
     wire::VISCA_TERMINATOR, Error,
 };
 
@@ -12,9 +12,9 @@ impl Request for CustomCommand {
     type Class = PlainClass;
 
     const MAX_SIZE: usize = 2;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+    fn policy(&self) -> grafton_visca::request::CommandPolicy {
+        grafton_visca::request::CommandPolicy::new(grafton_visca::profiles::CommandTimeoutClass::Quick, grafton_visca::request::CommandRetryClass::Never, grafton_visca::request::SubmissionClass::Normal)
+    }
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -31,9 +31,9 @@ impl Request for VendorStatusInquiry {
     type Class = InquiryClass;
 
     const MAX_SIZE: usize = 5;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-    const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+    fn policy(&self) -> grafton_visca::request::InquiryPolicy {
+        grafton_visca::request::InquiryPolicy::new(grafton_visca::request::InquiryRetryClass::Inquiry, grafton_visca::request::SubmissionClass::Normal)
+    }
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         let bytes = [

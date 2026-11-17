@@ -558,21 +558,39 @@ The built-in command classification remains one closed semantic ledger. A
 custom request must declare its class explicitly; wire opcode or response shape
 does not infer lifecycle semantics.
 
-When porting raw frames, use `raw::CommandPolicy` with `raw::PlainRequest`,
-`raw::OperationPolicy` with `raw::TargetedRequest` or `raw::AppliedOnlyRequest`, and
-`raw::InquiryPolicy` with `raw::InquiryRequest<R>`. Command and operation policies
-take `CommandTimeoutClass` (`Quick`, `Movement`, `Preset`, `LongRunning`, or
-`Network`), which cannot select the inquiry timeout. Inquiry policy stores
-neither a timeout category nor a command reply shape; its retry argument is
-`request::InquiryRetryClass::Never` or `InquiryRetryClass::Inquiry`, including
-`InquiryRequest` convenience constructors. When porting a custom 1.x inquiry,
-choose `Inquiry` for bounded reply-loss recovery or `Never` to disable replay;
-command retry families are refused before I/O. Plain commands select
-`raw::RawReplyShape`; operations select `raw::OperationReplyShape`, whose
-`AckThenCompletion` and `CompletionOnly` variants require camera evidence and
-exclude `NoReply`. All three policies take `SubmissionClass`, which cannot
-express `Urgent`. Policy constructors are infallible; raw request constructors
-remain fallible for wire validation.
+Custom `Request` implementations replace their separate timeout, retry,
+control and reply-shape declarations with one required `policy()` method. Its
+return type follows from `Request::Class`:
+
+| Request class | `policy()` return type |
+| --- | --- |
+| `request::PlainClass` | `request::CommandPolicy` |
+| `request::InquiryClass` | `request::InquiryPolicy` |
+| `request::OperationClass<K>` | `request::OperationPolicy` |
+
+Import policy types from `grafton_visca::request`. The same types configure raw
+frames: use `CommandPolicy` with `raw::PlainRequest`, `OperationPolicy` with
+`raw::TargetedRequest` or `raw::AppliedOnlyRequest`, and `InquiryPolicy` with
+`raw::InquiryRequest<R>`.
+
+Command and operation policies take `profiles::CommandTimeoutClass` (`Quick`,
+`Movement`, `Preset`, `LongRunning`, or `Network`) and
+`request::CommandRetryClass` (`Never`, `Standard`, `Movement`, or `Preset`).
+Inquiry policy takes `request::InquiryRetryClass::Never` or
+`InquiryRetryClass::Inquiry`, including `InquiryRequest` convenience
+constructors. Choose `Inquiry` for bounded reply-loss recovery or `Never` to
+disable replay. Inquiry timing and reply handling follow from its lifecycle;
+there is no timeout or command reply-shape argument. The `ViscaInquiry` derive
+emits the matching policy, so derived inquiries need no manual update.
+
+Plain commands select `raw::RawReplyShape`; operations select
+`raw::OperationReplyShape`, whose `AckThenCompletion` and `CompletionOnly`
+variants require camera evidence and exclude `NoReply`. All three policies take
+`SubmissionClass`, which cannot express `Urgent`. Policy constructors are
+infallible; raw request constructors remain fallible for wire validation.
+Persisted policy field names and accepted tags are unchanged, except that
+command and operation policies now reject the former `"retry": "inquiry"`
+alias. Use the appropriate command retry family instead.
 
 ### Type-erasing operation handles
 
@@ -686,8 +704,8 @@ Three behavioural differences are worth reading before porting:
   `with_submission_class(SubmissionClass::Background)`, still submits `PanTiltStop`, `ZoomStop`,
   `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`.
   Nor can ordinary work manufacture the urgent lane: `SubmissionClass` has no
-  `Urgent` variant, and `raw::CommandPolicy`, `raw::OperationPolicy`, and
-  `raw::InquiryPolicy` all take that ordinary-work type. A raw caller who needs
+  `Urgent` variant, and `request::CommandPolicy`, `request::OperationPolicy`, and
+  `request::InquiryPolicy` all take that ordinary-work type. A raw caller who needs
   preemption issues the typed stop. The urgent lane is reachable only by the
   crate's own stops and owner-issued cancellation.
 - **Inquiries are covered.** 1.x kept inquiries at a fixed polling priority; in
@@ -989,7 +1007,7 @@ camera operation. They have no name-preserving alias in 2.0:
 | Items formerly obtained incidentally from the broad `prelude` contents | The async and blocking preludes now contain their documented facade-specific quick-start sets. Import extension contracts such as `Request`, `Inquiry`, `OperationCommand`, `Envelope`, profile builders, and transport traits explicitly from their owning root/module paths. |
 | `ClosedSession` and the open/closed session typestate markers | `Session::close(self)` consumes the session and returns `Result<()>`; success is the closed-state proof. Do not retain or pass a closed token. |
 | `ResponseFuture` | Keep the returned `Operation<K>` and call its terminal method, or await the typed `inquire`/`execute` call directly. The owner retains response routing; there is no public boxed response-future alias. |
-| `RawSender` | Construct `raw::PlainRequest`, `raw::InquiryRequest<R>`, `raw::TargetedRequest`, or `raw::AppliedOnlyRequest` and pass it to the matching camera `execute`, `inquire`, or `submit` method. Use `raw::CommandPolicy` for plain commands, `raw::OperationPolicy` for operations, or `raw::InquiryPolicy` for inquiries; their types constrain timeout, submission class, and reply shape to the request kind. |
+| `RawSender` | Construct `raw::PlainRequest`, `raw::InquiryRequest<R>`, `raw::TargetedRequest`, or `raw::AppliedOnlyRequest` and pass it to the matching camera `execute`, `inquire`, or `submit` method. Use `request::CommandPolicy` for plain commands, `request::OperationPolicy` for operations, or `request::InquiryPolicy` for inquiries; their types constrain timeout, submission class, and reply shape to the request kind. |
 | `submit_continuous` | Express the lifecycle in the request type: implement `OperationCommand<operation::AppliedOnly>` for a custom typed request, or construct `raw::AppliedOnlyRequest`, then call `submit::<operation::AppliedOnly, _>`. |
 | `CommandBehavior` and `InquiryResponseSpec` | Implement the public `Request` class plus `Inquiry`/`OperationCommand<K>` contract. Custom inquiry decoding belongs in the response type/decoder; action-versus-inquiry routing is no longer supplied as mutable runtime metadata. |
 | `CachedFlipState` | Combined image-flip settings use `ImageFlipMode`; a vertical flip property is a boolean. |
@@ -1262,7 +1280,7 @@ fields map directly to the corresponding tuning methods:
 | `preset_timeout` | `with_preset_timeout` |
 | `long_timeout` | `with_long_running_timeout` |
 | `network_timeout` | `with_network_timeout` |
-| `default_timeout` | No direct counterpart: every 2.0 request selects a `TimeoutClass`; set the corresponding category deadline. |
+| `default_timeout` | No direct counterpart: every 2.0 command policy selects a `CommandTimeoutClass`; set the corresponding category deadline. |
 | *(no 1.x field)* | `with_settlement_timeout` for the profile-selected protocol-settlement budget; `with_inquiry_timeout` is the profile inquiry-response deadline (a new dedicated field whose default differs from 1.x — see the note below) |
 | `RetryConfig::max_retries`, `base_retry_delay`, `max_retry_duration` | `with_retry_limit`, `with_initial_retry_backoff`, `with_maximum_retry_backoff`, and `with_retry_budget` |
 
@@ -1285,8 +1303,10 @@ preserves the 1.x values (Quick 5 seconds, Movement 30 seconds, Preset 60
 seconds, LongRunning 300 seconds, and Network 5 seconds); each built-in
 profile records its exact category values explicitly. An operational category
 override must be non-zero and cannot undercut that category's profile value.
-Inquiries declare `TimeoutClass::Inquiry` and use `inquiry_timeout`; command
-Quick and Network values are never inquiry deadlines.
+Custom inquiries implement `Request<Class = InquiryClass>` and return an
+`InquiryPolicy` from `policy()`. Their timing always uses `inquiry_timeout`;
+command policies select a `CommandTimeoutClass` instead, and Quick and Network
+values are never inquiry deadlines.
 Retry counts remain category-based, but v2 deliberately makes replay depend on
 correlation evidence. Backoff begins at 50 ms by default, uses deterministic
 equal jitter, and is capped at the larger of 500 ms and the profile busy

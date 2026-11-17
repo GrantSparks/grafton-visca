@@ -64,7 +64,7 @@ fn ms(value: u64) -> Duration {
 #[test]
 fn every_boundary_first_turn_requests_one_handoff_and_the_ceiling_forces_one() {
     let mut coordinator = OwnerCoordinator::<u32>::default();
-    coordinator.set_fairness_ceiling(2);
+    coordinator.set_fairness_ceiling(std::num::NonZeroUsize::new(2).unwrap());
     assert!(!coordinator.begin_turn(), "an ordinary receive-first turn");
 
     let receive = Selected::Receive {
@@ -98,7 +98,7 @@ fn every_boundary_first_turn_requests_one_handoff_and_the_ceiling_forces_one() {
 #[test]
 fn a_boundary_turn_resets_the_receive_streak() {
     let mut coordinator = OwnerCoordinator::<u32>::default();
-    coordinator.set_fairness_ceiling(2);
+    coordinator.set_fairness_ceiling(std::num::NonZeroUsize::new(2).unwrap());
     let receive = Selected::Receive {
         due_at_receive: empty(),
         class: ReceiveClass::Other,
@@ -322,7 +322,7 @@ fn a_forced_turn_lets_the_release_timer_lead_a_receive_flood() {
     };
     for complete_frame in [false, true] {
         let mut coordinator = OwnerCoordinator::<u32>::default();
-        coordinator.set_fairness_ceiling(1);
+        coordinator.set_fairness_ceiling(std::num::NonZeroUsize::new(1).unwrap());
         assert!(coordinator.finish(receive, None, TurnOutcome::ContinueBuffered));
         assert!(coordinator.begin_turn(), "a forced boundary turn");
         let selection = select(coordinator.plan(now, Some(now), s1, || complete_frame));
@@ -690,7 +690,7 @@ mod model {
     impl World {
         fn new() -> Self {
             let mut coordinator = OwnerCoordinator::default();
-            coordinator.set_fairness_ceiling(CEILING);
+            coordinator.set_fairness_ceiling(std::num::NonZeroUsize::new(CEILING).unwrap());
             Self {
                 now: Instant::now(),
                 coordinator,

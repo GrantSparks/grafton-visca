@@ -272,7 +272,7 @@ impl Fixture {
             AwaitingCompletion => command_with_reply_shape(
                 1,
                 CancellationPolicy::Supported,
-                ReplyShape::CompletionOnly,
+                CommandReply::CompletionOnly,
             ),
             _ => command(1, CancellationPolicy::Supported),
         };
@@ -327,7 +327,7 @@ impl Fixture {
                     None,
                     DecodedResponse::Error {
                         socket: None,
-                        code: 0x03,
+                        code: 0x03.into(),
                     },
                 ),
                 now,
@@ -384,7 +384,14 @@ impl Fixture {
                     Phase::Executing { .. } | Phase::AwaitingCancellationResolution { .. }
                 )
                 .then_some(ViscaSocket::S1);
-                frame(1, None, DecodedResponse::Error { socket, code: 0x02 })
+                frame(
+                    1,
+                    None,
+                    DecodedResponse::Error {
+                        socket,
+                        code: 0x02.into(),
+                    },
+                )
             }
             Action::Cancel => Input::Cancel { id: self.id },
             Action::Due => {

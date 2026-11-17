@@ -56,22 +56,8 @@ macro_rules! forward_request {
         impl $crate::Request for $type {
             type Class = $class;
             const MAX_SIZE: usize = <$inner as $crate::Request>::MAX_SIZE;
-            const TIMEOUT_CLASS: $crate::TimeoutClass = <$inner as $crate::Request>::TIMEOUT_CLASS;
-            const RETRY_CLASS: $crate::RetryClass = <$inner as $crate::Request>::RETRY_CLASS;
-            const CONTROL_CLASS: $crate::ControlClass = <$inner as $crate::Request>::CONTROL_CLASS;
-
-            fn timeout_class(&self) -> $crate::TimeoutClass {
-                <$inner as $crate::Request>::timeout_class(
-                    $crate::command::nouns::forward_request!(@inner self [$($value)*]),
-                )
-            }
-            fn retry_class(&self) -> $crate::RetryClass {
-                <$inner as $crate::Request>::retry_class(
-                    $crate::command::nouns::forward_request!(@inner self [$($value)*]),
-                )
-            }
-            fn control_class(&self) -> $crate::ControlClass {
-                <$inner as $crate::Request>::control_class(
+            fn policy(&self) -> <Self::Class as $crate::request::Class>::Policy {
+                <$inner as $crate::Request>::policy(
                     $crate::command::nouns::forward_request!(@inner self [$($value)*]),
                 )
             }
@@ -84,15 +70,10 @@ macro_rules! forward_request {
             fn admission_control_class(
                 &self,
                 authority: $crate::requests::RequestContractAuthority,
-            ) -> $crate::Result<$crate::ControlClass> {
+            ) -> $crate::ControlClass {
                 <$inner as $crate::Request>::admission_control_class(
                     $crate::command::nouns::forward_request!(@inner self [$($value)*]),
                     authority,
-                )
-            }
-            fn reply_shape(&self) -> $crate::raw::RawReplyShape {
-                <$inner as $crate::Request>::reply_shape(
-                    $crate::command::nouns::forward_request!(@inner self [$($value)*]),
                 )
             }
             #[allow(private_interfaces)]
@@ -217,6 +198,7 @@ macro_rules! forward_request {
             [$($value)*], []
         );
         impl $crate::command::semantics::BuiltinRequestContract for $type {
+            const POLICY: $crate::request::builtin_policy::BuiltinPolicy = <$inner as $crate::command::semantics::BuiltinRequestContract>::POLICY;
             const LEDGER_ROW: $crate::command::semantics::BuiltinCommand =
                 $crate::command::nouns::forward_request!(@row $inner, [$($row),*]);
             type State = <$inner as $crate::command::semantics::BuiltinRequestContract>::State;
@@ -263,31 +245,11 @@ macro_rules! forward_request {
                 $(if <$inner as $crate::Request>::MAX_SIZE > size { size = <$inner as $crate::Request>::MAX_SIZE; })+
                 size
             };
-            const TIMEOUT_CLASS: $crate::TimeoutClass = <$primary as $crate::Request>::TIMEOUT_CLASS;
-            const RETRY_CLASS: $crate::RetryClass = <$primary as $crate::Request>::RETRY_CLASS;
-            const CONTROL_CLASS: $crate::ControlClass = <$primary as $crate::Request>::CONTROL_CLASS;
-            #[allow(private_interfaces)]
-            fn timeout_class(&self) -> $crate::TimeoutClass {
+            fn policy(&self) -> <Self::Class as $crate::request::Class>::Policy {
                 let $request = self;
                 let _ = &$request;
                 match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
-                    $($pattern => <$inner as $crate::Request>::timeout_class(&$value)),+
-                }
-            }
-            #[allow(private_interfaces)]
-            fn retry_class(&self) -> $crate::RetryClass {
-                let $request = self;
-                let _ = &$request;
-                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
-                    $($pattern => <$inner as $crate::Request>::retry_class(&$value)),+
-                }
-            }
-            #[allow(private_interfaces)]
-            fn control_class(&self) -> $crate::ControlClass {
-                let $request = self;
-                let _ = &$request;
-                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
-                    $($pattern => <$inner as $crate::Request>::control_class(&$value)),+
+                    $($pattern => <$inner as $crate::Request>::policy(&$value)),+
                 }
             }
             #[allow(private_interfaces)]
@@ -299,15 +261,8 @@ macro_rules! forward_request {
                 }
             }
             #[allow(private_interfaces)]
-            fn reply_shape(&self) -> $crate::raw::RawReplyShape {
-                let $request = self;
-                let _ = &$request;
-                match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
-                    $($pattern => <$inner as $crate::Request>::reply_shape(&$value)),+
-                }
-            }
             #[allow(private_interfaces)]
-            fn admission_control_class(&self, authority: $crate::requests::RequestContractAuthority) -> $crate::Result<$crate::ControlClass> {
+            fn admission_control_class(&self, authority: $crate::requests::RequestContractAuthority) -> $crate::ControlClass {
                 let $request = self;
                 let _ = &$request;
                 match $crate::command::nouns::forward_request!(@selection self, [] [$request $registration ($selector) ($fallback)]) {
@@ -370,6 +325,7 @@ macro_rules! forward_request {
             }
         }
         impl $crate::command::semantics::BuiltinRequestContract for $type {
+            const POLICY: $crate::request::builtin_policy::BuiltinPolicy = <$primary as $crate::command::semantics::BuiltinRequestContract>::POLICY;
             const LEDGER_ROW: $crate::command::semantics::BuiltinCommand = <$primary as $crate::command::semantics::BuiltinRequestContract>::LEDGER_ROW;
             const LEDGER_ROWS: &'static [$crate::command::semantics::BuiltinCommand] = &[$($crate::command::semantics::BuiltinCommand::$row),+];
             type State = Self;
@@ -413,9 +369,9 @@ macro_rules! forward_request {
         const _: () = <$type as $crate::command::semantics::BuiltinRequestContract>::CLASS_MATCHES_ROW;
         $(const _: () = {
             assert!(<$inner as $crate::Request>::MAX_SIZE <= <$type as $crate::Request>::MAX_SIZE, "selector exceeds its declared bound");
-            assert!(<$inner as $crate::Request>::TIMEOUT_CLASS as u8 == <$type as $crate::Request>::TIMEOUT_CLASS as u8, "selector changes timeout class");
-            assert!(<$inner as $crate::Request>::RETRY_CLASS as u8 == <$type as $crate::Request>::RETRY_CLASS as u8, "selector changes retry class");
-            assert!(<$inner as $crate::Request>::CONTROL_CLASS as u8 == <$type as $crate::Request>::CONTROL_CLASS as u8, "selector changes control class");
+            assert!(<$inner as $crate::command::semantics::BuiltinRequestContract>::POLICY.timeout as u8 == <$type as $crate::command::semantics::BuiltinRequestContract>::POLICY.timeout as u8, "selector changes timeout class");
+            assert!(<$inner as $crate::command::semantics::BuiltinRequestContract>::POLICY.retry as u8 == <$type as $crate::command::semantics::BuiltinRequestContract>::POLICY.retry as u8, "selector changes retry class");
+            assert!(<$inner as $crate::command::semantics::BuiltinRequestContract>::POLICY.class as u8 == <$type as $crate::command::semantics::BuiltinRequestContract>::POLICY.class as u8, "selector changes control class");
             let selected = $crate::command::semantics::BuiltinCommand::$row.classification();
             let primary = <$type as $crate::command::semantics::BuiltinRequestContract>::LEDGER_ROW.classification();
             assert!(matches!((selected, primary), (
@@ -659,9 +615,7 @@ mod tests {
     fn unit_operations_retain_reserved_admission_authority_and_exact_axes() {
         let request = Stop;
         assert_eq!(
-            request
-                .admission_control_class(crate::requests::RequestContractAuthority::new())
-                .expect("reviewed stop admission"),
+            request.admission_control_class(crate::requests::RequestContractAuthority::new()),
             crate::ControlClass::Urgent
         );
         assert_eq!(request.affected_axes(), crate::AffectedAxes::ZOOM);

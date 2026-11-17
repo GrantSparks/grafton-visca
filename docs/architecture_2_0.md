@@ -256,6 +256,13 @@ recheck both the typed surface and its source-backed mode inventory.
 
 ## Engine transition and ordering
 
+Preparation assigns each command one immutable `CommandReply` class: `Stop`,
+`AckThenCompletion`, `CompletionOnly`, or `NoReply`. `Stop` is always ACK-bearing;
+inquiries have their own request variant and cannot carry STOP authority.
+The engine derives STOP priority, reserved admission, pacing and correlation
+bypasses from that class alone. Lifecycle phases are checked for compatibility
+with the immutable class, rather than supplying a second reply-family source.
+
 The construction and request path has a fixed order:
 
 1. Build `SessionConfig` from validated `ProfileSpec` facts and operational tuning and validate target IDs, registry
@@ -333,7 +340,7 @@ no allocation per request or transition.
 
 Correlation before ACK is envelope-specific. A raw-VISCA target normally has
 one unacknowledged command candidate across `Sending`, `AwaitingAck`,
-and `AwaitingCompletion`. One intrinsically `Urgent` command may cross one
+and `AwaitingCompletion`. One `Stop` command may cross one
 existing positional candidate as the #714 safety-lane exception.
 While both are open, unsequenced ACK/error evidence binds to neither; the engine
 never guesses by recency. Once an unambiguous ACK assigns a socket, the next
@@ -415,8 +422,13 @@ its next free rotation socket, which it then skips. On the PTZOptics G2 bench
 (three firmware builds, 2026-10-04) that socket is free in the engine's index,
 including while another command executes on the other socket: a rejection
 never names a socket the camera is executing on. `0x04` (cancelled) and `0x05`
-(no socket) naming a socket answer only a cancellation packet for it. On a
-datagram transport therefore:
+(no socket) naming a socket answer only a cancellation packet for it. A
+datagram transport follows the decoded `CameraErrorCode` rules.
+`answers_named_cancellation()` is checked before `refuses_before_start()`, so
+`NoSocket` has its cancellation role when named and its rejection role when
+socketless. The decoder carries this closed code through the ledger and owner;
+`confirms_cancellation()`, `retry_permission()` and `is_busy()` are the shared
+cancellation, retry and metric classifications:
 
 - `0x04`/`0x05` naming a socket route only to the request whose emitted
   cancellation targets it, and are otherwise ignored.
@@ -735,7 +747,7 @@ debt only discards a future answer, never misattributes one.
 A debt's window is the owing request's ambiguity interval (an inquiry's is at
 least the reply skew). Inside it, the debt's overlap class waits: same-target
 inquiries whose declarations overlap an owed reply, ordinary commands for an owed command answer
-(an `Urgent` STOP is still written under the ordinary `PreAck` bypass rule;
+(a `Stop` command is still written under the ordinary `PreAck` bypass rule;
 a `NoReply` command waits too, its possible rejection being owed in turn).
 If the window ends with the debt unpaid, only that inquiry overlap class or command lane *latches*: it no
 longer wakes the owner, and its queued and new work fails unwritten —
@@ -1003,7 +1015,7 @@ default because the figures depend on the host):
 | `close` latency | 12–20 ms (one read slice plus the join) |
 | STOP call to bytes at the camera, while another thread waits on a running zoom, with no admission backlog and pacing already elapsed | p50 5.6 ms, p99 10.7 ms |
 
-An intrinsically `Urgent` stop may cross one raw positional candidate after
+A `Stop` command may cross one raw positional candidate after
 command pacing. The resulting explicit two-candidate state makes every
 unsequenced ACK/error ambiguous, so it binds to neither request and either
 handle may later report `UnsequencedCommandUnconfirmed`; that uncertainty does
@@ -1159,7 +1171,7 @@ an exhaustive halt preparation arm before the crate compiles (#999).
 | Admit to a non-`Running` session | Reject with the session's terminal error (or `Error::RuntimeShutdown`). |
 | Select a `Ready` request | Transition to `Sending`, allocate one `TransmissionId`, emit exactly one request `Transmit` (Sony carries its retained sequence; raw carries none). |
 | Ordinary dispatch behind a live raw `AwaitingAck` candidate or inert `PreAck` hold | Queue to the evidence boundary: the candidate's ACK or the hold's deadline; the old terminal request cannot be rescued (#714/#723/#724). |
-| `Urgent` raw command behind one positional candidate | Cross the single-candidate gate after command pacing when socket capacity remains. This is the sole two-candidate exception (#714). |
+| Raw `Stop` class behind one positional candidate | Cross the single-candidate gate after command pacing when socket capacity remains. This is the sole two-candidate exception (#714). |
 | Successful command send (`AckThenCompletion`, the default) | Record any Sony sequence and transition to `AwaitingAck`. |
 | Successful command send (`CompletionOnly`, issue #700) | Transition straight to `AwaitingCompletion` (no ACK phase, no socket). |
 | Successful command send (`NoReply`, plain raw only) | Finish the plain `execute()` after the local write succeeds; this is not protocol application and cannot create an operation handle. Retain the bounded broad `AllResponses` hold before same-target raw response-bearing command or inquiry work may start; a STOP is never held by it (#795). Another `NoReply` may write and extend that key. |
@@ -1182,7 +1194,7 @@ an exhaustive halt preparation arm before the crate compiles (#999).
 | Raw stream socketless completion for a sole socket holder | Retire a strictly overdue holder first, then release its resulting socket hold. With two possible socket identities, retain the frame until a complete terminal count proves both ended; socket reuse never assigns it to the successor (#858). |
 | Written raw byte-stream request ends without its first answer | Its ledger entry becomes a debt for its ambiguity window (an inquiry's is at least the reply skew); a staged write that never left leaves no entry. An owed inquiry reply retains the exact inquiry-shape hold; a pre-ACK command installs no `PreAck` hold (#795). |
 | Ledger debt paid | Before side-effecting raw-stream ledger resolution, retire candidates whose response deadline is strictly earlier than the sampled frame; input at equality still wins. Resolve the frame against the resulting debt and discard it. An owed ACK displaces a stale owner of its named socket and holds that socket (or the first free eligible one) through its command's completion window; an owed reply leaves the ordinary reply skew from now (#795/#837; `raw_evidence::late_first_answers_are_order_independent`; `raw_evidence::late_ack_preserves_its_socket_against_successor_errors_and_socketless_completion`). |
-| Ordinary command or inquiry dispatch while its lane owes an answer inside its window | Queue; an `Urgent` ACK-bearing STOP may still write when no command is unacknowledged (#795). |
+| Ordinary command or inquiry dispatch while its lane owes an answer inside its window | Queue; a `Stop` command may still write when no command is unacknowledged (#795). |
 | Ledger debt unpaid when the due pass reaches its window end | Latch only overlapping inquiry declarations, or the command lane: fail affected queued `Ready`/`Backoff` work and reject matching new work, unwritten, with `InquiryCorrelationLost` (overlapping inquiries, `CompletionOnly`) or `CommandCorrelationLost` (ordinary ACK-bearing, `CompletionOnly`, `NoReply`), `Terminal`/`NotAccepted`. The latch neither expires nor wakes the owner; STOPs, other targets, and the session are unaffected; the debt's answer, or a later first answer that settles it, reopens the lane (#795). |
 | Disputed raw stream frame (a socketless error behind a `CompletionOnly` entry that may still be rejected or a `NoReply` command's owed entry, or any frame behind a disputed waiting request, with another candidate behind it) | Bind to neither; keep the union of the debts either explanation leaves: the `CompletionOnly` command owes only its completion, the other candidate keeps owing and is disputed (never crossed; settled by its own answer or by write order) (#795). |
 | Sequenced Sony ACK naming a busy socket | Bind the new request to the named socket. Retain the predecessor as socket-free `ExecutingDisplaced`, routable by its request sequence until its original completion deadline; refuse its cancellation with `CancellationUnconfirmed`. A socketless ACK with both physical sockets occupied reports `Ignored(SocketConflict)` and finishes `CommandFailedAfterAck` (#963). |
@@ -1191,10 +1203,10 @@ an exhaustive halt preparation arm before the crate compiles (#999).
 | Exact completion in `AwaitingCancellationResolution` before its phase deadline | `finish` with `CommandOutcome::Applied`; the request is still open while its owned socket is retained. |
 | Completion in `AwaitingCompletion` (issue #700) | `finish` with `CommandOutcome::Applied`, regardless of a vendor socket nibble on a datagram; on a raw byte stream only a socketless completion resolves to this request (#795). A raw datagram retains the bounded `AllResponses` hold before ordinary same-target response-bearing work starts. A raw stream accounts for the answer in its ledger instead of installing that broad hold (`completion_only_terminal_quarantine_blocks_successor_then_restores_liveness`; `raw_evidence::stream_owed_completion_only_answer_holds_back_ordinary_work`). |
 | Inquiry reply in `AwaitingReply` | Attribute only when its declaration admits the data, otherwise discard with `ReplyShapeMismatch` and increment `ignored_reply_shape_mismatches`; `finish` with the attributed payload. A matched Raw reply installs no hold and releases its overlap class immediately (#712, #892). |
-| Uncertain Raw inquiry response-correlation release | A terminal error/timeout or retry release/requeue retains the profile's short `raw_inquiry_reply_skew` before another overlapping same-target inquiry may send. ACK-bearing commands, including `Urgent`, are never gated by this inquiry-only hold. It filters stale unkeyed inquiry data/reply and socketless-error evidence, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible (#712). |
+| Uncertain Raw inquiry response-correlation release | A terminal error/timeout or retry release/requeue retains the profile's short `raw_inquiry_reply_skew` before another overlapping same-target inquiry may send. ACK-bearing commands, including the `Stop` class, are never gated by this inquiry-only hold. It filters stale unkeyed inquiry data/reply and socketless-error evidence, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible (#712). |
 | Raw inquiry reply deadline or total budget in `AwaitingReply`, or a successful write sampled after the budget; stream transport | Never resend. Fail the inquiry with `Timeout` (`Terminal`, `FailedConclusively`) retain the declaration's inquiry hold, and record that its overlap class owes one reply (its window: the request's ambiguity window, at least the reply skew). Overlapping same-target inquiries wait; disjoint inquiries and ACK-bearing commands are not gated beyond the ordinary inquiry hold. Datagram keeps the skew hold and the inquiry retry policy (#795). |
 | Raw inquiry frame at exact reply-skew expiry | Complete input wins over the due pass. Stale unkeyed inquiry data/reply and socketless-error evidence remain filtered, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible. Retained partial-byte ambiguity follows the engine-owned time grace before an orphan is discarded (#713). |
-| Retryable conclusive rejection before ACK (buffer-full `0x03`/`0x05`, movement `0x41` for a non-STOP movement request), no cancel intent | Increment the bounded attempt and enter `Backoff`. A typed STOP refused with `0x41` is terminal with `Error::CommandNotExecutable`: the refusal has a standing cause (a focus STOP under auto-focus) and the caller needs the verdict at once. |
+| Retryable conclusive rejection before ACK (`CameraErrorCode::retry_permission`: buffer-full `0x03`/`0x05`, movement `0x41` for a non-STOP movement request), no cancel intent | Increment the bounded attempt and enter `Backoff`. A typed STOP refused with `0x41` is terminal with `Error::CommandNotExecutable`: the refusal has a standing cause (a focus STOP under auto-focus) and the caller needs the verdict at once. |
 | Camera error after ACK (`Executing` or `AwaitingCancellationResolution`), either envelope | Never retried: `finish` with `Error::CommandFailedAfterAck` wrapping the camera's exact error (`Terminal`/`Unconfirmed`, not retryable). The acknowledged command may already have moved (#795). |
 | Completion deadline in `Executing`, Sony envelope, no cancel intent | `finish` with `Timeout` (`Terminal`/`Unconfirmed`); never resend. The same-sequence retransmission in docs/visca_reference.md §5.3 recovers a lost message, and an ACK already proved acceptance (#795). |
 | Retryable rejection with cancel intent | Suppress retry. Finish `Cancelled` only when no earlier attempt may have applied; otherwise finish `CancellationUnconfirmed` (#962). |
@@ -1356,8 +1368,9 @@ or queue (#856, #859).
 
 ## Scheduling and async source arbitration
 
-Each request owns an intrinsic `ControlClass`. Typed stops and protocol
-cancellation are `Urgent`; that is safety metadata rather than caller QoS.
+Ordinary requests carry their intrinsic scheduling `ControlClass`. Typed
+STOPs are lowered to the engine’s ACK-bearing `Stop` class; cancellation is
+owner-issued wire traffic. That safety authority is separate from caller QoS.
 Camera handles and individual calls may choose a `SubmissionClass` for ordinary
 traffic (`Background`, `Normal`, or `User`). The public QoS type has no urgent
 variant, and both override forms preserve an intrinsically urgent request.
@@ -1451,7 +1464,7 @@ A raw release does not create an exception to that order; it adds two rules.
   boundary carries that proof with its payload; the nonboundary event type
   cannot carry an admission or cancellation.
 
-Thus an Urgent stop is selected within the fairness bound under raw input
+Thus a `Stop` command is selected within the fairness bound under raw input
 pressure, while no scope is released using evidence collected before its own
 deadline.
 
@@ -1474,6 +1487,13 @@ pending when the turn was planned.
 
 ### Transport I/O deadlines and idle pacing
 
+Owner policy construction proves every collection and receive bound positive,
+and carries read/write timeouts as checked positive intervals. Receive storage
+owns its byte and frame bounds; decoding cannot fill a batch beyond that
+frame bound. Each async owner I/O deadline saturates toward the latest
+representable instant if an accepted timeout overflows as the clock advances,
+matching the engine deadline rule without revalidating the interval per I/O.
+
 The actor also bounds each transport operation itself, because the
 runtime-agnostic async transports hold no timer of their own. Every read is
 raced against the session's `read_timeout`; if it elapses the read is treated as
@@ -1492,10 +1512,12 @@ UDP, and serial transports install that bound at the OS/device layer, and
 construction rejects a zero advertised read or write timeout. A serial device
 receives a whole-millisecond timeout rounded up, with a one-millisecond floor,
 even when a derived owner budget is smaller: Windows treats a zero-millisecond
-serial timeout as no timeout. The shared blocking `read_before` helper rechecks
-its precise deadline after an idle I/O result and re-arms the remaining budget,
-so a truncating device or socket timer cannot make a built-in read return idle
-early and trigger receive pacing. Serial command and
+serial timeout as no timeout. The shared blocking `bounded_io` loop rechecks
+its precise deadline after an idle I/O result and re-arms the remaining budget
+for every read and write, including UDP. A truncating device or socket timer
+cannot make a built-in read return idle early and trigger receive pacing.
+Its direction-aware verdict retains a Unix TCP `TimedOut` as the original OS
+fault on writes as well as reads; an elapsed socket timer is `WouldBlock`. Serial command and
 startup writes deliberately do not drain the device (`flush`/`tcdrain`), since
 that kernel call is not bounded by the write timeout; a VISCA reply or the
 required startup settle interval confirms queued output instead. Finally, both

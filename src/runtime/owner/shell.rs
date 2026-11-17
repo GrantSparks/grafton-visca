@@ -235,7 +235,7 @@ pub(super) struct OwnerShellCore {
 
 impl OwnerShellCore {
     pub(super) fn new(state: OwnerState, ends: OwnerEnds) -> Self {
-        let rejection_capacity = state.facts().limits.staged_diagnostics;
+        let rejection_capacity = state.facts().limits.staged_diagnostics.get();
         let mut coordinator = OwnerCoordinator::default();
         // #542's deterministic source order keeps valid protocol input first:
         // an already-buffered ACK/completion settles state before concurrent
@@ -777,10 +777,6 @@ impl OwnerShellCore {
         for _ in 0..frames.discarded {
             self.state.record_ignored(IgnoreReason::MalformedFrame);
         }
-        if let Err(error) = self.state.validate_frame_batch(&frames) {
-            self.state.buffers().recycle_frames(frames);
-            return self.discard_undecodable_receive(&error, received_at);
-        }
         if frames.is_empty() {
             self.state.buffers().recycle_frames(frames);
             // The read carried bytes that did not finish a frame, or only
@@ -919,20 +915,6 @@ impl OwnerShellCore {
         self.idle_receives.reset();
         self.state.record_ignored(IgnoreReason::MalformedFrame);
         TurnStep::Done(TurnOutcome::YieldBoundaries)
-    }
-
-    /// Invalid internal batches obey the same consumed-input verdict as the adapter.
-    fn discard_undecodable_receive(&mut self, error: &Error, received_at: Instant) -> TurnStep {
-        match self.state.facts().transport {
-            crate::runtime::engine::TransportKind::Stream => self.receive_fatal(
-                super::ReceiveFatal::FramingFailure {
-                    cause: error.clone(),
-                    discarded: 0,
-                },
-                received_at,
-            ),
-            crate::runtime::engine::TransportKind::Datagram => self.malformed_datagram(),
-        }
     }
 
     /// Retain a selected boundary through its exclusive vacancy loan, or
@@ -1349,7 +1331,11 @@ mod tests {
     fn declared_request(stop: bool) -> crate::runtime::engine::RuntimeRequest {
         use crate::runtime::engine::*;
         RuntimeRequest::Command {
-            reply_shape: ReplyShape::AckThenCompletion,
+            reply_shape: if stop {
+                CommandReply::Stop
+            } else {
+                CommandReply::AckThenCompletion
+            },
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,
@@ -1368,11 +1354,7 @@ mod tests {
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy {
-                    class: if stop {
-                        ControlClass::Urgent
-                    } else {
-                        ControlClass::Normal
-                    },
+                    class: ControlClass::Normal,
                     ..ControlPolicy::default()
                 },
                 cancellation: CancellationPolicy::Supported,
@@ -1385,7 +1367,7 @@ mod tests {
     /// catches a reply-before-drop race even on a single-threaded executor.
     struct AdmissionReplyWake {
         permits: super::super::AdmissionPermitPool,
-        context: crate::runtime::engine::RequestContext,
+        request: crate::runtime::engine::RuntimeRequest,
         wakes: std::sync::atomic::AtomicUsize,
     }
 
@@ -1396,7 +1378,7 @@ mod tests {
 
         fn wake_by_ref(self: &Arc<Self>) {
             assert_eq!(self.permits.available(), 1, "capacity is free at wake-up");
-            let permit = self.permits.try_acquire(&self.context).unwrap();
+            let permit = self.permits.try_acquire(&self.request).unwrap();
             drop(permit);
             self.wakes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
@@ -1421,7 +1403,7 @@ mod tests {
             let request = declared_request(false);
             let wake = Arc::new(AdmissionReplyWake {
                 permits: handle.permits.clone(),
-                context: *request.context(),
+                request: request.clone(),
                 wakes: std::sync::atomic::AtomicUsize::new(0),
             });
             let (observer, reply) = handle

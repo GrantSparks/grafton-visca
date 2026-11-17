@@ -256,9 +256,8 @@ impl ResolvedTiming {
 /// every walk over `ALL` (validation, override checks and table projection).
 macro_rules! command_timeout_classes {
     ($(#[doc = $doc:literal] $variant:ident),+ $(,)?) => {
-        /// The five command completion categories: every [`crate::request::TimeoutClass`]
-        /// except [`crate::request::TimeoutClass::Inquiry`], whose deadline is the profile's
-        /// inquiry timing fact.
+        /// The five completion categories selected by command and operation policies.
+        /// Inquiry policies instead use the profile's separate inquiry timing fact.
         ///
         /// Every per-category table ([`crate::profiles::CommandTimeouts`], the operational
         /// overrides, and the validation that relates them) is reached through
@@ -297,7 +296,7 @@ command_timeout_classes!(
 impl CommandTimeoutClass {
     /// Returns the request timeout class for this command category.
     #[must_use]
-    pub const fn timeout_class(self) -> TimeoutClass {
+    pub(crate) const fn lower(self) -> TimeoutClass {
         match self {
             Self::Quick => TimeoutClass::Quick,
             Self::Movement => TimeoutClass::Movement,
@@ -324,7 +323,7 @@ impl CommandTimeoutClass {
 
 impl From<CommandTimeoutClass> for TimeoutClass {
     fn from(category: CommandTimeoutClass) -> Self {
-        category.timeout_class()
+        category.lower()
     }
 }
 

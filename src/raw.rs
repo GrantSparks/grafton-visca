@@ -29,18 +29,18 @@
 //! intermediate frame buffer is copied. Standard built-in request
 //! encoding remains inline and allocation-free.
 //!
-//! Raw policy is explicit and owned by each value. [`CommandPolicy`](crate::raw::CommandPolicy) supplies
+//! Raw policy is explicit and owned by each value. [`CommandPolicy`](crate::request::CommandPolicy) supplies
 //! a [`PlainRequest`](crate::raw::PlainRequest) command's [`crate::profiles::CommandTimeoutClass`], retry and ordinary submission
-//! class; [`OperationPolicy`](crate::raw::OperationPolicy) supplies the same facts for [`TargetedRequest`](crate::raw::TargetedRequest) and
-//! [`AppliedOnlyRequest`](crate::raw::AppliedOnlyRequest). [`InquiryPolicy`](crate::raw::InquiryPolicy) carries only retry and submission class:
-//! its retry family is [`crate::request::InquiryRetryClass`], its timeout is always
-//! [`crate::request::TimeoutClass::Inquiry`], and its reply protocol is fixed.
+//! class; [`OperationPolicy`](crate::request::OperationPolicy) supplies the same facts for [`TargetedRequest`](crate::raw::TargetedRequest) and
+//! [`AppliedOnlyRequest`](crate::raw::AppliedOnlyRequest). [`InquiryPolicy`](crate::request::InquiryPolicy) carries only retry and submission class:
+//! its retry family is [`crate::request::InquiryRetryClass`], and its inquiry
+//! timeout and reply protocol are fixed by the class.
 //! Policy constructors are infallible; raw request constructors validate only
 //! the wire bytes. No byte-based lifecycle inference or caller-selected
 //! operation class exists.
 //!
 //! A plain command declares its [`RawReplyShape`](crate::raw::RawReplyShape) with
-//! [`CommandPolicy::with_reply_shape`](crate::raw::CommandPolicy::with_reply_shape). Operations instead select
+//! [`CommandPolicy::with_reply_shape`](crate::request::CommandPolicy::with_reply_shape). Operations instead select
 //! [`OperationReplyShape`](crate::raw::OperationReplyShape), whose variants are `AckThenCompletion` and
 //! `CompletionOnly`. `NoReply` is plain-command-only: a successful
 //! fire-and-forget write proves local transport submission rather than the
@@ -53,8 +53,10 @@ use smallvec::SmallVec;
 
 /// Policy and validation types used by the raw constructors.
 use crate::{
-    request::InquiryRetryClass, AffectedAxes, CommandTimeoutClass, ControlClass, ResponseDecoder,
-    RetryClass, SubmissionClass, TimeoutClass,
+    request::{
+        CommandPolicy, CommandRetryClass, InquiryPolicy, InquiryRetryClass, OperationPolicy,
+    },
+    AffectedAxes, CommandTimeoutClass, ControlClass, ResponseDecoder, SubmissionClass,
 };
 
 use crate::{
@@ -168,7 +170,7 @@ pub enum OperationReplyShape {
 }
 
 impl OperationReplyShape {
-    const fn raw(self) -> RawReplyShape {
+    pub(crate) const fn raw(self) -> RawReplyShape {
         match self {
             Self::AckThenCompletion => RawReplyShape::AckThenCompletion,
             Self::CompletionOnly => RawReplyShape::CompletionOnly,
@@ -180,206 +182,6 @@ impl From<OperationReplyShape> for RawReplyShape {
     fn from(shape: OperationReplyShape) -> Self {
         shape.raw()
     }
-}
-
-/// Explicit command timeout, retry and ordinary submission classes for [`PlainRequest`].
-///
-/// A command timeout cannot be an inquiry timeout, and [`crate::request::SubmissionClass`]
-/// cannot select the owner's urgent safety lane (#679).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(try_from = "CommandPolicyData", deny_unknown_fields)
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!try_from))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub struct CommandPolicy {
-    timeout: CommandTimeoutClass,
-    retry: RetryClass,
-    class: SubmissionClass,
-    reply_shape: RawReplyShape,
-}
-
-/// Explicit command timeout, retry and ordinary submission classes for raw operations.
-///
-/// Its reply shape requires terminal camera evidence and cannot be `NoReply`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(try_from = "OperationPolicyData", deny_unknown_fields)
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!try_from))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub struct OperationPolicy {
-    timeout: CommandTimeoutClass,
-    retry: RetryClass,
-    class: SubmissionClass,
-    reply_shape: OperationReplyShape,
-}
-
-/// Explicit retry and ordinary submission classes for [`InquiryRequest`].
-///
-/// InquiryRequest timeout and reply protocols are fixed by its request kind, so this
-/// policy stores neither a timeout class nor a command reply shape. Its
-/// [`InquiryRetryClass`] permits only `Never` or `Inquiry`, so command retry
-/// families cannot silently change reply-loss handling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(try_from = "InquiryPolicyData", deny_unknown_fields)
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!try_from))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub struct InquiryPolicy {
-    retry: InquiryRetryClass,
-    class: SubmissionClass,
-}
-
-// Persistence re-enters the public constructors rather than writing private
-// policy fields. Typed fields retain the closed command-timeout, ordinary-lane
-// and operation-reply subsets. These representations are never schema or TS
-// exports: those describe the public policy's actual serialized fields.
-#[cfg(feature = "serde")]
-macro_rules! command_policy_data {
-    ($policy:ident, $data:ident, $reply:ty) => {
-        #[derive(serde::Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct $data {
-            timeout: CommandTimeoutClass,
-            retry: RetryClass,
-            class: SubmissionClass,
-            reply_shape: $reply,
-        }
-
-        impl TryFrom<$data> for $policy {
-            type Error = Error;
-
-            fn try_from(value: $data) -> Result<Self> {
-                Ok(Self::new(value.timeout, value.retry, value.class)
-                    .with_reply_shape(value.reply_shape))
-            }
-        }
-    };
-}
-
-#[cfg(feature = "serde")]
-command_policy_data!(CommandPolicy, CommandPolicyData, RawReplyShape);
-#[cfg(feature = "serde")]
-command_policy_data!(OperationPolicy, OperationPolicyData, OperationReplyShape);
-
-#[cfg(feature = "serde")]
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct InquiryPolicyData {
-    retry: InquiryRetryClass,
-    class: SubmissionClass,
-}
-
-#[cfg(feature = "serde")]
-impl TryFrom<InquiryPolicyData> for InquiryPolicy {
-    type Error = Error;
-
-    fn try_from(value: InquiryPolicyData) -> Result<Self> {
-        Ok(Self::new(value.retry, value.class))
-    }
-}
-
-macro_rules! ordinary_policy_accessors {
-    () => {
-        /// Returns the selected ordinary submission class.
-        #[must_use]
-        pub const fn submission_class(self) -> SubmissionClass {
-            self.class
-        }
-
-        /// Returns the corresponding scheduler-control class.
-        #[must_use]
-        pub const fn control_class(self) -> ControlClass {
-            self.class.control_class()
-        }
-    };
-}
-
-macro_rules! command_policy {
-    ($policy:ident, $reply:ident) => {
-        impl $policy {
-            /// Creates an explicit policy in an ordinary submission lane.
-            ///
-            /// `timeout_class` selects the registered profile's command deadline.
-            #[must_use]
-            pub const fn new(
-                timeout_class: CommandTimeoutClass,
-                retry: RetryClass,
-                class: SubmissionClass,
-            ) -> Self {
-                Self {
-                    timeout: timeout_class,
-                    retry,
-                    class,
-                    reply_shape: $reply::AckThenCompletion,
-                }
-            }
-
-            /// Returns this policy with the declared reply protocol.
-            #[must_use]
-            pub const fn with_reply_shape(mut self, reply_shape: $reply) -> Self {
-                self.reply_shape = reply_shape;
-                self
-            }
-
-            /// Returns the selected command timeout class.
-            #[must_use]
-            pub const fn timeout_class(self) -> TimeoutClass {
-                self.timeout.timeout_class()
-            }
-
-            /// Returns the selected retry class.
-            #[must_use]
-            pub const fn retry_class(self) -> RetryClass {
-                self.retry
-            }
-
-            ordinary_policy_accessors!();
-        }
-    };
-}
-
-command_policy!(CommandPolicy, RawReplyShape);
-command_policy!(OperationPolicy, OperationReplyShape);
-
-impl CommandPolicy {
-    /// Returns the declared command reply protocol.
-    #[must_use]
-    pub const fn reply_shape(self) -> RawReplyShape {
-        self.reply_shape
-    }
-}
-
-impl OperationPolicy {
-    /// Returns the declared operation reply protocol as its raw wire shape.
-    #[must_use]
-    pub const fn reply_shape(self) -> RawReplyShape {
-        self.reply_shape.raw()
-    }
-}
-
-impl InquiryPolicy {
-    /// Creates an inquiry policy in an ordinary submission lane.
-    #[must_use]
-    pub const fn new(retry: InquiryRetryClass, class: SubmissionClass) -> Self {
-        Self { retry, class }
-    }
-
-    /// Returns the inquiry retry family in the shared request vocabulary.
-    #[must_use]
-    pub const fn retry_class(self) -> RetryClass {
-        self.retry.retry_class()
-    }
-
-    ordinary_policy_accessors!();
 }
 
 /// A bounded owned raw VISCA frame.
@@ -540,7 +342,7 @@ fn is_visca_address(byte: u8) -> bool {
 /// optional `reply_shape` arm adds the reply-shape accessor the command and
 /// operation types carry.
 macro_rules! raw_policy_accessors {
-    (@common $policy:ident, $subject:literal) => {
+    (@common $policy:ident, $retry:ty, $subject:literal) => {
         #[doc = concat!("Returns ", $subject, "'s explicit policy.")]
         #[must_use]
         pub const fn policy(&self) -> $policy {
@@ -549,7 +351,7 @@ macro_rules! raw_policy_accessors {
 
         #[doc = concat!("Returns ", $subject, "'s explicit retry class.")]
         #[must_use]
-        pub const fn retry_class(&self) -> RetryClass {
+        pub const fn retry_class(&self) -> $retry {
             self.policy.retry_class()
         }
 
@@ -559,15 +361,15 @@ macro_rules! raw_policy_accessors {
             self.policy.control_class()
         }
     };
-    ($policy:ident, $subject:literal) => {
-        raw_policy_accessors!(@common $policy, $subject);
+    ($policy:ident, $retry:ty, $subject:literal) => {
+        raw_policy_accessors!(@common $policy, $retry, $subject);
     };
-    ($policy:ident, $subject:literal, reply_shape) => {
-        raw_policy_accessors!(@common $policy, $subject);
+    ($policy:ident, $retry:ty, $subject:literal, reply_shape) => {
+        raw_policy_accessors!(@common $policy, $retry, $subject);
 
         #[doc = concat!("Returns ", $subject, "'s explicit timeout class.")]
         #[must_use]
-        pub const fn timeout_class(&self) -> TimeoutClass {
+        pub const fn timeout_class(&self) -> CommandTimeoutClass {
             self.policy.timeout_class()
         }
 
@@ -580,41 +382,13 @@ macro_rules! raw_policy_accessors {
 }
 
 /// The [`crate::request::Request`] items every raw request value forwards to its policy and
-/// wire, written once for the four raw types (#817). The policy constants are
-/// the given unread fallbacks, documented as such.
+/// wire, written once for the four raw types (#817).
 macro_rules! raw_request_forwarding {
-    (@timeout Inquiry, $value:ident) => { TimeoutClass::Inquiry };
-    (@timeout $timeout:ident, $value:ident) => { $value.policy.timeout_class() };
-    ($timeout:ident, $retry:ident, $control:ident) => {
+    ($policy:ty) => {
         const MAX_SIZE: usize = MAX_BYTES;
-
-        /// Unread fallback. A raw value's policy is selected at construction
-        /// and returned by [`crate::request::Request::timeout_class`], which this type
-        /// overrides; this constant serves only fixed request types.
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::$timeout;
-
-        /// Unread fallback. A raw value's policy is selected at construction
-        /// and returned by [`crate::request::Request::retry_class`], which this type
-        /// overrides; this constant serves only fixed request types.
-        const RETRY_CLASS: RetryClass = RetryClass::$retry;
-
-        /// Unread fallback. A raw value's policy is selected at construction
-        /// and returned by [`crate::request::Request::control_class`], which this type
-        /// overrides; this constant serves only fixed request types.
-        const CONTROL_CLASS: ControlClass = ControlClass::$control;
-
-        fn timeout_class(&self) -> TimeoutClass {
-            raw_request_forwarding!(@timeout $timeout, self)
+        fn policy(&self) -> $policy {
+            self.policy
         }
-
-        fn retry_class(&self) -> RetryClass {
-            self.policy.retry_class()
-        }
-
-        fn control_class(&self) -> ControlClass {
-            self.policy.control_class()
-        }
-
         #[allow(private_interfaces)]
         fn declared_max_size(
             &self,
@@ -622,7 +396,6 @@ macro_rules! raw_request_forwarding {
         ) -> usize {
             self.wire.len()
         }
-
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
             self.wire.write_into(buffer)
         }
@@ -654,7 +427,7 @@ macro_rules! raw_operation {
                 bytes: impl AsRef<[u8]>,
                 axes: AffectedAxes,
                 timeout_class: CommandTimeoutClass,
-                retry: RetryClass,
+                retry: CommandRetryClass,
                 class: SubmissionClass,
             ) -> Result<Self> {
                 Self::with_policy(bytes, axes, OperationPolicy::new(timeout_class, retry, class))
@@ -685,16 +458,13 @@ macro_rules! raw_operation {
                 self.axes
             }
 
-            raw_policy_accessors!(OperationPolicy, "this operation", reply_shape);
+            raw_policy_accessors!(OperationPolicy, CommandRetryClass, "this operation", reply_shape);
         }
 
         impl Request for $name {
             type Class = request::OperationClass<$kind>;
-            raw_request_forwarding!(Quick, Never, User);
+            raw_request_forwarding!(OperationPolicy);
 
-            fn reply_shape(&self) -> RawReplyShape {
-                self.policy.reply_shape()
-            }
 
             fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<()> {
                 let profile = target.profile();
@@ -731,7 +501,7 @@ impl PlainRequest {
     pub fn new(
         bytes: impl AsRef<[u8]>,
         timeout_class: CommandTimeoutClass,
-        retry: RetryClass,
+        retry: CommandRetryClass,
         class: SubmissionClass,
     ) -> Result<Self> {
         Self::with_policy(bytes, CommandPolicy::new(timeout_class, retry, class))
@@ -760,16 +530,12 @@ impl PlainRequest {
         self.wire.as_bytes()
     }
 
-    raw_policy_accessors!(CommandPolicy, "this value", reply_shape);
+    raw_policy_accessors!(CommandPolicy, CommandRetryClass, "this value", reply_shape);
 }
 
 impl Request for PlainRequest {
     type Class = request::PlainClass;
-    raw_request_forwarding!(Quick, Never, Normal);
-
-    fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
+    raw_request_forwarding!(CommandPolicy);
 
     fn motion_axes(&self) -> Option<AffectedAxes> {
         self.motion_axes
@@ -786,7 +552,7 @@ pub struct InquiryRequest<R> {
 
 impl<R> InquiryRequest<R> {
     /// Creates a bounded raw inquiry with an explicit decoder and policy.
-    /// Its timeout class is always [`crate::request::TimeoutClass::Inquiry`].
+    /// Its timeout is always the registered profile's inquiry timeout.
     ///
     /// `ResponseDecoder::with_context` can be used when the decoder needs
     /// immutable per-instance context; the context is moved into this inquiry
@@ -815,7 +581,7 @@ impl<R> InquiryRequest<R> {
     }
 
     /// Creates a raw inquiry using an allocation-free function decoder.
-    /// Its timeout class is always [`crate::request::TimeoutClass::Inquiry`].
+    /// Its timeout is always the registered profile's inquiry timeout.
     pub fn from_fn(
         bytes: impl AsRef<[u8]>,
         decoder: fn(&[u8]) -> Result<R>,
@@ -830,7 +596,7 @@ impl<R> InquiryRequest<R> {
     }
 
     /// Creates a raw inquiry whose decoder owns immutable context.
-    /// Its timeout class is always [`crate::request::TimeoutClass::Inquiry`].
+    /// Its timeout is always the registered profile's inquiry timeout.
     pub fn with_context<C>(
         bytes: impl AsRef<[u8]>,
         context: C,
@@ -870,7 +636,7 @@ impl<R> InquiryRequest<R> {
         self.wire.as_bytes()
     }
 
-    raw_policy_accessors!(InquiryPolicy, "this inquiry");
+    raw_policy_accessors!(InquiryPolicy, InquiryRetryClass, "this inquiry");
 }
 
 impl<R> fmt::Debug for InquiryRequest<R> {
@@ -901,7 +667,7 @@ where
     R: Send + 'static,
 {
     type Class = request::InquiryClass;
-    raw_request_forwarding!(Inquiry, Inquiry, Normal);
+    raw_request_forwarding!(InquiryPolicy);
 }
 
 impl<R> InquiryContract for InquiryRequest<R>
@@ -980,13 +746,13 @@ mod tests {
         use serde_json::json;
         let command = CommandPolicy::new(
             CommandTimeoutClass::Quick,
-            RetryClass::Standard,
+            CommandRetryClass::Standard,
             SubmissionClass::Background,
         )
         .with_reply_shape(RawReplyShape::NoReply);
         let operation = OperationPolicy::new(
             CommandTimeoutClass::Movement,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::User,
         )
         .with_reply_shape(OperationReplyShape::CompletionOnly);
@@ -1028,6 +794,89 @@ mod tests {
 
     #[cfg(feature = "serde")]
     #[test]
+    fn every_meaningful_policy_combination_preserves_its_persisted_tags() {
+        use serde_json::json;
+
+        fn round_trip<T>(policy: T, persisted: serde_json::Value)
+        where
+            T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + fmt::Debug,
+        {
+            assert_eq!(serde_json::to_value(&policy).unwrap(), persisted);
+            assert_eq!(serde_json::from_value::<T>(persisted).unwrap(), policy);
+        }
+
+        let timeouts = [
+            (CommandTimeoutClass::Quick, "quick"),
+            (CommandTimeoutClass::Movement, "movement"),
+            (CommandTimeoutClass::Preset, "preset"),
+            (CommandTimeoutClass::LongRunning, "long_running"),
+            (CommandTimeoutClass::Network, "network"),
+        ];
+        assert_eq!(timeouts.map(|(class, _)| class), CommandTimeoutClass::ALL);
+        let retries = [
+            (CommandRetryClass::Never, "never"),
+            (CommandRetryClass::Standard, "standard"),
+            (CommandRetryClass::Movement, "movement"),
+            (CommandRetryClass::Preset, "preset"),
+        ];
+        let classes = [
+            (SubmissionClass::Background, "background"),
+            (SubmissionClass::Normal, "normal"),
+            (SubmissionClass::User, "user"),
+        ];
+        for (timeout, timeout_tag) in timeouts {
+            for (retry, retry_tag) in retries {
+                for (class, class_tag) in classes {
+                    for (shape, shape_tag) in [
+                        (RawReplyShape::AckThenCompletion, "ack_then_completion"),
+                        (RawReplyShape::CompletionOnly, "completion_only"),
+                        (RawReplyShape::NoReply, "no_reply"),
+                    ] {
+                        round_trip(
+                            CommandPolicy::new(timeout, retry, class).with_reply_shape(shape),
+                            json!({
+                                "timeout": timeout_tag,
+                                "retry": retry_tag,
+                                "class": class_tag,
+                                "reply_shape": shape_tag,
+                            }),
+                        );
+                    }
+                    for (shape, shape_tag) in [
+                        (
+                            OperationReplyShape::AckThenCompletion,
+                            "ack_then_completion",
+                        ),
+                        (OperationReplyShape::CompletionOnly, "completion_only"),
+                    ] {
+                        round_trip(
+                            OperationPolicy::new(timeout, retry, class).with_reply_shape(shape),
+                            json!({
+                                "timeout": timeout_tag,
+                                "retry": retry_tag,
+                                "class": class_tag,
+                                "reply_shape": shape_tag,
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+        for (retry, retry_tag) in [
+            (InquiryRetryClass::Never, "never"),
+            (InquiryRetryClass::Inquiry, "inquiry"),
+        ] {
+            for (class, class_tag) in classes {
+                round_trip(
+                    InquiryPolicy::new(retry, class),
+                    json!({ "retry": retry_tag, "class": class_tag }),
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
     fn policy_json_cannot_bypass_restricted_classes_or_reply_shapes() {
         use serde_json::json;
         for forbidden in [
@@ -1037,6 +886,34 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<CommandPolicy>(forbidden.clone()).is_err());
             assert!(serde_json::from_value::<OperationPolicy>(forbidden).is_err());
+        }
+        for policy in [
+            serde_json::from_value::<CommandPolicy>(json!({"timeout":"quick", "retry":"inquiry", "class":"normal", "reply_shape":"ack_then_completion"})).map(|_| ()),
+            serde_json::from_value::<OperationPolicy>(json!({"timeout":"quick", "retry":"inquiry", "class":"normal", "reply_shape":"ack_then_completion"})).map(|_| ()),
+        ] {
+            let message = policy.expect_err("inquiry is not a command retry family").to_string();
+            assert!(message.contains("inquiry") && message.contains("standard"), "{message}");
+        }
+        for retry in [
+            CommandRetryClass::Never,
+            CommandRetryClass::Standard,
+            CommandRetryClass::Movement,
+            CommandRetryClass::Preset,
+        ] {
+            let policy =
+                CommandPolicy::new(CommandTimeoutClass::Quick, retry, SubmissionClass::Normal);
+            assert_eq!(
+                serde_json::from_value::<CommandPolicy>(serde_json::to_value(policy).unwrap())
+                    .unwrap(),
+                policy
+            );
+            let operation =
+                OperationPolicy::new(CommandTimeoutClass::Quick, retry, SubmissionClass::Normal);
+            assert_eq!(
+                serde_json::from_value::<OperationPolicy>(serde_json::to_value(operation).unwrap())
+                    .unwrap(),
+                operation
+            );
         }
         assert!(serde_json::from_value::<OperationPolicy>(json!({
             "timeout":"quick", "retry":"never", "class":"normal", "reply_shape":"no_reply"
@@ -1083,12 +960,12 @@ mod tests {
         }
         refuses_incomplete_or_unknown_fields(CommandPolicy::new(
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         ));
         refuses_incomplete_or_unknown_fields(OperationPolicy::new(
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         ));
         refuses_incomplete_or_unknown_fields(InquiryPolicy::new(
@@ -1143,6 +1020,16 @@ mod tests {
         }
         assert!(!operation_schema.contains("no_reply"));
         assert!(!operation_declaration.contains("no_reply"));
+        let command_schema = serde_json::to_value(schemars::schema_for!(CommandPolicy))
+            .unwrap()
+            .to_string();
+        let command_declaration = CommandRetryClass::decl(&ts_rs::Config::default());
+        for tag in ["never", "standard", "movement", "preset"] {
+            assert!(command_schema.contains(&format!("\"{tag}\"")));
+            assert!(command_declaration.contains(&format!("\"{tag}\"")));
+        }
+        assert!(!command_schema.contains("\"inquiry\""));
+        assert!(!command_declaration.contains("\"inquiry\""));
         let inquiry_schema = serde_json::to_value(schemars::schema_for!(InquiryPolicy))
             .unwrap()
             .to_string();
@@ -1241,12 +1128,12 @@ mod tests {
         let command = PlainRequest::new(
             [0x81, 0x01, 0x02, 0xff],
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
         .expect("valid raw command");
         assert_eq!(command.bytes(), &[0x81, 0x01, 0x02, 0xff]);
-        assert_eq!(command.timeout_class(), TimeoutClass::Quick);
+        assert_eq!(command.timeout_class(), CommandTimeoutClass::Quick);
         let mut encoded = [0_u8; 4];
         assert_eq!(
             command
@@ -1280,7 +1167,10 @@ mod tests {
             SubmissionClass::Normal,
         )
         .expect("context decoder");
-        assert_eq!(context_inquiry.timeout_class(), TimeoutClass::Inquiry);
+        assert_eq!(
+            context_inquiry.policy().retry_class(),
+            InquiryRetryClass::Inquiry
+        );
         assert_eq!(
             context_inquiry
                 .decoder()
@@ -1294,7 +1184,7 @@ mod tests {
             [0x81, 0x01, 0x06, 0xff],
             axes,
             CommandTimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandRetryClass::Movement,
             SubmissionClass::User,
         )
         .expect("valid targeted operation");
@@ -1305,7 +1195,7 @@ mod tests {
             AffectedAxes::ZOOM,
             OperationPolicy::new(
                 CommandTimeoutClass::Quick,
-                RetryClass::Never,
+                CommandRetryClass::Never,
                 SubmissionClass::User,
             ),
         )
@@ -1319,28 +1209,28 @@ mod tests {
         assert!(PlainRequest::new(
             [],
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
         .is_err());
         assert!(PlainRequest::new(
             [0x80, 0x01, 0xff],
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
         .is_err());
         assert!(PlainRequest::new(
             [0x81, 0x01, 0x00],
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
         .is_err());
         assert!(PlainRequest::new(
             vec![0x81; MAX_BYTES + 1],
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
         .is_err());
@@ -1373,7 +1263,7 @@ mod tests {
         let error = PlainRequest::new(
             oversize,
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
         .expect_err("a frame longer than MAX_BYTES must be rejected");
@@ -1388,7 +1278,7 @@ mod tests {
         let accepted = PlainRequest::new(
             at_bound.clone(),
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
         .expect("a frame of exactly MAX_BYTES must be accepted");
@@ -1409,7 +1299,7 @@ mod tests {
                 frame(MAX_BYTES + 1),
                 AffectedAxes::PAN_TILT,
                 CommandTimeoutClass::Movement,
-                RetryClass::Movement,
+                CommandRetryClass::Movement,
                 SubmissionClass::User,
             )
             .expect_err("oversize targeted frame"),
@@ -1420,7 +1310,7 @@ mod tests {
                 frame(MAX_BYTES + 1),
                 AffectedAxes::ZOOM,
                 CommandTimeoutClass::Movement,
-                RetryClass::Movement,
+                CommandRetryClass::Movement,
                 SubmissionClass::User,
             )
             .expect_err("oversize applied-only frame"),
@@ -1436,7 +1326,7 @@ mod tests {
             VALID,
             AffectedAxes::PAN_TILT,
             CommandTimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandRetryClass::Movement,
             SubmissionClass::User,
         )
         .expect("non-empty targeted axes");
@@ -1447,7 +1337,7 @@ mod tests {
             AffectedAxes::ZOOM,
             OperationPolicy::new(
                 CommandTimeoutClass::Movement,
-                RetryClass::Movement,
+                CommandRetryClass::Movement,
                 SubmissionClass::User,
             ),
         )
@@ -1461,7 +1351,7 @@ mod tests {
         let command = PlainRequest::new(
             [0x82, 0x01, 0xff],
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
         .expect("valid frame for another explicit target");
@@ -1502,7 +1392,7 @@ mod tests {
                     PlainRequest::new(
                         cancel,
                         CommandTimeoutClass::Quick,
-                        RetryClass::Never,
+                        CommandRetryClass::Never,
                         SubmissionClass::Normal
                     )
                     .is_err(),
@@ -1518,7 +1408,7 @@ mod tests {
                 PlainRequest::new(
                     clear,
                     CommandTimeoutClass::Quick,
-                    RetryClass::Never,
+                    CommandRetryClass::Never,
                     SubmissionClass::Normal
                 )
                 .is_err(),
@@ -1538,7 +1428,7 @@ mod tests {
             [0x81, 0x21, 0xff],
             AffectedAxes::PAN_TILT,
             CommandTimeoutClass::Movement,
-            RetryClass::Movement,
+            CommandRetryClass::Movement,
             SubmissionClass::User,
         )
         .is_err());
@@ -1546,7 +1436,7 @@ mod tests {
             [0x81, 0x01, 0x00, 0x01, 0xff],
             AffectedAxes::ZOOM,
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::User,
         )
         .is_err());
@@ -1570,7 +1460,7 @@ mod tests {
                 PlainRequest::new(
                     frame,
                     CommandTimeoutClass::Quick,
-                    RetryClass::Never,
+                    CommandRetryClass::Never,
                     SubmissionClass::Normal
                 )
                 .is_ok(),
@@ -1626,7 +1516,7 @@ mod tests {
                 PlainRequest::new(
                     frame,
                     CommandTimeoutClass::Quick,
-                    RetryClass::Never,
+                    CommandRetryClass::Never,
                     SubmissionClass::Normal,
                 )
                 .is_err(),
@@ -1639,7 +1529,7 @@ mod tests {
         assert!(PlainRequest::new(
             [0x81, 0x01, 0x04, 0x3f, 0x01, 0xff, 0xff],
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         )
         .is_ok());
@@ -1653,7 +1543,7 @@ mod tests {
         // The default keeps existing raw code unchanged.
         let default_policy = CommandPolicy::new(
             CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            CommandRetryClass::Never,
             SubmissionClass::Normal,
         );
         assert_eq!(
@@ -1665,7 +1555,7 @@ mod tests {
             PlainRequest::new(
                 [0x81, 0x01, 0x02, 0xff],
                 CommandTimeoutClass::Quick,
-                RetryClass::Never,
+                CommandRetryClass::Never,
                 SubmissionClass::Normal,
             )
             .expect("plain")
@@ -1681,15 +1571,15 @@ mod tests {
             // The builder sets the shape without disturbing the other classes.
             let policy = default_policy.with_reply_shape(shape);
             assert_eq!(policy.reply_shape(), shape);
-            assert_eq!(policy.timeout_class(), TimeoutClass::Quick);
-            assert_eq!(policy.retry_class(), RetryClass::Never);
+            assert_eq!(policy.timeout_class(), CommandTimeoutClass::Quick);
+            assert_eq!(policy.retry_class(), CommandRetryClass::Never);
             assert_eq!(policy.control_class(), ControlClass::Normal);
 
             // Each command reports the shape through its inherent accessor and
-            // the `Request::reply_shape` hook preparation reads.
+            // the typed `Request::policy` preparation reads.
             let plain = PlainRequest::with_policy([0x81, 0x01, 0x02, 0xff], policy).expect("plain");
             assert_eq!(plain.reply_shape(), shape);
-            assert_eq!(Request::reply_shape(&plain), shape);
+            assert_eq!(Request::policy(&plain).reply_shape(), shape);
         }
         for shape in [
             OperationReplyShape::AckThenCompletion,
@@ -1697,7 +1587,7 @@ mod tests {
         ] {
             let policy = OperationPolicy::new(
                 CommandTimeoutClass::Quick,
-                RetryClass::Never,
+                CommandRetryClass::Never,
                 SubmissionClass::Normal,
             )
             .with_reply_shape(shape);
@@ -1709,7 +1599,7 @@ mod tests {
             )
             .expect("targeted");
             assert_eq!(targeted.reply_shape(), expected);
-            assert_eq!(Request::reply_shape(&targeted), expected);
+            assert_eq!(Request::policy(&targeted).reply_shape(), expected);
             let applied = AppliedOnlyRequest::with_policy(
                 [0x81, 0x01, 0x07, 0xff],
                 AffectedAxes::ZOOM,
@@ -1717,7 +1607,7 @@ mod tests {
             )
             .expect("applied");
             assert_eq!(applied.reply_shape(), expected);
-            assert_eq!(Request::reply_shape(&applied), expected);
+            assert_eq!(Request::policy(&applied).reply_shape(), expected);
         }
     }
 }

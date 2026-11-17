@@ -1,11 +1,11 @@
 use grafton_visca::{
-    raw::InquiryPolicy,
-    request::{RetryClass, SubmissionClass},
+    request::InquiryPolicy,
+    request::{CommandRetryClass, SubmissionClass},
 };
 
 fn main() {
-    let _ = InquiryPolicy::new(RetryClass::Standard, SubmissionClass::Normal);
+    let _ = InquiryPolicy::new(CommandRetryClass::Standard, SubmissionClass::Normal);
 }
 
 //~ E0308
-//~ "expected `InquiryRetryClass`, found `RetryClass`"
+//~ "expected `InquiryRetryClass`, found `CommandRetryClass`"

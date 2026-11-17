@@ -637,7 +637,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
         request
     }
 
-    fn urgent_stop(target: u8) -> RuntimeRequest {
+    fn stop_request(target: u8) -> RuntimeRequest {
         let mut request = urgent_command(target, CancellationPolicy::Supported);
         request.context_mut().motion = Some(MotionEffect {
             axes: crate::AffectedAxes::PAN_TILT,
@@ -662,7 +662,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
                 &mut ticket,
                 &mut now,
                 target,
-                urgent_stop(target),
+                stop_request(target),
                 bound,
             );
             assert_eq!(
@@ -706,7 +706,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
                 &mut ticket,
                 &mut now,
                 target,
-                urgent_stop(target),
+                stop_request(target),
                 bound,
             );
             assert_eq!(

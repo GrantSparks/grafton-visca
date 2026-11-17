@@ -1,12 +1,12 @@
 use grafton_visca::{
-    raw, request::InquiryRetryClass, request::ResponseDecoder, request::TimeoutClass,
+    profiles::CommandTimeoutClass, raw, request::InquiryRetryClass, request::ResponseDecoder,
 };
 
 fn main() {
     let _ = raw::InquiryRequest::new(
         [0x81, 0x09, 0x04, 0x00, 0xff],
         ResponseDecoder::from_fn(|_: &[u8]| Ok::<_, grafton_visca::Error>(0_u8)),
-        TimeoutClass::Inquiry,
+        CommandTimeoutClass::Quick,
         InquiryRetryClass::Inquiry,
         grafton_visca::request::SubmissionClass::Normal,
     );

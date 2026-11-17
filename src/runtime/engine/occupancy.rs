@@ -27,11 +27,12 @@ impl TargetOccupancy {
         self.unacknowledged == 1
             && self.positional.is_some_and(|candidate| {
                 (stream && candidate.family == SendingReply::CompletionOnly)
-                    || (candidate.family == SendingReply::AckThenCompletion
-                        && !(candidate.halt
-                            && entry.request.context().dispatch_deadline.is_some()
-                            && candidate.submission_order
-                                == entry.request.context().submission_order))
+                    || (matches!(
+                        candidate.family,
+                        SendingReply::Stop | SendingReply::AckThenCompletion
+                    ) && !(candidate.halt
+                        && entry.request.context().dispatch_deadline.is_some()
+                        && candidate.submission_order == entry.request.context().submission_order))
             })
     }
 }

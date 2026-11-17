@@ -1682,9 +1682,13 @@ struct AdmittedWithoutModelEvidence<const WRONG_PACKET: bool>;
 impl<const WRONG_PACKET: bool> crate::Request for AdmittedWithoutModelEvidence<WRONG_PACKET> {
     type Class = crate::request::PlainClass;
     const MAX_SIZE: usize = 6;
-    const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Quick;
-    const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Standard;
-    const CONTROL_CLASS: crate::ControlClass = crate::ControlClass::Normal;
+    fn policy(&self) -> crate::request::CommandPolicy {
+        crate::request::CommandPolicy::new(
+            crate::profiles::CommandTimeoutClass::Quick,
+            crate::request::CommandRetryClass::Standard,
+            crate::request::SubmissionClass::Normal,
+        )
+    }
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
         if WRONG_PACKET {
@@ -1704,6 +1708,8 @@ impl<const WRONG_PACKET: bool> BuiltinRequestContract
     for AdmittedWithoutModelEvidence<WRONG_PACKET>
 {
     const LEDGER_ROW: BuiltinCommand = BuiltinCommand::WhiteBalancePreset;
+    const POLICY: crate::request::builtin_policy::BuiltinPolicy =
+        crate::request::builtin_policy::policy(false, false, None);
     type State = crate::request::builtin_contract::NoState;
 }
 

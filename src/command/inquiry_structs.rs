@@ -792,9 +792,9 @@ macro_rules! define_builtin_inquiries {
 
                 const MAX_SIZE: usize = crate::command::bytes::frame_len(maximum_body(Self::KIND, Self::BODY))
                     + builtin_inquiry_argument_len!($($argument)?);
-                const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
-                const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Inquiry;
-                const CONTROL_CLASS: crate::ControlClass = crate::ControlClass::Normal;
+                fn policy(&self) -> crate::request::InquiryPolicy {
+                    crate::request::InquiryPolicy::new(crate::request::InquiryRetryClass::Inquiry, crate::request::SubmissionClass::Normal)
+                }
 
                 fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                     #[cfg(test)]

@@ -2,8 +2,11 @@
 use super::*;
 
 fn completion_only() -> RuntimeRequest {
-    let mut request =
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly);
+    let mut request = command_with_reply_shape(
+        1,
+        CancellationPolicy::Supported,
+        CommandReply::CompletionOnly,
+    );
     request.context_mut().timeout.completion =
         NonZeroDuration::new(Duration::from_secs(5)).unwrap();
     request
@@ -69,9 +72,9 @@ fn completion_only_unconfirmed_still_holds_all_responses() {
 #[test]
 fn sending_command_cannot_record_cancellation_intent() {
     for shape in [
-        ReplyShape::AckThenCompletion,
-        ReplyShape::CompletionOnly,
-        ReplyShape::NoReply,
+        CommandReply::AckThenCompletion,
+        CommandReply::CompletionOnly,
+        CommandReply::NoReply,
     ] {
         let now = Instant::now();
         let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -248,7 +251,7 @@ fn pre_ack_cancel_never_shortens_a_long_ack_window() {
                 cancel_sequence.map(|value| (value, SequenceWidth::Full32)),
                 DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
-                    code: 0x04,
+                    code: 0x04.into(),
                 },
             ),
             ack_at + Duration::from_millis(1),

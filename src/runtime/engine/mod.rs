@@ -37,6 +37,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
+use crate::protocol::response::CameraErrorCode;
 use crate::target::{PerTarget, TargetSlot};
 use crate::{
     Certainty, CommandSocketCount, Error, FailureContext, FailureStage, PayloadShape, ViscaSocket,
@@ -277,9 +278,7 @@ impl Entry {
     }
 
     fn reply_family(&self) -> SendingReply {
-        self.lifecycle()
-            .reply_family()
-            .unwrap_or_else(|| SendingReply::new(&self.request))
+        SendingReply::new(&self.request)
     }
 
     fn attempt_end(
@@ -864,8 +863,7 @@ trait EngineMethods: EngineAccess {
         })
     }
     fn pre_ack_bypass_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
-        entry.reply_family() == SendingReply::AckThenCompletion
-            && entry.request.context().is_stop()
+        entry.request.is_stop()
             && (!self.mode().is_raw() || occupancy.targets[target].unacknowledged == 0)
     }
     fn used_capacity_in(&self, target: TargetSlot, occupancy: &Occupancy) -> usize {
@@ -878,7 +876,7 @@ trait EngineMethods: EngineAccess {
             })
     }
     fn hold_blocks_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
-        let stop = urgent_stop(entry);
+        let stop = entry.request.is_stop();
         let response_bearing = entry.reply_family() != SendingReply::NoReply;
         (response_bearing && !stop && self.raw_hold(target, RawHoldScope::AllResponses).is_some())
             || entry
@@ -898,8 +896,7 @@ trait EngineMethods: EngineAccess {
         let raw = self.mode().is_raw();
         let state = &occupancy.targets[target];
         let urgent_bypass = raw
-            && entry.reply_family() != SendingReply::Inquiry
-            && entry.request.context().is_stop()
+            && entry.request.is_stop()
             && !(self.mode().is_stream() && self.mode().ledger().forbids_crossing(target))
             && state.urgent_bypass(entry, self.mode().is_stream());
         (raw && state.unacknowledged > 0 && !urgent_bypass)
@@ -930,7 +927,7 @@ trait EngineMethods: EngineAccess {
                     || (self.raw_socket_hold_running(target, now)
                         && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets.is_named()))
             }
-            (_, SendingReply::AckThenCompletion) => false,
+            (_, SendingReply::Stop | SendingReply::AckThenCompletion) => false,
         }
     }
     fn dispatch_blocked_in(&self, entry: &Entry, now: Instant, occupancy: &Occupancy) -> bool {
@@ -957,7 +954,7 @@ trait EngineMethods: EngineAccess {
                     .is_some_and(|bound| now >= bound)
                     && (self.hold_blocks_in(entry, target, occupancy)
                         || self.command_gate_in(entry, target, occupancy)
-                        || (if urgent_stop(entry) {
+                        || (if entry.request.is_stop() {
                             state.commands
                         } else {
                             self.used_capacity_in(target, occupancy)
@@ -1282,7 +1279,7 @@ trait EngineMethods: EngineAccess {
                 }
             }
             AdmissionSlot::ControlReserve => {
-                if !request.context().is_stop() {
+                if !request.is_stop() {
                     return Err(Error::InvalidState {
                         reason: "only an urgent request may hold a control-reserve slot".into(),
                     });
@@ -1335,7 +1332,7 @@ trait EngineMethods: EngineAccess {
             .iter()
             .filter_map(|(id, entry)| {
                 (entry.lifecycle().is_off_wire()
-                    && self.motion_superseded(entry.request.context()).is_some())
+                    && self.motion_superseded(&entry.request).is_some())
                 .then_some((*id, entry.certainty(AttemptEvidence::Unwritten)))
             })
             .collect();
@@ -1412,8 +1409,9 @@ trait EngineMethods: EngineAccess {
         true
     }
 
-    fn motion_superseded(&self, context: &RequestContext) -> Option<crate::AffectedAxes> {
-        let motion = context.motion.filter(|_| !context.is_stop())?;
+    fn motion_superseded(&self, request: &RuntimeRequest) -> Option<crate::AffectedAxes> {
+        let context = request.context();
+        let motion = context.motion.filter(|_| !request.is_stop())?;
         let fences = self.targets[context.target].motion_fences;
         fences
             .iter()
@@ -1437,7 +1435,7 @@ trait EngineMethods: EngineAccess {
         }
         let context = *request.context();
         context.validate_at(now)?;
-        if let Some(axes) = self.motion_superseded(&context) {
+        if let Some(axes) = self.motion_superseded(&request) {
             return Err(Error::MotionSuperseded {
                 axes,
                 context: FailureContext::new(FailureStage::PreAdmission, Certainty::NotAccepted),
@@ -1695,12 +1693,11 @@ trait EngineMethods: EngineAccess {
         // Urgent controls retain command-to-command physical pacing, but an
         // inquiry does not start their safety-lane clock (#712). Ordinary work
         // keeps the established session-wide pacing floor.
-        let last_spacing_write =
-            if entry.reply_family() != SendingReply::Inquiry && entry.request.context().is_stop() {
-                self.pacing.last_command
-            } else {
-                self.pacing.last_request()
-            };
+        let last_spacing_write = if entry.request.is_stop() {
+            self.pacing.last_command
+        } else {
+            self.pacing.last_request()
+        };
         let mut at = last_spacing_write.map_or(entry.submitted_at, |last| {
             add_duration(last, request_spacing)
         });
@@ -1767,7 +1764,7 @@ trait EngineMethods: EngineAccess {
     /// buffer-full).
     #[cfg(test)]
     fn command_capacity_used_by(&self, entry: &Entry, target: TargetSlot) -> usize {
-        if urgent_stop(entry) {
+        if entry.request.is_stop() {
             self.commands_inflight(target)
         } else {
             self.command_capacity_used(target)
@@ -1897,7 +1894,7 @@ trait EngineMethods: EngineAccess {
         let response_bearing = entry.reply_family() != SendingReply::NoReply;
         // A STOP is never held back by a hold (#795): a frame it makes
         // ambiguous binds to neither request.
-        let stop = urgent_stop(entry);
+        let stop = entry.request.is_stop();
         let all_responses = (response_bearing && !stop)
             .then(|| self.raw_hold(target, RawHoldScope::AllResponses))
             .flatten()
@@ -1938,9 +1935,7 @@ trait EngineMethods: EngineAccess {
 
     #[cfg(test)]
     fn raw_preack_hold_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
-        entry.reply_family() == SendingReply::AckThenCompletion
-            && entry.request.context().is_stop()
-            && self.raw_unacknowledged_command_count(target) == 0
+        entry.request.is_stop() && self.raw_unacknowledged_command_count(target) == 0
     }
 
     fn raw_socket_hold_count(&self, target: TargetSlot) -> usize {
@@ -2025,8 +2020,7 @@ trait EngineMethods: EngineAccess {
     #[cfg(test)]
     fn raw_urgent_gate_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
         self.mode().is_raw()
-            && entry.reply_family() != SendingReply::Inquiry
-            && entry.request.context().is_stop()
+            && entry.request.is_stop()
             && self.raw_unacknowledged_command_count(target) == 1
             // A disputed STOP's own answer must stay decisive, and behind a
             // `CompletionOnly` command that may still be rejected any dispute
@@ -2042,7 +2036,7 @@ trait EngineMethods: EngineAccess {
                     || !raw_unacknowledged_command_candidate(candidate)
                     || (self.mode().is_stream()
                         && candidate.reply_family() == SendingReply::CompletionOnly)
-                    || (candidate.reply_family() == SendingReply::AckThenCompletion
+                    || (matches!(candidate.reply_family(), SendingReply::Stop | SendingReply::AckThenCompletion)
                         // Sibling STOPs in one halt may dispatch after ACK,
                         // without awaiting completion. Crossing each other's
                         // pre-ACK window would destroy raw attribution.
@@ -2086,7 +2080,9 @@ trait EngineMethods: EngineAccess {
                             entry.lifecycle().is_sending()
                                 || entry.lifecycle().is_awaiting_completion()
                         }
-                        SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
+                        SendingReply::Inquiry
+                        | SendingReply::Stop
+                        | SendingReply::AckThenCompletion => false,
                     }
             })
     }
@@ -2130,7 +2126,7 @@ trait EngineMethods: EngineAccess {
                     || (self.raw_socket_hold_running(target, now)
                         && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets.is_named()))
             }
-            (_, SendingReply::AckThenCompletion) => false,
+            (_, SendingReply::Stop | SendingReply::AckThenCompletion) => false,
         }
     }
 
@@ -2345,7 +2341,7 @@ trait EngineMethods: EngineAccess {
                             effects,
                         );
                     }
-                    SendingReply::AckThenCompletion => {
+                    SendingReply::Stop | SendingReply::AckThenCompletion => {
                         self.transition(
                             owner.request,
                             Lifecycle::AwaitingAck {
@@ -2844,11 +2840,11 @@ trait EngineMethods: EngineAccess {
         &self,
         target: TargetSlot,
         socket: ViscaSocket,
-        code: u8,
+        code: CameraErrorCode,
     ) -> Option<RequestId> {
         // A `0x04`/`0x05` naming a socket answers only the cancellation
         // packet emitted for it (H1, #795).
-        if is_cancel_reply(code) {
+        if code.answers_named_cancellation() {
             return self.socket_owner(target, socket).filter(|owner| {
                 self.entries
                     .get(owner)
@@ -2858,7 +2854,7 @@ trait EngineMethods: EngineAccess {
         if let Some(owner) = self.socket_owner(target, socket) {
             return (!self.raw_command_unacknowledged(target)).then_some(owner);
         }
-        if !is_rejection(code)
+        if !code.refuses_before_start()
             || self
                 .raw_hold(target, RawHoldScope::Socket(socket))
                 .is_some()
@@ -3196,7 +3192,10 @@ trait EngineMethods: EngineAccess {
             ) => (attempt, cancellation),
             (Lifecycle::Ready { .. } | Lifecycle::Backoff { .. }, Some(attempt))
                 if !self.mode().is_raw()
-                    && entry.reply_family() == SendingReply::AckThenCompletion =>
+                    && matches!(
+                        entry.reply_family(),
+                        SendingReply::Stop | SendingReply::AckThenCompletion
+                    ) =>
             {
                 (attempt, None)
             }
@@ -3308,7 +3307,9 @@ trait EngineMethods: EngineAccess {
             let uncorrelatable_command = match entry.reply_family() {
                 SendingReply::NoReply => true,
                 SendingReply::CompletionOnly => !self.mode().is_stream(),
-                SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
+                SendingReply::Inquiry | SendingReply::Stop | SendingReply::AckThenCompletion => {
+                    false
+                }
             };
             (self.mode().is_raw() && uncorrelatable_command).then_some((
                 entry.request.context().target,
@@ -3519,8 +3520,7 @@ trait EngineMethods: EngineAccess {
         // A `NoReply` command is refused too: the ledger owes its possible
         // rejection until write order settles it, and that could not be told
         // from the owed answer (nor, at the debt cap, be owed at all).
-        let command_lane = !request.is_inquiry()
-            && (completion_only || family == SendingReply::NoReply || !context.is_stop());
+        let command_lane = !request.is_inquiry() && !request.is_stop();
         // A `CompletionOnly` command's socketless rejection could not be told
         // from a `NoReply` command's still owed past its window.
         let rejection_latched = completion_only && self.mode().ledger().rejection_latched(target);
@@ -3570,7 +3570,7 @@ trait EngineMethods: EngineAccess {
         id: RequestId,
         correlation_kind: CorrelationKind,
         socket: Option<ViscaSocket>,
-        code: u8,
+        code: CameraErrorCode,
         now: Instant,
         effects: &mut Decision,
     ) {
@@ -3601,7 +3601,7 @@ trait EngineMethods: EngineAccess {
             return;
         }
         let cancellation_active = entry.lifecycle().cancellation_ambiguity().is_some();
-        if code == 0x04
+        if code.confirms_cancellation()
             && (cancellation_active || correlation_kind == CorrelationKind::Cancellation)
         {
             self.confirm_cancelled(id, now, effects);
@@ -3619,23 +3619,18 @@ trait EngineMethods: EngineAccess {
         // request's retryable rejection below.
         let acknowledged = entry.lifecycle().is_accepted();
         if acknowledged {
-            let cancellation_answered =
-                self.mode().is_raw() && code == 0x05 && raw_cancellation_no_socket_response(entry);
-            self.finish_after_ack(
-                id,
-                Error::from_code(code),
-                cancellation_answered,
-                now,
-                effects,
-            );
+            let cancellation_answered = self.mode().is_raw()
+                && code == CameraErrorCode::NoSocket
+                && raw_cancellation_no_socket_response(entry);
+            self.finish_after_ack(id, code.into_error(), cancellation_answered, now, effects);
             return;
         }
         let retry = (correlation_kind == CorrelationKind::Request
-            && self.camera_error_retryable(entry, code))
+            && code.retry_permission(&entry.request.context().retry, entry.reply_family()))
         .then(|| entry.lifecycle().retry_eligibility(true))
         .flatten();
-        let error = Error::from_code(code);
-        let evidence = if is_rejection(code) || code == 0x05 {
+        let error = code.into_error();
+        let evidence = if code.refuses_before_start() {
             AttemptEvidence::Rejected
         } else {
             AttemptEvidence::Lifecycle
@@ -3700,16 +3695,6 @@ trait EngineMethods: EngineAccess {
             now,
             effects,
         );
-    }
-
-    fn camera_error_retryable(&self, entry: &Entry, code: u8) -> bool {
-        let retry = entry.request.context().retry;
-        match code {
-            0x03 | 0x05 => retry.buffer_full,
-            0x41 => retry.movement_not_executable,
-            0x02 => entry.reply_family() == SendingReply::Inquiry && retry.builtin_inquiry_syntax,
-            _ => false,
-        }
     }
 
     fn confirm_cancelled(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
@@ -3853,7 +3838,7 @@ trait EngineMethods: EngineAccess {
         if let Some(axes) = self
             .entries
             .get(&id)
-            .and_then(|entry| self.motion_superseded(entry.request.context()))
+            .and_then(|entry| self.motion_superseded(&entry.request))
         {
             self.finish_observed(
                 id,
@@ -4851,12 +4836,17 @@ trait EngineMethods: EngineAccess {
                 return Err("control reserve exceeded".into());
             }
         }
-        if self.entries.values().any(|entry| {
-            entry.slot == AdmissionSlot::ControlReserve && !entry.request.context().is_stop()
-        }) {
+        if self
+            .entries
+            .values()
+            .any(|entry| entry.slot == AdmissionSlot::ControlReserve && !entry.request.is_stop())
+        {
             return Err("a non-urgent entry holds a control-reserve slot".into());
         }
         for entry in self.entries.values() {
+            if !entry.lifecycle().accepts_reply(entry.reply_family()) {
+                return Err("request reply class disagrees with lifecycle phase".into());
+            }
             if matches!(entry.lifecycle(), Lifecycle::ExecutingDisplaced { .. })
                 && (self.mode().is_raw() || entry.current_sequence().is_none())
             {
@@ -4951,10 +4941,13 @@ trait EngineMethods: EngineAccess {
                 }
                 let target = entry.request.context().target;
                 unacknowledged[target] = unacknowledged[target].saturating_add(1);
-                if entry.request.context().is_stop() {
+                if entry.request.is_stop() {
                     urgent[target] = urgent[target].saturating_add(1);
                 }
-                if entry.reply_family() != SendingReply::AckThenCompletion {
+                if !matches!(
+                    entry.reply_family(),
+                    SendingReply::Stop | SendingReply::AckThenCompletion
+                ) {
                     uncorrelatable[target] = uncorrelatable[target].saturating_add(1);
                 }
                 if entry.reply_family() == SendingReply::NoReply {
@@ -5025,18 +5018,6 @@ fn terminal_timeout(entry: &Entry, evidence: AttemptEvidence) -> Error {
     Error::timeout(FailureStage::Terminal, entry.certainty(evidence))
 }
 
-/// Whether a VISCA error code answers a socket cancellation packet (`0x04`
-/// cancelled, `0x05` no socket). Named, it never rejects a new command.
-const fn is_cancel_reply(code: u8) -> bool {
-    matches!(code, 0x04 | 0x05)
-}
-
-/// Whether a VISCA error code is an immediate rejection of a request the
-/// camera read: message length, syntax, buffer full, or not executable.
-const fn is_rejection(code: u8) -> bool {
-    matches!(code, 0x01 | 0x02 | 0x03 | 0x41)
-}
-
 /// The failure context of an admitted request a halt superseded (D21, #795).
 ///
 /// Supersession happens only while the request is off the wire (queued, in
@@ -5044,14 +5025,6 @@ const fn is_rejection(code: u8) -> bool {
 /// affected the camera only if an earlier written attempt may have.
 const fn superseded_context(certainty: Certainty) -> FailureContext {
     FailureContext::new(FailureStage::Terminal, certainty)
-}
-
-/// Whether `entry` is an urgent ACK-bearing command (a STOP), which no hold
-/// keeps from being written (#795).
-fn urgent_stop(entry: &Entry) -> bool {
-    entry.reply_family() != SendingReply::Inquiry
-        && entry.request.context().is_stop()
-        && entry.reply_family() == SendingReply::AckThenCompletion
 }
 
 /// Records one expired request deadline ahead of whatever the expiry produced.
@@ -5317,7 +5290,7 @@ mod cancellation_regression_tests {
         }
     }
 
-    fn command_with(reply_shape: ReplyShape, retry: RetryPolicy) -> RuntimeRequest {
+    fn command_with(reply_shape: CommandReply, retry: RetryPolicy) -> RuntimeRequest {
         let mut request_context = context();
 
         request_context.retry = retry;
@@ -5330,7 +5303,7 @@ mod cancellation_regression_tests {
     }
 
     fn command() -> RuntimeRequest {
-        command_with(ReplyShape::AckThenCompletion, RetryPolicy::NEVER)
+        command_with(CommandReply::AckThenCompletion, RetryPolicy::NEVER)
     }
 
     fn engine(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolEngine {
@@ -5525,7 +5498,7 @@ mod cancellation_regression_tests {
         let admitted_effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command_with(ReplyShape::AckThenCompletion, retrying_buffer_full()),
+                request: command_with(CommandReply::AckThenCompletion, retrying_buffer_full()),
                 slot: AdmissionSlot::Ordinary,
             },
             now,
@@ -5568,7 +5541,7 @@ mod cancellation_regression_tests {
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: None,
-                    code: 0x05,
+                    code: 0x05.into(),
                 },
             }),
             now,
@@ -5601,7 +5574,7 @@ mod cancellation_regression_tests {
         let admitted_effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command_with(ReplyShape::CompletionOnly, retrying_buffer_full()),
+                request: command_with(CommandReply::CompletionOnly, retrying_buffer_full()),
                 slot: AdmissionSlot::Ordinary,
             },
             now,
@@ -5641,7 +5614,7 @@ mod cancellation_regression_tests {
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: None,
-                    code: 0x05,
+                    code: 0x05.into(),
                 },
             }),
             now,
@@ -5662,7 +5635,7 @@ mod cancellation_regression_tests {
         let admitted_effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command_with(ReplyShape::AckThenCompletion, retrying_buffer_full()),
+                request: command_with(CommandReply::AckThenCompletion, retrying_buffer_full()),
                 slot: AdmissionSlot::Ordinary,
             },
             now,
@@ -5683,7 +5656,7 @@ mod cancellation_regression_tests {
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: None,
-                    code: 0x05,
+                    code: 0x05.into(),
                 },
             }),
             now,
@@ -5734,7 +5707,7 @@ mod cancellation_regression_tests {
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
-                    code: 0x05,
+                    code: 0x05.into(),
                 },
             }),
             now,

@@ -1,0 +1,650 @@
+ConnectionFailed//bare	IoRefused	false	None	Abandon
+ConnectionFailed//WithContext	IoRefused	false	None	Abandon
+ConnectionFailed//InquiryFailed	IoRefused	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+ConnectionFailed//TransportError	Transport	false	None	Resubmit { after: 50ms }
+ConnectionFailed//SettlementObservationFailed	IoRefused	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+ConnectionFailed//CancellationObservationFailed	IoRefused	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+ConnectionFailed//TransmissionNotSent/NotAccepted	IoRefused	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+ConnectionFailed//TransmissionNotSent/FailedConclusively	IoRefused	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+ConnectionFailed//TransmissionNotSent/StillLive	IoRefused	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+ConnectionFailed//TransmissionNotSent/Unconfirmed	IoRefused	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CameraNotAddressed//bare	InvalidParameter	false	None	Abandon
+CameraNotAddressed//WithContext	InvalidParameter	false	None	Abandon
+CameraNotAddressed//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CameraNotAddressed//TransportError	Transport	false	None	Resubmit { after: 50ms }
+CameraNotAddressed//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CameraNotAddressed//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CameraNotAddressed//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+CameraNotAddressed//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CameraNotAddressed//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CameraNotAddressed//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+SerialChainTooLong//bare	InvalidParameter	false	None	Abandon
+SerialChainTooLong//WithContext	InvalidParameter	false	None	Abandon
+SerialChainTooLong//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+SerialChainTooLong//TransportError	Transport	false	None	Resubmit { after: 50ms }
+SerialChainTooLong//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+SerialChainTooLong//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+SerialChainTooLong//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+SerialChainTooLong//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+SerialChainTooLong//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+SerialChainTooLong//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+ConnectionClosed//bare	IoClosed	true	None	ReopenSession
+ConnectionClosed//WithContext	IoClosed	true	None	ReopenSession
+ConnectionClosed//InquiryFailed	IoClosed	true	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	ReopenSession
+ConnectionClosed//TransportError	Transport	false	None	Resubmit { after: 50ms }
+ConnectionClosed//SettlementObservationFailed	IoClosed	true	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	ReopenSession
+ConnectionClosed//CancellationObservationFailed	IoClosed	true	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	ReopenSession
+ConnectionClosed//TransmissionNotSent/NotAccepted	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+ConnectionClosed//TransmissionNotSent/FailedConclusively	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+ConnectionClosed//TransmissionNotSent/StillLive	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+ConnectionClosed//TransmissionNotSent/Unconfirmed	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CommandPending/ACK received/bare	Busy	false	None	WaitAgain
+CommandPending/ACK received/WithContext	Busy	false	None	WaitAgain
+CommandPending/ACK received/InquiryFailed	Busy	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+CommandPending/ACK received/TransportError	Transport	false	None	Resubmit { after: 50ms }
+CommandPending/ACK received/SettlementObservationFailed	Busy	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CommandPending/ACK received/CancellationObservationFailed	Busy	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CommandPending/ACK received/TransmissionNotSent/NotAccepted	Busy	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+CommandPending/ACK received/TransmissionNotSent/FailedConclusively	Busy	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+CommandPending/ACK received/TransmissionNotSent/StillLive	Busy	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CommandPending/ACK received/TransmissionNotSent/Unconfirmed	Busy	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InvalidResponse//bare	Protocol	false	None	Abandon
+InvalidResponse//WithContext	Protocol	false	None	Abandon
+InvalidResponse//InquiryFailed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidResponse//TransportError	Transport	false	None	Resubmit { after: 50ms }
+InvalidResponse//SettlementObservationFailed	Protocol	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InvalidResponse//CancellationObservationFailed	Protocol	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InvalidResponse//TransmissionNotSent/NotAccepted	Protocol	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InvalidResponse//TransmissionNotSent/FailedConclusively	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidResponse//TransmissionNotSent/StillLive	Protocol	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InvalidResponse//TransmissionNotSent/Unconfirmed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+FeatureNotSupported//bare	Unsupported	false	None	Abandon
+FeatureNotSupported//WithContext	Unsupported	false	None	Abandon
+FeatureNotSupported//InquiryFailed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+FeatureNotSupported//TransportError	Transport	false	None	Resubmit { after: 50ms }
+FeatureNotSupported//SettlementObservationFailed	Unsupported	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+FeatureNotSupported//CancellationObservationFailed	Unsupported	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+FeatureNotSupported//TransmissionNotSent/NotAccepted	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+FeatureNotSupported//TransmissionNotSent/FailedConclusively	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+FeatureNotSupported//TransmissionNotSent/StillLive	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+FeatureNotSupported//TransmissionNotSent/Unconfirmed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Io/other OS error/bare	Other	false	None	Abandon
+Io/other OS error/WithContext	Other	false	None	Abandon
+Io/other OS error/InquiryFailed	Other	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+Io/other OS error/TransportError	Transport	false	None	Resubmit { after: 50ms }
+Io/other OS error/SettlementObservationFailed	Other	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+Io/other OS error/CancellationObservationFailed	Other	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Io/other OS error/TransmissionNotSent/NotAccepted	Other	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+Io/other OS error/TransmissionNotSent/FailedConclusively	Other	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+Io/other OS error/TransmissionNotSent/StillLive	Other	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+Io/other OS error/TransmissionNotSent/Unconfirmed	Other	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+SyntaxError//bare	InvalidParameter	false	None	Abandon
+SyntaxError//WithContext	InvalidParameter	false	None	Abandon
+SyntaxError//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+SyntaxError//TransportError	Transport	false	None	Resubmit { after: 50ms }
+SyntaxError//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+SyntaxError//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+SyntaxError//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+SyntaxError//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+SyntaxError//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+SyntaxError//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CommandBufferFull//bare	BufferFull	false	None	Resubmit { after: 200ms }
+CommandBufferFull//WithContext	BufferFull	false	None	Resubmit { after: 200ms }
+CommandBufferFull//InquiryFailed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 200ms }
+CommandBufferFull//TransportError	Transport	false	None	Resubmit { after: 50ms }
+CommandBufferFull//SettlementObservationFailed	BufferFull	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CommandBufferFull//CancellationObservationFailed	BufferFull	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CommandBufferFull//TransmissionNotSent/NotAccepted	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 200ms }
+CommandBufferFull//TransmissionNotSent/FailedConclusively	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 200ms }
+CommandBufferFull//TransmissionNotSent/StillLive	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CommandBufferFull//TransmissionNotSent/Unconfirmed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CommandCancelled//bare	Cancelled	false	None	Abandon
+CommandCancelled//WithContext	Cancelled	false	None	Abandon
+CommandCancelled//InquiryFailed	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CommandCancelled//TransportError	Transport	false	None	Resubmit { after: 50ms }
+CommandCancelled//SettlementObservationFailed	Cancelled	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CommandCancelled//CancellationObservationFailed	Cancelled	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CommandCancelled//TransmissionNotSent/NotAccepted	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+CommandCancelled//TransmissionNotSent/FailedConclusively	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CommandCancelled//TransmissionNotSent/StillLive	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CommandCancelled//TransmissionNotSent/Unconfirmed	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+NoSocket//bare	BufferFull	false	None	Resubmit { after: 200ms }
+NoSocket//WithContext	BufferFull	false	None	Resubmit { after: 200ms }
+NoSocket//InquiryFailed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 200ms }
+NoSocket//TransportError	Transport	false	None	Resubmit { after: 50ms }
+NoSocket//SettlementObservationFailed	BufferFull	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+NoSocket//CancellationObservationFailed	BufferFull	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+NoSocket//TransmissionNotSent/NotAccepted	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 200ms }
+NoSocket//TransmissionNotSent/FailedConclusively	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 200ms }
+NoSocket//TransmissionNotSent/StillLive	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+NoSocket//TransmissionNotSent/Unconfirmed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CommandNotExecutable//bare	NotExecutable	false	None	Abandon
+CommandNotExecutable//WithContext	NotExecutable	false	None	Abandon
+CommandNotExecutable//InquiryFailed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CommandNotExecutable//TransportError	Transport	false	None	Resubmit { after: 50ms }
+CommandNotExecutable//SettlementObservationFailed	NotExecutable	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CommandNotExecutable//CancellationObservationFailed	NotExecutable	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CommandNotExecutable//TransmissionNotSent/NotAccepted	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+CommandNotExecutable//TransmissionNotSent/FailedConclusively	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CommandNotExecutable//TransmissionNotSent/StillLive	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CommandNotExecutable//TransmissionNotSent/Unconfirmed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InvalidResponseFormat//bare	Protocol	false	None	Abandon
+InvalidResponseFormat//WithContext	Protocol	false	None	Abandon
+InvalidResponseFormat//InquiryFailed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidResponseFormat//TransportError	Transport	false	None	Resubmit { after: 50ms }
+InvalidResponseFormat//SettlementObservationFailed	Protocol	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InvalidResponseFormat//CancellationObservationFailed	Protocol	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InvalidResponseFormat//TransmissionNotSent/NotAccepted	Protocol	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InvalidResponseFormat//TransmissionNotSent/FailedConclusively	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidResponseFormat//TransmissionNotSent/StillLive	Protocol	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InvalidResponseFormat//TransmissionNotSent/Unconfirmed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InvalidResponseLength//bare	Protocol	false	None	Abandon
+InvalidResponseLength//WithContext	Protocol	false	None	Abandon
+InvalidResponseLength//InquiryFailed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidResponseLength//TransportError	Transport	false	None	Resubmit { after: 50ms }
+InvalidResponseLength//SettlementObservationFailed	Protocol	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InvalidResponseLength//CancellationObservationFailed	Protocol	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InvalidResponseLength//TransmissionNotSent/NotAccepted	Protocol	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InvalidResponseLength//TransmissionNotSent/FailedConclusively	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidResponseLength//TransmissionNotSent/StillLive	Protocol	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InvalidResponseLength//TransmissionNotSent/Unconfirmed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+UnexpectedResponseType//bare	Protocol	false	None	Abandon
+UnexpectedResponseType//WithContext	Protocol	false	None	Abandon
+UnexpectedResponseType//InquiryFailed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+UnexpectedResponseType//TransportError	Transport	false	None	Resubmit { after: 50ms }
+UnexpectedResponseType//SettlementObservationFailed	Protocol	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+UnexpectedResponseType//CancellationObservationFailed	Protocol	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+UnexpectedResponseType//TransmissionNotSent/NotAccepted	Protocol	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+UnexpectedResponseType//TransmissionNotSent/FailedConclusively	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+UnexpectedResponseType//TransmissionNotSent/StillLive	Protocol	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+UnexpectedResponseType//TransmissionNotSent/Unconfirmed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Unknown//bare	Protocol	false	None	Abandon
+Unknown//WithContext	Protocol	false	None	Abandon
+Unknown//InquiryFailed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+Unknown//TransportError	Transport	false	None	Resubmit { after: 50ms }
+Unknown//SettlementObservationFailed	Protocol	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+Unknown//CancellationObservationFailed	Protocol	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Unknown//TransmissionNotSent/NotAccepted	Protocol	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+Unknown//TransmissionNotSent/FailedConclusively	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+Unknown//TransmissionNotSent/StillLive	Protocol	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+Unknown//TransmissionNotSent/Unconfirmed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InvalidRequest//bare	InvalidParameter	false	None	Abandon
+InvalidRequest//WithContext	InvalidParameter	false	None	Abandon
+InvalidRequest//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidRequest//TransportError	Transport	false	None	Resubmit { after: 50ms }
+InvalidRequest//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InvalidRequest//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InvalidRequest//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InvalidRequest//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidRequest//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InvalidRequest//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+MessageLengthError//bare	Protocol	false	None	Abandon
+MessageLengthError//WithContext	Protocol	false	None	Abandon
+MessageLengthError//InquiryFailed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MessageLengthError//TransportError	Transport	false	None	Resubmit { after: 50ms }
+MessageLengthError//SettlementObservationFailed	Protocol	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+MessageLengthError//CancellationObservationFailed	Protocol	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+MessageLengthError//TransmissionNotSent/NotAccepted	Protocol	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+MessageLengthError//TransmissionNotSent/FailedConclusively	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MessageLengthError//TransmissionNotSent/StillLive	Protocol	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+MessageLengthError//TransmissionNotSent/Unconfirmed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+TransportError/no uncertain effect/bare	Transport	false	None	Resubmit { after: 50ms }
+TransportError/no uncertain effect/WithContext	Transport	false	None	Resubmit { after: 50ms }
+TransportError/no uncertain effect/InquiryFailed	Transport	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+TransportError/no uncertain effect/TransportError	Transport	false	None	Resubmit { after: 50ms }
+TransportError/no uncertain effect/SettlementObservationFailed	Transport	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+TransportError/no uncertain effect/CancellationObservationFailed	Transport	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+TransportError/no uncertain effect/TransmissionNotSent/NotAccepted	Transport	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+TransportError/no uncertain effect/TransmissionNotSent/FailedConclusively	Transport	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+TransportError/no uncertain effect/TransmissionNotSent/StillLive	Transport	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+TransportError/no uncertain effect/TransmissionNotSent/Unconfirmed	Transport	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+TransmissionNotSent/first attempt, invalid request/bare	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+TransmissionNotSent/first attempt, invalid request/WithContext	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+TransmissionNotSent/first attempt, invalid request/InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+TransmissionNotSent/first attempt, invalid request/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+TransmissionNotSent/first attempt, invalid request/SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+TransmissionNotSent/first attempt, invalid request/CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+TransmissionNotSent/first attempt, invalid request/TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+TransmissionNotSent/first attempt, invalid request/TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+TransmissionNotSent/first attempt, invalid request/TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+TransmissionNotSent/first attempt, invalid request/TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+TransmissionNotSent/earlier attempt uncertain/bare	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+TransmissionNotSent/earlier attempt uncertain/WithContext	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+TransmissionNotSent/earlier attempt uncertain/InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+TransmissionNotSent/earlier attempt uncertain/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+TransmissionNotSent/earlier attempt uncertain/SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+TransmissionNotSent/earlier attempt uncertain/CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+TransmissionNotSent/earlier attempt uncertain/TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+TransmissionNotSent/earlier attempt uncertain/TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+TransmissionNotSent/earlier attempt uncertain/TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+TransmissionNotSent/earlier attempt uncertain/TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InquiryFailed/timeout cause/bare	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+InquiryFailed/timeout cause/WithContext	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+InquiryFailed/timeout cause/InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+InquiryFailed/timeout cause/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+InquiryFailed/timeout cause/SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InquiryFailed/timeout cause/CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InquiryFailed/timeout cause/TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+InquiryFailed/timeout cause/TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+InquiryFailed/timeout cause/TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InquiryFailed/timeout cause/TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InquiryFailed/command-scoped source/bare	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryFailed/command-scoped source/WithContext	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryFailed/command-scoped source/InquiryFailed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryFailed/command-scoped source/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+InquiryFailed/command-scoped source/SettlementObservationFailed	Unconfirmed	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InquiryFailed/command-scoped source/CancellationObservationFailed	Unconfirmed	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InquiryFailed/command-scoped source/TransmissionNotSent/NotAccepted	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InquiryFailed/command-scoped source/TransmissionNotSent/FailedConclusively	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryFailed/command-scoped source/TransmissionNotSent/StillLive	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InquiryFailed/command-scoped source/TransmissionNotSent/Unconfirmed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InquiryFailed/still-live source/bare	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+InquiryFailed/still-live source/WithContext	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+InquiryFailed/still-live source/InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+InquiryFailed/still-live source/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+InquiryFailed/still-live source/SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InquiryFailed/still-live source/CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InquiryFailed/still-live source/TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+InquiryFailed/still-live source/TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+InquiryFailed/still-live source/TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InquiryFailed/still-live source/TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InquiryFailed/session ended/bare	IoClosed	true	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	ReopenSession
+InquiryFailed/session ended/WithContext	IoClosed	true	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	ReopenSession
+InquiryFailed/session ended/InquiryFailed	IoClosed	true	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	ReopenSession
+InquiryFailed/session ended/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+InquiryFailed/session ended/SettlementObservationFailed	IoClosed	true	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	ReopenSession
+InquiryFailed/session ended/CancellationObservationFailed	IoClosed	true	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	ReopenSession
+InquiryFailed/session ended/TransmissionNotSent/NotAccepted	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InquiryFailed/session ended/TransmissionNotSent/FailedConclusively	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryFailed/session ended/TransmissionNotSent/StillLive	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InquiryFailed/session ended/TransmissionNotSent/Unconfirmed	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InvalidParameter//bare	InvalidParameter	false	None	Abandon
+InvalidParameter//WithContext	InvalidParameter	false	None	Abandon
+InvalidParameter//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidParameter//TransportError	Transport	false	None	Resubmit { after: 50ms }
+InvalidParameter//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InvalidParameter//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InvalidParameter//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InvalidParameter//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidParameter//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InvalidParameter//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+BufferTooSmall//bare	InvalidParameter	false	None	Abandon
+BufferTooSmall//WithContext	InvalidParameter	false	None	Abandon
+BufferTooSmall//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+BufferTooSmall//TransportError	Transport	false	None	Resubmit { after: 50ms }
+BufferTooSmall//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+BufferTooSmall//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+BufferTooSmall//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+BufferTooSmall//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+BufferTooSmall//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+BufferTooSmall//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+ParameterOutOfRange//bare	InvalidParameter	false	None	Abandon
+ParameterOutOfRange//WithContext	InvalidParameter	false	None	Abandon
+ParameterOutOfRange//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+ParameterOutOfRange//TransportError	Transport	false	None	Resubmit { after: 50ms }
+ParameterOutOfRange//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+ParameterOutOfRange//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+ParameterOutOfRange//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+ParameterOutOfRange//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+ParameterOutOfRange//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+ParameterOutOfRange//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Timeout/terminal, not accepted/bare	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+Timeout/terminal, not accepted/WithContext	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+Timeout/terminal, not accepted/InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/terminal, not accepted/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+Timeout/terminal, not accepted/SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+Timeout/terminal, not accepted/CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Timeout/terminal, not accepted/TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+Timeout/terminal, not accepted/TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/terminal, not accepted/TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+Timeout/terminal, not accepted/TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+MotionSuperseded/never sent/bare	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+MotionSuperseded/never sent/WithContext	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+MotionSuperseded/never sent/InquiryFailed	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MotionSuperseded/never sent/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+MotionSuperseded/never sent/SettlementObservationFailed	Cancelled	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+MotionSuperseded/never sent/CancellationObservationFailed	Cancelled	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+MotionSuperseded/never sent/TransmissionNotSent/NotAccepted	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+MotionSuperseded/never sent/TransmissionNotSent/FailedConclusively	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MotionSuperseded/never sent/TransmissionNotSent/StillLive	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+MotionSuperseded/never sent/TransmissionNotSent/Unconfirmed	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+SettlementSuperseded/deliberate observation end/bare	Cancelled	false	None	Abandon
+SettlementSuperseded/deliberate observation end/WithContext	Cancelled	false	None	Abandon
+SettlementSuperseded/deliberate observation end/InquiryFailed	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+SettlementSuperseded/deliberate observation end/TransportError	Transport	false	None	Resubmit { after: 50ms }
+SettlementSuperseded/deliberate observation end/SettlementObservationFailed	Cancelled	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+SettlementSuperseded/deliberate observation end/CancellationObservationFailed	Cancelled	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+SettlementSuperseded/deliberate observation end/TransmissionNotSent/NotAccepted	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+SettlementSuperseded/deliberate observation end/TransmissionNotSent/FailedConclusively	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+SettlementSuperseded/deliberate observation end/TransmissionNotSent/StillLive	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+SettlementSuperseded/deliberate observation end/TransmissionNotSent/Unconfirmed	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+SettlementObservationFailed/live session/bare	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+SettlementObservationFailed/live session/WithContext	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+SettlementObservationFailed/live session/InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+SettlementObservationFailed/live session/TransportError	Transport	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+SettlementObservationFailed/live session/SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+SettlementObservationFailed/live session/CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+SettlementObservationFailed/live session/TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+SettlementObservationFailed/live session/TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+SettlementObservationFailed/live session/TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+SettlementObservationFailed/live session/TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CancellationObservationFailed/operation still live/bare	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CancellationObservationFailed/operation still live/WithContext	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CancellationObservationFailed/operation still live/InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+CancellationObservationFailed/operation still live/TransportError	Transport	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CancellationObservationFailed/operation still live/SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CancellationObservationFailed/operation still live/CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CancellationObservationFailed/operation still live/TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+CancellationObservationFailed/operation still live/TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+CancellationObservationFailed/operation still live/TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CancellationObservationFailed/operation still live/TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+ObservationTimeout//bare	Timeout	false	Some(FailureContext { stage: Observation, certainty: StillLive })	WaitAgain
+ObservationTimeout//WithContext	Timeout	false	Some(FailureContext { stage: Observation, certainty: StillLive })	WaitAgain
+ObservationTimeout//InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+ObservationTimeout//TransportError	Transport	false	Some(FailureContext { stage: Observation, certainty: StillLive })	WaitAgain
+ObservationTimeout//SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+ObservationTimeout//CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+ObservationTimeout//TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+ObservationTimeout//TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+ObservationTimeout//TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+ObservationTimeout//TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+ControlReserveExhausted//bare	BufferFull	false	None	Resubmit { after: 200ms }
+ControlReserveExhausted//WithContext	BufferFull	false	None	Resubmit { after: 200ms }
+ControlReserveExhausted//InquiryFailed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 200ms }
+ControlReserveExhausted//TransportError	Transport	false	None	Resubmit { after: 50ms }
+ControlReserveExhausted//SettlementObservationFailed	BufferFull	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+ControlReserveExhausted//CancellationObservationFailed	BufferFull	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+ControlReserveExhausted//TransmissionNotSent/NotAccepted	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 200ms }
+ControlReserveExhausted//TransmissionNotSent/FailedConclusively	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 200ms }
+ControlReserveExhausted//TransmissionNotSent/StillLive	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+ControlReserveExhausted//TransmissionNotSent/Unconfirmed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InquiryShapeCapacityExhausted//bare	BufferFull	false	Some(FailureContext { stage: PreAdmission, certainty: NotAccepted })	Abandon
+InquiryShapeCapacityExhausted//WithContext	BufferFull	false	Some(FailureContext { stage: PreAdmission, certainty: NotAccepted })	Abandon
+InquiryShapeCapacityExhausted//InquiryFailed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryShapeCapacityExhausted//TransportError	Transport	false	Some(FailureContext { stage: PreAdmission, certainty: NotAccepted })	Resubmit { after: 50ms }
+InquiryShapeCapacityExhausted//SettlementObservationFailed	BufferFull	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InquiryShapeCapacityExhausted//CancellationObservationFailed	BufferFull	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InquiryShapeCapacityExhausted//TransmissionNotSent/NotAccepted	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InquiryShapeCapacityExhausted//TransmissionNotSent/FailedConclusively	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryShapeCapacityExhausted//TransmissionNotSent/StillLive	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InquiryShapeCapacityExhausted//TransmissionNotSent/Unconfirmed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+MaxRetriesExceeded//bare	Timeout	false	None	Abandon
+MaxRetriesExceeded//WithContext	Timeout	false	None	Abandon
+MaxRetriesExceeded//InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MaxRetriesExceeded//TransportError	Transport	false	None	Resubmit { after: 50ms }
+MaxRetriesExceeded//SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+MaxRetriesExceeded//CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+MaxRetriesExceeded//TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+MaxRetriesExceeded//TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MaxRetriesExceeded//TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+MaxRetriesExceeded//TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CancellationNotSupported//bare	Unsupported	false	None	Abandon
+CancellationNotSupported//WithContext	Unsupported	false	None	Abandon
+CancellationNotSupported//InquiryFailed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CancellationNotSupported//TransportError	Transport	false	None	Resubmit { after: 50ms }
+CancellationNotSupported//SettlementObservationFailed	Unsupported	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CancellationNotSupported//CancellationObservationFailed	Unsupported	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CancellationNotSupported//TransmissionNotSent/NotAccepted	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+CancellationNotSupported//TransmissionNotSent/FailedConclusively	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CancellationNotSupported//TransmissionNotSent/StillLive	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CancellationNotSupported//TransmissionNotSent/Unconfirmed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InvalidState//bare	NotExecutable	false	None	Abandon
+InvalidState//WithContext	NotExecutable	false	None	Abandon
+InvalidState//InquiryFailed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidState//TransportError	Transport	false	None	Resubmit { after: 50ms }
+InvalidState//SettlementObservationFailed	NotExecutable	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InvalidState//CancellationObservationFailed	NotExecutable	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InvalidState//TransmissionNotSent/NotAccepted	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InvalidState//TransmissionNotSent/FailedConclusively	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidState//TransmissionNotSent/StillLive	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InvalidState//TransmissionNotSent/Unconfirmed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+OwnerTerminated//bare	IoClosed	true	None	ReopenSession
+OwnerTerminated//WithContext	IoClosed	true	None	ReopenSession
+OwnerTerminated//InquiryFailed	IoClosed	true	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	ReopenSession
+OwnerTerminated//TransportError	Transport	false	None	Resubmit { after: 50ms }
+OwnerTerminated//SettlementObservationFailed	IoClosed	true	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	ReopenSession
+OwnerTerminated//CancellationObservationFailed	IoClosed	true	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	ReopenSession
+OwnerTerminated//TransmissionNotSent/NotAccepted	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+OwnerTerminated//TransmissionNotSent/FailedConclusively	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+OwnerTerminated//TransmissionNotSent/StillLive	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+OwnerTerminated//TransmissionNotSent/Unconfirmed	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+DiagnosticSubscriberLimit//bare	Other	false	None	Abandon
+DiagnosticSubscriberLimit//WithContext	Other	false	None	Abandon
+DiagnosticSubscriberLimit//InquiryFailed	Other	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+DiagnosticSubscriberLimit//TransportError	Transport	false	None	Resubmit { after: 50ms }
+DiagnosticSubscriberLimit//SettlementObservationFailed	Other	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+DiagnosticSubscriberLimit//CancellationObservationFailed	Other	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+DiagnosticSubscriberLimit//TransmissionNotSent/NotAccepted	Other	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+DiagnosticSubscriberLimit//TransmissionNotSent/FailedConclusively	Other	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+DiagnosticSubscriberLimit//TransmissionNotSent/StillLive	Other	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+DiagnosticSubscriberLimit//TransmissionNotSent/Unconfirmed	Other	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+RuntimeShutdown/deliberate/bare	IoClosed	false	None	Abandon
+RuntimeShutdown/deliberate/WithContext	IoClosed	false	None	Abandon
+RuntimeShutdown/deliberate/InquiryFailed	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+RuntimeShutdown/deliberate/TransportError	Transport	false	None	Resubmit { after: 50ms }
+RuntimeShutdown/deliberate/SettlementObservationFailed	IoClosed	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+RuntimeShutdown/deliberate/CancellationObservationFailed	IoClosed	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+RuntimeShutdown/deliberate/TransmissionNotSent/NotAccepted	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+RuntimeShutdown/deliberate/TransmissionNotSent/FailedConclusively	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+RuntimeShutdown/deliberate/TransmissionNotSent/StillLive	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+RuntimeShutdown/deliberate/TransmissionNotSent/Unconfirmed	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CancellationUnconfirmed//bare	Unconfirmed	false	Some(FailureContext { stage: CancellationAttempt, certainty: Unconfirmed })	Reconcile
+CancellationUnconfirmed//WithContext	Unconfirmed	false	Some(FailureContext { stage: CancellationAttempt, certainty: Unconfirmed })	Reconcile
+CancellationUnconfirmed//InquiryFailed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CancellationUnconfirmed//TransportError	Transport	false	Some(FailureContext { stage: CancellationAttempt, certainty: Unconfirmed })	Reconcile
+CancellationUnconfirmed//SettlementObservationFailed	Unconfirmed	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CancellationUnconfirmed//CancellationObservationFailed	Unconfirmed	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CancellationUnconfirmed//TransmissionNotSent/NotAccepted	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+CancellationUnconfirmed//TransmissionNotSent/FailedConclusively	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CancellationUnconfirmed//TransmissionNotSent/StillLive	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CancellationUnconfirmed//TransmissionNotSent/Unconfirmed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+UnsequencedCommandUnconfirmed//bare	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+UnsequencedCommandUnconfirmed//WithContext	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+UnsequencedCommandUnconfirmed//InquiryFailed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+UnsequencedCommandUnconfirmed//TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+UnsequencedCommandUnconfirmed//SettlementObservationFailed	Unconfirmed	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+UnsequencedCommandUnconfirmed//CancellationObservationFailed	Unconfirmed	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+UnsequencedCommandUnconfirmed//TransmissionNotSent/NotAccepted	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+UnsequencedCommandUnconfirmed//TransmissionNotSent/FailedConclusively	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+UnsequencedCommandUnconfirmed//TransmissionNotSent/StillLive	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+UnsequencedCommandUnconfirmed//TransmissionNotSent/Unconfirmed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InquiryCorrelationLost/lane latched/bare	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InquiryCorrelationLost/lane latched/WithContext	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InquiryCorrelationLost/lane latched/InquiryFailed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryCorrelationLost/lane latched/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+InquiryCorrelationLost/lane latched/SettlementObservationFailed	NotExecutable	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InquiryCorrelationLost/lane latched/CancellationObservationFailed	NotExecutable	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InquiryCorrelationLost/lane latched/TransmissionNotSent/NotAccepted	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InquiryCorrelationLost/lane latched/TransmissionNotSent/FailedConclusively	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryCorrelationLost/lane latched/TransmissionNotSent/StillLive	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InquiryCorrelationLost/lane latched/TransmissionNotSent/Unconfirmed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CommandCorrelationLost/lane latched/bare	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+CommandCorrelationLost/lane latched/WithContext	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+CommandCorrelationLost/lane latched/InquiryFailed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CommandCorrelationLost/lane latched/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+CommandCorrelationLost/lane latched/SettlementObservationFailed	NotExecutable	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CommandCorrelationLost/lane latched/CancellationObservationFailed	NotExecutable	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CommandCorrelationLost/lane latched/TransmissionNotSent/NotAccepted	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+CommandCorrelationLost/lane latched/TransmissionNotSent/FailedConclusively	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CommandCorrelationLost/lane latched/TransmissionNotSent/StillLive	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CommandCorrelationLost/lane latched/TransmissionNotSent/Unconfirmed	NotExecutable	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CommandFailedAfterAck//bare	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CommandFailedAfterAck//WithContext	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CommandFailedAfterAck//InquiryFailed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CommandFailedAfterAck//TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+CommandFailedAfterAck//SettlementObservationFailed	Unconfirmed	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+CommandFailedAfterAck//CancellationObservationFailed	Unconfirmed	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+CommandFailedAfterAck//TransmissionNotSent/NotAccepted	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+CommandFailedAfterAck//TransmissionNotSent/FailedConclusively	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+CommandFailedAfterAck//TransmissionNotSent/StillLive	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+CommandFailedAfterAck//TransmissionNotSent/Unconfirmed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+RequestUnconfirmed/later rejection after a lost ACK/bare	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+RequestUnconfirmed/later rejection after a lost ACK/WithContext	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+RequestUnconfirmed/later rejection after a lost ACK/InquiryFailed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+RequestUnconfirmed/later rejection after a lost ACK/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+RequestUnconfirmed/later rejection after a lost ACK/SettlementObservationFailed	Unconfirmed	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+RequestUnconfirmed/later rejection after a lost ACK/CancellationObservationFailed	Unconfirmed	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+RequestUnconfirmed/later rejection after a lost ACK/TransmissionNotSent/NotAccepted	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+RequestUnconfirmed/later rejection after a lost ACK/TransmissionNotSent/FailedConclusively	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+RequestUnconfirmed/later rejection after a lost ACK/TransmissionNotSent/StillLive	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+RequestUnconfirmed/later rejection after a lost ACK/TransmissionNotSent/Unconfirmed	Unconfirmed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+RuntimeIdentityExhausted//bare	Other	false	None	Abandon
+RuntimeIdentityExhausted//WithContext	Other	false	None	Abandon
+RuntimeIdentityExhausted//InquiryFailed	Other	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+RuntimeIdentityExhausted//TransportError	Transport	false	None	Resubmit { after: 50ms }
+RuntimeIdentityExhausted//SettlementObservationFailed	Other	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+RuntimeIdentityExhausted//CancellationObservationFailed	Other	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+RuntimeIdentityExhausted//TransmissionNotSent/NotAccepted	Other	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+RuntimeIdentityExhausted//TransmissionNotSent/FailedConclusively	Other	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+RuntimeIdentityExhausted//TransmissionNotSent/StillLive	Other	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+RuntimeIdentityExhausted//TransmissionNotSent/Unconfirmed	Other	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+RuntimeQueueFull//bare	BufferFull	false	None	Resubmit { after: 200ms }
+RuntimeQueueFull//WithContext	BufferFull	false	None	Resubmit { after: 200ms }
+RuntimeQueueFull//InquiryFailed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 200ms }
+RuntimeQueueFull//TransportError	Transport	false	None	Resubmit { after: 50ms }
+RuntimeQueueFull//SettlementObservationFailed	BufferFull	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+RuntimeQueueFull//CancellationObservationFailed	BufferFull	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+RuntimeQueueFull//TransmissionNotSent/NotAccepted	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 200ms }
+RuntimeQueueFull//TransmissionNotSent/FailedConclusively	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 200ms }
+RuntimeQueueFull//TransmissionNotSent/StillLive	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+RuntimeQueueFull//TransmissionNotSent/Unconfirmed	BufferFull	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+StreamPoisoned//bare	IoClosed	true	None	ReopenSession
+StreamPoisoned//WithContext	IoClosed	true	None	ReopenSession
+StreamPoisoned//InquiryFailed	IoClosed	true	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	ReopenSession
+StreamPoisoned//TransportError	Transport	false	None	Resubmit { after: 50ms }
+StreamPoisoned//SettlementObservationFailed	IoClosed	true	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	ReopenSession
+StreamPoisoned//CancellationObservationFailed	IoClosed	true	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	ReopenSession
+StreamPoisoned//TransmissionNotSent/NotAccepted	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+StreamPoisoned//TransmissionNotSent/FailedConclusively	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+StreamPoisoned//TransmissionNotSent/StillLive	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+StreamPoisoned//TransmissionNotSent/Unconfirmed	IoClosed	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InvalidCameraId//bare	InvalidParameter	false	None	Abandon
+InvalidCameraId//WithContext	InvalidParameter	false	None	Abandon
+InvalidCameraId//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidCameraId//TransportError	Transport	false	None	Resubmit { after: 50ms }
+InvalidCameraId//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InvalidCameraId//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InvalidCameraId//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InvalidCameraId//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidCameraId//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InvalidCameraId//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+ResponseTooLarge//bare	Protocol	false	None	Abandon
+ResponseTooLarge//WithContext	Protocol	false	None	Abandon
+ResponseTooLarge//InquiryFailed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+ResponseTooLarge//TransportError	Transport	false	None	Resubmit { after: 50ms }
+ResponseTooLarge//SettlementObservationFailed	Protocol	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+ResponseTooLarge//CancellationObservationFailed	Protocol	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+ResponseTooLarge//TransmissionNotSent/NotAccepted	Protocol	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+ResponseTooLarge//TransmissionNotSent/FailedConclusively	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+ResponseTooLarge//TransmissionNotSent/StillLive	Protocol	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+ResponseTooLarge//TransmissionNotSent/Unconfirmed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InquiryNotCancellable//bare	InvalidParameter	false	None	Abandon
+InquiryNotCancellable//WithContext	InvalidParameter	false	None	Abandon
+InquiryNotCancellable//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryNotCancellable//TransportError	Transport	false	None	Resubmit { after: 50ms }
+InquiryNotCancellable//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InquiryNotCancellable//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InquiryNotCancellable//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InquiryNotCancellable//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InquiryNotCancellable//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InquiryNotCancellable//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+InvalidAddress//bare	InvalidParameter	false	None	Abandon
+InvalidAddress//WithContext	InvalidParameter	false	None	Abandon
+InvalidAddress//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidAddress//TransportError	Transport	false	None	Resubmit { after: 50ms }
+InvalidAddress//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+InvalidAddress//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+InvalidAddress//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+InvalidAddress//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+InvalidAddress//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+InvalidAddress//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+UnsupportedTransport//bare	Unsupported	false	None	Abandon
+UnsupportedTransport//WithContext	Unsupported	false	None	Abandon
+UnsupportedTransport//InquiryFailed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+UnsupportedTransport//TransportError	Transport	false	None	Resubmit { after: 50ms }
+UnsupportedTransport//SettlementObservationFailed	Unsupported	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+UnsupportedTransport//CancellationObservationFailed	Unsupported	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+UnsupportedTransport//TransmissionNotSent/NotAccepted	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+UnsupportedTransport//TransmissionNotSent/FailedConclusively	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+UnsupportedTransport//TransmissionNotSent/StillLive	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+UnsupportedTransport//TransmissionNotSent/Unconfirmed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+MissingRuntime//bare	Unsupported	false	None	Abandon
+MissingRuntime//WithContext	Unsupported	false	None	Abandon
+MissingRuntime//InquiryFailed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MissingRuntime//TransportError	Transport	false	None	Resubmit { after: 50ms }
+MissingRuntime//SettlementObservationFailed	Unsupported	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+MissingRuntime//CancellationObservationFailed	Unsupported	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+MissingRuntime//TransmissionNotSent/NotAccepted	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+MissingRuntime//TransmissionNotSent/FailedConclusively	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MissingRuntime//TransmissionNotSent/StillLive	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+MissingRuntime//TransmissionNotSent/Unconfirmed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+WithContext/pending command/bare	Busy	false	None	WaitAgain
+WithContext/pending command/WithContext	Busy	false	None	WaitAgain
+WithContext/pending command/InquiryFailed	Busy	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+WithContext/pending command/TransportError	Transport	false	None	Resubmit { after: 50ms }
+WithContext/pending command/SettlementObservationFailed	Busy	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+WithContext/pending command/CancellationObservationFailed	Busy	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+WithContext/pending command/TransmissionNotSent/NotAccepted	Busy	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+WithContext/pending command/TransmissionNotSent/FailedConclusively	Busy	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+WithContext/pending command/TransmissionNotSent/StillLive	Busy	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+WithContext/pending command/TransmissionNotSent/Unconfirmed	Busy	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Timeout/inquiry reply/bare	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/inquiry reply/WithContext	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/inquiry reply/InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/inquiry reply/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+Timeout/inquiry reply/SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+Timeout/inquiry reply/CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Timeout/inquiry reply/TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+Timeout/inquiry reply/TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/inquiry reply/TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+Timeout/inquiry reply/TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Timeout/command outcome unknown/bare	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Timeout/command outcome unknown/WithContext	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Timeout/command outcome unknown/InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/command outcome unknown/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Timeout/command outcome unknown/SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+Timeout/command outcome unknown/CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Timeout/command outcome unknown/TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+Timeout/command outcome unknown/TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/command outcome unknown/TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+Timeout/command outcome unknown/TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Timeout/write outcome unknown/bare	Timeout	false	Some(FailureContext { stage: Session, certainty: Unconfirmed })	Reconcile
+Timeout/write outcome unknown/WithContext	Timeout	false	Some(FailureContext { stage: Session, certainty: Unconfirmed })	Reconcile
+Timeout/write outcome unknown/InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/write outcome unknown/TransportError	Transport	false	Some(FailureContext { stage: Session, certainty: Unconfirmed })	Reconcile
+Timeout/write outcome unknown/SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+Timeout/write outcome unknown/CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Timeout/write outcome unknown/TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+Timeout/write outcome unknown/TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/write outcome unknown/TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+Timeout/write outcome unknown/TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+Timeout/cancel attempt deadline/bare	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Timeout/cancel attempt deadline/WithContext	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Timeout/cancel attempt deadline/InquiryFailed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/cancel attempt deadline/TransportError	Transport	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Timeout/cancel attempt deadline/SettlementObservationFailed	Timeout	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+Timeout/cancel attempt deadline/CancellationObservationFailed	Timeout	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+Timeout/cancel attempt deadline/TransmissionNotSent/NotAccepted	Timeout	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 2s }
+Timeout/cancel attempt deadline/TransmissionNotSent/FailedConclusively	Timeout	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 2s }
+Timeout/cancel attempt deadline/TransmissionNotSent/StillLive	Timeout	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+Timeout/cancel attempt deadline/TransmissionNotSent/Unconfirmed	Timeout	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+TransportError/uncertain write/bare	Transport	false	Some(FailureContext { stage: Session, certainty: Unconfirmed })	Reconcile
+TransportError/uncertain write/WithContext	Transport	false	Some(FailureContext { stage: Session, certainty: Unconfirmed })	Reconcile
+TransportError/uncertain write/InquiryFailed	Transport	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+TransportError/uncertain write/TransportError	Transport	false	Some(FailureContext { stage: Session, certainty: Unconfirmed })	Reconcile
+TransportError/uncertain write/SettlementObservationFailed	Transport	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+TransportError/uncertain write/CancellationObservationFailed	Transport	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+TransportError/uncertain write/TransmissionNotSent/NotAccepted	Transport	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Resubmit { after: 50ms }
+TransportError/uncertain write/TransmissionNotSent/FailedConclusively	Transport	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Resubmit { after: 50ms }
+TransportError/uncertain write/TransmissionNotSent/StillLive	Transport	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+TransportError/uncertain write/TransmissionNotSent/Unconfirmed	Transport	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+MotionSuperseded/earlier attempt uncertain/bare	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+MotionSuperseded/earlier attempt uncertain/WithContext	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+MotionSuperseded/earlier attempt uncertain/InquiryFailed	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MotionSuperseded/earlier attempt uncertain/TransportError	Transport	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+MotionSuperseded/earlier attempt uncertain/SettlementObservationFailed	Cancelled	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+MotionSuperseded/earlier attempt uncertain/CancellationObservationFailed	Cancelled	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+MotionSuperseded/earlier attempt uncertain/TransmissionNotSent/NotAccepted	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+MotionSuperseded/earlier attempt uncertain/TransmissionNotSent/FailedConclusively	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+MotionSuperseded/earlier attempt uncertain/TransmissionNotSent/StillLive	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+MotionSuperseded/earlier attempt uncertain/TransmissionNotSent/Unconfirmed	Cancelled	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile

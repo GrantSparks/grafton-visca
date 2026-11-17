@@ -194,7 +194,6 @@ pub(crate) trait AsyncOwnerDriver: Send + RetainedStreamInput {
     fn receive(
         &mut self,
         buffers: &mut super::OwnerBuffers,
-        frame_limit: usize,
     ) -> impl Future<Output = OwnerReceive> + Send;
 }
 
@@ -597,10 +596,9 @@ impl<R: Executor> AsyncOwnerIo<R> {
     ) -> SelectedOwnerInput<'a> {
         let runtime = &self.runtime;
         let now = Executor::now(runtime.as_ref());
-        let read_timeout = state.facts().read_timeout;
+        let read_timeout = state.facts().read_timeout.get();
         let lanes = self.lanes.get_or_insert_with(|| ActorLanes::new(receivers));
 
-        let frame_limit = state.facts().limits.frames_per_receive;
         let receive = async {
             match selection.receive {
                 // The exact no-input probe for this release set is
@@ -618,7 +616,6 @@ impl<R: Executor> AsyncOwnerIo<R> {
             let result = Self::receive_within(
                 driver,
                 state.buffers(),
-                frame_limit,
                 runtime.as_ref(),
                 read_timeout,
                 self.timers.read.as_mut(),
@@ -687,7 +684,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
     async fn receive_within<D>(
         driver: &mut D,
         buffers: &mut super::OwnerBuffers,
-        frame_limit: usize,
+
         runtime: &R,
         read_timeout: Duration,
         mut idle_after_timeout: Pin<&mut R::Timer>,
@@ -695,19 +692,8 @@ impl<R: Executor> AsyncOwnerIo<R> {
     where
         D: AsyncOwnerDriver,
     {
-        let receive = driver.receive(buffers, frame_limit);
-        let deadline = match crate::timeout::instant_after(
-            Executor::now(runtime),
-            read_timeout,
-            "read_timeout",
-        ) {
-            Ok(deadline) => deadline,
-            Err(error) => {
-                return OwnerReceive::Fatal(super::ReceiveFatal::TransportClosed {
-                    cause: Some(error),
-                })
-            }
-        };
+        let receive = driver.receive(buffers);
+        let deadline = crate::timeout::saturating_deadline(Executor::now(runtime), read_timeout);
         idle_after_timeout.as_mut().reset(deadline);
         let received = crate::timeout::within(receive, idle_after_timeout.as_mut()).await;
         match received {
@@ -748,14 +734,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
     {
         // The shared timeout helper keeps the operation-first rule independent
         // of the executor borrow's lifetime, so this spawned future stays Send.
-        let deadline = match crate::timeout::instant_after(
-            Executor::now(runtime),
-            write_timeout,
-            "write_timeout",
-        ) {
-            Ok(deadline) => deadline,
-            Err(error) => return WriteOutcome::NotSent(error),
-        };
+        let deadline = crate::timeout::saturating_deadline(Executor::now(runtime), write_timeout);
         timeout.as_mut().reset(deadline);
         crate::timeout::within(driver.write(write), timeout.as_mut())
             .await

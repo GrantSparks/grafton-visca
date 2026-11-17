@@ -248,14 +248,18 @@ invalid serialized input when adding or changing a value.
 ### 1. Use a typed Request for Safe Encoding
 
 Typed `Request` implementations make semantic admission explicit while keeping
-wire encoding bounded and allocation-free:
+wire encoding bounded and allocation-free. The sealed `Request::Class` chooses
+the return type of `policy()`: `CommandPolicy` for `PlainClass`, `InquiryPolicy`
+for `InquiryClass`, or `OperationPolicy` for `OperationClass<K>`. Import these
+policies from `grafton_visca::request`; custom and raw requests share them.
 
 The following custom extension illustrates encoding and classification only;
 its illustrative vendor payload grants no camera-profile support:
 
 ```rust
 use grafton_visca::{
-    request::{ControlClass, PlainClass, Request, RetryClass, TimeoutClass},
+    profiles::CommandTimeoutClass,
+    request::{CommandPolicy, CommandRetryClass, PlainClass, Request, SubmissionClass},
     types::CameraId,
     Error,
 };
@@ -268,9 +272,14 @@ struct SetAuxiliaryLevel(AuxiliaryLevel);
 impl Request for SetAuxiliaryLevel {
     type Class = PlainClass;
     const MAX_SIZE: usize = 7;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+    fn policy(&self) -> CommandPolicy {
+        CommandPolicy::new(
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Never,
+            SubmissionClass::Normal,
+        )
+    }
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         let frame = [
@@ -295,6 +304,9 @@ length, which may be shorter than that bound.
 
 An inquiry implements `request::Request<Class = request::InquiryClass>` and
 `request::Inquiry`, which returns a public `request::ResponseDecoder<T>`. Its
+`Request::policy()` returns an `InquiryPolicy` built from `InquiryRetryClass`
+and `SubmissionClass`; the lifecycle fixes inquiry timing and reply handling.
+`ViscaInquiry` emits this policy method for derived inquiries. Its
 `payload_shape` may declare the exact byte/nibble shape needed for correlation.
 Use `ResponseDecoder::from_fn` for allocation-free decoding of data payloads;
 use `wire::Payload` and its checked parsing helpers where appropriate.

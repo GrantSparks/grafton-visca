@@ -736,7 +736,7 @@ async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
     )
     .unwrap();
     assert_eq!(adapter_policy.protocol.transport, TransportKind::Stream);
-    let frame_limit = adapter_policy.limits.frames_per_receive;
+    let frame_limit = adapter_policy.limits.frames_per_receive.get();
     let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
@@ -850,7 +850,8 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tokio_stalled_write_never_parks_close() {
     let mut owner_policy = policy(1);
-    owner_policy.write_timeout = Duration::from_millis(50);
+    owner_policy.write_timeout =
+        crate::timeout::NonZeroDuration::new(Duration::from_millis(50)).unwrap();
     let (handle, terminated, join) = run_isolated_tokio_actor(owner_policy, StallingWriteDriver);
     assert_stalled_write_never_parks_close(
         TokioRuntime::from_current().unwrap(),
@@ -864,7 +865,8 @@ async fn tokio_stalled_write_never_parks_close() {
 #[test]
 fn smol_stalled_write_never_parks_close() {
     let mut owner_policy = policy(1);
-    owner_policy.write_timeout = Duration::from_millis(50);
+    owner_policy.write_timeout =
+        crate::timeout::NonZeroDuration::new(Duration::from_millis(50)).unwrap();
     let (handle, terminated, join) = run_isolated_smol_actor(owner_policy, StallingWriteDriver);
     smol::block_on(assert_stalled_write_never_parks_close(
         SmolRuntime::new(),

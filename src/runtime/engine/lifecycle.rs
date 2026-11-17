@@ -3,7 +3,7 @@
 #[cfg(test)]
 use super::CancelState;
 use super::{
-    add_duration, CorrelationKind, NonZeroDuration, Phase, ReplyShape, RequestFraming,
+    add_duration, CommandReply, CorrelationKind, NonZeroDuration, Phase, RequestFraming,
     RuntimeRequest, TransmissionId,
 };
 use crate::ViscaSocket;
@@ -122,6 +122,7 @@ pub(crate) struct SendingCancellation {
 /// The response family selected before an immediate transport write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SendingReply {
+    Stop,
     Inquiry,
     AckThenCompletion,
     CompletionOnly,
@@ -129,13 +130,21 @@ pub(crate) enum SendingReply {
 }
 
 impl SendingReply {
+    const fn is_command(self) -> bool {
+        match self {
+            Self::Stop | Self::AckThenCompletion | Self::CompletionOnly | Self::NoReply => true,
+            Self::Inquiry => false,
+        }
+    }
+
     pub(crate) const fn new(request: &RuntimeRequest) -> Self {
         match request {
             RuntimeRequest::Inquiry { .. } => Self::Inquiry,
             RuntimeRequest::Command { reply_shape, .. } => match reply_shape {
-                ReplyShape::AckThenCompletion => Self::AckThenCompletion,
-                ReplyShape::CompletionOnly => Self::CompletionOnly,
-                ReplyShape::NoReply => Self::NoReply,
+                CommandReply::Stop => Self::Stop,
+                CommandReply::AckThenCompletion => Self::AckThenCompletion,
+                CommandReply::CompletionOnly => Self::CompletionOnly,
+                CommandReply::NoReply => Self::NoReply,
             },
         }
     }
@@ -275,39 +284,36 @@ impl Lifecycle {
     /// A Sony execution displaced by camera-proven socket reuse retains no
     /// physical capacity, although its sequence and acceptance remain live.
     pub(crate) const fn is_command_on_wire(self) -> bool {
-        matches!(
-            self,
-            Self::Sending {
-                reply: SendingReply::AckThenCompletion
-                    | SendingReply::CompletionOnly
-                    | SendingReply::NoReply,
-                ..
-            } | Self::AwaitingAck { .. }
-                | Self::AwaitingCompletion { .. }
-                | Self::Executing { .. }
-                | Self::AwaitingCancellationResolution { .. }
-        )
+        match self {
+            Self::Sending { reply, .. } => reply.is_command(),
+            _ => matches!(
+                self,
+                Self::AwaitingAck { .. }
+                    | Self::AwaitingCompletion { .. }
+                    | Self::Executing { .. }
+                    | Self::AwaitingCancellationResolution { .. }
+            ),
+        }
     }
     pub(crate) const fn is_unacknowledged_command(self) -> bool {
-        matches!(
-            self,
-            Self::Sending {
-                reply: SendingReply::AckThenCompletion
-                    | SendingReply::CompletionOnly
-                    | SendingReply::NoReply,
-                ..
-            } | Self::AwaitingAck { .. }
-                | Self::AwaitingCompletion { .. }
-        )
+        match self {
+            Self::Sending { reply, .. } => reply.is_command(),
+            _ => matches!(
+                self,
+                Self::AwaitingAck { .. } | Self::AwaitingCompletion { .. }
+            ),
+        }
     }
     pub(crate) const fn is_uncorrelated_write(self) -> bool {
-        matches!(
-            self,
-            Self::Sending {
-                reply: SendingReply::CompletionOnly | SendingReply::NoReply,
-                ..
-            }
-        )
+        match self {
+            Self::Sending { reply, .. } => match reply {
+                SendingReply::Stop | SendingReply::AckThenCompletion | SendingReply::Inquiry => {
+                    false
+                }
+                SendingReply::CompletionOnly | SendingReply::NoReply => true,
+            },
+            _ => false,
+        }
     }
     pub(crate) const fn is_uncorrelated_command(self) -> bool {
         self.is_uncorrelated_write() || self.is_awaiting_completion()
@@ -409,18 +415,20 @@ impl Lifecycle {
         }
     }
 
-    /// Dispatched phases determine their complete response family.
-    pub(crate) const fn reply_family(self) -> Option<SendingReply> {
-        Some(match self {
-            Self::Ready { .. } | Self::Backoff { .. } => return None,
-            Self::Sending { reply, .. } => reply,
-            Self::AwaitingReply { .. } => SendingReply::Inquiry,
-            Self::AwaitingCompletion { .. } => SendingReply::CompletionOnly,
+    /// The immutable request class and active protocol phase must agree.
+    pub(crate) fn accepts_reply(self, family: SendingReply) -> bool {
+        match self {
+            Self::Ready { .. } | Self::Backoff { .. } => true,
+            Self::Sending { reply, .. } => reply == family,
+            Self::AwaitingReply { .. } => matches!(family, SendingReply::Inquiry),
+            Self::AwaitingCompletion { .. } => matches!(family, SendingReply::CompletionOnly),
             Self::AwaitingAck { .. }
             | Self::Executing { .. }
             | Self::ExecutingDisplaced { .. }
-            | Self::AwaitingCancellationResolution { .. } => SendingReply::AckThenCompletion,
-        })
+            | Self::AwaitingCancellationResolution { .. } => {
+                matches!(family, SendingReply::Stop | SendingReply::AckThenCompletion)
+            }
+        }
     }
 
     /// The earliest expiry selected from this lifecycle and the enclosing
@@ -626,7 +634,7 @@ impl Lifecycle {
             Self::Sending { attempt, reply, .. }
                 if matches!(
                     reply,
-                    SendingReply::Inquiry | SendingReply::AckThenCompletion
+                    SendingReply::Inquiry | SendingReply::Stop | SendingReply::AckThenCompletion
                 ) || (replayable_completion
                     && matches!(reply, SendingReply::CompletionOnly)) =>
             {

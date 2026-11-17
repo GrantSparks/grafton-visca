@@ -1,8 +1,8 @@
-use grafton_visca::request::RetryClass;
+use grafton_visca::request::CommandRetryClass;
 
 fn main() {
-    let _ = RetryClass::BuiltinInquiry;
+    let _ = CommandRetryClass::BuiltinInquiry;
 }
 
 //~ E0599
-//~ "named `BuiltinInquiry` found for enum `RetryClass`"
+//~ "named `BuiltinInquiry` found for enum `CommandRetryClass`"

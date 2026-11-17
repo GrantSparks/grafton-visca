@@ -149,7 +149,6 @@ impl AsyncOwnerDriver for PendingDriver {
     async fn receive(
         &mut self,
         _buffers: &mut crate::runtime::owner::OwnerBuffers,
-        _frame_limit: usize,
     ) -> OwnerReceive {
         future::pending().await
     }

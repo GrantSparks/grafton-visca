@@ -193,6 +193,9 @@ mod tests {
     /// One deterministic fake serial write outcome.
     enum WriteStep {
         Error(ErrorKind),
+        /// A completed device timeout consumes its armed budget; an immediate
+        /// TimedOut is only early idle and the shared loop may retry it.
+        TimesOut,
         Partial {
             bytes: usize,
             delay: Duration,
@@ -342,6 +345,10 @@ mod tests {
             if let Some(step) = step {
                 return match step {
                     WriteStep::Error(kind) => Err(io::Error::new(kind, "simulated write error")),
+                    WriteStep::TimesOut => {
+                        thread::sleep(self.timeout());
+                        Err(ErrorKind::TimedOut.into())
+                    }
                     WriteStep::Partial { bytes, delay } => {
                         thread::sleep(delay);
                         Ok(bytes.min(buf.len()))
@@ -864,7 +871,7 @@ mod tests {
                     bytes: usize::MAX,
                     delay: Duration::ZERO,
                 },
-                ScriptWrite::TimesOut => WriteStep::Error(ErrorKind::TimedOut),
+                ScriptWrite::TimesOut => WriteStep::TimesOut,
             });
             let mut port = TestSerialPort::new(Duration::from_millis(50))
                 .with_read_steps(reads)

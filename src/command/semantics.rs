@@ -254,6 +254,8 @@ pub(crate) trait BuiltinRequestContract: crate::Request<Class: BuiltinClassMarke
     /// its class, axes and STOP authority; each arm retains its own state effect.
     /// The typed-request inventory checks these contracts at compile time.
     const LEDGER_ROW: BuiltinCommand;
+    /// Checked policy facts shared by const selector checks and Request lowering.
+    const POLICY: crate::request::builtin_policy::BuiltinPolicy;
 
     /// Exact value-selected row, exposed only to the literal wire inventory.
     #[cfg(test)]
@@ -959,25 +961,28 @@ mod tests {
     /// - Image-tuning writes (sharpness, gamma, noise reduction, flip) are quick
     ///   configuration writes; the 2D noise-reduction mode control shares that
     ///   policy.
-    /// - `CommandCancel` is quick and never retried; preset set/reset/recall use
-    ///   the preset deadline and retry class.
+    /// - Preset set/reset/recall use the preset deadline and retry class.
+    ///   Command Cancel is encoded directly by the owner, never prepared.
     #[test]
     fn deliberate_request_timeout_and_retry_policies_are_pinned() {
         use crate::request::builtin as req;
         use crate::{RetryClass as Retry, TimeoutClass as Timeout};
 
-        fn pin<R: crate::Request>(
+        fn pin<R: BuiltinRequestContract>(
             command: BuiltinCommand,
             timeout: Timeout,
             retry: Retry,
             pinned: &mut HashSet<BuiltinCommand>,
         ) {
-            assert_eq!(R::TIMEOUT_CLASS, timeout, "{command:?} timeout class");
-            assert_eq!(R::RETRY_CLASS, retry, "{command:?} retry class");
             assert_eq!(
-                matches!(R::CONTROL_CLASS, crate::ControlClass::Urgent),
-                command.classification().is_stop()
-                    || matches!(command, BuiltinCommand::CommandCancel),
+                R::POLICY.timeout.lower(),
+                timeout,
+                "{command:?} timeout class"
+            );
+            assert_eq!(R::POLICY.retry.lower(), retry, "{command:?} retry class");
+            assert_eq!(
+                matches!(R::POLICY.class, crate::ControlClass::Urgent),
+                command.classification().is_stop(),
                 "{command:?} urgent admission authority",
             );
             assert!(
@@ -1149,13 +1154,7 @@ mod tests {
             p,
         );
 
-        // Cancellation is never replayed; presets have their own class.
-        pin::<crate::command::system_wire::CommandCancelCommand>(
-            BuiltinCommand::CommandCancel,
-            Timeout::Quick,
-            Retry::Never,
-            p,
-        );
+        // Command Cancel is owner-issued wire traffic, with no request policy.
         pin::<req::PresetSet>(BuiltinCommand::PresetSet, Timeout::Preset, Retry::Preset, p);
         pin::<req::PresetReset>(
             BuiltinCommand::PresetReset,

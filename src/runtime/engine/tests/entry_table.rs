@@ -139,3 +139,32 @@ fn admission_and_transitions_never_duplicate_a_ready_position() {
         .ready(Lane::Inquiry, ControlClass::Normal.priority_index())
         .is_empty());
 }
+
+#[test]
+fn stop_class_alone_selects_the_highest_priority_ready_index() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let mut ordinary = command(1, CancellationPolicy::Supported);
+    ordinary.context_mut().control.class = ControlClass::User;
+    let mut stop = urgent_command(1, CancellationPolicy::Supported);
+    // Even a lowest-priority context cannot demote the immutable STOP class.
+    stop.context_mut().control.class = ControlClass::Background;
+    let turn = engine.begin_input_turn(now);
+    let user = engine
+        .admit_in_turn(&turn, ordinary, AdmissionSlot::Ordinary)
+        .unwrap();
+    let safety = engine
+        .admit_in_turn(&turn, stop, AdmissionSlot::Ordinary)
+        .unwrap();
+    assert_eq!(
+        engine.entries.ready(Lane::Command, 3),
+        &VecDeque::from([safety])
+    );
+    assert_eq!(
+        engine.entries.ready(Lane::Command, 2),
+        &VecDeque::from([user])
+    );
+    assert!(engine.entries.ready(Lane::Command, 0).is_empty());
+    assert_eq!(engine.entry(safety).unwrap().request.priority_index(), 3);
+    engine.assert_invariants().unwrap();
+}

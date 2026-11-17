@@ -153,7 +153,7 @@ fn conclusive_pre_ack_rejection_keeps_previously_known_projection() {
             Some((0x1001, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         now,
@@ -198,7 +198,7 @@ fn every_uncertain_terminal_invalidates_from_attempt_facts() {
                             sequence,
                             DecodedResponse::Error {
                                 socket: Some(ViscaSocket::S1),
-                                code: 0x41,
+                                code: 0x41.into(),
                             },
                         ),
                         now,
@@ -275,7 +275,7 @@ fn refusing_a_retry_after_conclusive_rejection_preserves_known_state() {
             Some((0x1001, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         now,
@@ -427,9 +427,9 @@ fn failed_datagrams_have_one_evidence_rule_inside_and_after_the_budget() {
                 };
                 if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
                     *reply_shape = match kind {
-                        0 => ReplyShape::AckThenCompletion,
-                        1 => ReplyShape::CompletionOnly,
-                        _ => ReplyShape::NoReply,
+                        0 => CommandReply::AckThenCompletion,
+                        1 => CommandReply::CompletionOnly,
+                        _ => CommandReply::NoReply,
                     };
                 }
                 request.context_mut().retry.total_budget =
@@ -643,9 +643,9 @@ fn attempt_endings_preserve_error_certainty_recovery_holds_and_cache() {
                 };
                 if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
                     *reply_shape = match family {
-                        0 => ReplyShape::AckThenCompletion,
-                        1 => ReplyShape::CompletionOnly,
-                        _ => ReplyShape::NoReply,
+                        0 => CommandReply::AckThenCompletion,
+                        1 => CommandReply::CompletionOnly,
+                        _ => CommandReply::NoReply,
                     };
                 }
                 request.context_mut().retry = RetryPolicy {
@@ -845,9 +845,9 @@ mod ending_properties {
             let mut request = if family == 3 { inquiry(1) } else { projected_command() };
             if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
                 *reply_shape = match family {
-                    0 => ReplyShape::AckThenCompletion,
-                    1 => ReplyShape::CompletionOnly,
-                    _ => ReplyShape::NoReply,
+                    0 => CommandReply::AckThenCompletion,
+                    1 => CommandReply::CompletionOnly,
+                    _ => CommandReply::NoReply,
                 };
             }
             request.context_mut().retry.total_budget = Some(NonZeroDuration::new(Duration::from_millis(100)).unwrap());

@@ -30,7 +30,7 @@ use grafton_visca::{
     config::{OperationalTuning, SessionConfig},
     operation::{AppliedOnly, Targeted},
     raw,
-    request::RetryClass,
+    request::CommandRetryClass,
     transport::{AddressingMode, TransportConfig},
     types::{AffectedAxes, CameraId},
     Error,
@@ -77,10 +77,10 @@ fn session(steps: Vec<Vec<Vec<u8>>>) -> (Session, FakeCamera) {
     session_with_config(steps, session_config())
 }
 
-fn raw_policy(reply_shape: raw::OperationReplyShape) -> raw::OperationPolicy {
-    grafton_visca::raw::OperationPolicy::new(
+fn raw_policy(reply_shape: raw::OperationReplyShape) -> grafton_visca::request::OperationPolicy {
+    grafton_visca::request::OperationPolicy::new(
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .with_reply_shape(reply_shape)

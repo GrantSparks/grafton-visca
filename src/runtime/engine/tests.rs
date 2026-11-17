@@ -15,6 +15,7 @@ use crate::FailureContext;
 
 mod admission_verdict;
 mod audit_rules;
+mod camera_error_codes;
 mod cancellation_holds;
 mod due_actions;
 mod effects_sink;
@@ -33,6 +34,7 @@ mod retry_history;
 mod session_end;
 mod socketless_ack_conflicts;
 mod sony_socket_reuse;
+mod stop_quarantine;
 mod write_outcomes;
 
 fn extend_fixture_hold(
@@ -139,7 +141,7 @@ fn wire(address: u8) -> Arc<EncodedMessage> {
 
 fn command(target: u8, cancellation: CancellationPolicy) -> RuntimeRequest {
     RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: wire(0x80 | target),
         context: context(target, cancellation),
         applied_state: None,
@@ -148,10 +150,10 @@ fn command(target: u8, cancellation: CancellationPolicy) -> RuntimeRequest {
 
 fn urgent_command(target: u8, cancellation: CancellationPolicy) -> RuntimeRequest {
     let mut request = command(target, cancellation);
-    let RuntimeRequest::Command { context, .. } = &mut request else {
+    let RuntimeRequest::Command { reply_shape, .. } = &mut request else {
         unreachable!("command helper always constructs a command");
     };
-    context.control.class = ControlClass::Urgent;
+    *reply_shape = CommandReply::Stop;
     request
 }
 
@@ -159,7 +161,7 @@ fn urgent_command(target: u8, cancellation: CancellationPolicy) -> RuntimeReques
 fn command_with_reply_shape(
     target: u8,
     cancellation: CancellationPolicy,
-    reply_shape: ReplyShape,
+    reply_shape: CommandReply,
 ) -> RuntimeRequest {
     let context = context(target, cancellation);
 
@@ -174,7 +176,7 @@ fn command_with_reply_shape(
 fn command_with_reply_shape_and_retry(
     target: u8,
     cancellation: CancellationPolicy,
-    reply_shape: ReplyShape,
+    reply_shape: CommandReply,
     retry: RetryPolicy,
 ) -> RuntimeRequest {
     let mut request = command_with_reply_shape(target, cancellation, reply_shape);
@@ -360,7 +362,7 @@ fn inert_wire_is_inline_and_reused_across_retry_without_reallocation() {
     let prepared = wire(0x81);
     assert!(prepared.is_inline());
     let request = RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::clone(&prepared),
         context: context(1, CancellationPolicy::Supported),
         applied_state: None,
@@ -990,7 +992,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
             Some((first_sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(1),
@@ -1014,7 +1016,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
             Some((first_sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(2),
@@ -1093,7 +1095,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
             Some((first_sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         retry_ready + Duration::from_millis(1),
@@ -1104,7 +1106,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
             Some((first_sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         retry_ready + Duration::from_millis(1),
@@ -1241,7 +1243,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             Some((first_sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x02,
+                code: 0x02.into(),
             },
         ),
         start + Duration::from_millis(2),
@@ -1257,7 +1259,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             Some((first_sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x02,
+                code: 0x02.into(),
             },
         ),
         start + Duration::from_millis(3),
@@ -1291,7 +1293,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             Some((first_sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x02,
+                code: 0x02.into(),
             },
         ),
         retry_ready + Duration::from_millis(1),
@@ -1302,7 +1304,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             Some((first_sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         retry_ready + Duration::from_millis(1),
@@ -1480,7 +1482,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
                 None,
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x01,
+                    code: 0x01.into(),
                 },
             ),
             start,
@@ -1520,7 +1522,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
                 None,
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x01,
+                    code: 0x01.into(),
                 },
             ),
             start,
@@ -1548,7 +1550,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
                 None,
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x01,
+                    code: 0x01.into(),
                 },
             ),
             start,
@@ -1588,7 +1590,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
                 None,
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x03,
+                    code: 0x03.into(),
                 },
             ),
             start,
@@ -1682,7 +1684,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
                 None,
                 DecodedResponse::Error {
                     socket: Some(ViscaSocket::S2),
-                    code: 0x01,
+                    code: 0x01.into(),
                 },
             ),
             start,
@@ -1725,7 +1727,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
                 None,
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x01,
+                    code: 0x01.into(),
                 },
             ),
             start,
@@ -1748,7 +1750,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
                 None,
                 DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
-                    code: 0x01,
+                    code: 0x01.into(),
                 },
             ),
             start,
@@ -1837,7 +1839,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                     command_with_reply_shape_and_retry(
                         1,
                         CancellationPolicy::Supported,
-                        ReplyShape::AckThenCompletion,
+                        CommandReply::AckThenCompletion,
                         RetryPolicy::NEVER,
                     ),
                     start,
@@ -1919,7 +1921,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                     command_with_reply_shape_and_retry(
                         1,
                         CancellationPolicy::Supported,
-                        ReplyShape::AckThenCompletion,
+                        CommandReply::AckThenCompletion,
                         RetryPolicy::NEVER,
                     ),
                     start,
@@ -1973,7 +1975,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                     command_with_reply_shape_and_retry(
                         1,
                         CancellationPolicy::Supported,
-                        ReplyShape::CompletionOnly,
+                        CommandReply::CompletionOnly,
                         RetryPolicy::NEVER,
                     ),
                     start,
@@ -2012,7 +2014,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                 command_with_reply_shape_and_retry(
                     1,
                     CancellationPolicy::Supported,
-                    ReplyShape::AckThenCompletion,
+                    CommandReply::AckThenCompletion,
                     RetryPolicy::NEVER,
                 ),
                 start,
@@ -2056,7 +2058,7 @@ fn an_overdue_request_does_not_make_an_unrelated_correlated_frame_stale() {
         command_with_reply_shape_and_retry(
             1,
             CancellationPolicy::Supported,
-            ReplyShape::AckThenCompletion,
+            CommandReply::AckThenCompletion,
             RetryPolicy::NEVER,
         ),
         start,
@@ -2124,7 +2126,7 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
                 command_with_reply_shape_and_retry(
                     1,
                     CancellationPolicy::Supported,
-                    ReplyShape::AckThenCompletion,
+                    CommandReply::AckThenCompletion,
                     RetryPolicy::NEVER,
                 ),
                 start,
@@ -2167,7 +2169,7 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
                     cancellation_sequence.map(|value| (value, SequenceWidth::Full32)),
                     DecodedResponse::Error {
                         socket: Some(ViscaSocket::S1),
-                        code: 0x04,
+                        code: 0x04.into(),
                     },
                 ),
             )
@@ -2220,7 +2222,7 @@ fn executing_response_outlives_cancellation_ambiguity_until_its_completion_deadl
     let mut request = command_with_reply_shape_and_retry(
         1,
         CancellationPolicy::Supported,
-        ReplyShape::AckThenCompletion,
+        CommandReply::AckThenCompletion,
         RetryPolicy::NEVER,
     );
     let RuntimeRequest::Command { context, .. } = &mut request else {
@@ -2665,7 +2667,7 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
             Some((0x2001, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x04,
+                code: 0x04.into(),
             },
         ),
         start + Duration::from_millis(3),
@@ -2929,7 +2931,7 @@ fn executing_cancel_waits_for_pacing_without_expiring_at_ambiguity() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: RuntimeRequest::Command {
-                reply_shape: ReplyShape::AckThenCompletion,
+                reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context: request_context,
                 applied_state: None,
@@ -3449,7 +3451,7 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
     ));
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let request = RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: wire(0x82),
         context: context(2, CancellationPolicy::Supported),
         applied_state: Some(projection),
@@ -3529,7 +3531,7 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
             Input::Admit {
                 ticket: AdmissionTicket(offset as u64 + 1),
                 request: RuntimeRequest::Command {
-                    reply_shape: ReplyShape::AckThenCompletion,
+                    reply_shape: CommandReply::AckThenCompletion,
                     wire: wire(0x81),
                     context: context(1, CancellationPolicy::Supported),
                     applied_state: Some(projection),
@@ -3578,7 +3580,7 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
         Input::Admit {
             ticket: AdmissionTicket(9),
             request: RuntimeRequest::Command {
-                reply_shape: ReplyShape::AckThenCompletion,
+                reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context,
                 applied_state: Some(AppliedStateProjection::set(
@@ -3953,7 +3955,11 @@ fn retune_runs_the_production_debug_invariant_hook() {
     let (admission, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &admission, None, start);
@@ -4011,7 +4017,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x02,
+                code: 0x02.into(),
             },
         ),
         start,
@@ -4225,7 +4231,7 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                 fixture_context.retry = RetryPolicy::NEVER;
                 let request = match fixture_required(&fields, "kind") {
                     "command" => RuntimeRequest::Command {
-                        reply_shape: ReplyShape::AckThenCompletion,
+                        reply_shape: CommandReply::AckThenCompletion,
                         wire: wire(0x80 | target),
                         context: fixture_context,
                         applied_state: None,
@@ -4289,7 +4295,7 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                     },
                     "error" => DecodedResponse::Error {
                         socket: fields.get("socket").map(|_| fixture_socket(&fields)),
-                        code: fixture_u32(fixture_required(&fields, "code")) as u8,
+                        code: (fixture_u32(fixture_required(&fields, "code")) as u8).into(),
                     },
                     other => panic!("unknown fixture response {other}"),
                 };
@@ -4583,7 +4589,7 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
             } else {
                 DecodedResponse::Error {
                     socket: Some(socket),
-                    code: [0x01, 0x02, 0x03, 0x04, 0x41][(action as usize) % 5],
+                    code: [0x01, 0x02, 0x03, 0x04, 0x41][(action as usize) % 5].into(),
                 }
             }
         }
@@ -4664,12 +4670,12 @@ fn fuzz_step(
                 2 => command_with_reply_shape(
                     target,
                     CancellationPolicy::Supported,
-                    ReplyShape::CompletionOnly,
+                    CommandReply::CompletionOnly,
                 ),
                 _ => command_with_reply_shape(
                     target,
                     CancellationPolicy::Supported,
-                    ReplyShape::NoReply,
+                    CommandReply::NoReply,
                 ),
             };
             engine.handle(
@@ -4717,7 +4723,7 @@ fn fuzz_step(
                 },
                 2 => DecodedResponse::Error {
                     socket: named_socket,
-                    code: [0x01, 0x02, 0x03, 0x04, 0x41][(action as usize) % 5],
+                    code: [0x01, 0x02, 0x03, 0x04, 0x41][(action as usize) % 5].into(),
                 },
                 _ => DecodedResponse::InquiryReply {
                     payload: smallvec![action as u8],
@@ -5091,7 +5097,7 @@ fn seed_fuzz_coverage(
             sequence(0x5103),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         *now + Duration::from_micros(1),
@@ -5193,7 +5199,7 @@ fn seed_fuzz_coverage(
     let cancellation_response = if envelope == EnvelopeKind::Raw {
         DecodedResponse::Error {
             socket: Some(ViscaSocket::S2),
-            code: 0x04,
+            code: 0x04.into(),
         }
     } else {
         DecodedResponse::Completion {
@@ -5232,7 +5238,11 @@ fn seed_fuzz_coverage(
         engine,
         ticket,
         coverage,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         *now + Duration::from_micros(1),
     );
     let (transmission, completion_only_id, _) = request_transmit(&completion_only);
@@ -5267,7 +5277,7 @@ fn seed_fuzz_coverage(
         engine,
         ticket,
         coverage,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         *now + Duration::from_micros(1),
     );
     let (transmission, no_reply_id, _) = request_transmit(&no_reply);
@@ -5452,7 +5462,7 @@ fn seed_fuzz_coverage(
             command_with_reply_shape_and_retry(
                 2,
                 CancellationPolicy::Supported,
-                ReplyShape::AckThenCompletion,
+                CommandReply::AckThenCompletion,
                 RetryPolicy::NEVER,
             ),
             *now,
@@ -5802,7 +5812,7 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: RuntimeRequest::Command {
-                reply_shape: ReplyShape::AckThenCompletion,
+                reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context: request_context,
                 applied_state: None,
@@ -5856,7 +5866,7 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
         &mut engine,
         1,
         RuntimeRequest::Command {
-            reply_shape: ReplyShape::AckThenCompletion,
+            reply_shape: CommandReply::AckThenCompletion,
             wire: wire(0x81),
             context: request_context,
             applied_state: None,
@@ -5949,7 +5959,7 @@ fn retryable_rejection_after_cancel_intent_is_cancelled_without_retry() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(1),
@@ -5990,7 +6000,7 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x02,
+                code: 0x02.into(),
             },
         ),
         start,
@@ -6023,7 +6033,7 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x02,
+                code: 0x02.into(),
             },
         ),
         start,
@@ -6132,7 +6142,7 @@ fn retry_backoff_must_fit_inside_total_budget() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: RuntimeRequest::Command {
-                reply_shape: ReplyShape::AckThenCompletion,
+                reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context: request_context,
                 applied_state: None,
@@ -6149,7 +6159,7 @@ fn retry_backoff_must_fit_inside_total_budget() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(5),
@@ -6255,7 +6265,7 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: RuntimeRequest::Command {
-                reply_shape: ReplyShape::AckThenCompletion,
+                reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context: once,
                 applied_state: None,
@@ -7127,7 +7137,7 @@ fn command_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
     let mut command_context = context(target, CancellationPolicy::Supported);
     command_context.retry = retry;
     RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: wire(0x80 | target),
         context: command_context,
         applied_state: None,
@@ -7494,7 +7504,7 @@ fn retry_backoff_follows_the_pinned_jitter_sequence() {
                 None,
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x03,
+                    code: 0x03.into(),
                 },
             ),
             now,
@@ -7687,7 +7697,7 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
                 Some((uncapped_sequence, SequenceWidth::Full32)),
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x03,
+                    code: 0x03.into(),
                 },
             ),
             now,
@@ -7824,7 +7834,7 @@ fn a_retry_waiting_in_backoff_fails_when_the_total_budget_expires() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(1),
@@ -7856,7 +7866,7 @@ fn immediate_retry_budget(total_budget: Duration) -> RetryPolicy {
 }
 
 fn raw_sending_with_reply_shape(
-    reply_shape: ReplyShape,
+    reply_shape: CommandReply,
     retry: RetryPolicy,
     start: Instant,
 ) -> (ProtocolEngine, RequestId, TransmissionId) {
@@ -8022,7 +8032,7 @@ fn initial_active_phases_expire_at_admission_budget() {
                 request: command_with_reply_shape_and_retry(
                     1,
                     CancellationPolicy::Supported,
-                    ReplyShape::CompletionOnly,
+                    CommandReply::CompletionOnly,
                     immediate_retry_budget(Duration::from_millis(10)),
                 ),
                 slot: AdmissionSlot::Ordinary,
@@ -8074,7 +8084,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
     // turn, so plain raw execution reaches its normal local-write terminal.
     {
         let (mut engine, id, transmission) =
-            raw_sending_with_reply_shape(ReplyShape::NoReply, retry, start);
+            raw_sending_with_reply_shape(CommandReply::NoReply, retry, start);
         let equal = engine.handle(
             Input::TransmissionFinished {
                 request: id,
@@ -8105,7 +8115,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
     // an inert all-response hold rather than declaring `Written` or retrying.
     {
         let (mut engine, id, transmission) =
-            raw_sending_with_reply_shape(ReplyShape::NoReply, retry, start);
+            raw_sending_with_reply_shape(CommandReply::NoReply, retry, start);
         let late_at = budget_deadline + Duration::from_nanos(1);
         let late = engine.handle(
             Input::TransmissionFinished {
@@ -8147,7 +8157,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
     // error.
     {
         let (mut engine, id, transmission) =
-            raw_sending_with_reply_shape(ReplyShape::NoReply, retry, start);
+            raw_sending_with_reply_shape(CommandReply::NoReply, retry, start);
         let late_at = budget_deadline + Duration::from_nanos(1);
         let late = engine.handle(
             Input::TransmissionFinished {
@@ -8194,7 +8204,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
                 request: command_with_reply_shape_and_retry(
                     1,
                     CancellationPolicy::Supported,
-                    ReplyShape::NoReply,
+                    CommandReply::NoReply,
                     retry,
                 ),
                 slot: AdmissionSlot::Ordinary,
@@ -8340,7 +8350,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
                 Some((first_sequence, SequenceWidth::Full32)),
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x03,
+                    code: 0x03.into(),
                 },
             ),
             start + Duration::from_nanos(1),
@@ -8769,7 +8779,7 @@ fn retry_budget_expires_while_awaiting_sony_ack() {
             Some((sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         retry_at,
@@ -8825,7 +8835,7 @@ fn retry_budget_expires_while_executing_sony_command() {
             Some((sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         retry_at,
@@ -8886,7 +8896,7 @@ fn retry_budget_expires_while_awaiting_inquiry_reply() {
             Some((sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         retry_at,
@@ -8935,7 +8945,7 @@ fn raw_ready_retry_budget_expiry_reports_last_error_without_poisoning() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(1),
@@ -8985,7 +8995,7 @@ fn raw_active_retry_budget_expiry_quarantines_and_fails_per_request() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(1),
@@ -9052,7 +9062,7 @@ fn raw_active_retry_budget_expiry_poisons_under_strict_opt_in() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(1),
@@ -9426,7 +9436,7 @@ fn command_not_executable_retries_only_where_the_policy_allows_it() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         start,
@@ -9455,7 +9465,7 @@ fn command_not_executable_retries_only_where_the_policy_allows_it() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         start,
@@ -9493,7 +9503,7 @@ fn no_socket_is_retried_like_a_full_command_buffer() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x05,
+                code: 0x05.into(),
             },
         ),
         start,
@@ -9519,7 +9529,7 @@ fn no_socket_is_retried_like_a_full_command_buffer() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x05,
+                code: 0x05.into(),
             },
         ),
         start,
@@ -9600,7 +9610,11 @@ fn raw_single_candidate_invariant_includes_completion_only_awaiting_completion()
     let (first_admission, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &first_admission, None, start);
@@ -9616,7 +9630,11 @@ fn raw_single_candidate_invariant_includes_completion_only_awaiting_completion()
     let (second_admission, second_id) = admit(
         &mut engine,
         2,
-        command_with_reply_shape(2, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            2,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &second_admission, None, start);
@@ -9632,8 +9650,11 @@ fn raw_single_candidate_invariant_includes_completion_only_awaiting_completion()
     // the second otherwise-valid completion-only request onto target 1. There
     // are now two socketless candidates for one target and the audit must
     // reject them before any raw terminal could require a temporal guess.
-    let same_target =
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly);
+    let same_target = command_with_reply_shape(
+        1,
+        CancellationPolicy::Supported,
+        CommandReply::CompletionOnly,
+    );
     engine
         .entries
         .replace_request_for_audit(second_id, same_target);
@@ -9650,7 +9671,11 @@ fn raw_uncorrelatable_command_invariant_rejects_the_urgent_lane_exception() {
     let (completion, _) = admit(
         &mut runtime,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut runtime, &completion, None, start);
@@ -9673,7 +9698,11 @@ fn raw_uncorrelatable_command_invariant_rejects_the_urgent_lane_exception() {
     let (completion, _) = admit(
         &mut corrupted,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut corrupted, &completion, None, start);
@@ -9711,7 +9740,11 @@ fn completion_only_command_skips_ack_and_terminates_on_completion() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     let send = send_ok(&mut engine, &admitted_effects, None, start);
@@ -9760,7 +9793,11 @@ fn completion_only_stray_acks_remain_inert_across_its_lifecycle() {
         let (admitted_effects, id) = admit(
             &mut engine,
             1,
-            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            command_with_reply_shape(
+                1,
+                CancellationPolicy::Supported,
+                CommandReply::CompletionOnly,
+            ),
             start,
         );
         send_ok(&mut engine, &admitted_effects, None, start);
@@ -9794,7 +9831,11 @@ fn completion_only_stray_acks_remain_inert_across_its_lifecycle() {
         let (admitted_effects, id) = admit(
             &mut engine,
             1,
-            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            command_with_reply_shape(
+                1,
+                CancellationPolicy::Supported,
+                CommandReply::CompletionOnly,
+            ),
             start,
         );
         send_ok(&mut engine, &admitted_effects, None, start);
@@ -9835,7 +9876,11 @@ fn completion_only_stray_acks_remain_inert_across_its_lifecycle() {
         let (admitted_effects, id) = admit(
             &mut engine,
             1,
-            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            command_with_reply_shape(
+                1,
+                CancellationPolicy::Supported,
+                CommandReply::CompletionOnly,
+            ),
             start,
         );
         send_ok(&mut engine, &admitted_effects, None, start);
@@ -9885,7 +9930,11 @@ fn completion_only_accepts_socket_bearing_terminal_completion() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -9924,7 +9973,11 @@ fn completion_only_command_has_no_ack_timeout_and_does_not_poison_strict() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -9968,7 +10021,11 @@ fn completion_only_command_without_completion_fails_per_request_not_the_session(
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -10002,7 +10059,7 @@ fn no_reply_command_terminates_on_send() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         start,
     );
     let send = send_ok(&mut engine, &admitted_effects, None, start);
@@ -10038,7 +10095,11 @@ fn late_reply_to_completed_completion_only_is_ignored() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -10080,7 +10141,7 @@ fn no_reply_terminal_quarantine_blocks_successor_then_restores_liveness() {
     let (first, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         start,
     );
     let sent = send_ok(&mut engine, &first, None, start);
@@ -10140,7 +10201,7 @@ fn no_reply_terminal_quarantine_blocks_successor_then_restores_liveness() {
         DecodedResponse::Completion { socket: None },
         DecodedResponse::Error {
             socket: None,
-            code: 0x05,
+            code: 0x05.into(),
         },
     ] {
         let late = engine.handle(frame(1, None, response), start);
@@ -10176,7 +10237,7 @@ fn terminal_tombstone_ignores_frame_at_exact_expiry_before_releasing_successor()
     let (first, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         start,
     );
     let written = send_ok(&mut engine, &first, None, start);
@@ -10198,7 +10259,7 @@ fn terminal_tombstone_ignores_frame_at_exact_expiry_before_releasing_successor()
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         deadline,
@@ -10389,11 +10450,11 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
         },
         DecodedResponse::Error {
             socket: None,
-            code: 0x01,
+            code: 0x01.into(),
         },
         DecodedResponse::Error {
             socket: Some(ViscaSocket::S2),
-            code: 0x01,
+            code: 0x01.into(),
         },
     ] {
         let effects = engine.handle(frame(1, None, stale), timeout_at + Duration::from_nanos(1));
@@ -10524,7 +10585,7 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
             None,
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         timeout_at + Duration::from_nanos(1),
@@ -10542,7 +10603,7 @@ fn raw_uncorrelatable_terminal_hold_still_filters_all_response_shapes() {
     let (send, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         start,
     );
     let written = send_ok(&mut engine, &send, None, start);
@@ -10564,11 +10625,11 @@ fn raw_uncorrelatable_terminal_hold_still_filters_all_response_shapes() {
         },
         DecodedResponse::Error {
             socket: Some(ViscaSocket::S1),
-            code: 0x01,
+            code: 0x01.into(),
         },
         DecodedResponse::Error {
             socket: None,
-            code: 0x01,
+            code: 0x01.into(),
         },
     ] {
         let effects = engine.handle(frame(1, None, response), start + Duration::from_nanos(1));
@@ -11320,7 +11381,11 @@ fn completion_only_terminal_quarantine_blocks_successor_then_restores_liveness()
     let (first, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &first, None, start);
@@ -11355,7 +11420,7 @@ fn completion_only_terminal_quarantine_blocks_successor_then_restores_liveness()
         DecodedResponse::Completion { socket: None },
         DecodedResponse::Error {
             socket: None,
-            code: 0x01,
+            code: 0x01.into(),
         },
     ] {
         let late = engine.handle(frame(1, None, response), start);
@@ -11382,7 +11447,7 @@ fn no_reply_terminal_quarantine_holds_same_target_inquiry_until_expiry() {
     let (first, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         start,
     );
     let written = send_ok(&mut engine, &first, None, start);
@@ -11401,7 +11466,7 @@ fn no_reply_terminal_quarantine_holds_same_target_inquiry_until_expiry() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         start,
@@ -11423,7 +11488,7 @@ fn no_reply_terminal_quarantine_holds_same_target_inquiry_until_expiry() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         deadline,
@@ -11472,7 +11537,7 @@ fn no_reply_waits_for_same_target_response_owners() {
     let (no_reply_after_command, _) = admit(
         &mut command_engine,
         2,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         start,
     );
     assert!(request_transmit_optional(&no_reply_after_command).is_none());
@@ -11489,7 +11554,7 @@ fn no_reply_waits_for_same_target_response_owners() {
     let (no_reply_after_inquiry, _) = admit(
         &mut inquiry_engine,
         2,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         start,
     );
     assert!(request_transmit_optional(&no_reply_after_inquiry).is_none());
@@ -11504,7 +11569,7 @@ fn no_reply_waits_for_same_target_response_owners() {
 #[test]
 fn uncorrelatable_terminal_allows_no_reply_successor_and_extends_hold() {
     let start = Instant::now();
-    for reply_shape in [ReplyShape::NoReply, ReplyShape::CompletionOnly] {
+    for reply_shape in [CommandReply::NoReply, CommandReply::CompletionOnly] {
         let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
         let (first, first_id) = admit(
             &mut engine,
@@ -11513,15 +11578,15 @@ fn uncorrelatable_terminal_allows_no_reply_successor_and_extends_hold() {
             start,
         );
         let first_terminal = match reply_shape {
-            ReplyShape::NoReply => send_ok(&mut engine, &first, None, start),
-            ReplyShape::CompletionOnly => {
+            CommandReply::NoReply => send_ok(&mut engine, &first, None, start),
+            CommandReply::CompletionOnly => {
                 send_ok(&mut engine, &first, None, start);
                 engine.handle(
                     frame(1, None, DecodedResponse::Completion { socket: None }),
                     start,
                 )
             }
-            ReplyShape::AckThenCompletion => {
+            CommandReply::Stop | CommandReply::AckThenCompletion => {
                 unreachable!("loop contains only uncorrelatable shapes")
             }
         };
@@ -11531,7 +11596,7 @@ fn uncorrelatable_terminal_allows_no_reply_successor_and_extends_hold() {
         let (second, second_id) = admit(
             &mut engine,
             2,
-            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+            command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
             successor_at,
         );
         assert_eq!(request_transmit(&second).1, second_id);
@@ -11549,7 +11614,7 @@ fn uncorrelatable_terminal_allows_no_reply_successor_and_extends_hold() {
                 None,
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x01,
+                    code: 0x01.into(),
                 },
             ),
             start + Duration::from_millis(50),
@@ -11656,7 +11721,11 @@ fn completion_only_command_holds_the_command_channel_exclusively() {
         let (first, _c1) = admit(
             &mut runtime,
             1,
-            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            command_with_reply_shape(
+                1,
+                CancellationPolicy::Supported,
+                CommandReply::CompletionOnly,
+            ),
             start,
         );
         send_ok(&mut runtime, &first, None, start);
@@ -11702,7 +11771,11 @@ fn completion_only_command_holds_the_command_channel_exclusively() {
         let second = admit(
             &mut runtime,
             2,
-            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            command_with_reply_shape(
+                1,
+                CancellationPolicy::Supported,
+                CommandReply::CompletionOnly,
+            ),
             start,
         )
         .0;
@@ -11725,7 +11798,11 @@ fn raw_completion_only_blocks_same_target_inquiry_and_routes_socketless_error() 
     let (completion_only, completion_id) = admit(
         &mut runtime,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut runtime, &completion_only, None, start);
@@ -11755,7 +11832,7 @@ fn raw_completion_only_blocks_same_target_inquiry_and_routes_socketless_error() 
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         start,
@@ -11788,7 +11865,11 @@ fn raw_inquiry_blocks_same_target_completion_only_until_reply() {
     let (completion_only, completion_id) = admit(
         &mut runtime,
         2,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     assert!(
@@ -11837,7 +11918,11 @@ fn sony_completion_only_does_not_block_same_target_inquiry() {
     let (completion_only, completion_id) = admit(
         &mut runtime,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut runtime, &completion_only, Some(0x1001), start);
@@ -11917,13 +12002,24 @@ fn completion_only_socketless_capacity_errors_retry() {
         let (admitted_effects, id) = admit(
             &mut engine,
             u64::from(code),
-            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            command_with_reply_shape(
+                1,
+                CancellationPolicy::Supported,
+                CommandReply::CompletionOnly,
+            ),
             start,
         );
         send_ok(&mut engine, &admitted_effects, None, start);
 
         let refused = engine.handle(
-            frame(1, None, DecodedResponse::Error { socket: None, code }),
+            frame(
+                1,
+                None,
+                DecodedResponse::Error {
+                    socket: None,
+                    code: code.into(),
+                },
+            ),
             start,
         );
         assert!(
@@ -11950,7 +12046,11 @@ fn completion_only_socketless_nonretryable_error_is_terminal() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -11961,7 +12061,7 @@ fn completion_only_socketless_nonretryable_error_is_terminal() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         start,
@@ -11985,7 +12085,11 @@ fn completion_only_named_unowned_error_does_not_fallback() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -11996,7 +12100,7 @@ fn completion_only_named_unowned_error_does_not_fallback() {
             None,
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         start,
@@ -12014,7 +12118,7 @@ fn completion_only_named_unowned_error_does_not_fallback() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x01,
+                code: 0x01.into(),
             },
         ),
         start,
@@ -12078,7 +12182,11 @@ fn completion_only_refused_cancel_does_not_extend_correlation() {
         let (admission, id) = admit(
             &mut engine,
             1,
-            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            command_with_reply_shape(
+                1,
+                CancellationPolicy::Supported,
+                CommandReply::CompletionOnly,
+            ),
             start,
         );
         let sequence = (envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));
@@ -12667,7 +12775,7 @@ fn owed_raw_stream_inquiry_reply_settles_by_socketless_error_before_the_due_pass
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x02,
+                code: 0x02.into(),
             },
         ),
         window_end,
@@ -12715,7 +12823,7 @@ fn socketless_error_settles_the_owed_reply_while_a_command_executes() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         timeout_at + Duration::from_millis(2),
@@ -12913,7 +13021,7 @@ fn latched_target_settles_its_owed_reply_before_a_commands_socketless_rejection(
         command_with_reply_shape_and_retry(
             1,
             CancellationPolicy::Supported,
-            ReplyShape::AckThenCompletion,
+            CommandReply::AckThenCompletion,
             RetryPolicy::NEVER,
         ),
         latched_at,
@@ -12926,7 +13034,7 @@ fn latched_target_settles_its_owed_reply_before_a_commands_socketless_rejection(
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         )
     };
@@ -12960,7 +13068,7 @@ fn latched_target_fails_completion_only_commands_promptly() {
         command_with_reply_shape_and_retry(
             1,
             CancellationPolicy::Supported,
-            ReplyShape::CompletionOnly,
+            CommandReply::CompletionOnly,
             unbounded,
         )
     };
@@ -13008,7 +13116,7 @@ fn halt_uses_its_turn_instant() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         now,
@@ -13044,7 +13152,7 @@ fn next_wake_ignores_a_stream_socket_hold_that_expired_after_the_last_turn() {
             request: command_with_reply_shape_and_retry(
                 1,
                 CancellationPolicy::Supported,
-                ReplyShape::CompletionOnly,
+                CommandReply::CompletionOnly,
                 retrying(),
             ),
             slot: AdmissionSlot::Ordinary,

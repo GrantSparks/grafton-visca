@@ -20,7 +20,7 @@ run_fixture() {
 
 reset_fixture
 # Leave all pattern matches intact; only remove the production constructor.
-sed -i 's/0x02 => Self::SyntaxError,/0x02 => Self::Unknown(code),/' "${fixture}/src/error.rs"
+sed -i 's/Self::Syntax => crate::Error::SyntaxError,/Self::Syntax => crate::Error::Unknown { code: 0x02 },/' "${fixture}/src/protocol/response.rs"
 expect_failure 'Error::SyntaxError production constructor occurs 0 times' run_fixture
 
 reset_fixture
