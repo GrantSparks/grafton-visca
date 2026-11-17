@@ -141,7 +141,7 @@ inquiries retain the index under both decoder entry points (#974).
 | `ExposureCompensationUp` | Plain | — |
 | `ExposureCompensationDown` | Plain | — |
 | `ExposureCompensationDirect` | Plain | — |
-| `DynamicRange` | Plain | — |
+| `DynamicRange` | Plain | Set `ExposureWideDynamicRange` |
 | `IrisReset` | Targeted — `Iris` | — |
 | `IrisUp` | Targeted — `Iris` | — |
 | `IrisDown` | Targeted — `Iris` | — |
@@ -241,7 +241,7 @@ inquiries retain the index under both decoder entry points (#974).
 | `InterfaceClear` | Plain | — |
 | `CommandCancel` | Plain | — |
 | `SettingsSave` | Plain | — |
-| `MotionSyncMode` | Plain | — |
+| `MotionSyncMode` | Plain | Set `MotionSyncEnabled` |
 | `MotionSyncPreset` | Plain | Set `MotionSyncSpeed` |
 | `VariableSpeedMode` | Plain | Set `PanTiltSpeedMode` |
 | `Fr7AeLevelUp` | Plain | — |
@@ -453,7 +453,7 @@ slot per key without map allocation or eviction.
 Current write-only state keys are:
 
 <!-- BEGIN WRITE-ONLY STATE KEYS -->
-`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`.
+`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`, `ExposureWideDynamicRange`, `MotionSyncEnabled`.
 <!-- END WRITE-ONLY STATE KEYS -->
 
 USB-audio is intentionally not in this list because the built-in inquiry

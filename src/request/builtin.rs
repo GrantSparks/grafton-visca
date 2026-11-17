@@ -2777,6 +2777,22 @@ impl BuiltinStateValue<crate::types::MotionSyncSpeed>
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<crate::types::WideDynamicRangeLevel>
+    for crate::command::exposure_wire::DynamicRange
+{
+    fn state_value(&self) -> crate::types::WideDynamicRangeLevel {
+        self.level
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::motion_sync_wire::SetMotionSyncMode {
+    fn state_value(&self) -> bool {
+        self.mode
+    }
+}
+
 // Built-in request behavior is exercised through shared preparation, which
 // exists only with a facade.
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
@@ -3785,6 +3801,30 @@ mod tests {
                 false
             ))
         );
+
+        for level in [0, 4, 8] {
+            let level = crate::types::WideDynamicRangeLevel::new(level).expect("WDR level");
+            row!(
+                "wide dynamic range",
+                crate::command::exposure_wire::DynamicRange::new(level),
+                &ptz,
+                B::DynamicRange,
+                crate::runtime::engine::AppliedStateProjection::set(
+                    crate::KnownState::ExposureWideDynamicRange(level)
+                )
+            );
+        }
+
+        for enabled in [false, true] {
+            semantic_row!(
+                "motion sync enable",
+                crate::command::motion_sync_wire::SetMotionSyncMode::new(enabled),
+                B::MotionSyncMode,
+                crate::runtime::engine::AppliedStateProjection::set(
+                    crate::KnownState::MotionSyncEnabled(enabled)
+                )
+            );
+        }
 
         row!(
             "spotlight on",

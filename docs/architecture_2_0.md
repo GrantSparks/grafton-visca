@@ -1558,7 +1558,7 @@ eager no-data or transient-fault read yields even when an incomplete frame is
 retained, so an already-due ACK deadline and shutdown remain selectable.
 
 <!-- BEGIN WRITE-ONLY STATE KEYS -->
-`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`.
+`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`, `ExposureWideDynamicRange`, `MotionSyncEnabled`.
 <!-- END WRITE-ONLY STATE KEYS -->
 
 ## Request and motion semantics

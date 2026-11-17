@@ -668,6 +668,13 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
         speed,
         crate::types::MotionSyncSpeed::NORMAL
     );
+    check!(
+        ExposureWideDynamicRange,
+        exposure,
+        wide_dynamic_range,
+        crate::types::WideDynamicRangeLevel::new(4).unwrap()
+    );
+    check!(MotionSyncEnabled, motion_sync, enabled, true);
     assert_eq!(
         covered.iter().map(|value| value.key()).collect::<Vec<_>>(),
         StateKey::ALL

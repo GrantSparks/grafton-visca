@@ -541,7 +541,7 @@ builtin_command_ledger! {
     ExposureCompensationUp => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::COMPENSATION_STEP).then(&[0x02], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-exposurecompensationup-command"), (R14, [PtzOpticsG3], "r14-exposurecompensationup-command"), (R8, [SonyEviH100, GenericVisca], "r8-exposurecompensationup-command"), (R12, [SonyBrc300, GenericVisca], "r12-exposurecompensationup-command"), (R21, [NearusBrc300, GenericVisca], "r21-exposurecompensationup-command")]) },
     ExposureCompensationDown => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::COMPENSATION_STEP).then(&[0x03], &[0xFF])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-exposurecompensationdown-command"), (R14, [PtzOpticsG3], "r14-exposurecompensationdown-command"), (R8, [SonyEviH100, GenericVisca], "r8-exposurecompensationdown-command"), (R12, [SonyBrc300, GenericVisca], "r12-exposurecompensationdown-command"), (R21, [NearusBrc300, GenericVisca], "r21-exposurecompensationdown-command")]) },
     ExposureCompensationDirect => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::COMPENSATION_DIRECT).prefix_len(3)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-exposurecompensationdirect-command"), (R14, [PtzOpticsG3], "r14-exposurecompensationdirect-command"), (R8, [SonyEviH100, GenericVisca], "r8-exposurecompensationdirect-command"), (R12, [SonyBrc300, GenericVisca], "r12-exposurecompensationdirect-command"), (R21, [NearusBrc300, GenericVisca], "r21-exposurecompensationdirect-command")]) },
-    DynamicRange => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::DYNAMIC_RANGE).prefix_len(3)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-dynamicrange-command"), (R14, [PtzOpticsG3], "r14-dynamicrange-command")]) },
+    DynamicRange => { class: plain(Set(ExposureWideDynamicRange)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::exposure::DYNAMIC_RANGE).prefix_len(3)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-dynamicrange-command"), (R14, [PtzOpticsG3], "r14-dynamicrange-command")]) },
     // Iris commands are finite physical aperture movements.  They have a
     // meaningful end state and an exact Iris inquiry, so every
     // reset/step/direct form is targeted rather than applied-only.
@@ -668,7 +668,7 @@ builtin_command_ledger! {
     // Motion-related configuration. The speed command retains its historical
     // protocol row identity; its exact applied value is now cached because no
     // sourced inquiry can read that speed back.
-    MotionSyncMode => { class: plain, packet: None, source: crate::source_evidence::Source::Unsourced },
+    MotionSyncMode => { class: plain(Set(MotionSyncEnabled)), packet: None, source: crate::source_evidence::Source::Unsourced },
     MotionSyncPreset => { class: plain(Set(MotionSyncSpeed)), packet: None, source: crate::source_evidence::Source::Unsourced },
     VariableSpeedMode => { class: plain(Set(PanTiltSpeedMode)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::variable_speed::STEP_RANGE)), source: crate::source_evidence::source!([(R7, [SonyFr7], "r7-variablespeedmode-command")]) },
     // Sony FR7 cinema controls, R7 v4.
@@ -905,7 +905,16 @@ mod tests {
             BuiltinCommand::MotionSyncMode
                 .classification()
                 .state_effect(),
-            None
+            Some(AppliedStateEffectRequirement::Set(
+                StateKey::MotionSyncEnabled
+            ))
+        );
+
+        assert_eq!(
+            BuiltinCommand::DynamicRange.classification().state_effect(),
+            Some(AppliedStateEffectRequirement::Set(
+                StateKey::ExposureWideDynamicRange
+            ))
         );
 
         let represented: HashSet<_> = BuiltinCommand::ALL

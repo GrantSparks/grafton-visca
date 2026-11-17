@@ -588,7 +588,9 @@ macro_rules! noun_table {
             /// `WideDynamicRangeLevel` is a protocol adjustment code, not a percentage or
             /// a number of photographic stops. Its checked union is `0..=8`; the profile's
             /// `WideDynamicRange` grant and `ExposureCaps::wide_dynamic_range` fact
-            /// declare support.
+            /// declare support. The last applied value is available through
+            /// [`StateCache::exposure`](crate::state_cache::StateCache::exposure)
+            /// and its `wide_dynamic_range()` accessor.
             plain [SetWideDynamicRange] set_wide_dynamic_range(level: types::WideDynamicRangeLevel) -> command::exposure::SetWideDynamicRange where HasWideDynamicRange
                 = [command::exposure::SetWideDynamicRange::new(level)];
             /// Returns the iris level.
@@ -1550,13 +1552,16 @@ macro_rules! noun_table {
                 getter: motion_sync,
                 title: "Motion sync",
                 gate: [typed HasMotionSync],
-                doc: "Motion-sync settings; readback requires a custom inquiry.",
+                doc: "Motion-sync settings; the state cache records applied writes, and camera readback requires a custom inquiry.",
             };
             /// Enables or disables synchronized preset movement.
             ///
             /// `true` enables synchronized preset-recall movement and `false` disables it.
             /// This boolean is supported through the selected profile's `MotionSync`
-            /// grant; it does not itself select a speed or start movement.
+            /// grant; it does not itself select a speed or start movement. The last
+            /// applied value is available through
+            /// [`StateCache::motion_sync`](crate::state_cache::StateCache::motion_sync)
+            /// and its `enabled()` accessor.
             plain [SetEnabled] set_enabled(enabled: bool) -> command::motion_sync::SetEnabled
                 = [command::motion_sync::SetEnabled::new(enabled)];
             /// Sets the motion-sync speed.  [`crate::types::MotionSyncSpeed`](crate::types::MotionSyncSpeed) owns the `1..=24`

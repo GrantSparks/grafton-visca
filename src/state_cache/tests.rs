@@ -19,7 +19,9 @@ const fn successor(key: StateKey) -> Option<StateKey> {
         StateKey::PanTiltSpeedMode => Some(StateKey::TallyMode),
         StateKey::TallyMode => Some(StateKey::ImageFlipMode),
         StateKey::ImageFlipMode => Some(StateKey::MotionSyncSpeed),
-        StateKey::MotionSyncSpeed => None,
+        StateKey::MotionSyncSpeed => Some(StateKey::ExposureWideDynamicRange),
+        StateKey::ExposureWideDynamicRange => Some(StateKey::MotionSyncEnabled),
+        StateKey::MotionSyncEnabled => None,
     }
 }
 
@@ -72,6 +74,17 @@ fn typed_effects_preserve_the_full_setter_value_including_flashing() -> crate::R
         state_values::ImageFlipMode::known(types::ImageFlipMode::Both),
         KnownState::ImageFlipMode(types::ImageFlipMode::Both)
     );
+    for level in [0, 4, 8] {
+        let level = types::WideDynamicRangeLevel::new(level)?;
+        let known = state_values::ExposureWideDynamicRange::known(level);
+        assert_eq!(known, KnownState::ExposureWideDynamicRange(level));
+        assert_eq!(known.key(), StateKey::ExposureWideDynamicRange);
+    }
+    for enabled in [false, true] {
+        let known = state_values::MotionSyncEnabled::known(enabled);
+        assert_eq!(known, KnownState::MotionSyncEnabled(enabled));
+        assert_eq!(known.key(), StateKey::MotionSyncEnabled);
+    }
     Ok(())
 }
 
@@ -99,6 +112,8 @@ fn noun_views_keep_their_target_and_outlive_the_temporary_cache() {
     let _: Option<types::TallyBrightness> = cache.tally().brightness();
     let _: Option<types::TallyMode> = cache.tally().mode();
     let _: Option<types::MotionSyncSpeed> = cache.motion_sync().speed();
+    let _: Option<types::WideDynamicRangeLevel> = cache.exposure().wide_dynamic_range();
+    let _: Option<bool> = cache.motion_sync().enabled();
 
     let tally = StateCache::from_registry(Arc::clone(&registry), TargetSlot::CAMERA_2).tally();
     let cloned = tally.clone();
