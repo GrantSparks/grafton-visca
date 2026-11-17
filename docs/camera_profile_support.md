@@ -946,8 +946,8 @@ limits; `camera.profile()` remains the canonical source inventory.
 The nominal degree endpoints and integer words differ by up to half a unit.
 The FR7 converter snaps that endpoint cell to R7's exact word and uses nearest
 rounding with halves away from zero in the interior. This is specified packet
-support; FR7 movement and polling still need the physical verification recorded
-in the hardware release checklist.
+support. A maintainer may optionally check FR7 movement and polling locally;
+keep any smoke-check notes private.
 
 ## Known unverified facts
 
@@ -1001,24 +1001,18 @@ that the cameras lack shutter control. Send the shutter command as a
 `raw::PlainRequest` request until a source-backed table is recorded in
 [VISCA reference](visca_reference.md) and added to the profile.
 
-### Facts verified on the PTZOptics G2 bench
-
-These were verified on 2026-10-07 on PT30X-NDI G2, PT20X-NDI G2 and
-PT12X-NDI G2 cameras; models, firmware and run evidence are in the
-[hardware release checklist](hardware_release_checklist.md) (row HW-05).
+### PTZOptics G2 profile interpretation
 
 - **PTZOptics G2-family shutter codes.** The PTZOptics sources document only
   `pq = Shutter Position`, not a code-to-time table, so `PtzOpticsG2`,
   `PtzOpticsG3` and `PtzOptics30x` ship the table `01` (1/30 s) through `11`
-  (1/10000 s). `hw05_shutter_round_trip` (`tests/integration/hardware_wire_rows_test.rs`)
-  set codes `01`, `06`, `09` and `11` in shutter-priority mode and read each
-  back unchanged on all five cameras, with `PtzOptics30x` on the PT30X-NDI G2
-  and `PtzOpticsG2` on the others. The bench did not measure exposure time, so
-  the fraction attached to each code is still the shipped table's.
-- **PTZOptics G2 tilt polarity.** `hw05_tilt_polarity` passed on all five
-  cameras: a typed tilt UP increased raw tilt and tilt degrees, DOWN decreased
-  them, and pan did not change. A separate visible ~9° UP move was confirmed
-  physically up on every camera by the operator.
+  (1/10000 s). The optional `hw05_shutter_round_trip` test
+  (`tests/integration/hardware_wire_rows_test.rs`) checks write/read agreement;
+  it does not measure exposure time or establish a code-to-time table.
+- **PTZOptics G2 tilt polarity.** The typed profile interprets increasing raw
+  tilt as increasing tilt degrees. `tests/integration/pan_tilt_polarity.rs`
+  pins the encoded direction, and the optional `hw05_tilt_polarity` test checks
+  a device's orientation locally.
 
 Sony EVI-H100 (R8) also documents `CAM_ColorGain` `8x 01 04 49 00 00 00 0p FF`
 and `CAM_ColorHue` `8x 01 04 4F 00 00 00 0p FF` (`0h`..`Eh`) with their

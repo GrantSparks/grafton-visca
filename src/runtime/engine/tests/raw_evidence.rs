@@ -1186,7 +1186,7 @@ fn completion_socket_naming_is_learned_from_completions() {
             .correlation
             .learning(TargetSlot::ALL[0])
             .completion_sockets,
-        CompletionSockets::Unknown
+        CompletionSockets::default()
     );
     let owner = executing_on(&mut engine, 1, ViscaSocket::S2, now);
     let waiting = command_awaiting_ack(&mut engine, 2, now);
@@ -1204,7 +1204,7 @@ fn completion_socket_naming_is_learned_from_completions() {
             .correlation
             .learning(TargetSlot::ALL[0])
             .completion_sockets,
-        CompletionSockets::Named
+        CompletionSockets::Named { unpaid: 0 }
     );
 
     let mut engine = numbering_camera(now);
@@ -2251,7 +2251,7 @@ fn a_late_no_reply_rejection_never_reaches_a_later_command() {
 /// omitted its socket) are forgotten, never kept to complete a later
 /// `CompletionOnly` command at once.
 #[test]
-fn leftover_unlearned_completions_never_complete_a_later_command() {
+fn leftover_ambiguous_completions_never_complete_a_later_command() {
     let start = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
     let executing = executing_on(&mut engine, 1, ViscaSocket::S1, start);
@@ -2704,10 +2704,8 @@ fn late_first_answers_are_order_independent() {
     for class in 0..5 {
         let setup = || {
             let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-            // Production raw streams use a single inquiry flight. Its timeout
-            // is terminal, so every answer class exercises a nonempty outcome
-            // oracle rather than comparing two empty retry-only effect sets.
-            engine.policy.inquiry_capacity = 1;
+            // Overlapping raw inquiries share one flight. Their timeout is
+            // terminal, so every answer class has a nonempty outcome oracle.
             let request = if class == 2 {
                 inquiry(1)
             } else {

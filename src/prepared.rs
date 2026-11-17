@@ -13,9 +13,9 @@ use crate::{
     camera::{MotionQuery, MovementTolerance, PanTiltUnits},
     command::NdFilterDensity,
     completion,
-    profiles::{RetryBounds, DEFAULT_RETRY_BASE},
+    profiles::DEFAULT_RETRY_BASE,
     target::TargetSlot,
-    timeout::CommandTimeoutClass,
+    timeout::{CommandTimeoutClass, ResolvedTiming},
     types::{FocusPosition, IrisLevel, ZoomPosition},
     AffectedAxes, ControlClass, Inquiry, OperationCommand, OperationalTuning, PlainCommand,
     ProfileSpec, Request, ResponseDecoder, RetryClass, SubmissionClass, TimeoutClass,
@@ -517,9 +517,8 @@ pub(crate) fn lower_targeted_settlement(
         queries: LazyPositionQueryPlan::new(registration, tuning, axes),
         tolerance: MovementTolerance::default(),
         interval: tuning
-            .get()
-            .inquiry_spacing()
-            .unwrap_or_else(|| profile.timing().inquiry_spacing())
+            .resolve(&profile.timing())
+            .inquiry_spacing
             .max(Duration::from_millis(25)),
         default_budget,
     })
@@ -726,7 +725,7 @@ where
         affected_axes,
         observation_timeout(
             &context,
-            settlement_budget(operation.timeout_class(), profile, tuning.get()),
+            settlement_budget(operation.timeout_class(), profile, tuning),
         ),
     )?;
     let wire = encode(operation, registration)?;
@@ -820,28 +819,20 @@ where
 {
     let target = registration.slot();
     let profile = registration.profile();
-    let tuning = tuning.get();
-    let timing = profile.timing();
-    let completion = completion_timeout(request.timeout_class(), profile, tuning);
-    let inquiry_timeout = tuning.inquiry_timeout().unwrap_or(timing.inquiry_timeout());
+    let resolved = tuning.resolve(&profile.timing());
     let timeout = TimeoutPolicy::new(
-        tuning.ack_timeout().unwrap_or(timing.ack_timeout()),
-        completion,
-        inquiry_timeout,
-        timing.cancellation_timeout(),
-        timing.ambiguity_timeout(),
-    )?;
+        resolved.ack,
+        resolved.completion(request.timeout_class()),
+        resolved.inquiry,
+        resolved.cancellation,
+        resolved.ambiguity,
+    );
     let spacing = if inquiry {
-        tuning.inquiry_spacing().unwrap_or(timing.inquiry_spacing())
+        resolved.inquiry_spacing
     } else {
-        tuning.command_spacing().unwrap_or(timing.command_spacing())
+        resolved.command_spacing
     };
     let reply_shape = lower_reply_shape(request.reply_shape());
-    let governing_deadline = if inquiry {
-        timeout.inquiry.get()
-    } else {
-        command_attempt_timeout(&timeout, reply_shape)
-    };
     Ok(RequestContext {
         requires_extended_pan_tilt_speed: profile
             .capabilities()
@@ -858,15 +849,10 @@ where
         retry: retry_policy(
             request.retry_class(),
             request.timeout_class(),
-            tuning,
-            timing.busy_timeout(),
-            if inquiry {
-                timeout.inquiry.get()
-            } else {
-                timeout.completion.get()
-            },
-            governing_deadline,
-        )?,
+            tuning.get(),
+            resolved,
+            !inquiry && matches!(reply_shape, ReplyShape::AckThenCompletion),
+        ),
         control: ControlPolicy {
             class: lower_control(class.resolve(crate::requests::admission_control_class(request)?)),
             minimum_spacing: spacing,
@@ -879,30 +865,12 @@ where
     })
 }
 
-fn completion_timeout(
-    class: TimeoutClass,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
-) -> Duration {
-    let timeouts = profile.timing().command_timeouts();
-    match CommandTimeoutClass::of(class) {
-        Some(category) => tuning
-            .command_override(category)
-            .unwrap_or(timeouts.get(category)),
-        // Inquiry requests use `TimeoutPolicy::inquiry`; keep the otherwise
-        // unused completion field on the Quick timeout.
-        None => timeouts.get(CommandTimeoutClass::Quick),
-    }
-}
-
 fn settlement_budget(
     class: TimeoutClass,
     profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
 ) -> Duration {
-    tuning
-        .settlement_timeout()
-        .unwrap_or_else(|| completion_timeout(class, profile, tuning))
+    tuning.resolve(&profile.timing()).settlement_budget(class)
 }
 
 /// Bounded retry count for one timeout category.
@@ -929,20 +897,17 @@ const fn retry_budget(base: u32, class: TimeoutClass) -> u32 {
 
 /// Lowers one request's retry policy.
 ///
-/// `deadline` is the response window; `attempt` also includes the ACK window
-/// for an ACK-bearing command. Preserve the established response-based retry
-/// floor while ensuring a complete attempt fits within the budget. The
-/// profile busy timeout covers camera-side recovery windows.
+/// Resolved timing owns the response and ACK-bearing attempt windows and
+/// profile busy floor. This projection only selects replay permissions and
+/// the category's retry count.
 fn retry_policy(
     retry_class: RetryClass,
     timeout_class: TimeoutClass,
     tuning: OperationalTuning,
-    busy_timeout: Duration,
-    deadline: Duration,
-    attempt: Duration,
-) -> Result<RetryPolicy> {
-    let bounds =
-        tuning.lengthen_retry_bounds(RetryBounds::for_request(busy_timeout, deadline, attempt));
+    resolved: ResolvedTiming,
+    ack_bearing: bool,
+) -> RetryPolicy {
+    let bounds = resolved.retry_bounds(CommandTimeoutClass::of(timeout_class), ack_bearing);
     let base = tuning.reduce_retry_base(DEFAULT_RETRY_BASE);
     let max_retries = if matches!(retry_class, RetryClass::Never) {
         0
@@ -958,20 +923,18 @@ fn retry_policy(
     // envelope (#795): `completion_timeout` only governs a command that has no
     // ACK phase.
     let replayable = !matches!(retry_class, RetryClass::Never);
-    Ok(RetryPolicy {
+    RetryPolicy {
         max_retries,
         initial_backoff: bounds.initial_backoff,
         maximum_backoff: bounds.maximum_backoff,
-        total_budget: Some(crate::runtime::engine::NonZeroDuration::new(
-            bounds.total_budget,
-        )?),
+        total_budget: Some(bounds.total_budget),
         ack_timeout: replayable,
         completion_timeout: replayable,
         inquiry_timeout: matches!(retry_class, RetryClass::Inquiry),
         buffer_full: replayable,
         movement_not_executable: matches!(retry_class, RetryClass::Movement | RetryClass::Preset),
         builtin_inquiry_syntax: false,
-    })
+    }
 }
 
 const fn lower_control(class: ControlClass) -> crate::runtime::engine::ControlClass {
@@ -1200,6 +1163,33 @@ pub(crate) mod test_support {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic, unused_qualifications)]
 mod tests {
+    // Existing retry-policy scenarios supply independent response/busy facts;
+    // lower them through ResolvedTiming rather than rebuilding retry bounds.
+    fn retry_policy_fixture(
+        retry: RetryClass,
+        class: TimeoutClass,
+        tuning: OperationalTuning,
+        busy: Duration,
+        deadline: Duration,
+        attempt: Duration,
+    ) -> Result<RetryPolicy> {
+        assert!(
+            attempt.is_zero(),
+            "these fixtures exercise response-only bounds"
+        );
+        let mut timing = crate::profiles::ProfileId::GenericVisca.raw_facts().timing;
+        timing.busy_timeout = busy;
+        timing.inquiry_timeout = deadline;
+        timing.command_timeouts = crate::profiles::CommandTimeouts::DEFAULT
+            .with_quick_timeout(deadline)
+            .with_movement_timeout(deadline)
+            .with_preset_timeout(deadline)
+            .with_long_running_timeout(deadline)
+            .with_network_timeout(deadline);
+        let resolved = ResolvedTiming::validate(tuning, &timing)?;
+        Ok(super::retry_policy(retry, class, tuning, resolved, false))
+    }
+
     use std::cell::Cell;
 
     use super::test_support::{
@@ -3533,7 +3523,7 @@ mod tests {
     #[test]
     fn never_retry_class_ignores_retry_limit_tuning() {
         let tuning = OperationalTuning::new().with_retry_limit(2);
-        let never = retry_policy(
+        let never = retry_policy_fixture(
             RetryClass::Never,
             TimeoutClass::Quick,
             tuning,
@@ -3542,7 +3532,7 @@ mod tests {
             Duration::ZERO,
         )
         .expect("valid retry policy");
-        let standard = retry_policy(
+        let standard = retry_policy_fixture(
             RetryClass::Standard,
             TimeoutClass::Movement,
             tuning,
@@ -3563,7 +3553,7 @@ mod tests {
     fn retry_budgets_follow_the_per_category_table() {
         let tuning = OperationalTuning::new();
         let budget = |timeout_class| {
-            retry_policy(
+            retry_policy_fixture(
                 RetryClass::Standard,
                 timeout_class,
                 tuning,
@@ -3802,7 +3792,7 @@ mod tests {
             (TimeoutClass::LongRunning, 1, Duration::from_secs(300)),
         ];
         for (class, retries, deadline) in expected {
-            let policy = retry_policy(
+            let policy = retry_policy_fixture(
                 RetryClass::Standard,
                 class,
                 OperationalTuning::new(),
@@ -3826,7 +3816,7 @@ mod tests {
             assert_eq!(policy.max_retries, retries, "{class:?}");
         }
 
-        let tuned = retry_policy(
+        let tuned = retry_policy_fixture(
             RetryClass::Standard,
             TimeoutClass::Quick,
             OperationalTuning::new()
@@ -3857,7 +3847,7 @@ mod tests {
             .with_initial_retry_backoff(Duration::from_millis(1))
             .with_maximum_retry_backoff(Duration::from_millis(2))
             .with_retry_budget(Duration::from_secs(3));
-        let quick = retry_policy(
+        let quick = retry_policy_fixture(
             RetryClass::Standard,
             TimeoutClass::Quick,
             shortened,
@@ -3877,7 +3867,7 @@ mod tests {
             .with_initial_retry_backoff(Duration::from_millis(50))
             .with_maximum_retry_backoff(Duration::from_millis(500))
             .with_retry_budget(Duration::from_secs(20));
-        let long = retry_policy(
+        let long = retry_policy_fixture(
             RetryClass::Standard,
             TimeoutClass::LongRunning,
             raised_budget,
@@ -3890,7 +3880,7 @@ mod tests {
             long.total_budget.expect("prepared budget").get(),
             Duration::from_secs(600)
         );
-        let short = retry_policy(
+        let short = retry_policy_fixture(
             RetryClass::Standard,
             TimeoutClass::Quick,
             raised_budget,
@@ -3909,7 +3899,7 @@ mod tests {
     #[test]
     fn a_network_budget_keeps_one_attempt_at_the_smallest_base() {
         for base in [0, 1, 2] {
-            let policy = retry_policy(
+            let policy = retry_policy_fixture(
                 RetryClass::Standard,
                 TimeoutClass::Network,
                 OperationalTuning::new().with_retry_limit(base),
@@ -3934,7 +3924,7 @@ mod tests {
             RetryClass::Movement,
             RetryClass::Preset,
         ] {
-            let policy = retry_policy(
+            let policy = retry_policy_fixture(
                 class,
                 TimeoutClass::Movement,
                 tuning,
@@ -3952,7 +3942,7 @@ mod tests {
             assert!(policy.max_retries > 0, "{class:?} must have a budget");
         }
 
-        let never = retry_policy(
+        let never = retry_policy_fixture(
             RetryClass::Never,
             TimeoutClass::Movement,
             tuning,
@@ -4020,7 +4010,7 @@ mod tests {
     fn movement_not_executable_retry_is_reserved_for_movement_and_preset() {
         let tuning = OperationalTuning::new();
         let policy = |class| {
-            retry_policy(
+            retry_policy_fixture(
                 class,
                 TimeoutClass::Movement,
                 tuning,
@@ -4117,7 +4107,7 @@ mod tests {
         // A short deadline still gets the ten-second floor, while a longer
         // deadline and a profile busy timeout can raise the total budget.
         let quick_deadline = Duration::from_secs(1);
-        let quick = retry_policy(
+        let quick = retry_policy_fixture(
             RetryClass::Standard,
             TimeoutClass::Quick,
             OperationalTuning::new(),
@@ -4132,7 +4122,7 @@ mod tests {
         );
         let busy_timeout = Duration::from_secs(17);
         let long_deadline = Duration::from_secs(6);
-        let long = retry_policy(
+        let long = retry_policy_fixture(
             RetryClass::Standard,
             TimeoutClass::Quick,
             OperationalTuning::new(),
@@ -5096,7 +5086,10 @@ pub(crate) fn prepare_halt(
     let target = registration.slot();
     let profile = registration.profile();
     use crate::request::builtin::{FocusStop, ZoomStop};
-    let mut budget = completion_timeout(TimeoutClass::Movement, profile, tuning.get());
+    let mut budget = tuning
+        .resolve(&profile.timing())
+        .completion(TimeoutClass::Movement)
+        .get();
     let mut lower = |prepared: Result<PreparedOperation<completion::AppliedOnly>>| {
         prepared.map(|prepared| {
             prepared.admit_with(|request, _, _, timeouts| {
@@ -5105,43 +5098,43 @@ pub(crate) fn prepare_halt(
             })
         })
     };
-    let pan_tilt = profile.supports_axes(AffectedAxes::PAN_TILT).then(|| {
-        lower(
-            crate::stop_request::pan_tilt_stop_request(profile).and_then(|stop| {
-                prepare_operation(&stop, registration, tuning, ClassSelection::Request)
-            }),
-        )
-    });
-    let zoom = profile.supports_axes(AffectedAxes::ZOOM).then(|| {
-        lower(prepare_operation(
-            &ZoomStop,
-            registration,
-            tuning,
-            ClassSelection::Request,
-        ))
-    });
-    let focus = profile.supports_axes(AffectedAxes::FOCUS).then(|| {
-        lower(prepare_operation(
-            &FocusStop,
-            registration,
-            tuning,
-            ClassSelection::Request,
-        ))
-    });
+    let paths = profile.stop_paths();
     let mut axes: Option<AffectedAxes> = None;
-    for (supported, axis) in [
-        (pan_tilt.is_some(), AffectedAxes::PAN_TILT),
-        (zoom.is_some(), AffectedAxes::ZOOM),
-        (focus.is_some(), AffectedAxes::FOCUS),
-    ] {
-        if supported {
+    let requests = paths.rows().map(|path| {
+        path.map(|stop| {
+            use crate::command::semantics::StopCommand;
+            let axis = stop.axes();
             axes = Some(axes.map_or(axis, |old| old.union(axis)));
-        }
-    }
+            // StopCommand is generated from every stop:true ledger row. A new
+            // STOP cannot compile until its concrete halt request is handled.
+            lower(match stop {
+                StopCommand::PanTiltStop => crate::stop_request::pan_tilt_stop_request(profile)
+                    .and_then(|request| {
+                        prepare_operation(&request, registration, tuning, ClassSelection::Request)
+                    }),
+                StopCommand::ZoomStop => {
+                    prepare_operation(&ZoomStop, registration, tuning, ClassSelection::Request)
+                }
+                StopCommand::FocusStop => {
+                    prepare_operation(&FocusStop, registration, tuning, ClassSelection::Request)
+                }
+                StopCommand::Fr7ZoomHighResolutionStop => prepare_operation(
+                    &crate::command::Fr7ZoomHighResolutionStop,
+                    registration,
+                    tuning,
+                    ClassSelection::Request,
+                ),
+            })
+        })
+    });
     PreparedHalt {
         target,
         axes,
-        requests: [pan_tilt, zoom, focus],
+        requests,
         budget,
     }
 }
+
+#[cfg(test)]
+#[path = "prepared/timing_characterization.rs"]
+mod timing_characterization;

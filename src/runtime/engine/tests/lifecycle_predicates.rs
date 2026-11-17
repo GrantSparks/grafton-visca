@@ -215,6 +215,123 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
     for (name, lifecycle, expected, window) in rows {
         assert_eq!(mask(lifecycle), expected, "{name}: {lifecycle:?}");
         assert_eq!(lifecycle.response_window_end(), window, "{name}");
+        let projected_window = match lifecycle.phase() {
+            Phase::Ready | Phase::Sending { .. } | Phase::Backoff { .. } => None,
+            Phase::AwaitingAck { deadline, .. }
+            | Phase::AwaitingCompletion { deadline, .. }
+            | Phase::Executing { deadline, .. }
+            | Phase::ExecutingDisplaced { deadline, .. }
+            | Phase::AwaitingReply { deadline, .. }
+            | Phase::AwaitingCancellationResolution { deadline, .. } => Some(deadline),
+        };
+        assert_eq!(projected_window, window, "{name}: diagnostic projection");
+        match name {
+            "executing"
+            | "executing/cancel requested"
+            | "executing/cancel sending"
+            | "executing/observation failed" => {
+                let (at, action) = lifecycle.due_action(None, Certainty::Unconfirmed).unwrap();
+                assert_eq!(Some(at), window, "{name}: completion due window");
+                if name == "executing" {
+                    assert!(matches!(
+                        action,
+                        DueAction::Completion(CompletionDeadline::Accepted)
+                    ));
+                } else {
+                    assert!(
+                        matches!(
+                            action,
+                            DueAction::Completion(CompletionDeadline::Cancelling {
+                                socket: ViscaSocket::S1,
+                                original_deadline,
+                                ..
+                            }) if original_deadline == deadline
+                        ),
+                        "{name}: cancellation keeps the original completion deadline"
+                    );
+                }
+                if name == "executing/cancel requested" {
+                    // Unsent intent first becomes due at the original response
+                    // window, before its later raw ambiguity release.
+                    assert_eq!(at, deadline);
+                    assert!(matches!(
+                        action,
+                        DueAction::Completion(CompletionDeadline::Cancelling {
+                            cancellation: ResolvingCancellation::Requested(_),
+                            ..
+                        })
+                    ));
+                }
+            }
+            "resolving/awaiting terminal" => {
+                let (at, action) = lifecycle.due_action(None, Certainty::Unconfirmed).unwrap();
+                assert_eq!(at, observation, "the observer expires before the terminal");
+                assert!(matches!(
+                    action,
+                    DueAction::CancellationObservation { terminal_at }
+                        if Some(terminal_at) == window
+                ));
+                let mut observed = lifecycle;
+                observed.close_observer();
+                let (at, action) = observed.due_action(None, Certainty::Unconfirmed).unwrap();
+                assert_eq!(
+                    Some(at),
+                    window,
+                    "closing the observer keeps the terminal window"
+                );
+                assert!(matches!(
+                    action,
+                    DueAction::CancellationResolution {
+                        observation_deadline: None
+                    }
+                ));
+            }
+            "resolving/requested" | "resolving/sending" | "resolving/observation failed" => {
+                let (at, action) = lifecycle.due_action(None, Certainty::Unconfirmed).unwrap();
+                assert_eq!(Some(at), window, "{name}: terminal resolution window");
+                assert!(matches!(
+                    action,
+                    DueAction::CancellationResolution {
+                        observation_deadline: None
+                    }
+                ));
+            }
+            _ => {}
+        }
+        let expected_release = match name {
+            "ACK/cancel requested" => Some(RawCancellationRelease {
+                at: ambiguity,
+                scope: ReleaseScope::PreAckUnkeyed,
+            }),
+            "executing/cancel requested"
+            | "executing/cancel sending"
+            | "executing/observation failed"
+            | "resolving/requested"
+            | "resolving/sending"
+            | "resolving/awaiting terminal"
+            | "resolving/observation failed" => Some(RawCancellationRelease {
+                at: ambiguity,
+                scope: ReleaseScope::ExactSocket(ViscaSocket::S1),
+            }),
+            _ => None,
+        };
+        assert_eq!(
+            lifecycle.raw_cancellation_release(),
+            expected_release,
+            "{name}: release projection"
+        );
+        for budget in [None, Some(now), Some(ambiguity + Duration::from_millis(1))] {
+            let expected = if lifecycle.is_off_wire() {
+                None
+            } else {
+                [window, budget].into_iter().flatten().min()
+            };
+            assert_eq!(
+                lifecycle.correlated_response_deadline(budget),
+                expected,
+                "{name}: correlation window"
+            );
+        }
     }
     // Retried Ready is still off-wire, independent of its retained facts.
     assert_eq!(
@@ -255,6 +372,27 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
         }),
     ] {
         assert_eq!(lifecycle.response_window_end(), Some(deadline), "an earlier cancel window or later observer deadline cannot replace the response window");
+        let (at, action) = lifecycle.due_action(None, Certainty::Unconfirmed).unwrap();
+        assert_eq!(
+            at, deadline,
+            "an earlier ambiguity window must not advance due work"
+        );
+        if matches!(
+            lifecycle,
+            Lifecycle::AwaitingCancellationResolution {
+                cancellation: ResolvingCancellation::AwaitingTerminal { .. },
+                ..
+            }
+        ) {
+            assert!(
+                matches!(
+                    action,
+                    DueAction::CancellationResolution { observation_deadline: Some(at) }
+                        if at == ambiguity
+                ),
+                "a later observation deadline must not extend terminal resolution"
+            );
+        }
     }
     for (reply, expected) in [
         (SendingReply::Inquiry, SENDING | INQUIRY),

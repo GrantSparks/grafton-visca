@@ -729,7 +729,7 @@ pub fn return_home(
 
 Releases use a two-crate prerelease/final publish sequence because the main crate
 depends on the same-version `grafton-visca-macros` package. Follow
-[RELEASING.md](RELEASING.md) for `2.0.0-rc.3` versioning, changelog
+[RELEASING.md](RELEASING.md) for `2.0.0` versioning, changelog
 finalization, validation, tagging, crates.io index verification, and recovery if
 the macro package publishes but the main package does not. Never create a
 release tag from a commit that has not passed the complete 2.0 matrix — public

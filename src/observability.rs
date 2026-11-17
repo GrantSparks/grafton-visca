@@ -129,7 +129,9 @@ pub struct MetricsSnapshot {
     /// Operation-observer events — terminal outcomes and cancellation
     /// failures — dropped because their handle was already gone.
     pub dropped_observer_events: u64,
-    /// Boundary messages discarded while the owner terminated.
+    /// Boundary work dropped before the terminal snapshot was published.
+    /// Work that races publication is still answered during teardown without
+    /// changing the published snapshot.
     pub dropped_boundary_work: u64,
     /// Requests currently admitted and not terminal.
     pub active: usize,

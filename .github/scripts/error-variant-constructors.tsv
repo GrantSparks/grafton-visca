@@ -12,13 +12,12 @@ CommandBufferFull	src/error.rs	0x03 => Self::CommandBufferFull,
 CommandCancelled	src/error.rs	0x04 => Self::CommandCancelled,
 NoSocket	src/error.rs	0x05 => Self::NoSocket,
 CommandNotExecutable	src/error.rs	0x41 => Self::CommandNotExecutable,
-InvalidResponseFormat	src/command/response/payload.rs	let Some(padding) = N.checked_sub(digits) else { return Err(Error::InvalidResponseFormat);
+InvalidResponseFormat	src/command/response/payload.rs	if padding.iter().any(|&nibble| nibble != 0) { return Err(Error::InvalidResponseFormat);
 InvalidResponseLength	src/error.rs	Self::InvalidResponseLength { expected, actual: payload.len(),
 UnexpectedResponseType	src/command/inquiry_structs.rs	Response::Error(e) => Err(e), _ => Err(Error::UnexpectedResponseType),
 Unknown	src/error.rs	_ => Self::Unknown { code },
 InvalidRequest	src/raw.rs	if bytes.len() < 2 { return Err(Error::InvalidRequest { reason:
 MessageLengthError	src/error.rs	0x01 => Self::MessageLengthError,
-ParseError	src/error.rs	Self::ParseError { reason: Cow::Owned(err.to_string()), }
 TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
 InvalidParameter	src/macros/public.rs	crate::Error::InvalidParameter { parameter, value: ::std::borrow::Cow::Borrowed(
 BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))
@@ -36,7 +35,7 @@ InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState { reas
 OwnerTerminated	src/runtime/owner/boundary.rs	fn missing_terminal_error() -> Error { Error::OwnerTerminated }
 DiagnosticSubscriberLimit	src/runtime/owner/mod.rs	return Err(Error::DiagnosticSubscriberLimit {
 RuntimeShutdown	src/runtime/engine/mod.rs	self.terminate_session( EndStatus::Shutdown, Error::RuntimeShutdown, now, effects, )
-CancellationUnconfirmed	src/runtime/engine/mod.rs	CorrelationRef::Sequenced => { self.finish(id, Error::CancellationUnconfirmed, now, effects)
+CancellationUnconfirmed	src/runtime/engine/mod.rs	Some(Error::CancellationUnconfirmed), AttemptEvidence::Lifecycle
 UnsequencedCommandUnconfirmed	src/runtime/engine/mod.rs	self.finish_with_cancel_hold(id, Error::UnsequencedCommandUnconfirmed, keep_cancel_hold, now, effects,)
 InquiryCorrelationLost	src/runtime/engine/mod.rs	return Some(Error::inquiry_correlation_lost(target.camera()));
 CommandCorrelationLost	src/runtime/engine/mod.rs	.then(|| Error::command_correlation_lost(target.camera()))

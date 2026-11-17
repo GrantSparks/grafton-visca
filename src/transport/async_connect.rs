@@ -193,6 +193,86 @@ mod tests {
         }
     }
 
+    /// Local fake: fail DNS with a chosen typed cause while using each
+    /// runtime's production timeout and connector pipeline.
+    struct ResolverFailureNet<N>(std::marker::PhantomData<N>);
+
+    impl<N: AsyncNet + 'static> AsyncNet for ResolverFailureNet<N> {
+        type TcpStream = N::TcpStream;
+        type UdpSocket = N::UdpSocket;
+
+        async fn lookup(endpoint: String) -> io::Result<Vec<SocketAddr>> {
+            let kind = if endpoint.starts_with("missing.") {
+                io::ErrorKind::NotFound
+            } else {
+                io::ErrorKind::Other
+            };
+            Err(io::Error::new(kind, "injected resolver failure"))
+        }
+        async fn connect_tcp(
+            address: SocketAddr,
+            options: TcpConnectionConfig,
+        ) -> io::Result<Self::TcpStream> {
+            N::connect_tcp(address, options).await
+        }
+        async fn bind_udp(address: SocketAddr) -> io::Result<Self::UdpSocket> {
+            N::bind_udp(address).await
+        }
+        async fn connect_udp(socket: &Self::UdpSocket, address: SocketAddr) -> io::Result<()> {
+            N::connect_udp(socket, address).await
+        }
+        fn tcp_socket(stream: &Self::TcpStream) -> socket2::SockRef<'_> {
+            N::tcp_socket(stream)
+        }
+        fn udp_socket(socket: &Self::UdpSocket) -> socket2::SockRef<'_> {
+            N::udp_socket(socket)
+        }
+        async fn sleep(duration: Duration) {
+            N::sleep(duration).await;
+        }
+    }
+
+    async fn check_resolver_source<N: AsyncNet + 'static>() {
+        use std::error::Error as _;
+        for (endpoint, kind) in [
+            ("missing.camera:1259", io::ErrorKind::NotFound),
+            ("failed.camera:1259", io::ErrorKind::Other),
+        ] {
+            for error in [
+                connect_tcp::<ResolverFailureNet<N>>(endpoint, TransportConfig::for_tcp().into())
+                    .await
+                    .err()
+                    .expect("failed lookup"),
+                connect_udp::<ResolverFailureNet<N>>(endpoint, TransportConfig::for_udp().into())
+                    .await
+                    .err()
+                    .expect("failed lookup"),
+            ] {
+                assert!(
+                    matches!(error, Error::ConnectionFailed { ref addr, .. } if addr == endpoint)
+                );
+                assert_eq!(
+                    error
+                        .source()
+                        .expect("source")
+                        .downcast_ref::<std::sync::Arc<io::Error>>()
+                        .expect("I/O cause")
+                        .kind(),
+                    kind
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn resolver_io_sources_survive_the_runtime_connector_boundary() {
+        check_resolver_source::<crate::transport::tokio::connectors::TokioNet>().await;
+        #[cfg(feature = "runtime-smol")]
+        smol::block_on(check_resolver_source::<
+            crate::transport::smol::connectors::SmolNet,
+        >());
+    }
+
     /// Local fake: inject one real socket-option failure before a runtime's
     /// normal connect, while exercising the production address-attempt loop.
     struct OptionFailureNet<N>(std::marker::PhantomData<N>);

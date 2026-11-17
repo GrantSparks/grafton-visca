@@ -33,11 +33,16 @@ use std::{
 
 use crate::Error;
 
-use super::boundary::{OwnerHandleCore, OwnerSnapshot};
+use super::boundary::{BoundaryReceivers, OwnerHandleCore, OwnerSnapshot, RetainedBoundary};
 use super::clock::{Clock, Select};
 use super::receipt::{ObservationWake, OperationReceipt, TerminalWake};
-use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
-use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
+use super::shell::{
+    ClassifiedEvent, NonBoundaryEvent, OwnerEvent, OwnerShellCore, SelectedOwnerInput, TurnStep,
+};
+use super::turn::{
+    BoundaryPoll, BoundarySource, NonBoundarySource, PlannedTurn, ReceiveArm, Selection,
+    SelectionPoll, Source, TimerArm, TurnOutcome, TurnPlan,
+};
 use super::{
     CancellationObserver, OwnerBuffers, OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState,
     RetainedStreamInput, TerminalObserver, WireWrite, WriteOutcome,
@@ -110,84 +115,94 @@ impl BlockingOwnerIo {
     /// Select one event in the planned order. A pass polls every source once;
     /// a pass in which nothing was ready is repeated, so the selection stays
     /// the one the coordinator planned until a source is ready.
-    fn select_event<D>(
+    fn select_event<'a, D>(
         &mut self,
-        core: &mut OwnerShellCore,
+        state: &mut OwnerState,
+        receivers: &BoundaryReceivers,
         selection: Selection,
+        mut turn: PlannedTurn<'a, RetainedBoundary>,
         driver: &mut D,
-    ) -> OwnerEvent
+    ) -> SelectedOwnerInput<'a>
     where
         D: BlockingOwnerDriver,
     {
-        let read_timeout = core.state.facts().read_timeout;
-        let frame_limit = core.state.facts().limits.frames_per_receive;
+        use std::task::{Context, Poll, Waker};
+        let mut context = Context::from_waker(Waker::noop());
+        let read_timeout = state.facts().read_timeout;
+        let frame_limit = state.facts().limits.frames_per_receive;
         // Time this selection has spent reading without data. Like the async
         // read under its timeout, it restarts with every selection.
         let mut idle = Duration::ZERO;
         loop {
             let mut read = false;
             let mut idle_elapsed_at = None;
-            for (position, source) in selection.order().enumerate() {
-                let event = match source {
-                    Source::Receive => match selection.receive {
-                        // The exact no-input probe for this release set is
-                        // done: the receive source is immediately ready with
-                        // the timer event instead of another read.
-                        ReceiveArm::ProofComplete => Some(OwnerEvent::Wake),
-                        // An idle or faulted read paces the next one; the
-                        // other sources stay live while this one waits.
-                        ReceiveArm::Paced { until } if self.clock.now() < until => None,
-                        ReceiveArm::Poll | ReceiveArm::Paced { .. } => {
-                            read = true;
-                            let later_ready = selection
-                                .order()
-                                .skip(position.saturating_add(1))
-                                .any(|later| self.is_ready(core, later, selection.timer));
-                            let timeout = if later_ready {
-                                READY_PROBE
-                            } else {
-                                read_slice(
-                                    selection.timer,
-                                    read_timeout.saturating_sub(idle),
-                                    self.clock.now(),
-                                )
-                            };
-                            match receive(
-                                &mut core.state,
-                                driver,
-                                &self.clock,
-                                ReadBudget {
-                                    frame_limit,
-                                    timeout,
-                                    read_timeout,
-                                },
-                                &mut idle,
-                            ) {
-                                ReadVerdict::Event {
-                                    result,
-                                    received_at,
-                                } => Some(OwnerEvent::Receive {
-                                    result,
-                                    received_at,
-                                }),
-                                ReadVerdict::Pending {
-                                    idle_elapsed,
-                                    received_at,
-                                } => {
-                                    idle_elapsed_at = idle_elapsed.then_some(received_at);
-                                    None
+            let selected = turn.poll_in_order(
+                selection,
+                &mut context,
+                |position, source, _| {
+                    let event = match source {
+                        NonBoundarySource::Receive => match selection.receive {
+                            // The exact no-input probe for this release set is
+                            // done: the receive source is immediately ready with
+                            // the timer event instead of another read.
+                            ReceiveArm::ProofComplete => Some(NonBoundaryEvent::Wake),
+                            // An idle or faulted read paces the next one; the
+                            // other sources stay live while this one waits.
+                            ReceiveArm::Paced { until } if self.clock.now() < until => None,
+                            ReceiveArm::Poll | ReceiveArm::Paced { .. } => {
+                                read = true;
+                                let later_ready = selection
+                                    .order()
+                                    .skip(position.saturating_add(1))
+                                    .any(|later| self.is_ready(receivers, later, selection.timer));
+                                let timeout = if later_ready {
+                                    READY_PROBE
+                                } else {
+                                    read_slice(
+                                        selection.timer,
+                                        read_timeout.saturating_sub(idle),
+                                        self.clock.now(),
+                                    )
+                                };
+                                match receive(
+                                    state,
+                                    driver,
+                                    &self.clock,
+                                    ReadBudget {
+                                        frame_limit,
+                                        timeout,
+                                        read_timeout,
+                                    },
+                                    &mut idle,
+                                ) {
+                                    ReadVerdict::Event {
+                                        result,
+                                        received_at,
+                                    } => Some(NonBoundaryEvent::Receive {
+                                        result,
+                                        received_at,
+                                    }),
+                                    ReadVerdict::Pending {
+                                        idle_elapsed,
+                                        received_at,
+                                    } => {
+                                        idle_elapsed_at = idle_elapsed.then_some(received_at);
+                                        None
+                                    }
                                 }
                             }
-                        }
-                    },
-                    Source::Timer => {
-                        timer_ready(selection.timer, self.clock.now()).then_some(OwnerEvent::Wake)
-                    }
-                    lane => self.try_lane(core, lane),
-                };
-                if let Some(event) = event {
-                    return event;
-                }
+                        },
+                        NonBoundarySource::Timer => timer_ready(selection.timer, self.clock.now())
+                            .then_some(NonBoundaryEvent::Wake),
+                        lane => self.try_other_lane(receivers, lane),
+                    };
+                    event.map_or(Poll::Pending, Poll::Ready)
+                },
+                |source, _| self.try_boundary_lane(receivers, source),
+            );
+            match selected {
+                SelectionPoll::Ready(input) => return input,
+                SelectionPoll::Pending(parked) => turn = parked,
             }
             if let Some(received_at) = idle_elapsed_at {
                 // A timed-out read remains pending while the same pass polls
@@ -195,12 +210,12 @@ impl BlockingOwnerIo {
                 // timeout win, matching the async operation-versus-lanes race.
                 // Preserve the read's sampled instant for raw hold proofs;
                 // polling boundary lanes supplies no later receive evidence.
-                return OwnerEvent::Receive {
+                return turn.into_other(NonBoundaryEvent::Receive {
                     result: OwnerReceive::NoProgress(
                         crate::runtime::owner::NoProgressReason::IdleTimeout,
                     ),
                     received_at,
-                };
+                });
             }
             if !read {
                 // Receive is paced and no other source is ready: wait for the
@@ -211,8 +226,7 @@ impl BlockingOwnerIo {
     }
 
     /// Whether `source` would be selected now, without consuming anything.
-    fn is_ready(&self, core: &OwnerShellCore, source: Source, timer: TimerArm) -> bool {
-        let receivers = &core.receivers;
+    fn is_ready(&self, receivers: &BoundaryReceivers, source: Source, timer: TimerArm) -> bool {
         match source {
             Source::Shutdown => !receivers.shutdown.is_empty(),
             Source::Cancellation => !receivers.cancellations.is_empty(),
@@ -229,28 +243,48 @@ impl BlockingOwnerIo {
     /// Poll one boundary lane without blocking. A disconnected shutdown,
     /// cancellation or control lane never becomes ready; a disconnected
     /// admission lane is reported, since it means every handle is gone.
-    fn try_lane(&self, core: &OwnerShellCore, source: Source) -> Option<OwnerEvent> {
-        let receivers = &core.receivers;
+    fn try_other_lane(
+        &self,
+        receivers: &BoundaryReceivers,
+        source: NonBoundarySource,
+    ) -> Option<NonBoundaryEvent> {
         match source {
-            Source::Shutdown => receivers
+            NonBoundarySource::Shutdown => receivers
                 .shutdown
                 .try_recv()
                 .ok()
-                .map(|()| OwnerEvent::Shutdown),
-            Source::Cancellation => receivers
+                .map(|()| NonBoundaryEvent::Shutdown),
+            NonBoundarySource::Control => receivers
+                .control
+                .try_recv()
+                .ok()
+                .map(NonBoundaryEvent::Control),
+            NonBoundarySource::Receive | NonBoundarySource::Timer => None,
+        }
+    }
+
+    fn try_boundary_lane(
+        &self,
+        receivers: &BoundaryReceivers,
+        source: BoundarySource,
+    ) -> std::task::Poll<BoundaryPoll<RetainedBoundary, NonBoundaryEvent>> {
+        use std::task::Poll;
+        match source {
+            BoundarySource::Cancellation => receivers
                 .cancellations
                 .try_recv()
                 .ok()
-                .map(OwnerEvent::Cancellation),
-            Source::Admission => match receivers.admissions.try_recv() {
-                Ok(admission) => Some(OwnerEvent::Admission(Ok(admission))),
-                Err(flume::TryRecvError::Disconnected) => {
-                    Some(OwnerEvent::Admission(Err(flume::RecvError::Disconnected)))
+                .map(|value| BoundaryPoll::Boundary(RetainedBoundary::Cancellation(value)))
+                .map_or(Poll::Pending, Poll::Ready),
+            BoundarySource::Admission => match receivers.admissions.try_recv() {
+                Ok(value) => {
+                    Poll::Ready(BoundaryPoll::Boundary(RetainedBoundary::Admission(value)))
                 }
-                Err(flume::TryRecvError::Empty) => None,
+                Err(flume::TryRecvError::Disconnected) => {
+                    Poll::Ready(BoundaryPoll::Other(NonBoundaryEvent::AdmissionDisconnected))
+                }
+                Err(flume::TryRecvError::Empty) => Poll::Pending,
             },
-            Source::Control => receivers.control.try_recv().ok().map(OwnerEvent::Control),
-            Source::Receive | Source::Timer => None,
         }
     }
 }

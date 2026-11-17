@@ -19,10 +19,11 @@
 //!   expiry as [`Error::io_timeout`]. A zero-byte timed serial write also means
 //!   its device timeout elapsed; a zero-byte socket write is `WriteZero`.
 //!   Claiming more bytes than supplied is always [`Error::Io`].
-//! - **Reads.** [`read_once_bounded`] retries `Interrupted` within the same
-//!   deadline, re-arming the remaining budget each time. Other idle results
-//!   are classified with [`TimedIo`]. Successful zero-byte stream reads are
-//!   EOF, including serial startup, through [`super::stream_read`].
+//! - **Reads.** [`read_once_bounded`] retries `Interrupted` and early idle
+//!   results within the same deadline, re-arming the remaining budget each
+//!   time. [`TimedIo`] distinguishes idle from connection faults. A timeout
+//!   is reported only after the precise deadline. Successful zero-byte stream
+//!   reads are EOF, including serial startup, through [`super::stream_read`].
 //!
 //! All of this is synchronous; the blocking facade stays executor-free.
 
@@ -126,8 +127,8 @@ pub(crate) fn write_all_bounded<Io: Write + ?Sized>(
     Ok(())
 }
 
-/// Read within `timeout`, retrying signal interruptions within that deadline
-/// and reporting other idle ends as [`Error::io_timeout`] according to `kind`.
+/// Read within `timeout`, retrying signal interruptions and early idle results
+/// until that deadline, then reporting [`Error::io_timeout`] according to `kind`.
 /// A zero budget ends idle before arming or reading; an unrepresentable
 /// monotonic-clock budget is rejected as [`Error::InvalidParameter`].
 pub(crate) fn read_once_bounded<Io: Read + ?Sized>(
@@ -141,8 +142,8 @@ pub(crate) fn read_once_bounded<Io: Read + ?Sized>(
     read_before(io, arm, dst, deadline, kind, Instant::now)
 }
 
-/// The bounded read loop; its clock seam pins interruptions at the deadline.
-fn read_before<Io: Read + ?Sized>(
+/// The bounded read loop; its clock seam pins signal and idle retries at the deadline.
+pub(crate) fn read_before<Io: Read + ?Sized>(
     io: &mut Io,
     arm: Arm<Io>,
     dst: &mut [u8],
@@ -155,8 +156,9 @@ fn read_before<Io: Read + ?Sized>(
         arm(io, remaining)?;
         match io.read(dst) {
             Ok(read) => return Ok(read),
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) if kind.ended_idle(&error) => return Err(Error::io_timeout()),
+            // Device and socket timers may return before the precise budget,
+            // so an idle result rechecks the same deadline before re-arming.
+            Err(error) if kind.ended_idle(&error) => {}
             Err(error) => return Err(error.into()),
         }
     }
@@ -333,6 +335,84 @@ mod helper_tests {
                         "no syscall after the interrupted read spent the deadline"
                     );
                     assert_eq!(io.armed, [budget]);
+                }
+            }
+        }
+    }
+
+    /// Local fake: a coarse device returns idle before the exact deadline.
+    struct EarlyIdleRead {
+        clock: std::rc::Rc<std::cell::Cell<Instant>>,
+        armed: Vec<Duration>,
+        reads: usize,
+        data_on_retry: bool,
+        idle_kind: ErrorKind,
+    }
+
+    impl EarlyIdleRead {
+        fn arm(&mut self, timeout: Duration) -> io::Result<()> {
+            self.armed.push(timeout);
+            Ok(())
+        }
+    }
+
+    impl Read for EarlyIdleRead {
+        fn read(&mut self, dst: &mut [u8]) -> io::Result<usize> {
+            self.reads += 1;
+            if self.reads == 2 && self.data_on_retry {
+                dst[..3].copy_from_slice(b"ACK");
+                return Ok(3);
+            }
+            let elapsed = if self.reads == 1 {
+                Duration::from_micros(9_600)
+            } else {
+                *self.armed.last().expect("armed before reading")
+            };
+            self.clock.set(self.clock.get() + elapsed);
+            Err(self.idle_kind.into())
+        }
+    }
+
+    #[test]
+    fn idle_reads_rearm_until_the_precise_deadline() {
+        let budget = Duration::from_micros(10_500);
+        for (kind, idle_kind) in [
+            (TimedIo::Bounded, ErrorKind::TimedOut),
+            (TimedIo::StreamSocketRead, ErrorKind::WouldBlock),
+            #[cfg(feature = "transport-serial")]
+            (TimedIo::SerialDevice, ErrorKind::TimedOut),
+        ] {
+            for data_on_retry in [false, true] {
+                let started = Instant::now();
+                let clock = std::rc::Rc::new(std::cell::Cell::new(started));
+                let mut io = EarlyIdleRead {
+                    clock: clock.clone(),
+                    armed: Vec::new(),
+                    reads: 0,
+                    data_on_retry,
+                    idle_kind,
+                };
+                let deadline = Deadline::after(started, budget, "read_timeout").expect("deadline");
+                let mut dst = [0; 16];
+                let result = read_before(
+                    &mut io,
+                    EarlyIdleRead::arm,
+                    &mut dst,
+                    deadline,
+                    kind,
+                    || clock.get(),
+                );
+                assert_eq!(
+                    io.reads, 2,
+                    "an early idle must re-arm the remaining budget"
+                );
+                assert_eq!(io.armed, [budget, Duration::from_micros(900)]);
+                if data_on_retry {
+                    assert_eq!(result.expect("data after early idle"), 3);
+                    assert_eq!(&dst[..3], b"ACK");
+                } else {
+                    assert!(matches!(result, Err(Error::Timeout { .. })));
+                    assert_eq!(clock.get().duration_since(started), budget);
                 }
             }
         }

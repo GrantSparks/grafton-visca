@@ -161,12 +161,45 @@ struct RawHold {
 enum CompletionSockets {
     /// Nothing learned yet: socketless completions take the conservative
     /// path.
-    Unknown,
-    /// A completion named its socket.
-    Named,
+    Unknown { dropped: u32, retired: u32 },
+    /// A completion named its socket; prior ambiguous completions await payment.
+    Named { unpaid: u32 },
     /// A socketless completion arrived with no `CompletionOnly` command
     /// outstanding. Permanent for the session.
     Omitted,
+}
+
+impl Default for CompletionSockets {
+    fn default() -> Self {
+        Self::Unknown {
+            dropped: 0,
+            retired: 0,
+        }
+    }
+}
+
+impl CompletionSockets {
+    const fn is_named(self) -> bool {
+        matches!(self, Self::Named { .. })
+    }
+
+    fn learn_named(&mut self) {
+        if let Self::Unknown { dropped, .. } = *self {
+            *self = Self::Named { unpaid: dropped };
+        }
+    }
+
+    fn drop_ambiguous(&mut self) {
+        if let Self::Unknown { dropped, .. } = self {
+            *dropped = dropped.saturating_add(1);
+        }
+    }
+
+    fn retire_completion(&mut self) {
+        if let Self::Unknown { retired, .. } = self {
+            *retired = retired.saturating_add(1);
+        }
+    }
 }
 
 /// Time-bounded retained-input decision for one due raw release (#713).
@@ -179,7 +212,7 @@ struct RawReleaseGate {
 /// Socketless completions that could belong to a held predecessor or a live
 /// holder. Identity snapshots prevent an old frame from completing a successor
 /// after socket reuse; only a complete count proves that every candidate ended.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PendingSocketlessCompletions {
     candidates: [Option<RequestId>; 2],
     count: u8,
@@ -202,6 +235,21 @@ enum AttemptEvidence {
     Unwritten,
     Written,
     Rejected,
+}
+
+/// One decision for the correlation and retry consequences of an ending attempt.
+#[derive(Debug, Clone, Copy)]
+enum AttemptEnd {
+    Queued,
+    RawCommand,
+    // Raw datagram inquiries retain their bounded shape hold even when the
+    // prepared policy permits retry. Stream reply debt never permits replay.
+    RawInquiry {
+        retry: Option<(RetryEligibility, Backoff)>,
+    },
+    Sequenced {
+        retry: Option<(RetryEligibility, Backoff)>,
+    },
 }
 
 /// Only the actual camera-error ingress can classify an attempt as rejected.
@@ -232,6 +280,48 @@ impl Entry {
         self.lifecycle()
             .reply_family()
             .unwrap_or_else(|| SendingReply::new(&self.request))
+    }
+
+    fn attempt_end(
+        &self,
+        mode: CorrelationRef<'_>,
+        evidence: AttemptEvidence,
+        due: Option<DueAction>,
+    ) -> AttemptEnd {
+        if self.lifecycle().is_off_wire() || matches!(evidence, AttemptEvidence::Unwritten) {
+            return AttemptEnd::Queued;
+        }
+        let policy = self.request.context().retry;
+        let retry = match due {
+            Some(DueAction::Ack { retry, .. }) => {
+                policy.ack_timeout.then_some((retry, Backoff::AckCapped))
+            }
+            Some(DueAction::Completion(CompletionDeadline::Unacknowledged { retry })) => policy
+                .completion_timeout
+                .then_some((retry, Backoff::Uncapped)),
+            Some(DueAction::InquiryReply { retry }) => {
+                (policy.inquiry_timeout && !mode.is_stream()).then_some((retry, Backoff::Uncapped))
+            }
+            Some(
+                DueAction::Completion(
+                    CompletionDeadline::Accepted | CompletionDeadline::Cancelling { .. },
+                )
+                | DueAction::CancellationResolution { .. }
+                | DueAction::CancellationObservation { .. }
+                | DueAction::RetryBudget { .. }
+                | DueAction::RetryReady { .. },
+            )
+            | None => None,
+        };
+        if mode.is_raw() {
+            if self.reply_family() == SendingReply::Inquiry {
+                AttemptEnd::RawInquiry { retry }
+            } else {
+                AttemptEnd::RawCommand
+            }
+        } else {
+            AttemptEnd::Sequenced { retry }
+        }
     }
 
     fn retry_count(&self) -> u32 {
@@ -492,11 +582,6 @@ impl EngineAccess for ProtocolEngine {
 impl ProtocolEngine {
     /// Constructs an empty session engine. Targets are registered separately.
     pub(crate) fn new(policy: ProtocolPolicy, now: Instant) -> Result<Self, Error> {
-        if policy.capacity == 0 || policy.inquiry_capacity == 0 {
-            return Err(Error::InvalidRequest {
-                reason: "engine and inquiry capacity must be non-zero".into(),
-            });
-        }
         policy.validate_at(now)?;
         let correlation = CorrelationMode::new(policy.wire.kind(), policy.transport);
         Ok(Self {
@@ -843,7 +928,7 @@ trait EngineMethods: EngineAccess {
                     || self.raw_target_hold_active(target)
                     || mode.ledger().owes_rejection(target)
                     || (self.raw_socket_hold_running(target, now)
-                        && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets == CompletionSockets::Named))
+                        && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets.is_named()))
             }
             (_, SendingReply::AckThenCompletion) => false,
         }
@@ -854,11 +939,6 @@ trait EngineMethods: EngineAccess {
         match entry.request.lane() {
             Lane::Inquiry => {
                 self.hold_blocks_in(entry, target, occupancy)
-                    || (if self.mode().is_raw() {
-                        state.inquiries
-                    } else {
-                        occupancy.total_inquiries
-                    }) >= self.policy.inquiry_capacity
                     || self.uncorrelated_shape_blocked_in(entry, target, now, occupancy)
                     || (self.mode().is_raw()
                         && entry.request.payload_shape().is_some_and(|shape| {
@@ -1183,9 +1263,9 @@ trait EngineMethods: EngineAccess {
         let target = request.context().target;
         match slot {
             AdmissionSlot::Ordinary => {
-                if self.entries_holding(slot, target) >= self.policy.capacity {
+                if self.entries_holding(slot, target) >= self.policy.capacity.get() {
                     return Err(Error::RuntimeQueueFull {
-                        capacity: self.policy.capacity,
+                        capacity: self.policy.capacity.get(),
                     });
                 }
             }
@@ -1305,11 +1385,11 @@ trait EngineMethods: EngineAccess {
         {
             return false;
         }
-        let certainty = entry.certainty(AttemptEvidence::Unwritten);
+        let error = terminal_timeout(entry, AttemptEvidence::Unwritten);
         let mut effects = Decision::new(sink);
         self.finish_observed(
             owner.request,
-            Error::timeout(FailureStage::Terminal, certainty),
+            error,
             AttemptEvidence::Unwritten,
             now,
             &mut effects,
@@ -1566,7 +1646,6 @@ trait EngineMethods: EngineAccess {
         match entry.request.lane() {
             Lane::Inquiry => {
                 self.raw_hold_blocks_dispatch(entry, target)
-                    || self.inquiries_inflight_for(target) >= self.policy.inquiry_capacity
                     || self.uncorrelated_raw_shape_blocked(entry, target, now)
                     || (self.mode().is_raw()
                         && entry.request.payload_shape().is_some_and(|shape| {
@@ -1633,17 +1712,13 @@ trait EngineMethods: EngineAccess {
         })
     }
 
-    /// Inquiry capacity is session-wide for Sony envelopes because sequence
-    /// correlation shares one transport namespace. Raw VISCA has no sequence
-    /// field, but its response source identifies the camera, so independent
-    /// targets have independent positional inquiry lanes.
+    /// Independent per-target inquiry count for the occupancy model.
     #[cfg(test)]
     fn inquiries_inflight_for(&self, target: TargetSlot) -> usize {
         self.entries
             .values()
             .filter(|entry| {
-                (!self.mode().is_raw() || entry.request.context().target == target)
-                    && entry.lifecycle().is_live_inquiry()
+                entry.request.context().target == target && entry.lifecycle().is_live_inquiry()
             })
             .count()
     }
@@ -2041,7 +2116,7 @@ trait EngineMethods: EngineAccess {
                     || self.raw_target_hold_active(target)
                     || mode.ledger().owes_rejection(target)
                     || (self.raw_socket_hold_running(target, now)
-                        && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets == CompletionSockets::Named))
+                        && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets.is_named()))
             }
             (_, SendingReply::AckThenCompletion) => false,
         }
@@ -2134,17 +2209,13 @@ trait EngineMethods: EngineAccess {
         let Some(entry) = self.entries.get(&owner.request) else {
             return;
         };
-        let certainty = entry.certainty(AttemptEvidence::Unwritten);
-        let possible = certainty == Certainty::Unconfirmed;
-        let error = Error::transmission_not_sent(source, certainty);
-        // No current bytes left, but an earlier attempt's owed answers and
-        // raw ambiguity must survive this logical request's terminal.
-        if possible && self.mode().is_raw() {
-            self.quarantine_unconfirmed_raw(owner.request, now);
-        }
-        self.finish_observed(
+        let error =
+            Error::transmission_not_sent(source, entry.certainty(AttemptEvidence::Unwritten));
+        let ending = entry.attempt_end(self.mode(), AttemptEvidence::Unwritten, None);
+        self.end_attempt(
             owner.request,
-            error,
+            ending,
+            Some(error),
             AttemptEvidence::Unwritten,
             now,
             effects,
@@ -2173,59 +2244,26 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) -> bool {
-        let Some((deadline, raw_active_command)) =
-            self.entries.get(&owner.request).and_then(|entry| {
-                entry.retry_budget_deadline().map(|deadline| {
-                    (
-                        deadline,
-                        self.mode().is_raw()
-                            && entry.reply_family() != SendingReply::Inquiry
-                            && entry.lifecycle().is_sending(),
-                    )
-                })
-            })
-        else {
-            return false;
-        };
-        if owner.write.kind() != CorrelationKind::Request || deadline >= now {
-            return false;
-        }
         let Some(entry) = self.entries.get(&owner.request) else {
             return false;
         };
-        let error = entry.terminal_error(
-            entry
-                .retry_cause()
-                .cloned()
-                .unwrap_or_else(|| terminal_timeout(entry)),
-            AttemptEvidence::Written,
-        );
-        self.mark_stream_answer_written(owner.request, false);
-
-        if raw_active_command {
-            // Remove the active transmission and retain raw correlation through its ambiguity window (or poisons in strict
-            // recovery mode).
-            self.terminate_unconfirmed_raw(
-                owner.request,
-                UnconfirmedScope::Lifecycle,
-                now,
-                effects,
-            );
-        } else {
-            // A raw inquiry can be physically uncertain while
-            // its write result is still pending too. Retain the same bounded
-            // shape hold before normal terminal cleanup so a delayed reply
-            // cannot bind to an overlapping successor. A successful stream
-            // write proves the bytes entered the stream, so there the reply
-            // is owed instead (`retire_stream_answers`).
-            if !self.mode().is_stream() {
-                self.quarantine_raw_inquiry_correlation(owner.request, now);
-            }
-            // A late successful Sony result cannot
-            // extend the budget or mutate correlation. Preserve the prior
-            // retry cause when there is one, matching ordinary budget expiry.
-            self.finish_observed(owner.request, error, AttemptEvidence::Written, now, effects);
+        if owner.write.kind() != CorrelationKind::Request
+            || entry
+                .retry_budget_deadline()
+                .is_none_or(|deadline| deadline >= now)
+        {
+            return false;
         }
+        let ending = entry.attempt_end(self.mode(), AttemptEvidence::Written, None);
+        self.mark_stream_answer_written(owner.request, false);
+        self.end_attempt(
+            owner.request,
+            ending,
+            None,
+            AttemptEvidence::Written,
+            now,
+            effects,
+        );
         true
     }
 
@@ -2388,28 +2426,18 @@ trait EngineMethods: EngineAccess {
         }
         match owner.write {
             ActiveWrite::Request { .. } => {
-                let raw_command = self.mode().is_raw()
-                    && self
-                        .entries
-                        .get(&owner.request)
-                        .is_some_and(|entry| entry.reply_family() != SendingReply::Inquiry);
-                if raw_command {
-                    self.terminate_unconfirmed_raw(
-                        owner.request,
-                        UnconfirmedScope::Lifecycle,
-                        now,
-                        effects,
-                    );
-                } else {
-                    self.quarantine_raw_inquiry_correlation(owner.request, now);
-                    self.finish_terminal_error(
-                        owner.request,
-                        error,
-                        AttemptEvidence::Written,
-                        now,
-                        effects,
-                    );
-                }
+                let Some(entry) = self.entries.get(&owner.request) else {
+                    return;
+                };
+                let ending = entry.attempt_end(self.mode(), AttemptEvidence::Written, None);
+                self.end_attempt(
+                    owner.request,
+                    ending,
+                    Some(error),
+                    AttemptEvidence::Written,
+                    now,
+                    effects,
+                );
             }
             ActiveWrite::Cancellation(write) => {
                 self.failed_cancellation_transmission(owner.request, write, error, now, effects);
@@ -3046,7 +3074,10 @@ trait EngineMethods: EngineAccess {
         let learning = &stream.learning[target];
         self.raw_socket_hold_count(target) != 0
             || learning.pending_socketless_completions.is_some()
-            || learning.unlearned_completions != 0
+            || matches!(
+                learning.completion_sockets,
+                CompletionSockets::Unknown { dropped: 1.., .. }
+            )
             || self
                 .command_sockets(target)
                 .sockets()
@@ -3166,12 +3197,13 @@ trait EngineMethods: EngineAccess {
         let completion = entry.request.context().timeout.completion.get();
         let deadline = add_duration(now, completion);
         if socket.is_none() && self.uncertain_socketless_stream_ack(target) {
+            let ending = entry.attempt_end(self.mode(), AttemptEvidence::Lifecycle, None);
             let (core, mode) = self.split();
             if let CorrelationState::RawStream(stream) = mode {
                 StreamContext { core, stream }
                     .hold_uncertain_socketless_execution(target, completion, now, effects);
             }
-            self.terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects);
+            self.end_attempt(id, ending, None, AttemptEvidence::Lifecycle, now, effects);
             return;
         }
         let Some(socket) = self.assign_ack_socket(target, socket, id, now, effects) else {
@@ -3301,12 +3333,6 @@ trait EngineMethods: EngineAccess {
     // ---------------------------------------------------------------------
     // The raw byte-stream correlation ledger (#795). See `stream_ledger`.
     // ---------------------------------------------------------------------
-
-    /// A written inquiry on a lossless raw stream is never resent for a
-    /// missing reply: its first answer remains owed in this shape class.
-    fn raw_stream_inquiry(&self, entry: &Entry) -> bool {
-        self.mode().is_stream() && entry.request.is_inquiry()
-    }
 
     /// The first answer `entry`'s write will be owed, when it is written on a
     /// raw byte stream. A `NoReply` command is owed nothing, but the camera
@@ -3934,7 +3960,7 @@ trait EngineMethods: EngineAccess {
         if let CorrelationState::RawStream(stream) = mode {
             stream.release_gate = None;
             stream.ledger.latch_due(now);
-            StreamContext { core, stream }.pay_unlearned_completions(now, effects);
+            StreamContext { core, stream }.pay_learned_completions(now, effects);
         }
         self.expire_raw_holds(now);
         #[cfg(debug_assertions)]
@@ -4089,20 +4115,84 @@ trait EngineMethods: EngineAccess {
         );
     }
 
+    /// Apply the single ending-attempt decision before ordinary terminal cleanup.
+    fn end_attempt(
+        &mut self,
+        id: RequestId,
+        ending: AttemptEnd,
+        cause: Option<Error>,
+        evidence: AttemptEvidence,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        let retry = match ending {
+            AttemptEnd::RawCommand => {
+                self.terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects);
+                return;
+            }
+            AttemptEnd::RawInquiry { retry } => {
+                self.retain_unanswered_inquiry(id, now);
+                retry
+            }
+            AttemptEnd::Queued => None,
+            AttemptEnd::Sequenced { retry } => retry,
+        };
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let cause = cause.unwrap_or_else(|| {
+            entry
+                .retry_cause()
+                .cloned()
+                .unwrap_or_else(|| terminal_timeout(entry, evidence))
+        });
+        // Cancellation resolution retains its own observation-stage contract;
+        // ordinary request failures use the logical request's certainty.
+        let error = match cause {
+            Error::CancellationUnconfirmed => cause,
+            cause => entry.terminal_error(cause, evidence),
+        };
+        // A refusal proves only this write sent nothing. An earlier possibly
+        // applied raw attempt still owns its correlation after the reply.
+        if matches!(evidence, AttemptEvidence::Unwritten)
+            && entry.certainty(evidence) == Certainty::Unconfirmed
+            && self.mode().is_raw()
+        {
+            self.quarantine_unconfirmed_raw(id, now);
+        }
+
+        if let Some((eligibility, backoff)) = retry {
+            self.schedule_retry(
+                id,
+                eligibility,
+                now,
+                RetryCause::Unconfirmed(error),
+                backoff,
+                effects,
+            );
+        } else {
+            self.finish_observed(id, error, evidence, now, effects);
+        }
+    }
+
     fn finish_cancellation_unconfirmed(
         &mut self,
         id: RequestId,
         now: Instant,
         effects: &mut Decision,
     ) {
-        match self.mode() {
-            CorrelationRef::RawDatagram(_) | CorrelationRef::RawStream(_) => {
-                self.terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects)
-            }
-            CorrelationRef::Sequenced => {
-                self.finish(id, Error::CancellationUnconfirmed, now, effects)
-            }
-        }
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let ending = entry.attempt_end(self.mode(), AttemptEvidence::Lifecycle, None);
+        self.end_attempt(
+            id,
+            ending,
+            Some(Error::CancellationUnconfirmed),
+            AttemptEvidence::Lifecycle,
+            now,
+            effects,
+        );
     }
 
     fn close_cancellation_observer(&mut self, id: RequestId, effects: &mut Decision) {
@@ -4122,7 +4212,7 @@ trait EngineMethods: EngineAccess {
             return;
         };
         let context = *entry.request.context();
-        let current_certainty = entry.certainty(AttemptEvidence::Lifecycle);
+        let ending = entry.attempt_end(self.mode(), AttemptEvidence::Lifecycle, Some(due.action));
         match due.action {
             DueAction::CancellationObservation { terminal_at } => {
                 self.close_cancellation_observer(id, effects);
@@ -4138,28 +4228,9 @@ trait EngineMethods: EngineAccess {
                 }
                 self.finish_cancellation_unconfirmed(id, now, effects);
             }
-            DueAction::RetryBudget {
-                retirement,
-                certainty,
-            } => {
-                let error = entry.terminal_error(
-                    entry
-                        .retry_cause()
-                        .cloned()
-                        .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty)),
-                    AttemptEvidence::Lifecycle,
-                );
-                match retirement {
-                    BudgetRetirement::Command if self.mode().is_raw() => self
-                        .terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects),
-                    BudgetRetirement::Inquiry => {
-                        self.retain_unanswered_inquiry(id, now);
-                        self.finish(id, error, now, effects);
-                    }
-                    BudgetRetirement::Queued | BudgetRetirement::Command => {
-                        self.finish(id, error, now, effects)
-                    }
-                }
+            DueAction::RetryBudget { certainty } => {
+                debug_assert_eq!(certainty, entry.certainty(AttemptEvidence::Lifecycle));
+                self.end_attempt(id, ending, None, AttemptEvidence::Lifecycle, now, effects);
             }
             DueAction::Ack {
                 sent_at,
@@ -4176,9 +4247,8 @@ trait EngineMethods: EngineAccess {
                     && deadline.saturating_duration_since(sent_at) <= context.timeout.ack.get()
                     && budget_at.is_none_or(|at| at > now)
                 {
-                    // A tracked first answer may still be proven. A positive
-                    // ambiguity interval buys one later deadline; a saturated
-                    // clock with no later instant terminalizes instead.
+                    // A tracked first answer may still be proven. Buy one
+                    // ambiguity interval if the clock can represent it.
                     let extended = add_duration(now, context.timeout.ambiguity.get());
                     if extended > now {
                         self.transition(
@@ -4193,31 +4263,22 @@ trait EngineMethods: EngineAccess {
                             effects,
                         );
                     } else {
-                        self.terminate_unconfirmed_raw(
+                        self.end_attempt(
                             id,
-                            UnconfirmedScope::Lifecycle,
+                            ending,
+                            None,
+                            AttemptEvidence::Lifecycle,
                             now,
                             effects,
                         );
                     }
-                } else if self.mode().is_raw() {
-                    self.terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects);
-                } else if context.retry.ack_timeout {
-                    self.schedule_retry(
-                        id,
-                        retry,
-                        now,
-                        RetryCause::Unconfirmed(Error::timeout(
-                            FailureStage::Terminal,
-                            current_certainty,
-                        )),
-                        Backoff::AckCapped,
-                        effects,
-                    );
                 } else {
-                    self.finish(
+                    let cause = terminal_timeout(entry, AttemptEvidence::Lifecycle);
+                    self.end_attempt(
                         id,
-                        Error::timeout(FailureStage::Terminal, current_certainty),
+                        ending,
+                        Some(cause),
+                        AttemptEvidence::Lifecycle,
                         now,
                         effects,
                     );
@@ -4227,53 +4288,16 @@ trait EngineMethods: EngineAccess {
             DueAction::Completion(completion) => {
                 let mark = effects.len();
                 match completion {
-                    CompletionDeadline::Unacknowledged { retry } => {
-                        if self.mode().is_raw() {
-                            self.terminate_unconfirmed_raw(
-                                id,
-                                UnconfirmedScope::Lifecycle,
-                                now,
-                                effects,
-                            );
-                        } else if context.retry.completion_timeout {
-                            self.schedule_retry(
-                                id,
-                                retry,
-                                now,
-                                RetryCause::Unconfirmed(Error::timeout(
-                                    FailureStage::Terminal,
-                                    current_certainty,
-                                )),
-                                Backoff::Uncapped,
-                                effects,
-                            );
-                        } else {
-                            self.finish(
-                                id,
-                                Error::timeout(FailureStage::Terminal, current_certainty),
-                                now,
-                                effects,
-                            );
-                        }
-                    }
-                    CompletionDeadline::Accepted => {
-                        if self.mode().is_raw() {
-                            self.terminate_unconfirmed_raw(
-                                id,
-                                UnconfirmedScope::Lifecycle,
-                                now,
-                                effects,
-                            );
-                        } else {
-                            // Acceptance permanently forbids replay, including
-                            // same-sequence Sony retransmission.
-                            self.finish(
-                                id,
-                                Error::timeout(FailureStage::Terminal, current_certainty),
-                                now,
-                                effects,
-                            );
-                        }
+                    CompletionDeadline::Unacknowledged { .. } | CompletionDeadline::Accepted => {
+                        let cause = terminal_timeout(entry, AttemptEvidence::Lifecycle);
+                        self.end_attempt(
+                            id,
+                            ending,
+                            Some(cause),
+                            AttemptEvidence::Lifecycle,
+                            now,
+                            effects,
+                        );
                     }
                     CompletionDeadline::Cancelling {
                         socket,
@@ -4300,24 +4324,17 @@ trait EngineMethods: EngineAccess {
                 }
                 record_deadline_expiry(id, DeadlineKind::Completion, mark, effects);
             }
-            DueAction::InquiryReply { retry } => {
+            DueAction::InquiryReply { .. } => {
                 let mark = effects.len();
-                let retry_timeout =
-                    context.retry.inquiry_timeout && !self.raw_stream_inquiry(entry);
-                let error = Error::timeout(FailureStage::Terminal, current_certainty);
-                self.retain_unanswered_inquiry(id, now);
-                if retry_timeout {
-                    self.schedule_retry(
-                        id,
-                        retry,
-                        now,
-                        RetryCause::Unconfirmed(error),
-                        Backoff::Uncapped,
-                        effects,
-                    );
-                } else {
-                    self.finish(id, error, now, effects);
-                }
+                let cause = terminal_timeout(entry, AttemptEvidence::Lifecycle);
+                self.end_attempt(
+                    id,
+                    ending,
+                    Some(cause),
+                    AttemptEvidence::Lifecycle,
+                    now,
+                    effects,
+                );
                 record_deadline_expiry(id, DeadlineKind::InquiryReply, mark, effects);
             }
             DueAction::RetryReady {
@@ -4325,15 +4342,9 @@ trait EngineMethods: EngineAccess {
                 budget_at,
                 certainty,
             } => {
+                debug_assert_eq!(certainty, entry.certainty(AttemptEvidence::Lifecycle));
                 if budget_at.is_some_and(|at| at <= now) {
-                    let error = entry.terminal_error(
-                        entry
-                            .retry_cause()
-                            .cloned()
-                            .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty)),
-                        AttemptEvidence::Lifecycle,
-                    );
-                    self.finish(id, error, now, effects);
+                    self.end_attempt(id, ending, None, AttemptEvidence::Lifecycle, now, effects);
                 } else {
                     self.promote_retry(id, previous_attempt, now, effects);
                 }
@@ -4393,26 +4404,16 @@ trait EngineMethods: EngineAccess {
             // phase or install a new keyed hold in the due pass. Neither case
             // releases correlation before that input-first turn, so project
             // only the deadline which can actually remove this live entry.
-            let due = entry
-                .lifecycle()
-                .raw_cancellation_release_deadline()
-                .is_some_and(|deadline| deadline <= now);
-            if !due {
+            let Some(cancellation) = entry.lifecycle().raw_cancellation_release() else {
+                continue;
+            };
+            if cancellation.at > now {
                 continue;
             }
             let release = releases.for_target_mut(entry.request.context().target);
-            match entry.lifecycle() {
-                Lifecycle::Executing { socket, .. }
-                | Lifecycle::AwaitingCancellationResolution { socket, .. } => {
-                    release.release_exact_socket(socket);
-                }
-                Lifecycle::AwaitingReply { .. } => release.release_inquiry_unkeyed(),
-                Lifecycle::Sending { .. }
-                | Lifecycle::AwaitingAck { .. }
-                | Lifecycle::AwaitingCompletion { .. } => release.release_pre_ack_unkeyed(),
-                Lifecycle::Ready { .. }
-                | Lifecycle::Backoff { .. }
-                | Lifecycle::ExecutingDisplaced { .. } => {}
+            match cancellation.scope {
+                ReleaseScope::ExactSocket(socket) => release.release_exact_socket(socket),
+                ReleaseScope::PreAckUnkeyed => release.release_pre_ack_unkeyed(),
             }
         }
         releases
@@ -4727,10 +4728,7 @@ trait EngineMethods: EngineAccess {
             CorrelationState::Sequenced => {}
             CorrelationState::RawDatagram(holds) => holds.clear(),
             CorrelationState::RawStream(stream) => {
-                stream.holds.clear();
-                stream.ledger.clear();
-                stream.learning = PerTarget::default();
-                stream.release_gate = None;
+                *stream = correlation::StreamCorrelation::new();
             }
         }
         effects.clear_deferred();
@@ -4791,16 +4789,44 @@ trait EngineMethods: EngineAccess {
         {
             return Err("ended session retains lifecycle or correlation work".into());
         }
+        if !matches!(self.session, EngineSession::Running)
+            && self.mode().stream().is_some_and(|stream| {
+                stream.learning != PerTarget::default() || stream.release_gate.is_some()
+            })
+        {
+            return Err("ended session retains stream learning or release work".into());
+        }
         let ordinary = self
             .entries
             .values()
             .filter(|entry| entry.slot == AdmissionSlot::Ordinary)
             .count();
-        if ordinary > self.policy.capacity {
+        if ordinary > self.policy.capacity.get() {
             return Err("ordinary entry capacity exceeded".into());
+        }
+        // Inquiries hold ordinary admission slots, never STOP reserve:
+        // in-flight inquiries are <= capacity, and strictly < capacity while
+        // an ordinary Ready inquiry candidate holds another slot. Derive the
+        // audit's bounded counts once rather than scanning for every target.
+        let mut inquiry_occupancy = PerTarget::<(usize, bool)>::default();
+        for entry in self
+            .entries
+            .values()
+            .filter(|entry| entry.request.is_inquiry())
+        {
+            let (in_flight, ready) = &mut inquiry_occupancy[entry.request.context().target];
+            *in_flight += usize::from(entry.lifecycle().is_live_inquiry());
+            *ready |= entry.slot == AdmissionSlot::Ordinary
+                && matches!(entry.lifecycle(), Lifecycle::Ready { .. });
         }
         for (index, state) in self.targets.iter() {
             let policy = &state.policy;
+            let (inquiries, ready) = inquiry_occupancy[index];
+            if inquiries > self.policy.capacity.get()
+                || (ready && inquiries == self.policy.capacity.get())
+            {
+                return Err("inquiry occupancy exceeds ordinary admission capacity".into());
+            }
             let reserved = self
                 .entries
                 .values()
@@ -4842,6 +4868,7 @@ trait EngineMethods: EngineAccess {
             let admissible = self
                 .policy
                 .capacity
+                .get()
                 .saturating_add(usize::from(policy.control_reserve));
             if self.mode().ledger().len(target) > stream_ledger::max_entries_per_target(admissible)
             {
@@ -4982,11 +5009,8 @@ fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
     entry.lifecycle().is_unacknowledged_command()
 }
 
-fn terminal_timeout(entry: &Entry) -> Error {
-    Error::timeout(
-        FailureStage::Terminal,
-        entry.certainty(AttemptEvidence::Lifecycle),
-    )
+fn terminal_timeout(entry: &Entry, evidence: AttemptEvidence) -> Error {
+    Error::timeout(FailureStage::Terminal, entry.certainty(evidence))
 }
 
 /// Whether a VISCA error code answers a socket cancellation packet (`0x04`
@@ -5256,13 +5280,12 @@ mod cancellation_regression_tests {
             dispatch_deadline: None,
             target: camera(),
             timeout: TimeoutPolicy::new(
-                Duration::from_secs(1),
-                Duration::from_millis(5),
-                Duration::from_secs(1),
-                Duration::from_secs(1),
-                Duration::from_millis(50),
-            )
-            .expect("valid fixture timing"),
+                NonZeroDuration::new(Duration::from_secs(1)).expect("positive fixture"),
+                NonZeroDuration::new(Duration::from_millis(5)).expect("positive fixture"),
+                NonZeroDuration::new(Duration::from_secs(1)).expect("positive fixture"),
+                NonZeroDuration::new(Duration::from_secs(1)).expect("positive fixture"),
+                NonZeroDuration::new(Duration::from_millis(50)).expect("positive fixture"),
+            ),
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,

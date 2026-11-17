@@ -1137,7 +1137,22 @@ impl ProfileSpec {
 
     /// The only constructor: every spec has passed validation.
     pub(crate) fn from_facts(facts: ProfileFacts) -> Result<Self> {
-        facts.validate().map(|facts| Self { facts })
+        let profile = Self {
+            facts: facts.validate()?,
+        };
+        profile.validate_stop_paths()?;
+        Ok(profile)
+    }
+
+    fn validate_stop_paths(&self) -> Result<()> {
+        // A granted STOP must be preparable before any session can rely on its
+        // reserved slot. Custom profiles retain their caller-owned authority.
+        for stop in crate::command::semantics::StopCommand::ALL {
+            if crate::command::surface::row_gate(stop.row()).permits(self.capabilities()) {
+                stop.validate(self)?;
+            }
+        }
+        Ok(())
     }
 
     /// Returns the human-readable name of this runtime profile.
@@ -1295,34 +1310,31 @@ impl ProfileSpec {
                 || caps.supports(capabilities::TypedSupportSurface::NdFilter))
     }
 
-    /// The number of typed STOP paths (pan/tilt, zoom, focus) this profile
-    /// supports. Each one gets a control-reserve admission slot (D26, #778).
+    /// Fully validated STOP paths, with one encoding per independent axis set.
     #[cfg(any(feature = "blocking", feature = "async"))]
-    pub(crate) fn typed_stop_paths(&self) -> u8 {
-        use crate::command::semantics::{
-            BuiltinAxisSelection, BuiltinCommand, BuiltinRequestClass,
-        };
-        let mut covered = 0;
-        let mut paths = 0;
-        for row in BuiltinCommand::ALL {
-            if let BuiltinRequestClass::AppliedOnly {
-                axes: BuiltinAxisSelection::Exact(stop_axes),
-                stop: true,
-            } = row.classification()
-            {
-                // Different encodings of the same STOP share one reserve
-                // path, so FR7's two zoom forms do not reserve twice.
-                if covered & stop_axes.bits() != stop_axes.bits()
-                    && crate::command::surface::row_gate(*row)
-                        .validate(self, "typed STOP")
-                        .is_ok()
-                {
-                    paths += 1;
-                    covered |= stop_axes.bits();
-                }
+    pub(crate) fn stop_paths(&self) -> crate::stop_request::StopPaths {
+        let mut paths = crate::stop_request::StopPaths::default();
+        for stop in crate::command::semantics::StopCommand::ALL {
+            if stop.validate(self).is_err() {
+                continue;
             }
+            let path = if stop.axes() == AffectedAxes::PAN_TILT {
+                &mut paths.pan_tilt
+            } else if stop.axes() == AffectedAxes::ZOOM {
+                &mut paths.zoom
+            } else {
+                &mut paths.focus
+            };
+            // Alternative encodings of one axis share its reserve slot.
+            path.get_or_insert(*stop);
         }
         paths
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    /// Each supported STOP path gets a control-reserve admission slot (D26).
+    pub(crate) fn typed_stop_paths(&self) -> u8 {
+        self.stop_paths().count()
     }
 
     /// Validates operational overrides without changing profile safety facts.
@@ -1355,29 +1367,6 @@ impl ProfileSpec {
             });
         }
 
-        // Command and inquiry overrides feed the same derived retry-budget
-        // calculation as their profile-owned counterparts.
-        let ack = tuning
-            .ack_timeout()
-            .unwrap_or(self.facts.timing.ack_timeout);
-        if CommandTimeoutClass::ALL.into_iter().any(|category| {
-            let deadline = tuning
-                .command_override(category)
-                .unwrap_or(self.facts.timing.command_timeouts.get(category));
-            !retry_budget_is_representable(now, deadline, ack)
-        }) || !retry_budget_is_representable(
-            now,
-            tuning
-                .inquiry_timeout()
-                .unwrap_or(self.facts.timing.inquiry_timeout),
-            Duration::ZERO,
-        ) {
-            return Err(Error::InvalidRequest {
-                reason: "operational retry deadlines must be representable by the monotonic clock"
-                    .into(),
-            });
-        }
-
         if tuning
             .command_spacing()
             .is_some_and(|value| value < self.facts.timing.command_spacing)
@@ -1397,20 +1386,22 @@ impl ProfileSpec {
                 reason: "operational tuning cannot raise the profile socket limit".into(),
             });
         }
-        if [
-            tuning.ack_timeout(),
-            tuning.settlement_timeout(),
-            tuning.inquiry_timeout(),
-        ]
-        .into_iter()
-        .chain(command_overrides)
-        .flatten()
-        .any(|timeout| timeout.is_zero())
+        let resolved = crate::timeout::ResolvedTiming::validate(tuning, &self.facts.timing)?;
+        // Check the same effective retry budget preparation will lower.
+        if CommandTimeoutClass::ALL.into_iter().any(|category| {
+            !retry_budget_is_representable(
+                now,
+                resolved.command(category).get(),
+                resolved.ack.get(),
+            )
+        }) || !retry_budget_is_representable(now, resolved.inquiry.get(), Duration::ZERO)
         {
             return Err(Error::InvalidRequest {
-                reason: "operational timeout overrides must be non-zero".into(),
+                reason: "operational retry deadlines must be representable by the monotonic clock"
+                    .into(),
             });
         }
+
         let undercuts =
             |value: Option<Duration>, floor: Duration| value.is_some_and(|value| value < floor);
         if undercuts(tuning.ack_timeout(), self.facts.timing.ack_timeout)
@@ -1427,20 +1418,10 @@ impl ProfileSpec {
             });
         }
         if let Some(settlement) = tuning.settlement_timeout() {
-            let budget = |category| {
-                let deadline = tuning
-                    .command_override(category)
-                    .unwrap_or(self.facts.timing.command_timeouts.get(category));
-                tuning
-                    .lengthen_retry_bounds(RetryBounds::for_request(
-                        self.facts.timing.busy_timeout,
-                        deadline,
-                        ack.saturating_add(deadline),
-                    ))
-                    .total_budget
-            };
-            let floor =
-                budget(CommandTimeoutClass::Movement).min(budget(CommandTimeoutClass::Preset));
+            let floor = resolved
+                .retry_budget(CommandTimeoutClass::Movement)
+                .get()
+                .min(resolved.retry_budget(CommandTimeoutClass::Preset).get());
             if settlement < floor {
                 return Err(Error::InvalidRequest { reason: format!(
                     "operational settlement timeout cannot undercut the smallest targeted retry budget ({floor:?})"
@@ -2144,6 +2125,91 @@ mod tests {
         let profile = CommunityProfile::spec().expect("valid custom facts");
         assert!(profile.ensure_compile_time::<WrongIdentity>().is_err());
         assert!(profile.ensure_compile_time::<WrongPermissionSet>().is_err());
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn halt_paths_and_control_reserve_share_every_validated_stop() {
+        use crate::{config::OperationalTuning, session_config::ValidatedTuning};
+        for id in ProfileId::all() {
+            // Exercise both the source-backed registry and caller-owned
+            // custom authority with the same facts, including FR7 aliases.
+            for custom in [false, true] {
+                let mut facts = id.raw_facts();
+                if custom {
+                    facts.capabilities.profile_id = None;
+                }
+                let profile = ProfileSpec::from_facts(facts).expect("valid profile");
+                let target =
+                    crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
+                let tuning =
+                    ValidatedTuning::validate(OperationalTuning::new(), [target.profile()])
+                        .expect("valid tuning");
+                let halt = crate::prepared::prepare_halt(&target, tuning);
+                assert_eq!(
+                    halt.requests
+                        .iter()
+                        .filter(|request| matches!(request, Some(Ok(_))))
+                        .count(),
+                    usize::from(target.profile().typed_stop_paths()),
+                    "{id:?}, custom={custom}",
+                );
+                for (path, request) in target
+                    .profile()
+                    .stop_paths()
+                    .rows()
+                    .into_iter()
+                    .zip(halt.requests)
+                {
+                    assert_eq!(path.is_some(), request.is_some());
+                    if let (Some(stop), Some(request)) = (path, request) {
+                        let request = request.expect("selected STOP prepares");
+                        assert_eq!(
+                            request.context().motion.map(|motion| motion.axes),
+                            Some(stop.axes())
+                        );
+                        assert!(request.context().is_stop());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stop_validation_refuses_missing_builtin_sources_but_keeps_custom_authority() {
+        use crate::command::semantics::StopCommand;
+        let mut facts = ProfileId::PtzOpticsG2.raw_facts();
+        facts.capabilities.typed_support =
+            facts
+                .capabilities
+                .typed_support
+                .union(capabilities::TypedSupportSet::from_surface(
+                    capabilities::TypedSupportSurface::HighResolutionZoom,
+                ));
+        // Bypass identity validation to isolate the precise gate/source
+        // mismatch. The same check runs in from_facts before publishing a spec.
+        let forged = ProfileSpec {
+            facts: facts.clone(),
+        };
+        assert!(
+            crate::command::surface::row_gate(StopCommand::Fr7ZoomHighResolutionStop.row())
+                .permits(forged.capabilities())
+        );
+        assert!(matches!(
+            StopCommand::Fr7ZoomHighResolutionStop.validate(&forged),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        // Exercise the exact granted-STOP validation performed by from_facts,
+        // without letting its separate built-in identity guard mask the cause.
+        assert!(matches!(forged.validate_stop_paths(),
+            Err(Error::FeatureNotSupported { feature })
+                if feature == crate::command::surface::surface_entry(
+                    StopCommand::Fr7ZoomHighResolutionStop.row()).feature()));
+        facts.capabilities.profile_id = None;
+        let custom = ProfileSpec { facts };
+        custom
+            .validate_stop_paths()
+            .expect("custom specs explicitly own their protocol authority");
     }
 
     #[test]

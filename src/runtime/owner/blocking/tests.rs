@@ -65,6 +65,7 @@ enum Read {
     /// An oversized datagram: the prefix that fits is copied and the read
     /// reports the rest as lost.
     Truncated(Vec<u8>),
+    Overreported,
     EndOfStream,
     Fail(Error),
     Panic,
@@ -174,6 +175,7 @@ impl BlockingTransport for ChannelTransport {
                 dst[..copied].copy_from_slice(&prefix[..copied]);
                 Ok(ReceiveOutcome::truncated(copied))
             }
+            Ok(Read::Overreported) => Ok(ReceiveOutcome::complete(dst.len() + 1)),
             Ok(Read::EndOfStream) => Ok(ReceiveOutcome::complete(0)),
             Ok(Read::Fail(error)) => Err(error),
             Ok(Read::Panic) => panic!("injected transport panic"),
@@ -493,6 +495,69 @@ fn a_detached_operation_progresses_without_a_caller() {
     owner.close().unwrap();
 }
 
+#[test]
+fn terminal_metrics_stay_identical_while_a_blocking_caller_races_cancellations_with_close() {
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let (owner, peer) = Setup::datagram().on(&clock).spawn();
+    let operation = owner.submit_operation(zoom_stop()).unwrap();
+    peer.next_write();
+    peer.reply(ACK);
+    let id = operation.observation.id();
+    let cancelling = owner.clone();
+    let (started, ready) = flume::bounded(1);
+    let registration = clock.register();
+    let caller = thread::spawn(move || {
+        let _participant = registration.enter();
+        let mut snapshots = Vec::new();
+        for index in 0..128 {
+            let (_observer, cell) = CancellationObserver::pair();
+            let request = super::super::CancellationRequest { id, observer: cell };
+            let deadline = cancelling.deadline_after(Duration::from_secs(1)).unwrap();
+            assert!(matches!(
+                cancelling.request_cancellation(request, deadline),
+                Ok(()) | Err(Error::CancellationNotSupported | Error::RuntimeShutdown)
+            ));
+            if index == 0 {
+                started.send(()).unwrap();
+            }
+            if let Some(snapshot) = cancelling.core.terminal_metrics() {
+                snapshots.push(snapshot.unwrap());
+            }
+        }
+        snapshots
+    });
+    owner
+        .clock
+        .select()
+        .recv(&ready, |value| value.unwrap())
+        .wait();
+    owner.close().unwrap();
+    let published = owner.metrics().unwrap();
+    assert_eq!(published.session, crate::SessionStatus::Shutdown);
+    for snapshot in caller.join().unwrap() {
+        assert_eq!(snapshot, published);
+    }
+    for _ in 0..8 {
+        let (_observer, cell) = CancellationObserver::pair();
+        let request = super::super::CancellationRequest { id, observer: cell };
+        assert!(matches!(
+            owner.request_cancellation(
+                request,
+                owner.deadline_after(Duration::from_secs(1)).unwrap()
+            ),
+            Err(Error::RuntimeShutdown)
+        ));
+        assert!(matches!(
+            owner.subscribe_diagnostics(1),
+            Err(Error::RuntimeShutdown)
+        ));
+        assert!(owner.core.cancellations.is_empty());
+        assert!(owner.core.control.is_empty());
+        assert_eq!(owner.metrics().unwrap(), published);
+    }
+}
+
 /// D25 lifecycle order: the worker emits the same canonical owner trace as
 /// the async actor for an applied raw command.
 #[test]
@@ -732,6 +797,22 @@ fn fatal_stream_reads_retain_the_typed_os_cause() {
     }
 }
 
+/// A caller transport that violates the supplied buffer bound ends the
+/// stream session and preserves the typed reported and available counts.
+#[test]
+fn an_overreported_stream_read_ends_the_session_with_typed_counts() {
+    let (owner, peer) = Setup::stream().spawn();
+    let receipt = owner.submit_command(focus_manual()).unwrap();
+    peer.next_write();
+    peer.send(Read::Overreported);
+    let error = receipt.wait().expect_err("invalid read ends the stream");
+    let capacity = TransportConfig::default().buffer_config.recv_buffer_size;
+    assert!(
+        matches!(&error, Error::StreamPoisoned { source } if matches!(source.as_ref(), Error::BufferTooSmall { required, actual } if *required == capacity + 1 && *actual == capacity))
+    );
+    assert!(matches!(owner.close(), Err(Error::StreamPoisoned { .. })));
+}
+
 /// #625: a read that keeps failing transiently for long enough is a broken
 /// transport. The worker paces the run and then ends the session with the
 /// cause rather than retrying forever.
@@ -867,6 +948,100 @@ fn an_eager_idle_transport_is_paced() {
     let reads = peer.read_calls.load(Ordering::Relaxed);
     owner.close().unwrap();
     assert!(reads < 100, "eager idle reads hot-spun: {reads} in 500 ms");
+}
+
+/// Local fake: run the production bounded-read helper against a serial
+/// backend that truncates its device timeout to whole milliseconds.
+#[cfg(feature = "transport-serial")]
+#[test]
+fn fractional_serial_idle_reads_do_not_escalate_receive_pauses() {
+    struct TruncatingDevice {
+        clock: Clock,
+        timeout: Duration,
+    }
+    impl TruncatingDevice {
+        fn arm(&mut self, timeout: Duration) -> std::io::Result<()> {
+            self.timeout = crate::transport::serial::device_timeout(timeout);
+            Ok(())
+        }
+    }
+    impl std::io::Read for TruncatingDevice {
+        fn read(&mut self, _dst: &mut [u8]) -> std::io::Result<usize> {
+            let millis = self.timeout.as_millis().try_into().unwrap();
+            self.clock.sleep(Duration::from_millis(millis));
+            Err(std::io::ErrorKind::TimedOut.into())
+        }
+    }
+    struct IdleSerial {
+        device: TruncatingDevice,
+        config: TransportConfig,
+        read_starts: Arc<Mutex<Vec<Instant>>>,
+    }
+    impl HasTransportConfig for IdleSerial {
+        fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+            crate::transport::TransportIdentity::Serial { bus: None }
+        }
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+    impl BlockingTransport for IdleSerial {
+        fn send_with_timeout(&mut self, _bytes: &[u8], _timeout: Duration) -> Result<(), Error> {
+            Ok(())
+        }
+        fn recv_into_with_timeout(
+            &mut self,
+            dst: &mut [u8],
+            timeout: Duration,
+        ) -> Result<ReceiveOutcome, Error> {
+            use crate::{
+                timeout::Deadline,
+                transport::blocking::{read_before, TimedIo},
+            };
+            let clock = self.device.clock.clone();
+            self.read_starts.lock().unwrap().push(clock.now());
+            let deadline = Deadline::after(clock.now(), timeout, "read_timeout")?;
+            read_before(
+                &mut self.device,
+                TruncatingDevice::arm,
+                dst,
+                deadline,
+                TimedIo::SerialDevice,
+                || clock.now(),
+            )
+            .map(ReceiveOutcome::complete)
+        }
+    }
+
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let read_timeout = Duration::from_micros(9_600);
+    let starts = Arc::new(Mutex::new(Vec::new()));
+    let transport = IdleSerial {
+        device: TruncatingDevice {
+            clock: Clock::Manual(clock.clone()),
+            timeout: Duration::ZERO,
+        },
+        config: TransportConfig::for_serial().with_read_timeout(read_timeout),
+        read_starts: Arc::clone(&starts),
+    };
+    let (adapter, policy) = BlockingTransportAdapter::new(
+        transport,
+        &generic_profile(),
+        crate::target::TargetSlot::CAMERA_1,
+    )
+    .unwrap();
+    let owner = BlockingOwnerHandle::spawn(policy, adapter, Clock::Manual(clock.clone())).unwrap();
+    clock.sleep(read_timeout * 10);
+    owner.close().unwrap();
+    let starts = starts.lock().unwrap();
+    assert!(starts.len() >= 10, "idle reads were paused: {starts:?}");
+    assert!(
+        starts
+            .windows(2)
+            .all(|pair| pair[1].duration_since(pair[0]) <= Duration::from_millis(10)),
+        "a full-budget serial idle read gained an extra receive pause: {starts:?}"
+    );
 }
 
 /// #713/#775: a stale reply to a timed-out raw inquiry arrives inside its

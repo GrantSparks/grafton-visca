@@ -97,6 +97,14 @@ documented lifecycle.
 
 ### Timeout and retry ownership
 
+`ValidatedTuning::resolve` selects operational overrides against one validated
+profile through `ResolvedTiming`. Its positive deadlines lower directly into
+`TimeoutPolicy`; preparation does not validate the same intervals again.
+Resolution owns the retry-budget formula used by both the settlement floor and
+request preparation, retaining the ACK window only for ACK-bearing commands.
+Owner construction and retuning use the same resolution for aggregate pacing
+and target socket limits. Public timing configuration remains `Duration` data.
+
 Timeout policy has one ownership boundary. A validated profile owns its exact
 `CommandTimeouts` category table and its inquiry, acknowledgement,
 cancellation, ambiguity, raw inquiry-reply skew, busy, and pacing facts.
@@ -276,6 +284,8 @@ The construction and request path has a fixed order:
    values occupy one typed inline slot per declared `StateKey`.
 8. Record terminal outcome, release admission capacity, and retain only the
    bounded diagnostic/history state promised by the public API.
+   For a rejected admission, release its capacity before the admission answer
+   becomes observable; a consuming boundary rejection enforces this order.
 
 ### Correlation state ownership
 
@@ -443,6 +453,14 @@ not executable may already have moved, so the caller reconciles it rather
 than the engine replaying it (#795).
 
 ### Raw unconfirmed outcomes and strict recovery
+
+`Entry::attempt_end` derives one closed `AttemptEnd` from the envelope, reply
+family, write evidence and the lifecycle's retry permission. `end_attempt`
+applies its correlation hold, retry or terminal consequence. Write refusal,
+failed or late successful writes, response deadlines and retry-budget expiry
+all use that decision; a raw datagram inquiry can retain its reply-skew hold
+while retrying, whereas a raw stream inquiry retains owed reply evidence and
+never retries a missing reply (#995).
 
 Retry follows the same evidence boundary. Sony timeout recovery resends the
 same logical request with the same sequence while it is unacknowledged. A
@@ -1058,8 +1076,12 @@ Retry waiting retains the last written attempt so a late exact-sequence ACK
 honors that attempt's capacity. `SendingReply` carries only its response
 family: it contains no reply latch or cancellation intent (#858, #860).
 The original ACK or completion deadline and cancellation ambiguity deadline each
-have one home; lifecycle methods derive their effective maximum. Pre-ACK
-cancellation therefore retains every ACK accepted by the original window (#978).
+have one home; `Lifecycle::response_window_end` derives each phase's effective
+response window. Diagnostics, due actions and correlated response deadlines read
+that projection. Raw cancellation release carries its deadline and exact-socket
+or pre-ACK scope together; a requested cancellation retains its identity until
+its ambiguity window also ends. Pre-ACK cancellation therefore retains every
+ACK accepted by the original window (#978, #996).
 A transition accepts one lifecycle value, and closed due actions preserve
 response/cancellation-before-retry ordering (#836).
 
@@ -1117,6 +1139,14 @@ or failure. Generic failures are lifted using the entry's request variant;
 inquiry failures keep their `InquiryFailed` source chain. Owner observer slots
 use the same lane, and operation application and cancellation read one shared
 terminal verdict. Delivery moves the result into that slot (#903).
+
+The profile's `stop_paths()` derives one fully validated STOP per axis from
+ledger STOP rows. Request preparation shares its row gate and source checks;
+profile construction verifies every granted STOP's source and value checks.
+Both halt preparation and control-reserve sizing consume this same table, so
+an alternative encoding shares its axis's slot and an unsupported axis has no
+halt request. The ledger generates the closed STOP enum: adding a STOP requires
+an exhaustive halt preparation arm before the crate compiles (#999).
 
 ### Transition table
 
@@ -1412,7 +1442,14 @@ A raw release does not create an exception to that order; it adds two rules.
   The coordinator holds it in a single slot until the release resolves, and
   while the slot is occupied cancellation and admission are not eligible, so a
   second boundary stays in its bounded channel rather than being dequeued with
-  nowhere to keep it (#775).
+  nowhere to keep it (#775). A parked plan exclusively borrows its coordinator.
+  Its `VacantSlot` token is the proof required to retain a boundary or restore
+  a redelivery when shutdown wins; consuming the token fills its originating
+  slot directly. Tokens cannot be forged, reused, sent to another coordinator,
+  or kept across a newer plan (#1004). Ordered polling requires the vacancy
+  before invoking an admission or cancellation receiver. Every selected live
+  boundary carries that proof with its payload; the nonboundary event type
+  cannot carry an admission or cancellation.
 
 Thus an Urgent stop is selected within the fairness bound under raw input
 pressure, while no scope is released using evidence collected before its own
@@ -1453,9 +1490,12 @@ transport configuration is read at construction rather than again per write
 (#986). Built-in TCP,
 UDP, and serial transports install that bound at the OS/device layer, and
 construction rejects a zero advertised read or write timeout. A serial device
-receives at least one millisecond even when a derived owner budget is smaller:
-Windows treats a zero-millisecond serial timeout as no timeout, while the owner
-still rechecks its precise deadline after that I/O call. Serial command and
+receives a whole-millisecond timeout rounded up, with a one-millisecond floor,
+even when a derived owner budget is smaller: Windows treats a zero-millisecond
+serial timeout as no timeout. The shared blocking `read_before` helper rechecks
+its precise deadline after an idle I/O result and re-arms the remaining budget,
+so a truncating device or socket timer cannot make a built-in read return idle
+early and trigger receive pacing. Serial command and
 startup writes deliberately do not drain the device (`flush`/`tcdrain`), since
 that kernel call is not bounded by the write timeout; a VISCA reply or the
 required startup settle interval confirms queued output instead. Finally, both

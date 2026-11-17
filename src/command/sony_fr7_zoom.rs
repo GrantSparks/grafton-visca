@@ -82,9 +82,7 @@ pub struct ClearImageZoomPosition(u16);
 pub(crate) fn decode_clear_image_zoom_position(
     payload: Payload<'_>,
 ) -> Result<ClearImageZoomPosition, Error> {
-    let value = Nibbles::<4>::try_from(payload)?
-        .u16_quad(0)
-        .ok_or(Error::InvalidResponseFormat)?;
+    let value = Nibbles::<4>::try_from(payload)?.value();
     ClearImageZoomPosition::new(value)
 }
 

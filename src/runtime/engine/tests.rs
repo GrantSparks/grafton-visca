@@ -267,12 +267,10 @@ fn engine(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolEngine {
     engine
 }
 
-/// The public raw owner uses one inquiry flight. This is the topology in which
-/// a released FIFO owner has a queued successor and therefore needs the bounded
-/// target ambiguity hold.
+/// Unknown raw inquiry declarations overlap. A released FIFO owner therefore
+/// has a queued successor and needs the bounded target ambiguity hold.
 fn single_flight_raw_engine() -> ProtocolEngine {
-    let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
-    configured.inquiry_capacity = 1;
+    let configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
@@ -1207,8 +1205,8 @@ fn an_inquiry_is_not_dispatched_before_the_inquiry_cooldown_ends() {
 fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Sony, TransportKind::Datagram);
-    configured.inquiry_capacity = 1;
     configured.inquiry_cooldown = Duration::ZERO;
+    configured.inquiry_spacing = Duration::from_millis(10);
     let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     engine
         .register_target(camera(1), TargetPolicy::test_default())
@@ -1227,7 +1225,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     send_ok(&mut engine, &first, Some(first_sequence), start);
 
     // Queue another inquiry before the first one retries. It will be the
-    // capacity blocker that leaves the retried inquiry observable in Ready.
+    // pacing blocker that leaves the retried inquiry observable in Ready.
     let queued = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
@@ -1336,7 +1334,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
                 payload: smallvec![1],
             },
         ),
-        retry_ready + Duration::from_millis(2),
+        retry_ready + Duration::from_millis(10),
     );
     let (retry_tx, dispatched, _) = request_transmit(&released);
     assert_eq!(dispatched, id);
@@ -1371,7 +1369,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             transmission: retry_tx,
             result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(first_sequence))),
         },
-        retry_ready + Duration::from_millis(2),
+        retry_ready + Duration::from_millis(10),
     );
     assert_eq!(engine.entry(id).unwrap().retry_count(), 1);
     assert!(matches!(
@@ -3960,7 +3958,8 @@ fn retune_runs_the_production_debug_invariant_hook() {
     );
     send_ok(&mut engine, &admission, None, start);
     assert!(engine.entry(id).is_some());
-    engine.policy.capacity = 0;
+    admit(&mut engine, 2, inquiry(1), start);
+    engine.policy.capacity = std::num::NonZeroUsize::MIN;
 
     engine
         .retune(
@@ -3975,8 +3974,7 @@ fn retune_runs_the_production_debug_invariant_hook() {
 #[test]
 fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     let start = Instant::now();
-    let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
-    configured.inquiry_capacity = 1;
+    let configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     engine
         .register_target(camera(1), TargetPolicy::test_default())
@@ -4455,60 +4453,40 @@ fn fixture_observation(
 
 /// Every materially distinct session shape used by the invariant generators.
 ///
-/// Issue #636 added both envelopes and transports. Issue #724 extends the
-/// matrix with the policy axes that change state-machine behavior: raw
-/// single-flight inquiries and strict unconfirmed-command poisoning.
+/// Both envelopes and transports, plus strict raw-command poisoning. Raw
+/// inquiry serialization follows payload overlap, independently of admission.
 #[derive(Clone, Copy, Debug)]
 struct FuzzConfiguration {
     envelope: EnvelopeKind,
     transport: TransportKind,
-    inquiry_capacity: usize,
     strict_unconfirmed_poison: bool,
 }
 
-const FUZZ_CONFIGURATIONS: [FuzzConfiguration; 7] = [
+const FUZZ_CONFIGURATIONS: [FuzzConfiguration; 5] = [
     FuzzConfiguration {
         envelope: EnvelopeKind::Raw,
         transport: TransportKind::Datagram,
-        inquiry_capacity: 8,
         strict_unconfirmed_poison: false,
     },
     FuzzConfiguration {
         envelope: EnvelopeKind::Raw,
         transport: TransportKind::Stream,
-        inquiry_capacity: 8,
         strict_unconfirmed_poison: false,
     },
     FuzzConfiguration {
         envelope: EnvelopeKind::Sony,
         transport: TransportKind::Datagram,
-        inquiry_capacity: 8,
         strict_unconfirmed_poison: false,
     },
     FuzzConfiguration {
         envelope: EnvelopeKind::Sony,
         transport: TransportKind::Stream,
-        inquiry_capacity: 8,
         strict_unconfirmed_poison: false,
     },
     FuzzConfiguration {
         envelope: EnvelopeKind::Raw,
         transport: TransportKind::Datagram,
-        inquiry_capacity: 1,
-        strict_unconfirmed_poison: false,
-    },
-    FuzzConfiguration {
-        envelope: EnvelopeKind::Raw,
-        transport: TransportKind::Datagram,
-        inquiry_capacity: 8,
         strict_unconfirmed_poison: true,
-    },
-    // The production raw TCP shape, whose unanswered inquiries owe a reply.
-    FuzzConfiguration {
-        envelope: EnvelopeKind::Raw,
-        transport: TransportKind::Stream,
-        inquiry_capacity: 1,
-        strict_unconfirmed_poison: false,
     },
 ];
 
@@ -4542,7 +4520,6 @@ fn due_effects(engine: &mut ProtocolEngine, now: Instant) -> Vec<Effect> {
 
 fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
     let mut configured = policy(configuration.envelope, configuration.transport);
-    configured.inquiry_capacity = configuration.inquiry_capacity;
     configured.strict_unconfirmed_poison = configuration.strict_unconfirmed_poison;
     let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
@@ -4933,7 +4910,7 @@ impl FuzzCoverage {
         if !engine.correlation.holds().is_empty() {
             self.tombstoned += 1;
         }
-        if engine.policy.inquiry_capacity == 1
+        if engine.mode().is_raw()
             && engine.entries.values().any(|entry| {
                 entry.request.is_inquiry()
                     && matches!(entry.phase(), Phase::Ready)
@@ -4958,7 +4935,7 @@ fn fuzz_coverage_floor_met(configuration: FuzzConfiguration, coverage: &FuzzCove
         && (configuration.envelope != EnvelopeKind::Raw
             || configuration.strict_unconfirmed_poison
             || coverage.quarantined > 0)
-        && (configuration.inquiry_capacity != 1 || coverage.single_flight_blocked > 0)
+        && (configuration.envelope != EnvelopeKind::Raw || coverage.single_flight_blocked > 0)
         && (!configuration.strict_unconfirmed_poison
             || (coverage.strict_poisoned > 0 && coverage.strict_displacements > 0))
 }
@@ -5314,9 +5291,9 @@ fn seed_fuzz_coverage(
         *now += Duration::from_millis(50);
     }
 
-    // A raw single-flight policy must actually hold a second inquiry behind a
-    // live first inquiry, then retain its target-only tombstone after timeout.
-    if envelope == EnvelopeKind::Raw && configuration.inquiry_capacity == 1 {
+    // Unknown raw inquiries overlap: hold a second inquiry behind the first,
+    // then retain its target-only tombstone after timeout.
+    if envelope == EnvelopeKind::Raw {
         let first = seed_admit(
             engine,
             ticket,
@@ -6067,7 +6044,7 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
 fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
-    configured.capacity = 4;
+    configured.capacity = std::num::NonZeroUsize::new(4).unwrap();
     let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
@@ -12146,14 +12123,12 @@ fn completion_only_refused_cancel_does_not_extend_correlation() {
     }
 }
 
-/// Raw inquiry capacity is positional per response source. A cap of one keeps
-/// same-camera inquiries serialized without needlessly blocking another
-/// camera on the same serial bus.
+/// Overlap exclusion serializes Unknown inquiries per response source,
+/// without blocking an independent target on the same serial bus.
 #[test]
-fn raw_inquiry_capacity_is_per_target() {
+fn overlapping_raw_inquiries_are_serialized_per_target() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
-    engine.policy.inquiry_capacity = 1;
 
     let (first, first_id) = admit(&mut engine, 1, inquiry(1), start);
     assert_eq!(request_transmit(&first).1, first_id);
@@ -12186,7 +12161,7 @@ fn raw_inquiry_capacity_is_per_target() {
 /// A capacity-1 engine whose two cameras each reserve two control slots.
 fn reserved_engine() -> ProtocolEngine {
     let mut configured = policy(EnvelopeKind::Sony, TransportKind::Datagram);
-    configured.capacity = 1;
+    configured.capacity = std::num::NonZeroUsize::new(1).unwrap();
     let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [1, 2] {
         engine
@@ -12568,10 +12543,9 @@ fn halt_raw_siblings_wait_for_ack_not_completion_and_still_bypass_ordinary_motio
     owner.assert_invariants().unwrap();
 }
 
-/// A production-shaped raw stream engine: single-flight inquiries per target.
+/// A raw stream engine whose Unknown inquiry declarations overlap per target.
 fn single_flight_raw_stream_engine() -> ProtocolEngine {
-    let mut configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
-    configured.inquiry_capacity = 1;
+    let configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
     let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine

@@ -42,8 +42,7 @@ impl DiagnosticRecorder {
 
 fn policy_for_target_validation() -> ProtocolPolicy {
     ProtocolPolicy {
-        capacity: 1,
-        inquiry_capacity: 1,
+        capacity: std::num::NonZeroUsize::new(1).unwrap(),
         inquiry_cooldown: Duration::ZERO,
         raw_inquiry_release_hold: Duration::ZERO,
         ..ProtocolPolicy::test_default()
@@ -744,12 +743,11 @@ mod metrics {
 
     fn owner_policy(envelope: EnvelopeKind) -> OwnerPolicy {
         let protocol = ProtocolPolicy {
-            capacity: 4,
+            capacity: std::num::NonZeroUsize::new(4).unwrap(),
             wire: crate::runtime::engine::WireProtocol::new(
                 envelope,
                 crate::transport::AddressingMode::Ip,
             ),
-            inquiry_capacity: 2,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_millis(10),
             ..ProtocolPolicy::test_default()
@@ -1499,7 +1497,7 @@ mod metrics {
             .unwrap();
         let _held = joined.join().unwrap();
         let concurrent = ends.receivers.admissions.recv().unwrap();
-        let order = concurrent.request.context().submission_order;
+        let order = concurrent.request().context().submission_order;
         assert_ne!(
             order, cutoff,
             "concurrent enqueue has exactly one side of acceptance"
@@ -1516,7 +1514,7 @@ mod metrics {
                 .admissions
                 .recv()
                 .unwrap()
-                .request
+                .request()
                 .context()
                 .submission_order
                 > cutoff
@@ -2210,9 +2208,8 @@ mod lifecycle_trace {
         cancellation: CancellationPolicy,
     ) -> OwnerPolicy {
         let protocol = ProtocolPolicy {
-            capacity,
+            capacity: std::num::NonZeroUsize::new(capacity).unwrap(),
             transport,
-            inquiry_capacity: capacity,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_millis(10),
             ..ProtocolPolicy::test_default()

@@ -39,7 +39,6 @@ impl TargetOccupancy {
 #[derive(Debug, Default)]
 pub(super) struct Occupancy {
     pub(super) targets: PerTarget<TargetOccupancy>,
-    pub(super) total_inquiries: usize,
     pub(super) due: Option<DueWork>,
 }
 impl Occupancy {
@@ -51,7 +50,6 @@ impl Occupancy {
             target.commands += usize::from(lifecycle.is_command_on_wire());
             if lifecycle.is_live_inquiry() {
                 target.inquiries += 1;
-                occupancy.total_inquiries += 1;
                 if let Some(shape) = entry.request.payload_shape() {
                     target.shapes_overflow |= !target.shapes.try_insert(shape);
                 }

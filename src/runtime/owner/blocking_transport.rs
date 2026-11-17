@@ -245,7 +245,6 @@ mod tests {
             crate::runtime::engine::EnvelopeKind::Raw
         );
         assert_eq!(policy.protocol.transport, TransportKind::Datagram);
-        assert_eq!(policy.protocol.inquiry_capacity, policy.protocol.capacity);
 
         let owner = BlockingOwnerHandle::spawn(policy.clone(), adapter, Clock::System).unwrap();
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();

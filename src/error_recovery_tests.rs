@@ -201,16 +201,6 @@ fn cases() -> Vec<Case> {
             Abandon
         ),
         case!(
-            ParseError,
-            "",
-            Error::ParseError {
-                reason: "payload".into()
-            },
-            Protocol,
-            None,
-            Abandon
-        ),
-        case!(
             TransportError,
             "no uncertain effect",
             Error::transport_error(io::Error::other("send")),

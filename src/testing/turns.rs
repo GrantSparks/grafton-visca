@@ -77,3 +77,42 @@ impl TurnProbe {
         self.inner.frame_turn()
     }
 }
+
+/// The production async actor's receive/select loop, polled without executor
+/// scheduling or reactor bookkeeping in an allocation measurement.
+///
+/// Keep one probe for the measurement, warm it with a receive frame, then
+/// alternate [`Self::receive_frame`] and [`Self::poll_parked`]. Every receive
+/// uses the real actor loop, boundary arbitration, timers and frame recycling.
+#[cfg(feature = "async")]
+#[derive(Debug)]
+pub struct SelectProbe {
+    inner: crate::runtime::owner::SelectProbe,
+}
+
+#[cfg(feature = "async")]
+impl SelectProbe {
+    /// Construct a receive-only actor with a generic VISCA profile and the
+    /// supplied executor's timers. Construction is outside the measurement.
+    pub fn new(runtime: impl crate::runtime::Executor) -> Result<Self> {
+        Ok(Self {
+            inner: crate::runtime::owner::SelectProbe::new(runtime)?,
+        })
+    }
+
+    /// Wake one receive with an inert unmatched completion frame.
+    pub fn receive_frame(&mut self) {
+        self.inner.receive_frame();
+    }
+
+    /// Poll the actor through bounded cooperative handoffs until its next
+    /// receive parks, returning the total number of consumed probe frames.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the actor terminates or does not park within the
+    /// normal receive handoff bound.
+    pub fn poll_parked(&mut self, context: &mut std::task::Context<'_>) -> Result<usize> {
+        self.inner.poll_parked(context)
+    }
+}

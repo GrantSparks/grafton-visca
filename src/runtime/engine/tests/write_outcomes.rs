@@ -594,3 +594,282 @@ fn failed_raw_datagrams_use_strict_poison_on_either_side_of_the_budget() {
         engine.assert_invariants().unwrap();
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttemptEnding {
+    NotSent,
+    Failed,
+    LateSuccess,
+    Ack,
+    Completion,
+    Inquiry,
+    Budget,
+}
+
+/// Recorded before consolidating the terminal paths. Each row pins the public
+/// outcome together with correlation and cache consequences; deadlines use
+/// deliberately different literal intervals so one expiry cannot stand in for
+/// another.
+#[test]
+fn attempt_endings_preserve_error_certainty_recovery_holds_and_cache() {
+    for (envelope, transport) in [
+        (EnvelopeKind::Raw, TransportKind::Datagram),
+        (EnvelopeKind::Raw, TransportKind::Stream),
+        (EnvelopeKind::Sony, TransportKind::Datagram),
+    ] {
+        for family in 0..4 {
+            for ending in [
+                AttemptEnding::NotSent,
+                AttemptEnding::Failed,
+                AttemptEnding::LateSuccess,
+                AttemptEnding::Ack,
+                AttemptEnding::Completion,
+                AttemptEnding::Inquiry,
+                AttemptEnding::Budget,
+            ] {
+                if (ending == AttemptEnding::Ack && family != 0)
+                    || (ending == AttemptEnding::Completion && family > 1)
+                    || (ending == AttemptEnding::Inquiry && family != 3)
+                    || (ending == AttemptEnding::Budget && family == 2)
+                {
+                    continue;
+                }
+                let start = Instant::now();
+                let mut engine = engine(envelope, transport);
+                let mut request = if family == 3 {
+                    inquiry(1)
+                } else {
+                    projected_command()
+                };
+                if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
+                    *reply_shape = match family {
+                        0 => ReplyShape::AckThenCompletion,
+                        1 => ReplyShape::CompletionOnly,
+                        _ => ReplyShape::NoReply,
+                    };
+                }
+                request.context_mut().retry = RetryPolicy {
+                    total_budget: Some(NonZeroDuration::new(Duration::from_millis(100)).unwrap()),
+                    ..RetryPolicy::NEVER
+                };
+                let (write, id) = admit(&mut engine, 1, request, start);
+                let effects = match ending {
+                    AttemptEnding::NotSent => result(
+                        &mut engine,
+                        &write,
+                        WriteOutcome::NotSent(Error::InvalidRequest {
+                            reason: "refused".into(),
+                        }),
+                        start,
+                    ),
+                    AttemptEnding::Failed => result(
+                        &mut engine,
+                        &write,
+                        WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
+                            "failed",
+                        ))),
+                        start,
+                    ),
+                    AttemptEnding::LateSuccess => result(
+                        &mut engine,
+                        &write,
+                        WriteOutcome::Sent(TransmissionMeta::for_sequence(
+                            (envelope == EnvelopeKind::Sony).then_some(0x1001),
+                        )),
+                        start + Duration::from_millis(101),
+                    ),
+                    AttemptEnding::Budget => {
+                        send_ok(
+                            &mut engine,
+                            &write,
+                            (envelope == EnvelopeKind::Sony).then_some(0x1001),
+                            start,
+                        );
+                        engine.advance(start + Duration::from_millis(100))
+                    }
+                    AttemptEnding::Ack | AttemptEnding::Completion | AttemptEnding::Inquiry => {
+                        send_ok(
+                            &mut engine,
+                            &write,
+                            (envelope == EnvelopeKind::Sony).then_some(0x1001),
+                            start,
+                        );
+                        if ending == AttemptEnding::Completion && family == 0 {
+                            engine.handle(
+                                frame(
+                                    1,
+                                    (envelope == EnvelopeKind::Sony)
+                                        .then_some((0x1001, SequenceWidth::Full32)),
+                                    DecodedResponse::Ack {
+                                        socket: Some(ViscaSocket::S1),
+                                    },
+                                ),
+                                start,
+                            );
+                        }
+                        let millis = match ending {
+                            AttemptEnding::Ack => 20,
+                            AttemptEnding::Completion => 40,
+                            AttemptEnding::Inquiry => 30,
+                            _ => unreachable!(),
+                        };
+                        engine.advance(start + Duration::from_millis(millis))
+                    }
+                };
+                let error = terminal_failure(&effects, id).unwrap();
+                let cause = terminal_cause(&effects, id).unwrap();
+                let variant = match cause {
+                    Error::TransmissionNotSent { .. } => "not_sent",
+                    Error::StreamPoisoned { .. } => "poisoned",
+                    Error::UnsequencedCommandUnconfirmed => "raw_unconfirmed",
+                    Error::RequestUnconfirmed { .. } => "unconfirmed",
+                    Error::TransportError { .. } => "transport",
+                    Error::Timeout { .. } => "timeout",
+                    ref other => panic!("unexpected cause {other:?}"),
+                };
+                let holds: Vec<_> = engine
+                    .correlation
+                    .holds()
+                    .keys()
+                    .map(|key| key.scope)
+                    .collect();
+                let summary = (
+                    variant,
+                    error.failure_context(),
+                    error.recovery(),
+                    holds,
+                    invalidations(&effects).len(),
+                );
+                // Literal expectations recorded from the pre-refactor paths.
+                let poisoned =
+                    transport == TransportKind::Stream && ending == AttemptEnding::Failed;
+                let expected_variant = if ending == AttemptEnding::NotSent {
+                    "not_sent"
+                } else if poisoned {
+                    "poisoned"
+                } else if envelope == EnvelopeKind::Raw && family != 3 {
+                    "raw_unconfirmed"
+                } else if ending == AttemptEnding::Failed {
+                    if family == 3 {
+                        "transport"
+                    } else {
+                        "unconfirmed"
+                    }
+                } else {
+                    "timeout"
+                };
+                let expected_context = if poisoned && family != 3 {
+                    None
+                } else {
+                    Some(FailureContext::new(
+                        FailureStage::Terminal,
+                        if family == 3 {
+                            Certainty::FailedConclusively
+                        } else if ending == AttemptEnding::NotSent {
+                            Certainty::NotAccepted
+                        } else {
+                            Certainty::Unconfirmed
+                        },
+                    ))
+                };
+                let expected_recovery = if ending == AttemptEnding::NotSent {
+                    Recovery::Abandon
+                } else if poisoned {
+                    Recovery::ReopenSession
+                } else if family != 3 {
+                    Recovery::Reconcile
+                } else {
+                    Recovery::Resubmit {
+                        after: if ending == AttemptEnding::Failed {
+                            Duration::from_millis(50)
+                        } else {
+                            Duration::from_secs(2)
+                        },
+                    }
+                };
+                let expected_holds = if envelope == EnvelopeKind::Sony
+                    || ending == AttemptEnding::NotSent
+                    || poisoned
+                {
+                    vec![]
+                } else if family == 3 {
+                    vec![RawHoldScope::Inquiry(PayloadShape::Unknown)]
+                } else if family == 0 && ending == AttemptEnding::Completion {
+                    vec![RawHoldScope::Socket(ViscaSocket::S1)]
+                } else if transport == TransportKind::Datagram {
+                    vec![if family == 0 {
+                        RawHoldScope::PreAck
+                    } else {
+                        RawHoldScope::AllResponses
+                    }]
+                } else if family == 2 {
+                    vec![RawHoldScope::AllResponses]
+                } else {
+                    vec![]
+                };
+                assert_eq!(
+                    summary,
+                    (
+                        expected_variant,
+                        expected_context,
+                        expected_recovery,
+                        expected_holds,
+                        usize::from(family != 3 && ending != AttemptEnding::NotSent)
+                    ),
+                    "{envelope:?}/{transport:?}/{family}/{ending:?}"
+                );
+                engine.assert_invariants().unwrap();
+            }
+        }
+    }
+}
+
+mod ending_properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn write_failures_and_deadline_orderings_keep_occupancy_consistent(
+            sony in any::<bool>(),
+            stream in any::<bool>(),
+            family in 0_usize..4,
+            verdict in 0_u8..3,
+            elapsed_us in 0_u64..150_000,
+            late_frame_us in 0_u64..150_000,
+        ) {
+            let envelope = if sony { EnvelopeKind::Sony } else { EnvelopeKind::Raw };
+            let transport = if stream { TransportKind::Stream } else { TransportKind::Datagram };
+            let start = Instant::now();
+            let mut engine = engine(envelope, transport);
+            let mut request = if family == 3 { inquiry(1) } else { projected_command() };
+            if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
+                *reply_shape = match family {
+                    0 => ReplyShape::AckThenCompletion,
+                    1 => ReplyShape::CompletionOnly,
+                    _ => ReplyShape::NoReply,
+                };
+            }
+            request.context_mut().retry.total_budget = Some(NonZeroDuration::new(Duration::from_millis(100)).unwrap());
+            let (write, _) = admit(&mut engine, 1, request, start);
+            engine.assert_invariants().unwrap();
+            let at = start + Duration::from_micros(elapsed_us);
+            let outcome = match verdict {
+                0 => WriteOutcome::NotSent(Error::InvalidRequest { reason: "generated refusal".into() }),
+                1 => WriteOutcome::Failed(Error::io_timeout()),
+                _ => WriteOutcome::Sent(TransmissionMeta::for_sequence(sony.then_some(0x1001))),
+            };
+            result(&mut engine, &write, outcome, at);
+            engine.assert_invariants().unwrap();
+            assert_occupancy_agrees(&engine, at);
+            let late_at = at + Duration::from_micros(late_frame_us);
+            engine.handle(frame(1, sony.then_some((0x1001, SequenceWidth::Full32)),
+                DecodedResponse::Completion { socket: Some(ViscaSocket::S1) }), late_at);
+            engine.assert_invariants().unwrap();
+            assert_occupancy_agrees(&engine, late_at);
+            engine.advance(late_at + Duration::from_secs(1));
+            prop_assert!(engine.assert_invariants().is_ok());
+            assert_occupancy_agrees(&engine, late_at + Duration::from_secs(1));
+        }
+    }
+}

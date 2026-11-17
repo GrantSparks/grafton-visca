@@ -24,10 +24,36 @@ fn empty() -> RawCorrelationReleaseSet {
     RawCorrelationReleaseSet::default()
 }
 
-fn select(plan: TurnPlan<u32>) -> Selection {
+fn select(plan: TurnPlan<'_, u32>) -> Selection {
     match plan {
-        TurnPlan::Select(selection) => selection,
-        TurnPlan::Redeliver(boundary) => panic!("unexpected redelivery of {boundary}"),
+        TurnPlan::Select { selection, turn } => {
+            assert_eq!(selection.boundaries_eligible, turn.vacancy.is_some());
+            selection
+        }
+        TurnPlan::Redeliver { boundary, .. } => panic!("unexpected redelivery of {boundary}"),
+    }
+}
+
+fn selected_boundary<'a, B>(
+    turn: PlannedTurn<'a, B>,
+    selection: Selection,
+    boundary: B,
+) -> (VacantSlot<'a, B>, B) {
+    let mut boundary = Some(boundary);
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    match turn.poll_in_order(
+        selection,
+        &mut context,
+        |_, _, _| std::task::Poll::<()>::Pending,
+        |_, _| {
+            boundary
+                .take()
+                .map(BoundaryPoll::Boundary)
+                .map_or(std::task::Poll::Pending, std::task::Poll::Ready)
+        },
+    ) {
+        SelectionPoll::Ready(SelectedInput::Boundary { vacancy, boundary }) => (vacancy, boundary),
+        _ => panic!("a vacant plan must select the boundary"),
     }
 }
 
@@ -438,11 +464,12 @@ fn a_retained_boundary_blocks_boundaries_until_the_release_resolves() {
     let mut coordinator = OwnerCoordinator::<u32>::default();
     coordinator.begin_turn();
     let _ = coordinator.plan(now, Some(now), s1, || false);
-    assert_eq!(
-        coordinator.classify(Selected::Boundary, s1),
-        Disposition::Retain
-    );
-    assert_eq!(coordinator.retain(7), Ok(()));
+    let TurnPlan::Select { turn, selection } = coordinator.plan(now, Some(now), s1, || false)
+    else {
+        panic!("select");
+    };
+    let (vacancy, boundary) = selected_boundary(turn, selection, 7);
+    OwnerCoordinator::retain(vacancy.retaining(), boundary);
     coordinator.restart_after_retain();
     assert!(coordinator.has_retained());
 
@@ -464,11 +491,11 @@ fn a_retained_boundary_blocks_boundaries_until_the_release_resolves() {
     assert!(coordinator.finish(Selected::Timer, None, TurnOutcome::Continue));
     coordinator.begin_turn();
     match coordinator.plan(now, None, empty(), || false) {
-        TurnPlan::Redeliver(boundary) => {
+        TurnPlan::Redeliver { boundary, vacancy } => {
             // Shutdown was pending: hand it back for the terminal drain.
-            coordinator.restore(boundary);
+            OwnerCoordinator::restore(vacancy, boundary);
         }
-        TurnPlan::Select(selection) => panic!("expected redelivery, got {selection:?}"),
+        TurnPlan::Select { selection, .. } => panic!("expected redelivery, got {selection:?}"),
     }
     assert_eq!(coordinator.take_retained(), Some(7));
     assert_eq!(coordinator.take_retained(), None);
@@ -824,9 +851,12 @@ mod model {
                         self.control_wins_for_due_wake = None;
                     }
                     match self.coordinator.plan(now, wake, due, || false) {
-                        TurnPlan::Redeliver(token) => {
+                        TurnPlan::Redeliver {
+                            boundary: token,
+                            vacancy,
+                        } => {
                             let event = if self.shutdown {
-                                self.coordinator.restore(token);
+                                OwnerCoordinator::restore(vacancy, token);
                                 Event::Shutdown
                             } else {
                                 Event::Boundary(token)
@@ -837,7 +867,10 @@ mod model {
                             self.dispatch(event);
                             return;
                         }
-                        TurnPlan::Select(selection) => selection,
+                        TurnPlan::Select { selection, turn } => {
+                            assert_eq!(selection.boundaries_eligible, turn.vacancy.is_some());
+                            selection
+                        }
                     }
                 }
             };
@@ -950,24 +983,29 @@ mod model {
                 },
                 Event::Shutdown | Event::Control => Selected::Other,
             };
+            if selected == Selected::Boundary && !self.due(selected_at).is_empty() {
+                let Event::Boundary(token) = event else {
+                    panic!("only a boundary is retained, not {event:?}");
+                };
+                if token.answer_early {
+                    self.answer(token, Answer::Early);
+                } else {
+                    let now = self.now;
+                    let wake = self.next_wake();
+                    let due = self.due(now);
+                    let TurnPlan::Select { turn, selection } =
+                        self.coordinator.plan(now, wake, due, || false)
+                    else {
+                        panic!("select for retention");
+                    };
+                    let (vacancy, token) = selected_boundary(turn, selection, token);
+                    OwnerCoordinator::retain(vacancy.retaining(), token);
+                }
+                self.coordinator.restart_after_retain();
+                return;
+            }
             let suppress_due = match self.coordinator.classify(selected, self.due(selected_at)) {
                 Disposition::Restart => return,
-                Disposition::Retain => {
-                    let Event::Boundary(token) = event else {
-                        panic!("only a boundary is retained, not {event:?}");
-                    };
-                    if token.answer_early {
-                        self.answer(token, Answer::Early);
-                    } else {
-                        assert_eq!(
-                            self.coordinator.retain(token),
-                            Ok(()),
-                            "the retained slot was occupied"
-                        );
-                    }
-                    self.coordinator.restart_after_retain();
-                    return;
-                }
                 Disposition::Apply { suppress_due } => suppress_due,
             };
             let consumed = if matches!(event, Event::Control) {
@@ -1313,4 +1351,54 @@ fn a_pause_that_meets_a_deadline_polls_receive_before_timer() {
             assert_eq!(selection.phase, SourcePhase::ReceiveFirst);
         }
     }
+}
+
+#[test]
+fn occupied_plan_cannot_poll_a_boundary_even_with_a_forged_eligible_descriptor() {
+    let mut coordinator = OwnerCoordinator::<u32>::default();
+    let now = Instant::now();
+    let due = set(&[1]);
+    let TurnPlan::Select { selection, turn } = coordinator.plan(now, Some(now), due, || false)
+    else {
+        panic!("select");
+    };
+    let (vacancy, boundary) = selected_boundary(turn, selection, 7);
+    OwnerCoordinator::retain(vacancy.retaining(), boundary);
+    let TurnPlan::Select {
+        mut selection,
+        turn,
+    } = coordinator.plan(now, Some(now), due, || false)
+    else {
+        panic!("occupied selection");
+    };
+    assert!(!selection.boundaries_eligible);
+    selection.boundaries_eligible = true;
+    let mut boundary_polls = 0;
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    let selected = turn.poll_in_order(
+        selection,
+        &mut context,
+        |_, source, _| {
+            if matches!(source, NonBoundarySource::Control) {
+                std::task::Poll::Ready(())
+            } else {
+                std::task::Poll::Pending
+            }
+        },
+        |_, _| {
+            boundary_polls += 1;
+            std::task::Poll::Ready(BoundaryPoll::Boundary(8))
+        },
+    );
+    let SelectionPoll::Ready(SelectedInput::Other { turn, event: () }) = selected else {
+        panic!("control selected");
+    };
+    assert_eq!(
+        turn.classify(NonBoundarySelected::other(), due),
+        Disposition::Apply {
+            suppress_due: false
+        }
+    );
+    assert_eq!(boundary_polls, 0, "ineligible payloads cannot be dequeued");
+    assert_eq!(coordinator.take_retained(), Some(7));
 }

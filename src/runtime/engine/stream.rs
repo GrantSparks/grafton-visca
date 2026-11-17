@@ -190,7 +190,7 @@ impl StreamContext<'_> {
             requests.push(owner);
         }
         if matches!(frame.response, DecodedResponse::Completion { socket: None })
-            && self.stream.learning[target].completion_sockets != CompletionSockets::Named
+            && !self.stream.learning[target].completion_sockets.is_named()
             && !self.stream.ledger.owes_completion(target)
             && self.raw_socket_hold_count(target) == 0
             && self.raw_hold(target, RawHoldScope::AllResponses).is_none()
@@ -305,9 +305,7 @@ impl StreamContext<'_> {
                 socket: Some(socket),
             } => {
                 self.stream.update_learning(target, |learning| {
-                    if learning.completion_sockets == CompletionSockets::Unknown {
-                        learning.completion_sockets = CompletionSockets::Named;
-                    }
+                    learning.completion_sockets.learn_named();
                 });
                 if let Some(owner) = self.socket_owner(target, *socket) {
                     self.settle_before_owner(target, owner, now, effects);
@@ -332,7 +330,7 @@ impl StreamContext<'_> {
             // that arrives with no `CompletionOnly` command outstanding proves
             // the camera omits the nibble, for the rest of the session.
             DecodedResponse::Completion { socket: None }
-                if self.learn_socketless_completion(target) == CompletionSockets::Named =>
+                if self.learn_socketless_completion(target).is_named() =>
             {
                 self.take_stream_answer(target, Answer::Completion, evidence, now, effects)?
                     .ok()
@@ -353,15 +351,9 @@ impl StreamContext<'_> {
                     // A `CompletionOnly` command's, unless an executing or
                     // quarantined command could have sent it.
                     if holders != 0 || !held.is_empty() {
-                        let index = target;
-                        if self.stream.learning[index].completion_sockets
-                            == CompletionSockets::Unknown
-                        {
-                            self.stream.update_learning(index, |learning| {
-                                learning.unlearned_completions =
-                                    learning.unlearned_completions.saturating_add(1)
-                            });
-                        }
+                        self.stream.learning[target]
+                            .completion_sockets
+                            .drop_ambiguous();
                         return None;
                     }
                     return self
@@ -433,7 +425,7 @@ impl StreamContext<'_> {
                 // disputes that command instead of failing the owner.
                 if let Some(owner) = self.socket_owner(target, *socket) {
                     let unseen_completions =
-                        self.stream.learning[target].completion_sockets != CompletionSockets::Named;
+                        !self.stream.learning[target].completion_sockets.is_named();
                     if unseen_completions
                         && is_rejection(*code)
                         && self.stream.ledger.dispute(target, Answer::NamedRejection)
@@ -544,7 +536,7 @@ impl StreamContext<'_> {
     /// commands': each completes the oldest such command still owed (or pays
     /// its debt), and any left over are forgotten. Once the camera is known
     /// to omit them, they stay dropped.
-    pub(super) fn pay_unlearned_completions(&mut self, now: Instant, effects: &mut Decision) {
+    pub(super) fn pay_learned_completions(&mut self, now: Instant, effects: &mut Decision) {
         while let Some((target, entry, answered)) = self.stream.next_learned_completion() {
             self.absorb_answered(target, answered, now, effects);
             let awaiting = self
@@ -621,8 +613,9 @@ impl StreamContext<'_> {
         effects: &mut Decision,
     ) -> Resolved {
         if answered.completion_only_retired {
-            self.stream
-                .update_learning(target, |learning| learning.retired_completion_only += 1);
+            self.stream.update_learning(target, |learning| {
+                learning.completion_sockets.retire_completion()
+            });
         }
         effects.defer_frames(answered.retro);
         let skew_until = add_duration(now, self.policy.raw_inquiry_release_hold);

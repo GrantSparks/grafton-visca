@@ -106,10 +106,8 @@
 //! - **Settled** — a targeted operation was applied *and* meets the
 //!   profile-selected protocol settlement condition: a profile-declared
 //!   completion-is-settled signal, or two affected-axis position samples within
-//!   tolerance. It is an intended indication of target rest, not a
-//!   2.0.0-rc.3 bench-verified assertion that physical motion ended; exact
-//!   model/firmware/transport/command evidence remains in the repository's
-//!   `docs/hardware_release_checklist.md`.
+//!   tolerance. This is protocol evidence of target rest; it does not
+//!   independently prove that physical motion has ended.
 //!   Settlement is a caller wait, not an engine phase.
 //!
 //! **Deadline classes** (three independent owners; every default request
@@ -290,7 +288,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["serde", "schemars"] }
+//! grafton-visca = { version = "2.0.0", features = ["serde", "schemars"] }
 //! ```
 //!
 //! With these features enabled, you can serialize/deserialize all value types directly:
@@ -466,7 +464,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! ```rust
@@ -727,11 +725,11 @@
 //! ```toml
 //! [dependencies]
 //! # Single runtime:
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio"] }
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-smol"] }
+//! grafton-visca = { version = "2.0.0", features = ["runtime-tokio"] }
+//! grafton-visca = { version = "2.0.0", features = ["runtime-smol"] }
 //!
 //! # Multiple runtimes (choose executor at construction time):
-//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! Pass the runtime explicitly through `CameraSession::connect_tcp` or `connect`; standard

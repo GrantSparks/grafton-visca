@@ -106,13 +106,15 @@ impl ProbeIo {
 
     fn cooperative_handoff(&mut self) {}
 
-    fn select_event<D: ProbeDriver>(
+    fn select_event<'a, D: ProbeDriver>(
         &mut self,
-        _core: &mut OwnerShellCore,
+        _state: &mut OwnerState,
+        _receivers: &super::boundary::BoundaryReceivers,
         _selection: Selection,
+        turn: super::turn::PlannedTurn<'a, super::boundary::RetainedBoundary>,
         _driver: &mut D,
-    ) -> OwnerEvent {
-        OwnerEvent::Shutdown
+    ) -> super::shell::SelectedOwnerInput<'a> {
+        turn.into_other(super::shell::NonBoundaryEvent::Shutdown)
     }
 
     fn write<D: ProbeDriver>(

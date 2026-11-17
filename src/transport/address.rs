@@ -291,14 +291,14 @@ pub fn canonicalize_endpoint(address: &str, default_port: Option<u16>) -> Result
 ///
 /// Every facade (blocking, Tokio, smol) and both IP transports report a
 /// resolution failure through this one constructor, so an unresolvable host
-/// is the same [`Error::InvalidAddress`] with the same message everywhere.
+/// is the same [`Error::ConnectionFailed`] with its I/O cause everywhere.
 #[cfg(any(
     feature = "blocking",
     feature = "runtime-tokio",
     feature = "runtime-smol"
 ))]
-pub(crate) fn resolution_failed(endpoint: &str, error: &std::io::Error) -> Error {
-    invalid_address(format!("Failed to resolve '{endpoint}': {error}"))
+pub(crate) fn resolution_failed(endpoint: &str, error: std::io::Error) -> Error {
+    crate::transport::connect::connection_failed(endpoint, error)
 }
 
 /// Collect a resolver's result for `endpoint`, rejecting failure and an empty
@@ -316,7 +316,7 @@ where
     I: IntoIterator<Item = SocketAddr>,
 {
     let addresses: Vec<SocketAddr> = lookup
-        .map_err(|error| resolution_failed(endpoint, &error))?
+        .map_err(|error| resolution_failed(endpoint, error))?
         .into_iter()
         .collect();
     if addresses.is_empty() {
@@ -407,8 +407,8 @@ impl BlockingResolver {
     /// The connect error contract of [`crate::transport::connect`]: a spent
     /// budget (including one spent waiting for a free lookup slot) is a
     /// connect timeout, a failed lookup is
-    /// [`Error::InvalidAddress`], and a helper thread that cannot be started
-    /// is [`Error::ConnectionFailed`] naming the endpoint.
+    /// [`Error::ConnectionFailed`] carrying the resolver cause, as is a helper
+    /// thread that cannot be started or panics before answering.
     pub(crate) fn resolve(
         &'static self,
         endpoint: &str,
@@ -440,7 +440,7 @@ impl BlockingResolver {
             Err(mpsc::RecvTimeoutError::Timeout) => Err(Error::connect_timeout()),
             Err(mpsc::RecvTimeoutError::Disconnected) => Err(resolution_failed(
                 endpoint,
-                &std::io::Error::other("resolver thread ended without an answer"),
+                std::io::Error::other("resolver thread panicked before answering"),
             )),
         }
     }
@@ -511,17 +511,31 @@ mod tests {
         feature = "runtime-smol"
     ))]
     #[test]
-    fn resolution_errors_name_the_endpoint() {
-        let error = resolved::<Vec<SocketAddr>>(
-            "camera.invalid:5678",
-            Err(std::io::Error::other("lookup failed")),
-        )
-        .unwrap_err();
-        assert!(matches!(
-            error,
-            Error::InvalidAddress { ref reason }
-                if reason == "Failed to resolve 'camera.invalid:5678': lookup failed"
-        ));
+    fn resolution_errors_retain_the_endpoint_and_io_source() {
+        use std::error::Error as _;
+
+        for kind in [std::io::ErrorKind::NotFound, std::io::ErrorKind::Other] {
+            let error = resolved::<Vec<SocketAddr>>(
+                "camera.invalid:5678",
+                Err(std::io::Error::new(kind, "lookup failed")),
+            )
+            .unwrap_err();
+            assert!(matches!(
+                error,
+                Error::ConnectionFailed { ref addr, .. } if addr == "camera.invalid:5678"
+            ));
+            assert_eq!(
+                error
+                    .source()
+                    .unwrap()
+                    .downcast_ref::<std::sync::Arc<std::io::Error>>()
+                    .unwrap()
+                    .kind(),
+                kind
+            );
+            assert_eq!(error.kind(), crate::error::ErrorKind::IoRefused);
+            assert_eq!(error.recovery(), crate::error::Recovery::Abandon);
+        }
 
         let error = resolved("camera.invalid:5678", Ok(Vec::new())).unwrap_err();
         assert!(matches!(
@@ -529,6 +543,35 @@ mod tests {
             Error::InvalidAddress { ref reason }
                 if reason == "No addresses resolved for 'camera.invalid:5678'"
         ));
+    }
+
+    #[cfg(any(
+        feature = "blocking",
+        feature = "runtime-tokio",
+        feature = "runtime-smol"
+    ))]
+    #[test]
+    fn cloned_resolution_errors_keep_the_original_os_error_source() {
+        use std::{error::Error as _, sync::Arc};
+        let cause = std::io::Error::from_raw_os_error(5);
+        let kind = cause.kind();
+        let error = resolution_failed("camera.test:5678", cause);
+        let cloned = error.clone();
+        let original_source = error
+            .source()
+            .unwrap()
+            .downcast_ref::<Arc<std::io::Error>>()
+            .unwrap();
+        let cloned_source = cloned
+            .source()
+            .unwrap()
+            .downcast_ref::<Arc<std::io::Error>>()
+            .unwrap();
+        assert!(Arc::ptr_eq(original_source, cloned_source));
+        for source in [original_source, cloned_source] {
+            assert_eq!(source.as_ref().kind(), kind);
+            assert_eq!(source.as_ref().raw_os_error(), Some(5));
+        }
     }
 
     #[cfg(any(
@@ -644,16 +687,60 @@ mod tests {
         }
 
         #[test]
-        fn a_failed_lookup_is_an_address_error() {
-            fn failing(_: String) -> std::io::Result<Vec<SocketAddr>> {
-                Err(std::io::Error::other("no such host"))
+        fn a_failed_lookup_preserves_its_io_cause() {
+            fn failing(endpoint: String) -> std::io::Result<Vec<SocketAddr>> {
+                let kind = if endpoint.starts_with("missing.") {
+                    std::io::ErrorKind::NotFound
+                } else {
+                    std::io::ErrorKind::Other
+                };
+                Err(std::io::Error::new(kind, "injected resolver failure"))
             }
             static RESOLVER: BlockingResolver = BlockingResolver::new(1, failing);
 
-            assert!(matches!(
-                RESOLVER.resolve("camera.test:5678", budget(Duration::from_secs(5))),
-                Err(Error::InvalidAddress { .. })
-            ));
+            use std::error::Error as _;
+            for (endpoint, kind) in [
+                ("missing.camera:1259", std::io::ErrorKind::NotFound),
+                ("failed.camera:1259", std::io::ErrorKind::Other),
+            ] {
+                let error = RESOLVER
+                    .resolve(endpoint, budget(Duration::from_secs(5)))
+                    .unwrap_err();
+                assert!(matches!(error, Error::ConnectionFailed { .. }));
+                assert_eq!(
+                    error
+                        .source()
+                        .unwrap()
+                        .downcast_ref::<std::sync::Arc<std::io::Error>>()
+                        .unwrap()
+                        .kind(),
+                    kind
+                );
+            }
+        }
+
+        #[test]
+        fn a_panicking_lookup_preserves_a_typed_helper_failure() {
+            use std::error::Error as _;
+            #[allow(clippy::panic)]
+            fn panicking(_: String) -> std::io::Result<Vec<SocketAddr>> {
+                panic!("injected resolver panic")
+            }
+            static RESOLVER: BlockingResolver = BlockingResolver::new(1, panicking);
+            let error = RESOLVER
+                .resolve("camera.test:5678", budget(Duration::from_secs(5)))
+                .unwrap_err();
+            assert!(matches!(error, Error::ConnectionFailed { .. }));
+            assert_eq!(
+                error
+                    .source()
+                    .unwrap()
+                    .downcast_ref::<std::sync::Arc<std::io::Error>>()
+                    .unwrap()
+                    .kind(),
+                std::io::ErrorKind::Other
+            );
+            wait_for_idle(&RESOLVER);
         }
 
         /// The budget bounds a stalled lookup, and the stalled helper keeps

@@ -315,6 +315,10 @@ mod tests {
 
             let mut data = self.read_data.borrow_mut();
             if data.is_empty() {
+                // An idle device uses its armed timeout. Returning immediately
+                // would repeatedly re-arm the bounded read until wall time
+                // catches up, rather than modelling a timed serial backend.
+                thread::sleep(self.timeout());
                 return Err(ErrorKind::TimedOut.into());
             }
             let n = std::cmp::min(buf.len(), data.len());

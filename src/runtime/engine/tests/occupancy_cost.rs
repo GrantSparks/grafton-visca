@@ -10,7 +10,7 @@ fn blocked_engine(
     now: Instant,
 ) -> ProtocolEngine {
     let mut configured = policy(envelope, transport);
-    configured.capacity = ENTRIES;
+    configured.capacity = std::num::NonZeroUsize::new(ENTRIES).unwrap();
     let mut engine = ProtocolEngine::new(configured, now).unwrap();
     engine
         .register_target(

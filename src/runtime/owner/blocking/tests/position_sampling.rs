@@ -1,9 +1,6 @@
 //! Exercise the production sampling methods with an authoritative delivery time.
 
-use super::super::super::{
-    boundary::{AdmissionBoundaryClaim, AdmissionClaim},
-    TerminalSlot,
-};
+use super::super::super::TerminalSlot;
 use super::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -82,29 +79,20 @@ fn position_observations_use_delivery_time_even_when_the_caller_wakes_late() {
                     _ => 2,
                 };
                 for index in 0..samples {
-                    let admission = clock
+                    let mut admission = clock
                         .select()
                         .recv(&ends.receivers.admissions, |value| value.unwrap())
                         .wait();
-                    if let AdmissionBoundaryClaim::Pending(validity) = &admission.claim {
-                        assert!(matches!(
-                            validity.claim_for_admission(clock.now()),
-                            AdmissionClaim::Claimed { .. }
-                        ));
-                    }
-                    let cell = match &admission.observer {
+                    admission.claim_for_admission(clock.now()).unwrap();
+                    let (request, permit, observer, reply) = admission.into_parts();
+                    let cell = match &observer {
                         TerminalSlot::Inquiry(cell) => TerminalSlot::Inquiry(Arc::clone(cell)),
                         TerminalSlot::Command(cell) => TerminalSlot::Command(Arc::clone(cell)),
                         _ => panic!("typed observations use their own terminal lane"),
                     };
                     let turn = state.begin_input_turn(clock.now());
                     let admitted = state
-                        .admit_in_turn(
-                            &turn,
-                            admission.request,
-                            admission.permit,
-                            admission.observer,
-                        )
+                        .admit_in_turn(&turn, request, permit, observer)
                         .unwrap();
                     let last = index + 1 == samples;
                     if last {
@@ -127,7 +115,7 @@ fn position_observations_use_delivery_time_even_when_the_caller_wakes_late() {
                                 .saturating_duration_since(clock.now()),
                         );
                     }
-                    admission.reply.send(Ok(admitted)).unwrap();
+                    reply.send(Ok(admitted)).unwrap();
                 }
             });
             let result = match kind {

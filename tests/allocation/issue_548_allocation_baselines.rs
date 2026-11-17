@@ -650,6 +650,49 @@ fn warmed_manual_clock_timer_resets_do_not_allocate() {
     assert_eq!(allocations, 0, "the four-timer wake batch allocated");
 }
 
+#[cfg(all(feature = "async", feature = "test-utils"))]
+fn assert_parked_actor_turns_do_not_allocate(runtime: impl grafton_visca::runtime::Executor) {
+    use grafton_visca::testing::turns::SelectProbe;
+    let mut probe = SelectProbe::new(runtime).expect("receive-only actor");
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    assert_eq!(probe.poll_parked(&mut context).unwrap(), 0);
+    probe.receive_frame();
+    assert_eq!(probe.poll_parked(&mut context).unwrap(), 1);
+    let allocations = allocations_during(|| {
+        for received in 2..=101 {
+            probe.receive_frame();
+            assert_eq!(probe.poll_parked(&mut context).unwrap(), received);
+        }
+    });
+    assert_eq!(allocations, 0, "100 warmed parked actor turns allocated");
+}
+
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
+#[test]
+fn warmed_tokio_parked_actor_turns_do_not_allocate() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let executor = grafton_visca::runtime::TokioExecutor::from_handle(runtime.handle().clone());
+    assert_parked_actor_turns_do_not_allocate(executor);
+}
+
+#[cfg(all(feature = "runtime-smol", feature = "test-utils"))]
+#[test]
+fn warmed_smol_parked_actor_turns_do_not_allocate() {
+    assert_parked_actor_turns_do_not_allocate(grafton_visca::runtime::SmolExecutor::new());
+}
+
+#[cfg(all(feature = "async", feature = "test-utils"))]
+#[test]
+fn warmed_manual_clock_parked_actor_turns_do_not_allocate() {
+    use grafton_visca::testing::testkit::{ManualClock, ManualClockExecutor};
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    assert_parked_actor_turns_do_not_allocate(ManualClockExecutor::local(&clock));
+}
+
 #[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
 #[test]
 fn warmed_receive_decoding_and_batch_recycling_do_not_allocate() {

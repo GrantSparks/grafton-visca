@@ -849,13 +849,10 @@ impl PositionWord {
     }
 
     fn decode(self, bytes: &[u8]) -> Result<i32, Error> {
-        match self {
-            Self::Four => Nibbles::<4>::try_from(Payload::new(bytes))?
-                .i16_quad(0)
-                .map(i32::from),
-            Self::Five => Nibbles::<5>::try_from(Payload::new(bytes))?.i20_penta(0),
-        }
-        .ok_or(Error::InvalidResponseFormat)
+        Ok(match self {
+            Self::Four => i32::from(Nibbles::<4>::try_from(Payload::new(bytes))?.signed()),
+            Self::Five => Nibbles::<5>::try_from(Payload::new(bytes))?.signed(),
+        })
     }
 }
 
@@ -1013,11 +1010,10 @@ impl PanTiltFraming {
             return Err(Error::invalid_response_length(expected, bytes));
         }
         if matches!(self.coordinate_system, CoordinateSystem::UnsignedCentered) {
-            let nibbles = Nibbles::<8>::try_from(payload)?;
-            let (pan, tilt) = self.coordinate_system.convert_from_camera_coords(
-                nibbles.u16_quad(0).ok_or(Error::InvalidResponseFormat)?,
-                nibbles.u16_quad(4).ok_or(Error::InvalidResponseFormat)?,
-            );
+            let (pan, tilt) = Nibbles::<8>::try_from(payload)?.halves();
+            let (pan, tilt) = self
+                .coordinate_system
+                .convert_from_camera_coords(pan.value(), tilt.value());
             Ok((i32::from(pan), i32::from(tilt)))
         } else {
             let (pan, tilt) = bytes.split_at(self.pan.len());

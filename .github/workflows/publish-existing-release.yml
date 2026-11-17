@@ -322,7 +322,6 @@ jobs:
         id: release
         env:
           RELEASE_TAG: ${{ github.event.inputs.release_tag }}
-          HARDWARE_CHECKLIST: docs/hardware_release_checklist.md
           RUSTC_WRAPPER: ""
         run: |
           git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main

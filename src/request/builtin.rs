@@ -246,8 +246,7 @@ macro_rules! builtin_request {
                 #[cfg(test)]
                 REQUEST_VALIDATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
                 let row = builtin_request!(@row self $(, $value)?);
-                row_gate(row).validate(target.profile(), surface_entry(row).feature())?;
-                row.source().validate_for_profile(target.profile(), surface_entry(row).feature())?;
+                validate_row(row, target.profile())?;
                 <Self as BuiltinValidation>::validate_target(self, target)
             }
 
@@ -290,6 +289,13 @@ macro_rules! builtin_request {
 }
 
 pub(crate) use super::builtin_contract::BuiltinValidation;
+
+/// Profile-wide row checks shared by request preparation and STOP discovery.
+pub(crate) fn validate_row(row: BuiltinCommand, profile: &crate::ProfileSpec) -> crate::Result<()> {
+    let feature = surface_entry(row).feature();
+    row_gate(row).validate(profile, feature)?;
+    row.source().validate_for_profile(profile, feature)
+}
 #[cfg(any(feature = "blocking", feature = "async"))]
 use super::builtin_contract::{BuiltinStateProjection, BuiltinStateValue};
 

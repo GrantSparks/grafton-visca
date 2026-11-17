@@ -41,6 +41,10 @@ mod turn;
 mod turn_probe;
 #[cfg(feature = "test-utils")]
 pub(crate) use turn_probe::TurnProbe;
+#[cfg(all(feature = "test-utils", feature = "async"))]
+mod select_probe;
+#[cfg(all(feature = "test-utils", feature = "async"))]
+pub(crate) use select_probe::SelectProbe;
 
 #[cfg(feature = "async")]
 pub(crate) use async_actor::*;
@@ -229,6 +233,7 @@ impl Default for OwnerLimits {
 /// have become the new floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TuningBaseline {
+    timing: crate::profiles::ProfileTiming,
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
     pub(crate) command_sockets: PerTarget<Option<crate::CommandSocketCount>>,
@@ -237,7 +242,12 @@ pub(crate) struct TuningBaseline {
 impl TuningBaseline {
     /// Retains immutable profile facts before any operational override is applied.
     pub(crate) fn from_registry(profiles: &PerTarget<Option<&crate::ProfileSpec>>) -> Self {
+        let timing = profiles
+            .iter()
+            .find_map(|(_, profile)| profile.map(crate::ProfileSpec::timing))
+            .unwrap_or_else(|| crate::profiles::ProfileId::GenericVisca.raw_facts().timing);
         let mut baseline = Self {
+            timing,
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             command_sockets: PerTarget::default(),
@@ -265,13 +275,18 @@ impl TuningBaseline {
         Duration,
         PerTarget<Option<crate::CommandSocketCount>>,
     ) {
-        let tuning = tuning.get();
+        // Aggregate profile pacing is immutable, just like target-local
+        // ProfileTiming. Feed it through the same checked override resolution.
+        let mut timing = self.timing;
+        timing.command_spacing = self.command_spacing;
+        timing.inquiry_spacing = self.inquiry_spacing;
+        let resolved = tuning.resolve(&timing);
         (
-            tuning.command_spacing().unwrap_or(self.command_spacing),
-            tuning.inquiry_spacing().unwrap_or(self.inquiry_spacing),
+            resolved.command_spacing,
+            resolved.inquiry_spacing,
             PerTarget::from_fn(|target| {
                 self.command_sockets[target]
-                    .map(|sockets| tuning.maximum_command_sockets().unwrap_or(sockets))
+                    .map(|sockets| resolved.maximum_command_sockets(sockets))
             }),
         )
     }
@@ -279,6 +294,7 @@ impl TuningBaseline {
     #[cfg(test)]
     fn for_test(protocol: &ProtocolPolicy, targets: &PerTarget<Option<TargetPolicy>>) -> Self {
         Self {
+            timing: crate::profiles::ProfileId::GenericVisca.raw_facts().timing,
             command_spacing: protocol.command_spacing,
             inquiry_spacing: protocol.inquiry_spacing,
             command_sockets: PerTarget::from_fn(|target| {
@@ -1644,7 +1660,7 @@ impl OwnerState {
             transport: protocol.transport,
         };
         let permits = AdmissionPermitPool::new(
-            protocol.capacity,
+            protocol.capacity.get(),
             PerTarget::from_fn(|target| targets[target].map_or(0, |policy| policy.control_reserve)),
         );
         let mut engine = ProtocolEngine::new(protocol, now)?;

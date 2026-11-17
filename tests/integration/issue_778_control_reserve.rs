@@ -183,3 +183,59 @@ async fn dyn_stop_passes_a_saturated_session<E: Executor>(executor: E) {
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 grafton_visca_test_support::runtime_matrix!(dyn_stop_passes_a_saturated_session);
+
+/// Every built-in's halt uses exactly the reserve derived from its STOP rows.
+/// An outstanding inquiry fills ordinary capacity without being superseded by
+/// the halt's motion fence. The camera answers STOPs in each profile's framing.
+#[cfg(feature = "blocking")]
+#[test]
+fn every_builtin_halt_passes_saturated_ordinary_admission() {
+    use grafton_visca::{
+        blocking::Session,
+        profiles::{AnyProfile, ProfileId},
+        types::IndividualCameraId,
+    };
+    for id in ProfileId::all() {
+        let profile = id.spec().expect("built-in profile");
+        let expected = usize::from(profile.capabilities().pan_tilt.is_some())
+            + usize::from(profile.capabilities().zoom.is_some())
+            + usize::from(profile.capabilities().focus.is_some());
+        let fake = FakeCamera::visca(|request, answer| {
+            if request.get(1) == Some(&0x01) {
+                answer.reply(frames::ack(1)).reply(frames::complete(1));
+            }
+        });
+        let config = SessionConfig::new(profile)
+            .with_admission_capacity(NonZeroUsize::MIN)
+            .with_tuning(OperationalTuning::new().with_inquiry_timeout(WAIT_BUDGET));
+        let session = Session::open(fake.blocking_wire(), &config).expect("session");
+        let camera = session
+            .camera::<AnyProfile>(IndividualCameraId::CAMERA_1)
+            .expect("camera");
+        std::thread::scope(|scope| {
+            let querying = camera.clone();
+            let inquiry = scope
+                .spawn(move || querying.inquire(&grafton_visca::command::zoom::PositionInquiry));
+            fake.wait_for_writes(1);
+            assert!(
+                matches!(
+                    camera.inquire(&grafton_visca::command::zoom::PositionInquiry),
+                    Err(Error::RuntimeQueueFull { capacity: 1, .. })
+                ),
+                "{id:?}"
+            );
+            camera
+                .motion()
+                .stop_all()
+                .expect("halt accepted")
+                .into_result()
+                .expect("every supported STOP applies");
+            assert_eq!(fake.write_count(), 1 + expected, "{id:?}");
+            let metrics = session.metrics().expect("metrics");
+            assert_eq!(metrics.control_reserve_admitted, expected as u64, "{id:?}");
+            assert_eq!(metrics.control_reserve_rejected, 0, "{id:?}");
+            session.shutdown().expect("shutdown");
+            assert!(inquiry.join().expect("query thread").is_err());
+        });
+    }
+}

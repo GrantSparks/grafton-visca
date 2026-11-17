@@ -24,7 +24,7 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Admis
             engine.halt_in_turn(&turn, camera(1), crate::AffectedAxes::ZOOM, 1);
         }
         "ordinary capacity" => {
-            engine.policy.capacity = 1;
+            engine.policy.capacity = std::num::NonZeroUsize::new(1).unwrap();
             let turn = engine.begin_input_turn(now);
             engine.admit_in_turn(&turn, request.clone(), slot).unwrap();
         }

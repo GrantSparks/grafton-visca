@@ -225,10 +225,28 @@ fn pair_is_admissible(phase: Phase, cancellation: CancelState) -> bool {
 /// Shared with the generated-input property: audit the independent table
 /// after every generated step, including every retained retry/cancel state.
 pub(super) fn all_entries_have_admissible_pairs(engine: &ProtocolEngine) -> bool {
-    engine
-        .entries
-        .values()
-        .all(|entry| pair_is_admissible(entry.phase(), entry.cancellation()))
+    engine.entries.values().all(|entry| {
+        let lifecycle = entry.lifecycle();
+        let window = lifecycle.response_window_end();
+        let projected = match entry.phase() {
+            Phase::Ready | Phase::Sending { .. } | Phase::Backoff { .. } => None,
+            Phase::AwaitingAck { deadline, .. }
+            | Phase::AwaitingCompletion { deadline, .. }
+            | Phase::Executing { deadline, .. }
+            | Phase::ExecutingDisplaced { deadline, .. }
+            | Phase::AwaitingReply { deadline, .. }
+            | Phase::AwaitingCancellationResolution { deadline, .. } => Some(deadline),
+        };
+        let budget = entry.retry_budget_deadline();
+        let correlated = if lifecycle.is_off_wire() {
+            None
+        } else {
+            [window, budget].into_iter().flatten().min()
+        };
+        pair_is_admissible(entry.phase(), entry.cancellation())
+            && projected == window
+            && lifecycle.correlated_response_deadline(budget) == correlated
+    })
 }
 
 fn checked_input(engine: &mut ProtocolEngine, input: Input, now: Instant) -> Vec<Effect> {

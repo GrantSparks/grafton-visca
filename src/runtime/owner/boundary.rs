@@ -200,16 +200,90 @@ impl<T: Clone> PendingAdmission<T> {
 
 #[derive(Debug)]
 pub(super) struct AdmissionBoundary {
-    pub(super) request: RuntimeRequest,
-    pub(super) permit: AdmissionPermit,
-    pub(super) observer: TerminalSlot,
-    pub(super) reply: flume::Sender<Result<Admitted, Error>>,
-    pub(super) claim: AdmissionBoundaryClaim,
+    request: RuntimeRequest,
+    permit: AdmissionPermit,
+    observer: TerminalSlot,
+    reply: flume::Sender<Result<Admitted, Error>>,
+    claim: AdmissionBoundaryClaim,
+}
+
+/// Why an admission failed its boundary claim, and which side owns telemetry.
+#[derive(Debug)]
+pub(super) struct AdmissionRejection {
+    pub(super) error: Error,
+    pub(super) record: bool,
+}
+
+/// A claimed boundary's inputs and its one admission answer.
+pub(super) type AdmissionParts = (
+    RuntimeRequest,
+    AdmissionPermit,
+    TerminalSlot,
+    flume::Sender<Result<Admitted, Error>>,
+);
+
+impl AdmissionBoundary {
+    pub(super) const fn request(&self) -> &RuntimeRequest {
+        &self.request
+    }
+
+    /// Claim the deadline race while the boundary still owns its permit.
+    pub(super) fn claim_for_admission(&mut self, now: Instant) -> Result<(), AdmissionRejection> {
+        if self.reply.is_disconnected() {
+            // A caller-expired boundary has already reported its rejection.
+            let record = match &self.claim {
+                AdmissionBoundaryClaim::Pending(validity) => validity.expire_before_admission(),
+                AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => true,
+            };
+            return Err(AdmissionRejection {
+                error: Error::CommandCancelled,
+                record,
+            });
+        }
+        let validity = match &self.claim {
+            AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => return Ok(()),
+            AdmissionBoundaryClaim::Pending(validity) => validity,
+        };
+        match validity.claim_for_admission(now) {
+            AdmissionClaim::Claimed { .. } => {
+                self.claim = AdmissionBoundaryClaim::Claimed;
+                Ok(())
+            }
+            claim @ (AdmissionClaim::ExpiredHere | AdmissionClaim::ExpiredElsewhere) => {
+                Err(AdmissionRejection {
+                    error: Error::admission_timeout(),
+                    record: matches!(claim, AdmissionClaim::ExpiredHere),
+                })
+            }
+        }
+    }
+
+    /// Release admission capacity before the rejection wakes its receiver.
+    pub(super) fn reject(self, error: Error) {
+        let Self {
+            request,
+            permit,
+            observer,
+            reply,
+            claim,
+        } = self;
+        drop(permit);
+        let _ = reply.try_send(Err(error));
+        // The admission answer remains authoritative over a dropped slot.
+        drop(request);
+        drop(observer);
+        drop(claim);
+    }
+
+    /// Transfer a claimed boundary into the engine's consuming admission path.
+    pub(super) fn into_parts(self) -> AdmissionParts {
+        (self.request, self.permit, self.observer, self.reply)
+    }
 }
 
 /// The owner's one-way answer to the pre-admission deadline race.
 #[derive(Debug)]
-pub(super) enum AdmissionBoundaryClaim {
+enum AdmissionBoundaryClaim {
     /// No caller deadline constrains admission.
     Unbounded,
     /// The owner has not yet claimed the caller's bounded admission.
@@ -496,12 +570,14 @@ impl LifecycleState {
         snapshot: crate::observability::MetricsSnapshot,
     ) -> Result<crate::observability::MetricsSnapshot, Error> {
         match self {
-            Self::ShutDown { metrics } | Self::Terminated { metrics, .. }
-                if !matches!(metrics, TerminalMetrics::Unavailable) =>
-            {
-                *metrics = TerminalMetrics::Published(snapshot);
-                Ok(snapshot)
-            }
+            Self::ShutDown { metrics } | Self::Terminated { metrics, .. } => match metrics {
+                TerminalMetrics::Pending => {
+                    *metrics = TerminalMetrics::Published(snapshot);
+                    Ok(snapshot)
+                }
+                TerminalMetrics::Published(published) => Ok(*published),
+                TerminalMetrics::Unavailable => Err(missing_terminal_error()),
+            },
             _ => Err(missing_terminal_error()),
         }
     }
@@ -989,6 +1065,11 @@ impl OwnerHandleCore {
 
     fn admission_rejection(&self) -> Option<Error> {
         self.lifecycle.lock_open().err()
+    }
+
+    /// Refuse new handle work once the owner has published its terminal verdict.
+    pub(super) fn terminal_error(&self) -> Option<Error> {
+        self.lifecycle.terminal()
     }
 
     /// The session's terminal error, for a boundary whose owner is gone.

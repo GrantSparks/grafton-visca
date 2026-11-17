@@ -47,6 +47,10 @@ The following boundaries are release gates:
 * Async owners retain their four read, write, pacing and wake timers for the
   actor lifetime. A turn resets an existing timer instead of constructing a
   fresh timer future.
+* Async owners retain one receive stream for each boundary lane. Warmed parked
+  turns woken only by device input allocate no lane hooks; a lane's hook is
+  replaced only after that lane yields a message. Streams for ineligible lanes
+  remain registered but are never polled or dequeued by that selection.
 * Standard TCP receives read directly into the caller's slice, with no extra
   user-space read-ahead buffer. The owner requests at most `recv_buffer_size`
   bytes from the kernel per read.
@@ -83,6 +87,7 @@ The stable test boundaries are:
 | Profile-aware position preparation and decoder cloning | `tests/allocation/issue_548_allocation_baselines.rs::profiled_position_inquiry_preparation_and_decoder_clones_stay_inline`, for G2, BRC-300 and FR7 |
 | Warmed receive lowering, decoding and batch recycling | `tests/allocation/issue_548_allocation_baselines.rs::warmed_receive_decoding_and_batch_recycling_do_not_allocate`, through `testing::receive::ReceiveProbe` for raw/Sony streams and datagrams |
 | Warmed engine decisions and complete owner command/frame turns | `tests/allocation/issue_548_allocation_baselines.rs::warmed_owner_command_and_frame_turns_do_not_allocate`, through `testing::turns::TurnProbe`; raw/Sony streams and datagrams run the production turn driver, recursive exact-write handling, ACK/completion and terminal delivery. Admission and the bounded observer queue are staged outside the measurement. |
+| Warmed parked async actor selections | `tests/allocation/issue_548_allocation_baselines.rs::{warmed_tokio_parked_actor_turns_do_not_allocate,warmed_smol_parked_actor_turns_do_not_allocate,warmed_manual_clock_parked_actor_turns_do_not_allocate}`, through `testing::turns::SelectProbe`. Each measures 100 receive-woken turns of the actual actor run loop with connected idle boundary lanes, polling only the owner future so external executor/reactor bookkeeping is excluded. |
 | Built-in typed camera view selection | `tests/allocation/issue_548_allocation_baselines.rs::{blocking_builtin_camera_and_into_typed_views_do_not_allocate,async_builtin_camera_and_into_typed_views_do_not_allocate}` |
 | Warmed raw/Sony framing reuse | `tests/allocation/issue_548_allocation_baselines.rs::raw_and_sony_framing_reuse_one_warmed_buffer` |
 | Safe retry encoded-command reuse | `runtime::engine` unit test `inert_wire_is_inline_and_reused_across_retry_without_reallocation`, plus `tests/allocation/issue_548_allocation_baselines.rs::warmed_raw_and_sony_retries_reuse_owner_buffers`; raw coverage must be limited to conclusive rejection, never ambiguity or active-budget expiry |
@@ -172,12 +177,9 @@ Run compile-fail/API-contract tests under blocking, canonical async, dyn, and
 coexistence feature sets. Run the fuzz/property suite with failures treated as
 failures, not advisory output. Run Synemantic's
 external compatibility check once the service/project credentials are
-available. Hardware tests are separate and are tracked in
-[`hardware_release_checklist.md`](hardware_release_checklist.md). Under #753's
-proportional policy (which supersedes #738/D8 in #732), an RC may have pending
-hardware rows only when its release notes state that no physical hardware
-validation has been performed and no hardware support has been verified for
-that release candidate.
+available. Hardware smoke checks are optional and private for stable releases
+and prereleases; no public device record or sign-off is required (#1008). See
+the [optional guidance](hardware_release_checklist.md).
 
 Serialization, schema, and TypeScript checks validate public data shapes only;
 they must not introduce a second protocol or semantic registry. Keep generated

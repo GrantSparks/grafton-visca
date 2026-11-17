@@ -8,7 +8,7 @@
 #[cfg(any(test, feature = "test-utils"))]
 use crate::{transport::SendSemantics, OperationalTuning};
 
-use std::{borrow::Cow, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 #[cfg(test)]
 use bytes::Bytes;
@@ -259,16 +259,15 @@ pub(crate) fn owner_policy_for_registry_with_tuning(
 
     let transport = identity.send_semantics().into();
 
-    // Raw targets exclude only overlapping inquiry declarations. Admission
-    // capacity still bounds total concurrent inquiries, as for Sony sequences.
-    let inquiry_capacity = admission_capacity.get();
+    // Every inquiry holds an ordinary admission slot. That per-target bound
+    // leaves room for a Ready candidate without a separate inquiry limit; raw
+    // dispatch additionally excludes overlapping inquiry declarations.
     let wire = crate::runtime::engine::WireProtocol::new(envelope, identity.addressing());
     let mut policy = OwnerPolicy::with_targets(
         ProtocolPolicy {
-            capacity: admission_capacity.get(),
+            capacity: admission_capacity,
             wire,
             transport,
-            inquiry_capacity,
             command_spacing,
             inquiry_spacing,
             // A syntax-error inquiry retry needs to respect the strictest
@@ -735,15 +734,11 @@ pub(crate) fn decode_frames_with_routing<E: AdapterEnvelope>(
     frame_limit: usize,
     transport: TransportKind,
 ) -> Result<FrameBatch, ReceiveDecodeFailure> {
-    if received > buffers.receive_mut().len() {
-        return Err(ReceiveDecodeFailure::Fatal {
-            error: Error::InvalidResponse {
-                expected: Cow::Borrowed("transport read fitting the owner receive buffer"),
-                actual: received.to_le_bytes().to_vec(),
-            },
+    let received = crate::transport::buffer::checked_read(received, buffers.receive_mut().len())
+        .map_err(|error| ReceiveDecodeFailure::Fatal {
+            error,
             discarded: 0,
-        });
-    }
+        })?;
     if received == 0 && (transport == TransportKind::Datagram || !framer.has_buffered_data()) {
         return Ok(FrameBatch::new());
     }
@@ -1346,6 +1341,31 @@ mod tests {
     }
 
     #[test]
+    fn an_overreported_read_keeps_counts_and_is_fatal_on_a_stream() {
+        let envelope = RawVisca::new(AddressingMode::Ip);
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
+        );
+        let mut framer = RawFramer::new_with_limits(32, 32, 32);
+        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let capacity = buffers.receive_mut().len();
+        let failure = decode_frames_with_routing(
+            &envelope,
+            &mut framer,
+            routing,
+            &mut buffers,
+            capacity + 1,
+            4,
+            TransportKind::Stream,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(failure.owner_receive(TransportKind::Stream), OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause: Error::BufferTooSmall { required, actual }, discarded: 0 }) if required == capacity + 1 && actual == capacity)
+        );
+    }
+
+    #[test]
     fn datagram_partial_bytes_are_discarded_before_the_next_datagram() {
         let envelope = RawVisca::new(AddressingMode::Ip);
         let routing = RoutingState::new(
@@ -1684,7 +1704,6 @@ mod tests {
         let policy = owner_policy_for_targets(&profiles, &config, SendSemantics::Stream).unwrap();
         assert!(policy.targets[TargetSlot::CAMERA_1].is_some());
         assert!(policy.targets[TargetSlot::CAMERA_2].is_some());
-        assert_eq!(policy.protocol.inquiry_capacity, policy.protocol.capacity);
         assert_eq!(
             policy.protocol.command_spacing,
             profile.timing().command_spacing()
@@ -1714,7 +1733,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(raw_policy.protocol.wire.kind(), EnvelopeKind::Raw);
-        assert_eq!(raw_policy.protocol.inquiry_capacity, capacity.get());
+        assert_eq!(raw_policy.protocol.capacity, capacity);
         assert_eq!(
             raw_policy.protocol.raw_inquiry_release_hold,
             raw.timing().raw_inquiry_reply_skew()
@@ -1731,7 +1750,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(sony_policy.protocol.wire.kind(), EnvelopeKind::Sony);
-        assert_eq!(sony_policy.protocol.inquiry_capacity, capacity.get());
+        assert_eq!(sony_policy.protocol.capacity, capacity);
     }
 
     #[test]

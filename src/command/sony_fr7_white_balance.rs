@@ -185,16 +185,12 @@ white_balance_control! {
 }
 
 pub(crate) fn decode_white_kelvin(payload: Payload<'_>) -> Result<Kelvin, Error> {
-    let value = Nibbles::<4>::try_from(payload)?
-        .u16_quad(0)
-        .ok_or(Error::InvalidResponseFormat)?;
+    let value = Nibbles::<4>::try_from(payload)?.value();
     Kelvin::new(value)
 }
 
 pub(crate) fn decode_white_balance_gain(payload: Payload<'_>) -> Result<WhiteBalanceGain, Error> {
-    let value = Nibbles::<4>::try_from(payload)?
-        .u16_quad(0)
-        .ok_or(Error::InvalidResponseFormat)?;
+    let value = Nibbles::<4>::try_from(payload)?.value();
     WhiteBalanceGain::from_wire(value)
 }
 

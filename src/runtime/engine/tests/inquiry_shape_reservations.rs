@@ -3,8 +3,7 @@ use super::*;
 
 fn reservation_engine(transport: TransportKind, capacity: usize, now: Instant) -> ProtocolEngine {
     let mut configured = policy(EnvelopeKind::Raw, transport);
-    configured.capacity = capacity;
-    configured.inquiry_capacity = 16;
+    configured.capacity = std::num::NonZeroUsize::new(capacity).unwrap();
     let mut engine = ProtocolEngine::new(configured, now).unwrap();
     for target in TargetSlot::ALL {
         engine

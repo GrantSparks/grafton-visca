@@ -527,8 +527,8 @@ mod facades {
     }
 
     /// #798: an unresolvable host was `InvalidAddress` on the blocking
-    /// facade but `Io` on Tokio and smol. It is now the same error, with the
-    /// same message, on every facade and both IP transports.
+    /// facade but `Io` on Tokio and smol. Every facade now preserves the same
+    /// resolver I/O cause in `ConnectionFailed` for both IP transports.
     #[tokio::test]
     async fn an_unresolvable_host_fails_identically_on_every_facade() {
         // RFC 6761 reserves `.invalid`; it never resolves.
@@ -579,18 +579,28 @@ mod facades {
             ),
         ];
 
+        use std::error::Error as _;
         let (_, first) = &errors[0];
-        let Error::InvalidAddress { reason } = first else {
-            panic!("blocking TCP reported {first:?}");
-        };
-        assert!(
-            reason.starts_with("Failed to resolve 'grafton-visca.invalid:5678'"),
-            "unexpected reason: {reason}"
-        );
+        let source_kind = first
+            .source()
+            .expect("resolver source")
+            .downcast_ref::<std::sync::Arc<std::io::Error>>()
+            .expect("I/O source")
+            .kind();
         for (facade, error) in &errors {
             assert!(
-                matches!(error, Error::InvalidAddress { reason: actual } if actual == reason),
-                "{facade} reported {error:?}, expected the blocking facade's {first:?}"
+                matches!(error, Error::ConnectionFailed { addr, .. } if addr == HOST),
+                "{facade}: {error:?}"
+            );
+            assert_eq!(
+                error
+                    .source()
+                    .expect("resolver source")
+                    .downcast_ref::<std::sync::Arc<std::io::Error>>()
+                    .expect("I/O source")
+                    .kind(),
+                source_kind,
+                "{facade}"
             );
         }
     }

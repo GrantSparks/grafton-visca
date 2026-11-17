@@ -2,7 +2,7 @@
 use crate::target::{PerTarget, TargetSlot};
 
 use std::{
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -212,30 +212,7 @@ pub(crate) enum ReplyShape {
     NoReply,
 }
 
-/// A strictly positive interval. Absolute representability is checked against
-/// the owner's sampled clock when a policy or request crosses the engine boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct NonZeroDuration(Duration);
-
-impl NonZeroDuration {
-    pub(crate) fn new(duration: Duration) -> Result<Self, Error> {
-        if duration.is_zero() {
-            return Err(Error::InvalidRequest {
-                reason: "engine timeout durations must be non-zero".into(),
-            });
-        }
-        Ok(Self(duration))
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn from_millis(milliseconds: NonZeroU64) -> Self {
-        Self(Duration::from_millis(milliseconds.get()))
-    }
-
-    pub(crate) const fn get(self) -> Duration {
-        self.0
-    }
-}
+pub(crate) use crate::timeout::NonZeroDuration;
 
 /// All scheduler deadlines for one request class. Zero ambiguity, including
 /// when a virtual clock lands exactly on the ACK deadline, is unrepresentable.
@@ -249,20 +226,20 @@ pub(crate) struct TimeoutPolicy {
 }
 
 impl TimeoutPolicy {
-    pub(crate) fn new(
-        ack: Duration,
-        completion: Duration,
-        inquiry: Duration,
-        cancellation: Duration,
-        ambiguity: Duration,
-    ) -> Result<Self, Error> {
-        Ok(Self {
-            ack: NonZeroDuration::new(ack)?,
-            completion: NonZeroDuration::new(completion)?,
-            inquiry: NonZeroDuration::new(inquiry)?,
-            cancellation: NonZeroDuration::new(cancellation)?,
-            ambiguity: NonZeroDuration::new(ambiguity)?,
-        })
+    pub(crate) const fn new(
+        ack: NonZeroDuration,
+        completion: NonZeroDuration,
+        inquiry: NonZeroDuration,
+        cancellation: NonZeroDuration,
+        ambiguity: NonZeroDuration,
+    ) -> Self {
+        Self {
+            ack,
+            completion,
+            inquiry,
+            cancellation,
+            ambiguity,
+        }
     }
 
     pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {
@@ -288,11 +265,11 @@ impl TimeoutPolicy {
 impl Default for TimeoutPolicy {
     fn default() -> Self {
         Self {
-            ack: NonZeroDuration(Duration::from_millis(500)),
-            completion: NonZeroDuration(Duration::from_secs(5)),
-            inquiry: NonZeroDuration(Duration::from_secs(1)),
-            cancellation: NonZeroDuration(Duration::from_secs(1)),
-            ambiguity: NonZeroDuration(Duration::from_secs(1)),
+            ack: NonZeroDuration::HALF_SECOND,
+            completion: NonZeroDuration::from_secs::<5>(),
+            inquiry: NonZeroDuration::from_secs::<1>(),
+            cancellation: NonZeroDuration::from_secs::<1>(),
+            ambiguity: NonZeroDuration::from_secs::<1>(),
         }
     }
 }
@@ -531,10 +508,9 @@ pub(crate) enum AdmissionSlot {
 /// Session-wide scheduling policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProtocolPolicy {
-    pub(crate) capacity: usize,
+    pub(crate) capacity: NonZeroUsize,
     pub(crate) wire: super::WireProtocol,
     pub(crate) transport: TransportKind,
-    pub(crate) inquiry_capacity: usize,
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
     pub(crate) inquiry_cooldown: Duration,
@@ -580,16 +556,15 @@ impl ProtocolPolicy {
 
 #[cfg(test)]
 impl ProtocolPolicy {
-    /// Shared test fixture: a raw datagram policy with capacity 16, inquiry
-    /// capacity 8, no command or inquiry spacing, a 25 ms inquiry cooldown and
+    /// Shared test fixture: a raw datagram policy with capacity 16,
+    /// no command or inquiry spacing, a 25 ms inquiry cooldown and
     /// non-strict recovery. Tests override fields
     /// with `..ProtocolPolicy::test_default()`.
     pub(crate) fn test_default() -> Self {
         Self {
-            capacity: 16,
+            capacity: NonZeroUsize::MIN.saturating_add(15),
             wire: super::WireProtocol::new(EnvelopeKind::Raw, crate::transport::AddressingMode::Ip),
             transport: TransportKind::Datagram,
-            inquiry_capacity: 8,
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::from_millis(25),
@@ -1245,13 +1220,6 @@ mod duration_proof_tests {
     #[test]
     fn every_protocol_timeout_is_nonzero_by_construction() {
         assert!(NonZeroDuration::new(Duration::ZERO).is_err());
-        for index in 0..5 {
-            let mut values = [Duration::from_secs(1); 5];
-            values[index] = Duration::ZERO;
-            assert!(
-                TimeoutPolicy::new(values[0], values[1], values[2], values[3], values[4]).is_err()
-            );
-        }
         assert!(RetryPolicy::NEVER.total_budget.is_none());
     }
 
@@ -1261,12 +1229,12 @@ mod duration_proof_tests {
         let now = Instant::now();
         let hours = |value: u64| Duration::from_secs(value * 60 * 60);
         let timeout = TimeoutPolicy::new(
-            Duration::from_secs(1),
-            hours(2),
-            hours(2),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-        )?;
+            NonZeroDuration::new(Duration::from_secs(1))?,
+            NonZeroDuration::new(hours(2))?,
+            NonZeroDuration::new(hours(2))?,
+            NonZeroDuration::new(Duration::from_secs(1))?,
+            NonZeroDuration::new(Duration::from_secs(1))?,
+        );
         let retry = RetryPolicy {
             initial_backoff: hours(2),
             maximum_backoff: hours(4),
@@ -1299,12 +1267,24 @@ mod duration_proof_tests {
         let half = span / 2 + Duration::from_nanos(1);
         assert!(now.checked_add(half).is_some());
         let nanos = Duration::from_nanos(1);
-        let timeout = TimeoutPolicy::new(half, half, nanos, nanos, nanos)?;
+        let timeout = TimeoutPolicy::new(
+            NonZeroDuration::new(half)?,
+            NonZeroDuration::new(half)?,
+            NonZeroDuration::new(nanos)?,
+            NonZeroDuration::new(nanos)?,
+            NonZeroDuration::new(nanos)?,
+        );
         assert!(
             timeout.validate_at(now).is_err(),
             "representable components can overflow as an attempt"
         );
-        let timeout = TimeoutPolicy::new(nanos, nanos, nanos, nanos, nanos)?;
+        let timeout = TimeoutPolicy::new(
+            NonZeroDuration::new(nanos)?,
+            NonZeroDuration::new(nanos)?,
+            NonZeroDuration::new(nanos)?,
+            NonZeroDuration::new(nanos)?,
+            NonZeroDuration::new(nanos)?,
+        );
         timeout.validate_at(now)?;
         let retry = RetryPolicy {
             total_budget: Some(NonZeroDuration::new(span - nanos)?),

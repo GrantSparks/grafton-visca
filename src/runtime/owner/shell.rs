@@ -32,11 +32,14 @@ use super::WriteOutcome;
 use crate::Error;
 
 use super::boundary::{
-    AdmissionBoundary, AdmissionBoundaryClaim, AdmissionClaim, AdmissionRejectionIngress,
-    BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle,
-    OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
+    AdmissionBoundary, AdmissionClaim, AdmissionRejectionIngress, BoundaryReceivers,
+    CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle, OwnerSnapshot,
+    PreAdmissionRejection, RetainedBoundary,
 };
-use super::turn::{Disposition, OwnerCoordinator, ReceiveClass, Selected, TurnOutcome, TurnPlan};
+use super::turn::{
+    Disposition, NonBoundarySelected, OwnerCoordinator, ReceiveClass, Selected, SelectedInput,
+    TurnOutcome, TurnPlan, VacantSlot,
+};
 use super::{
     clamp_receive_pause, transient_receive_pause, AppliedEffect, IdleReceiveRun, Input,
     OwnerInputTurn, OwnerReceive, OwnerState, RawReleaseResolution, RetainedStreamInput,
@@ -61,6 +64,51 @@ pub(super) enum OwnerEvent {
     },
     Wake,
 }
+
+/// A source event that cannot contain a live admission or cancellation.
+#[derive(Debug)]
+pub(super) enum NonBoundaryEvent {
+    Shutdown,
+    Control(ControlBoundary),
+    Receive {
+        result: OwnerReceive,
+        received_at: Instant,
+    },
+    Wake,
+    AdmissionDisconnected,
+}
+
+pub(super) type SelectedOwnerInput<'a> = SelectedInput<'a, RetainedBoundary, NonBoundaryEvent>;
+
+impl NonBoundaryEvent {
+    fn into_event(self) -> OwnerEvent {
+        match self {
+            Self::Shutdown => OwnerEvent::Shutdown,
+            Self::Control(control) => OwnerEvent::Control(control),
+            Self::Receive {
+                result,
+                received_at,
+            } => OwnerEvent::Receive {
+                result,
+                received_at,
+            },
+            Self::Wake => OwnerEvent::Wake,
+            Self::AdmissionDisconnected => {
+                OwnerEvent::Admission(Err(flume::RecvError::Disconnected))
+            }
+        }
+    }
+}
+
+fn boundary_event(boundary: RetainedBoundary) -> OwnerEvent {
+    match boundary {
+        RetainedBoundary::Admission(admission) => OwnerEvent::Admission(Ok(admission)),
+        RetainedBoundary::Cancellation(cancellation) => OwnerEvent::Cancellation(cancellation),
+    }
+}
+
+/// The consuming admission claim already answered or abandoned its boundary.
+struct RejectedAdmission;
 
 /// An event the coordinator let through to its engine turn.
 #[derive(Debug)]
@@ -238,8 +286,12 @@ impl OwnerShellCore {
         &mut self,
         now: Instant,
         driver: &mut impl RetainedStreamInput,
-    ) -> TurnPlan<RetainedBoundary> {
-        self.coordinator.plan(
+    ) -> (
+        TurnPlan<'_, RetainedBoundary>,
+        &mut OwnerState,
+        &BoundaryReceivers,
+    ) {
+        let plan = self.coordinator.plan(
             now,
             self.state.next_wake(now),
             self.state.raw_correlation_releases_due(now),
@@ -249,7 +301,8 @@ impl OwnerShellCore {
                     Some(super::RetainedEvidence::Complete)
                 )
             },
-        )
+        );
+        (plan, &mut self.state, &self.receivers)
     }
 
     /// The event for a boundary [`TurnPlan::Redeliver`] hands back.
@@ -259,18 +312,18 @@ impl OwnerShellCore {
     /// of it. A signal arriving after this nonblocking check races exactly as
     /// it did with an ordinary already-selected boundary; the final drain
     /// answers the retained payload if shutdown wins.
-    pub(super) fn redeliver(&mut self, retained: RetainedBoundary) -> OwnerEvent {
-        match self.receivers.shutdown.try_recv() {
-            Ok(()) => {
-                self.coordinator.restore(retained);
-                OwnerEvent::Shutdown
+    pub(super) fn redeliver<'a>(
+        receivers: &BoundaryReceivers,
+        vacancy: VacantSlot<'a, RetainedBoundary>,
+        retained: RetainedBoundary,
+    ) -> SelectedOwnerInput<'a> {
+        match receivers.shutdown.try_recv() {
+            Ok(()) => vacancy
+                .restore_for_shutdown(retained)
+                .into_other(NonBoundaryEvent::Shutdown),
+            Err(flume::TryRecvError::Empty | flume::TryRecvError::Disconnected) => {
+                vacancy.into_boundary(retained)
             }
-            Err(flume::TryRecvError::Empty | flume::TryRecvError::Disconnected) => match retained {
-                RetainedBoundary::Admission(admission) => OwnerEvent::Admission(Ok(admission)),
-                RetainedBoundary::Cancellation(cancellation) => {
-                    OwnerEvent::Cancellation(cancellation)
-                }
-            },
         }
     }
 
@@ -283,48 +336,49 @@ impl OwnerShellCore {
     /// it merely because a later clock sample happens a few instructions
     /// later; the next plan then enters the raw-release proof.
     pub(super) fn classify(
-        &mut self,
-        event: OwnerEvent,
+        state: &mut OwnerState,
+        input: SelectedOwnerInput<'_>,
         selected_at: Instant,
     ) -> Option<ClassifiedEvent> {
-        let selected = match &event {
-            OwnerEvent::Wake => Selected::Timer,
-            OwnerEvent::Admission(Ok(_)) | OwnerEvent::Cancellation(_) => Selected::Boundary,
-            OwnerEvent::Receive {
-                result,
-                received_at,
-            } => Selected::Receive {
-                due_at_receive: self.state.raw_correlation_releases_due(*received_at),
-                // A normalized idle fault is semantically identical to
-                // `NoData`: it consumed no bytes. A genuine transient fault
-                // cannot prove there is no ready stale frame behind it.
-                class: match result {
-                    OwnerReceive::NoProgress(
-                        super::NoProgressReason::EagerIdle | super::NoProgressReason::IdleTimeout,
-                    ) => ReceiveClass::NoInput,
-                    OwnerReceive::Transient(_) => ReceiveClass::TransientFault,
-                    _ => ReceiveClass::Other,
-                },
-            },
-            _ => Selected::Other,
-        };
-        let disposition = self.coordinator.classify(
-            selected,
-            self.state.raw_correlation_releases_due(selected_at),
-        );
-        let (event, suppress_due) = match disposition {
-            Disposition::Restart => return None,
-            Disposition::Retain => match self.retain_selected_boundary(event, selected_at) {
-                None => {
-                    self.coordinator.restart_after_retain();
+        let due = state.raw_correlation_releases_due(selected_at);
+        let (event, selected, suppress_due) = match input {
+            SelectedInput::Boundary { vacancy, boundary } => {
+                if !due.is_empty() {
+                    Self::retain_selected_boundary(
+                        state,
+                        vacancy.retaining(),
+                        boundary,
+                        selected_at,
+                    );
                     return None;
                 }
-                // Unreachable while selection keeps boundaries ineligible
-                // behind an occupied slot; the boundary is applied rather
-                // than overwriting the retained one.
-                Some(event) => (event, false),
-            },
-            Disposition::Apply { suppress_due } => (event, suppress_due),
+                (boundary_event(boundary), Selected::Boundary, false)
+            }
+            SelectedInput::Other { turn, event } => {
+                let selected = match &event {
+                    NonBoundaryEvent::Wake => NonBoundarySelected::timer(),
+                    NonBoundaryEvent::Receive {
+                        result,
+                        received_at,
+                    } => NonBoundarySelected::receive(
+                        state.raw_correlation_releases_due(*received_at),
+                        match result {
+                            OwnerReceive::NoProgress(
+                                super::NoProgressReason::EagerIdle
+                                | super::NoProgressReason::IdleTimeout,
+                            ) => ReceiveClass::NoInput,
+                            OwnerReceive::Transient(_) => ReceiveClass::TransientFault,
+                            _ => ReceiveClass::Other,
+                        },
+                    ),
+                    _ => NonBoundarySelected::other(),
+                };
+                let suppress_due = match turn.classify(selected, due) {
+                    Disposition::Restart => return None,
+                    Disposition::Apply { suppress_due } => suppress_due,
+                };
+                (event.into_event(), selected.kind(), suppress_due)
+            }
         };
         Some(ClassifiedEvent {
             event,
@@ -881,96 +935,61 @@ impl OwnerShellCore {
         }
     }
 
-    /// Retain a boundary the coordinator classified as [`Disposition::Retain`],
-    /// or answer it now. Returns `None` once the boundary is retained or
-    /// answered. An admission whose claim expired is answered by the claim; a
-    /// cancellation whose terminal result is already buffered is answered with
-    /// it. Returns the event back only if the slot was unexpectedly occupied.
+    /// Retain a selected boundary through its exclusive vacancy loan, or
+    /// answer an expired admission or an already completed cancellation.
     fn retain_selected_boundary(
-        &mut self,
-        event: OwnerEvent,
+        state: &mut OwnerState,
+        vacancy: VacantSlot<'_, RetainedBoundary>,
+        boundary: RetainedBoundary,
         selected_at: Instant,
-    ) -> Option<OwnerEvent> {
-        let boundary = match event {
-            OwnerEvent::Admission(Ok(mut admission)) => {
-                if !self.claim_admission_boundary(&mut admission, selected_at) {
-                    return None;
-                }
+    ) {
+        let boundary = match boundary {
+            RetainedBoundary::Admission(admission) => {
+                let Ok(admission) = Self::claim_admission_boundary(state, admission, selected_at)
+                else {
+                    return;
+                };
                 RetainedBoundary::Admission(admission)
             }
-            OwnerEvent::Cancellation(cancellation) => {
-                // An operation that already concluded has delivered its
-                // terminal outcome, which answers the cancellation.
+            RetainedBoundary::Cancellation(cancellation) => {
                 if let CancellationBoundary::Cancel { request, reply } = &cancellation {
-                    if !self.state.is_active(request.id) {
+                    if !state.is_active(request.id) {
                         let _ = reply.try_send(Ok(()));
-                        return None;
+                        return;
                     }
                 }
                 RetainedBoundary::Cancellation(cancellation)
             }
-            event => return Some(event),
         };
-        match self.coordinator.retain(boundary) {
-            Ok(()) => None,
-            Err(RetainedBoundary::Admission(admission)) => {
-                Some(OwnerEvent::Admission(Ok(admission)))
-            }
-            Err(RetainedBoundary::Cancellation(cancellation)) => {
-                Some(OwnerEvent::Cancellation(cancellation))
-            }
-        }
+        OwnerCoordinator::retain(vacancy, boundary);
     }
 
     /// Claims the one-way pre-admission deadline race before this boundary is
     /// either staged immediately or held behind an exact raw-release gate.
-    /// Returning `false` means the boundary was rejected or abandoned, and
-    /// its permit and observer must be dropped without entering the engine.
+    /// A rejection consumes the boundary and releases its permit before its
+    /// answer becomes observable, without entering the engine.
     fn claim_admission_boundary(
-        &mut self,
-        admission: &mut AdmissionBoundary,
+        state: &mut OwnerState,
+        mut admission: AdmissionBoundary,
         now: Instant,
-    ) -> bool {
-        let target = admission.request.context().target;
-        let lane = admission.request.lane();
-        if admission.reply.is_disconnected() {
-            // No receipt can be returned to this caller. Check again when a
-            // retained boundary is replayed: claiming its deadline race did
-            // not yet admit it to engine state. A caller that already won
-            // deadline expiry recorded this rejection through its ingress.
-            let record = match &admission.claim {
-                AdmissionBoundaryClaim::Pending(validity) => validity.expire_before_admission(),
-                AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => true,
-            };
-            if record {
-                self.state
-                    .record_admission_rejection(target, lane, &Error::CommandCancelled);
-            }
-            return false;
-        }
-        let validity = match &admission.claim {
-            AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => return true,
-            AdmissionBoundaryClaim::Pending(validity) => validity,
-        };
-        match validity.claim_for_admission(now) {
-            AdmissionClaim::Claimed { .. } => {
-                admission.claim = AdmissionBoundaryClaim::Claimed;
-                true
-            }
-            AdmissionClaim::ExpiredHere => {
-                let error = Error::admission_timeout();
-                self.state.record_admission_rejection(target, lane, &error);
-                let _ = admission.reply.try_send(Err(error));
-                false
-            }
-            AdmissionClaim::ExpiredElsewhere => {
-                let _ = admission.reply.try_send(Err(Error::admission_timeout()));
-                false
+    ) -> Result<AdmissionBoundary, RejectedAdmission> {
+        match admission.claim_for_admission(now) {
+            Ok(()) => Ok(admission),
+            Err(rejection) => {
+                if rejection.record {
+                    state.record_admission_rejection(
+                        admission.request().context().target,
+                        admission.request().lane(),
+                        &rejection.error,
+                    );
+                }
+                admission.reject(rejection.error);
+                Err(RejectedAdmission)
             }
         }
     }
 
-    fn admit(&mut self, mut admission: AdmissionBoundary, accepted_at: Instant) -> TurnStep {
+    fn admit(&mut self, admission: AdmissionBoundary, accepted_at: Instant) -> TurnStep {
         // A deadline or abandoned caller that wins before this exact boundary
         // is admitted is not observer detachment: no engine entry exists yet.
         // Drop the boundary (and therefore its permit and observer) before
@@ -978,17 +997,14 @@ impl OwnerShellCore {
         // winner records the rejection exactly once: caller-expiry already
         // entered the handle-side ingress, while owner-expiry records directly
         // into the serialized owner state.
-        if !self.claim_admission_boundary(&mut admission, accepted_at) {
+        let Ok(admission) = Self::claim_admission_boundary(&mut self.state, admission, accepted_at)
+        else {
             return TurnStep::Done(TurnOutcome::Continue);
-        }
+        };
+        let (request, permit, observer, reply) = admission.into_parts();
         let turn = self.state.begin_input_turn(accepted_at);
-        let verdict = self.state.admit_in_turn(
-            &turn,
-            admission.request,
-            admission.permit,
-            admission.observer,
-        );
-        let _ = admission.reply.try_send(verdict);
+        let verdict = self.state.admit_in_turn(&turn, request, permit, observer);
+        let _ = reply.try_send(verdict);
         TurnStep::Drive {
             effects: self.state.finish_input_turn(turn, EngineTurn::Complete),
             then: Resume::done(TurnOutcome::Continue),
@@ -1079,7 +1095,7 @@ impl OwnerShellCore {
     fn answer_retained_boundary(&mut self, retained: RetainedBoundary, error: Error) {
         match retained {
             RetainedBoundary::Admission(admission) => {
-                let _ = admission.reply.try_send(Err(error));
+                admission.reject(error);
             }
             // The caller still holds its handle; a terminal outcome already
             // delivered to it takes precedence over this error (#777).
@@ -1106,8 +1122,7 @@ impl OwnerShellCore {
         loop {
             let before = dropped;
             while let Ok(admission) = self.receivers.admissions.try_recv() {
-                let _ = admission.reply.try_send(Err(error.clone()));
-                drop(admission);
+                admission.reject(error.clone());
                 dropped = dropped.saturating_add(1);
             }
             while let Ok(cancel) = self.receivers.cancellations.try_recv() {
@@ -1151,9 +1166,9 @@ impl OwnerShellCore {
         self.state.fail_unstaged_boundary(dropped);
     }
 
-    /// Publish only after counting every drained boundary and diagnostic.
+    /// Publish once after counting the normal conclusion's drained work.
     /// Queued metrics wait at the teardown barrier and never count as dropped
-    /// work; no per-observation state survives the drain.
+    /// work; teardown can answer later raced work without changing this copy.
     fn publish_metrics(&self) {
         let _ = self
             .lifecycle
@@ -1222,13 +1237,12 @@ mod tests {
     fn owner_with_capacity(capacity: usize) -> (OwnerHandleCore, OwnerShellCore) {
         let policy = OwnerPolicy::single_target(
             ProtocolPolicy {
-                capacity,
+                capacity: std::num::NonZeroUsize::new(capacity).unwrap(),
                 wire: crate::runtime::engine::WireProtocol::new(
                     EnvelopeKind::Raw,
                     crate::transport::AddressingMode::Ip,
                 ),
                 transport: crate::runtime::engine::TransportKind::Datagram,
-                inquiry_capacity: 1,
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,
@@ -1367,6 +1381,133 @@ mod tests {
         }
     }
 
+    /// flume invokes this waker synchronously from its send. Checking here
+    /// catches a reply-before-drop race even on a single-threaded executor.
+    struct AdmissionReplyWake {
+        permits: super::super::AdmissionPermitPool,
+        context: crate::runtime::engine::RequestContext,
+        wakes: std::sync::atomic::AtomicUsize,
+    }
+
+    impl std::task::Wake for AdmissionReplyWake {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            assert_eq!(self.permits.available(), 1, "capacity is free at wake-up");
+            let permit = self.permits.try_acquire(&self.context).unwrap();
+            drop(permit);
+            self.wakes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn every_admission_rejection_releases_capacity_before_waking_its_receiver() {
+        use std::{future::Future, pin::pin, task::Context};
+
+        use super::super::boundary::AdmissionValidity;
+
+        for path in [
+            "reject",
+            "owner expiry",
+            "caller expiry",
+            "retained",
+            "drain",
+        ] {
+            let (handle, mut core) = owner();
+            let deadline = Instant::now() + Duration::from_millis(10);
+            let validity = AdmissionValidity::until(deadline);
+            let request = declared_request(false);
+            let wake = Arc::new(AdmissionReplyWake {
+                permits: handle.permits.clone(),
+                context: *request.context(),
+                wakes: std::sync::atomic::AtomicUsize::new(0),
+            });
+            let (observer, reply) = handle
+                .enqueue_admission::<super::super::CommandOutcome>(request, Some(validity.clone()))
+                .unwrap();
+            let boundary = core.receivers.admissions.recv().unwrap();
+            assert_eq!(handle.permits.available(), 0);
+            let mut receive = pin!(reply.recv_async());
+            let waker = std::task::Waker::from(Arc::clone(&wake));
+            let mut context = Context::from_waker(&waker);
+            assert!(receive.as_mut().poll(&mut context).is_pending());
+
+            match path {
+                "reject" => boundary.reject(Error::admission_timeout()),
+                "owner expiry" => {
+                    assert!(OwnerShellCore::claim_admission_boundary(
+                        &mut core.state,
+                        boundary,
+                        deadline
+                    )
+                    .is_err());
+                }
+                "caller expiry" => {
+                    assert!(validity.expire_before_admission());
+                    assert!(OwnerShellCore::claim_admission_boundary(
+                        &mut core.state,
+                        boundary,
+                        deadline
+                    )
+                    .is_err());
+                }
+                "retained" => core.answer_retained_boundary(
+                    RetainedBoundary::Admission(boundary),
+                    Error::admission_timeout(),
+                ),
+                "drain" => {
+                    handle.admissions.try_send(boundary).unwrap();
+                    core.drain_boundaries(Error::admission_timeout());
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                wake.wakes.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "{path}"
+            );
+            assert!(matches!(
+                receive.as_mut().poll(&mut context),
+                std::task::Poll::Ready(Ok(Err(error))) if error.kind() == Error::admission_timeout().kind()
+            ));
+            assert_eq!(handle.permits.available(), 1, "{path}");
+            assert!(
+                observer.try_observed().is_none(),
+                "rejected work has no terminal"
+            );
+            assert_eq!(core.state.active_len(), 0);
+        }
+    }
+
+    #[test]
+    fn capacity_one_owner_expiry_allows_immediate_repeated_resubmission() {
+        use super::super::boundary::AdmissionValidity;
+
+        let (handle, mut core) = owner();
+        let deadline = Instant::now();
+        for _ in 0..10_000 {
+            let (_observer, reply) = handle
+                .enqueue_admission::<super::super::CommandOutcome>(
+                    declared_request(false),
+                    Some(AdmissionValidity::until(deadline)),
+                )
+                .unwrap();
+            let boundary = core.receivers.admissions.recv().unwrap();
+            assert!(
+                OwnerShellCore::claim_admission_boundary(&mut core.state, boundary, deadline)
+                    .is_err()
+            );
+            assert!(matches!(reply.recv().unwrap(), Err(error)
+                if error.kind() == Error::admission_timeout().kind()));
+        }
+        assert_eq!(handle.permits.available(), 1);
+        assert_eq!(core.state.metrics().admission_rejected, 10_000);
+        assert_eq!(core.state.metrics().admitted, 0);
+        assert_eq!(core.state.metrics().writes, 0);
+    }
+
     #[test]
     fn concluded_metrics_include_drained_work_and_answer_queued_observations() {
         let (handle, mut core) = owner();
@@ -1409,6 +1550,57 @@ mod tests {
         drop(core);
         for _ in 0..8 {
             assert_eq!(handle.terminal_metrics().unwrap().unwrap(), snapshot);
+        }
+    }
+
+    #[test]
+    fn terminal_metrics_remain_identical_when_raced_work_reaches_the_final_drain() {
+        use super::super::{boundary::AdmissionValidity, halt::HaltBoundary};
+
+        let (handle, mut core) = owner();
+        handle.shutdown().unwrap();
+        let step = core.handle(OwnerEvent::Shutdown, &mut Datagrams, Instant::now(), false);
+        run_turn(&mut core, step);
+        core.conclude();
+        let published = handle.terminal_metrics().unwrap().unwrap();
+        assert_eq!(published.session, crate::SessionStatus::Shutdown);
+        assert_eq!(published.dropped_boundary_work, 0);
+
+        // Model sends that passed their handle-side check before publication
+        // but only reached the lanes after the first drain completed.
+        let (reply, halted) = flume::bounded(1);
+        handle
+            .cancellations
+            .try_send(CancellationBoundary::Halt(HaltBoundary {
+                prepared: crate::prepared::PreparedHalt {
+                    target: TargetSlot::CAMERA_1,
+                    axes: None,
+                    requests: [None, None, None],
+                    budget: Duration::from_secs(1),
+                },
+                validity: AdmissionValidity::until(Instant::now() + Duration::from_secs(1)),
+                reply,
+            }))
+            .unwrap();
+        let (reply, controlled) = flume::bounded(1);
+        handle
+            .control
+            .try_send(ControlBoundary::SubscribeDiagnostics { capacity: 1, reply })
+            .unwrap();
+        for _ in 0..8 {
+            assert_eq!(handle.terminal_metrics().unwrap().unwrap(), published);
+        }
+        drop(core);
+        assert!(matches!(
+            halted.recv().unwrap(),
+            Err(Error::RuntimeShutdown)
+        ));
+        assert!(matches!(
+            controlled.recv().unwrap(),
+            Err(Error::RuntimeShutdown)
+        ));
+        for _ in 0..8 {
+            assert_eq!(handle.terminal_metrics().unwrap().unwrap(), published);
         }
     }
 

@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-17
+
+2.0 is a breaking upgrade from 1.x, with owner-backed sessions, matching
+blocking and async camera APIs, checked values and source-backed profiles.
+See [the migration guide](docs/migration_2_0.md) for caller changes.
+
+Raw serial and Sony UDP remain accepted known limitations. Source-backed
+packet fixtures and software tests do not establish physical-camera
+verification.
+
 ### Added
+
+- `wire::Nibbles` provides total fixed-width `value`, `signed` and `halves`
+  accessors for exact nibble layouts. Zero-extension helpers require enough
+  digits at compile time and continue to reject nonzero padding; indexed
+  accessors retain their checked `Option` results (#994).
 
 - Release gates verify characterization-test citations and generate the request
   semantics tables from the command ledger. The owner safe-retry allocation
@@ -68,9 +83,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Typed-support documentation derives each marker's area from its owning noun
-  and groups related markers together, using one title for white balance,
-  pan/tilt, motion sync and every other noun (#990).
+- Release publication uses software, source, tag and package-provenance gates.
+  Hardware smoke checks are optional and private; publishing device inventories,
+  firmware details, transcripts or a hardware sign-off record is no longer
+  required. This supersedes the public hardware-record requirements from
+  #753/#795 (#1008).
+
+- Halt preparation and control-reserve sizing share one source- and
+  value-validated STOP path per axis. Profile construction verifies granted
+  paths before relying on their reserved admission capacity (#999).
+
+- Engine admission retains its validated nonzero capacity and uses ordinary
+  admission as the sole inquiry count bound. The separate internal inquiry-only
+  limit was never configurable through a session; raw payload-overlap exclusion
+  remains authoritative (#997).
+
+- Name-resolution failures retain the resolver's I/O cause in `ConnectionFailed`
+  on blocking, Tokio and smol. Over-reported transport reads return
+  `BufferTooSmall` with reported and available byte counts and still terminate
+  stream sessions (#993).
+
+- Typed-support discovery and validation derive parent domains from the noun
+  gates. Documentation derives each marker's area from its owning noun and
+  groups related markers together, using one title for white balance, pan/tilt,
+  motion sync and every other noun (#990, #1000).
 
 - Owners retain immutable session facts separately from live engine tuning,
   record cancellation intent only after acceptance, and use the validated
@@ -110,9 +146,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   speed-mode setter are supported; the current confirmed mode remains
   authoritative at write time (#983).
 
-- Terminal delivery releases ordinary and urgent admission capacity before
-  waking the caller, so immediate sequential resubmission and settlement
-  polling cannot fail because the previous request still holds its slot (#980).
+- Terminal and admission-rejection delivery release ordinary and urgent
+  admission capacity before waking the caller, so immediate sequential
+  resubmission and settlement polling cannot fail because the previous request
+  still holds its slot (#980, #1003).
 
 - **BREAKING** (#984): Profile and operational-tuning socket capacities use
   `types::CommandSocketCount` (`ONE` or `TWO`) throughout the runtime. Persisted
@@ -188,8 +225,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documentation contracts (#943, #976).
 
 - Engine decisions append effects into retained owner buffers. After warm-up,
-  standard command and frame turns reuse their effect storage without heap
-  allocation; per-request observer storage remains lifecycle storage (#942).
+  standard command/frame turns and receive-driven async actor selections reuse
+  their storage without heap allocation. Async boundary lanes retain their
+  receive hooks across parked turns; per-request observer storage remains
+  lifecycle storage. `test-utils` provides an actor selection allocation probe
+  alongside its production-turn probes (#942, #1005).
 
 - **BREAKING** (#932): Blocking and async cameras expose the same 248 canonical
   noun methods and 245 request types. Runtime profiles use the normal
@@ -283,10 +323,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING** (#898): `metrics()` supersedes the all-control terminal-error
   rule from #680 and the metrics behavior documented by #851. A concluded
-  owner returns its final terminal snapshot with retained counters and zero
-  active/pending requests; snapshots are stable after `close()`. Acting calls
-  retain the exact terminal cause, and an owner that unwinds before conclusion
-  still reports `OwnerTerminated` from metrics.
+  owner publishes one final terminal snapshot with retained counters and zero
+  active/pending requests. It stays identical across subsequent reads and
+  shutdown cleanup; dropped-boundary counts cover work dropped before that
+  publication. Acting calls retain the exact terminal cause and refuse new
+  cancellation/control work after termination; an owner that unwinds before
+  conclusion still reports `OwnerTerminated` from metrics (#1006).
 
 - Engine retry count, cause and possible effect form one optional history.
   Terminal certainty and state-cache invalidation share one evidence-aware
@@ -603,6 +645,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING** (#992): Remove the unreachable `Error::ParseError` variant and
+  `From<nom::Err<nom::error::Error<&[u8]>>>` conversion, and drop the unused
+  `nom` dependency. Reply failures retain their specific format, length and
+  value error variants.
+
 - **BREAKING** (#932): Removed metadata traits, their `Profile` supertrait,
   public `*Ext` validation traits and `ValidationError`, blanket domain-marker
   implementations, duplicate capability predicates/grant booleans, and repeated
@@ -644,10 +691,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cancellation ambiguity deadline on raw datagram, raw stream and Sony sessions,
   so a slow in-window ACK still triggers socket cancellation (#978).
 
-- Blocking reads retry signal interruptions within their original deadline,
-  including UDP receives. Serial startup treats zero-byte reads as immediate
-  EOF, and zero-byte timed serial writes report a timeout consistently with
-  stalled async writes (#973).
+- Blocking reads retry signal interruptions and early idle results within
+  their original precise deadline, including UDP receives. Serial device
+  timeouts round up to whole milliseconds, preventing macOS/BSD idle reads
+  from escalating receive pauses. Serial startup treats zero-byte reads as
+  immediate EOF, and zero-byte timed serial writes report a timeout
+  consistently with stalled async writes (#973, #1002).
 
 - TCP sockets apply TTL, nodelay and keepalive before the handshake on blocking,
   Tokio and smol sessions. A socket-option failure tries the next resolved
@@ -671,7 +720,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Raw stream disputes retire individual members of merged STOP debt runs, and
   socketless disputed ACKs retain executing-socket evidence, preventing later
-  replies from being assigned to unrelated requests (#950).
+  replies from being assigned to unrelated requests. Completion learning keeps
+  ambiguity counts within their learning state, so a socketless ACK has the
+  same verdict whether preceding named completion evidence arrives in the same
+  read or an earlier one (#950, #998).
 
 - Strict raw sessions poison on camera-proven stale socket ownership, including
   owed or disputed ACKs and late cancellation replies. Live operations receive
@@ -690,8 +742,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configured TTL also sets the IPv6 hop limit (#954).
 
 - Halt transactions drive every resulting owner effect and count expired STOP
-  admissions in rejection metrics and diagnostics. Construction and retuning use
-  the same profile-derived pacing and socket baseline (#957).
+  admissions in rejection metrics and diagnostics. Construction, preparation
+  and retuning share resolved profile timing, retry budgets and the same pacing
+  and socket baseline (#957, #1001).
 
 - Custom and persisted profiles may advertise a settlement position inquiry
   only when that inquiry's capability gate permits it. In particular, IRIS

@@ -38,6 +38,13 @@ impl ValidatedTuning {
         Ok(Self(tuning))
     }
 
+    pub(crate) fn resolve(
+        self,
+        timing: &crate::profiles::ProfileTiming,
+    ) -> crate::timeout::ResolvedTiming {
+        crate::timeout::ResolvedTiming::from_validated(self, timing)
+    }
+
     pub(crate) const fn get(self) -> OperationalTuning {
         self.0
     }

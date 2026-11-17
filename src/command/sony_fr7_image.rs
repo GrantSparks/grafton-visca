@@ -198,18 +198,12 @@ knee_setting! {
 }
 
 pub(crate) fn decode_black_level(payload: Payload<'_>) -> Result<BlackLevel, Error> {
-    let value = Nibbles::<4>::try_from(payload)?
-        .u16_quad(0)
-        .ok_or(Error::InvalidResponseFormat)?;
+    let value = Nibbles::<4>::try_from(payload)?.value();
     BlackLevel::from_wire(value)
 }
 
 pub(crate) fn decode_fr7_knee_mode(payload: Payload<'_>) -> Result<KneeMode, Error> {
-    KneeMode::from_wire(
-        Nibbles::<1>::try_from(payload)?
-            .byte(0)
-            .ok_or(Error::InvalidResponseFormat)?,
-    )
+    KneeMode::from_wire(Nibbles::<1>::try_from(payload)?.value())
 }
 
 pub(crate) fn decode_knee_slope(payload: Payload<'_>) -> Result<KneeSlope, Error> {
@@ -221,11 +215,7 @@ pub(crate) fn decode_knee_point(payload: Payload<'_>) -> Result<KneePoint, Error
 }
 
 pub(crate) fn decode_fr7_knee_permission(payload: Payload<'_>) -> Result<KneePermission, Error> {
-    KneePermission::from_wire(
-        Nibbles::<1>::try_from(payload)?
-            .byte(0)
-            .ok_or(Error::InvalidResponseFormat)?,
-    )
+    KneePermission::from_wire(Nibbles::<1>::try_from(payload)?.value())
 }
 
 #[cfg(test)]

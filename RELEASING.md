@@ -3,20 +3,18 @@
 This document is the source of truth for the 2.0 prerelease and final
 release. The workspace contains two crates, and publication is irreversible.
 Software release gates, the exact release tag, and CI on that exact release
-commit are required for every publication. Physical-camera evidence is a
-separate claim: an RC may be published while hardware remains explicitly
-unverified, while a stable release with major version 2 or higher requires a
-targeted representative hardware pass on HW-01, HW-04 and HW-05 (HW-02 and
-HW-03 may instead be accepted known limitations).
+commit are required for every publication. Hardware smoke checks are optional
+and private for both stable releases and prereleases; they require no public
+device inventory, run record or sign-off (#1008).
 
 ## Version and changelog
 
-1. Choose the release version. The first candidate was `2.0.0-rc.1`; the
-   current candidate is `2.0.0-rc.3`.
+1. Choose the release version. The stable release being prepared is `2.0.0`,
+   following `2.0.0-rc.3`. The first candidate was `2.0.0-rc.1`.
 2. Set `[workspace.package].version` in `Cargo.toml`; the macro crate inherits
    this value from the workspace.
 3. Pin the main crate's `grafton-visca-macros` dependency to the exact same
-   version (`=2.0.0-rc.3`, or the final version being prepared).
+   version (`=2.0.0` for this release).
 4. Keep the root `Cargo.lock` ignored: this is a library workspace and release
    validation must work from a clean clone without a tracked lockfile. The
    validator checks both package manifests and the exact macro dependency with
@@ -26,14 +24,14 @@ HW-03 may instead be accepted known limitations).
 5. Keep the 2.0 notes under `## [Unreleased]` until the release commit is
    ready. Unreleased states the net change since the last published version
    (the newest `v<version>` tag), not the churn between candidates. At release
-   time, move them to `## [2.0.0-rc.3] - YYYY-MM-DD` (or the final version) and
+   time, move them to `## [2.0.0] - YYYY-MM-DD` and
    restore an empty `Unreleased` heading; `validate-release.sh` refuses a tag
    whose version has no dated heading. A dated section whose release was never
    tagged and published is not part of the record: fold it back into
    Unreleased before the next release cut.
 
 The public API job generates listings from the base and proposed source for
-`blocking`, `tokio-dyn` and `all-features`. Review the uploaded API diffs with
+`blocking`, `async` and `all-features`. Review the uploaded API diffs with
 the source and changelog before release. Listings stay in CI artifacts or
 `target/public-api/`; release tags preserve the source needed to regenerate
 them. See [Public API Snapshots](CONTRIBUTING.md#public-api-snapshots).
@@ -50,27 +48,9 @@ repeat the complete matrix on the exact resulting `origin/main` commit as
 shown below. Only this post-merge run defines `$release_commit`; every later
 paired-downstream, CI, tag, and publication check must name that same SHA.
 
-An RC can proceed
-with the hardware checklist still marked `Pending (Not run)` or `Unverified`,
-provided the release notes and checklist make that status plain and do not
-describe hardware support as verified.
-
-For a stable release whose major version is 2 or higher, run the targeted
-representative scenarios in
-[`docs/hardware_release_checklist.md`](docs/hardware_release_checklist.md).
-HW-01, HW-04 and HW-05 must be `Pass`. HW-02 (Raw serial) and HW-03 (Sony UDP)
-must be `Pass` or `Not verified — accepted known limitation (<reason>)` with a
-dated maintainer decision (2026-10-07, superseding #753's five-row
-requirement), and the release notes must name any such limitation. Record the
-exact firmware and transcript or capture link for each passed scenario, plus
-the operator and date for the pass. A neighboring model, firmware, or
-software-only test does not substitute for the representative hardware pass.
-
-Record the full SHA the bench ran as `Hardware-tested commit:` in the
-checklist. It identifies the code the pass exercised; later changes do not
-invalidate it by themselves. Run another targeted hardware pass when a change
-alters wire encoding, transport, correlation, or motion behaviour on a verified
-path.
+Maintainers may run a local hardware smoke check when useful. Keep its notes
+and captures private; no public hardware record is required for publication.
+See the [optional smoke-check guidance](docs/hardware_release_checklist.md).
 
 Release tags must not carry semver build metadata: `v2.0.0+meta` has exactly
 the same precedence as `v2.0.0`, so the validator refuses metadata-bearing tags
@@ -85,8 +65,8 @@ change-record check covers the release delta instead of comparing `main` with
 itself:
 
 ```sh
-release_tag=v2.0.0-rc.3
-previous_release_tag=v2.0.0-rc.2
+release_tag=v2.0.0
+previous_release_tag=v2.0.0-rc.3
 git fetch origin main --tags
 git switch --detach origin/main
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
@@ -136,7 +116,7 @@ release look internally consistent.
 Also run the supported no-default, blocking-only, async-runtime, dynamic, and
 coexistence matrices documented in the repository before tagging. Check the
 declared `rust-version`, inspect the generated documentation, and run the project's
-security/audit checks. Hardware, registry, and Synemantic validation results
+security/audit checks. Registry and Synemantic validation results
 must be recorded separately; passing local builds does not imply those
 results.
 
@@ -168,14 +148,14 @@ immutable pair of commits: the exact grafton-visca candidate SHA
 (`$synemantic_commit`). Record both full SHAs, the Synemantic Make targets and
 results, and the Grafton candidate's successful CI URL in the release PRs. The
 Synemantic PR may remain a draft with its registry-dependent CI pending: an
-unpublished RC cannot pass that registry-only gate. After publication, record
-the successful registry-backed Synemantic CI URL as separate evidence. Do not
+unpublished candidate cannot pass that registry-only gate. After publication,
+record the successful registry-backed Synemantic CI URL as separate evidence. Do not
 identify either input by a moving branch name, a local dirty worktree, or a
 crate version that has not been published.
 
 This gate deliberately uses Cargo source replacement for the two local
-packages, so it does not assume `2.0.0-rc.3` already exists in crates.io. Make
-two disposable detached worktrees (one at each recorded SHA) and place this
+packages, so it does not assume `2.0.0` already exists in crates.io. Make two
+disposable detached worktrees (one at each recorded SHA) and place this
 temporary Cargo configuration outside both repositories:
 
 ```toml
@@ -270,10 +250,8 @@ gate; CI's local fixture remains a focused regression contract.
 
 ## Release tag and publication order
 
-The release PR must pass the full software matrix before it merges. For a
-stable release, complete the targeted hardware checklist before publication;
-for an RC, retain the explicit unverified status if hardware has not been run.
-After maintainers accept that evidence and merge the PR, complete the
+The release PR must pass the full software matrix before it merges.
+After maintainers review and merge the PR, complete the
 post-merge candidate and paired Synemantic gates above; those steps establish
 the final `$release_commit`.
 
@@ -289,15 +267,15 @@ git fetch origin main --tags
 test "$(git rev-parse --verify origin/main^{commit})" = "$release_commit"
 git switch --detach "$release_commit"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
-bash .github/scripts/validate-release.sh v2.0.0-rc.3
-git tag -a v2.0.0-rc.3 "$release_commit" -m "grafton-visca 2.0.0-rc.3"
-git push origin v2.0.0-rc.3
+bash .github/scripts/validate-release.sh v2.0.0
+git tag -a v2.0.0 "$release_commit" -m "grafton-visca 2.0.0"
+git push origin v2.0.0
 ```
 
 Wait next for the CI run triggered by that **tag push** to complete
 successfully. A prior `main` run for the same commit is necessary but not
 sufficient: the tag run must report the exact workflow path,
-`.github/workflows/ci.yml`, `event=push`, `head_branch=v2.0.0-rc.3`, and
+`.github/workflows/ci.yml`, `event=push`, `head_branch=v2.0.0`, and
 `head_sha=$release_commit`. Do not dispatch publication until that tag run is
 green. The publication workflow independently queries all pages of the Actions
 API and enforces the same exact tag-run identity before it can package either
@@ -314,8 +292,7 @@ registry index entry, then packages, dry-runs, and publishes `grafton-visca`.
 Before any source or CI validation, it accepts only the strict tag syntax,
 resolves the fully qualified `refs/tags/<tag>` ref, and verifies that the
 annotated tag peels to the checked-out `HEAD`. It also verifies the exact
-main-push and tag-push release-HEAD CI runs and compares source/manifests with
-the recorded stable bench commit when stable hardware evidence is required.
+main-push and tag-push release-HEAD CI runs.
 For each crate, the
 automation builds the local `.crate` payload and, after the exact registry
 version is visible, downloads the crates.io payload and requires SHA-256 and
@@ -327,13 +304,11 @@ isolated `CURL_HOME/.curlrc` with the payload verifier's descriptive crates.io
 User-Agent outside that checkout, so an old tagged verifier can be retried
 without changing tagged source or package bytes.
 
-For a final release, repeat the same process with `2.0.0`: update both
+For later releases, repeat this process with the new version: update both
 workspace packages and the exact macro dependency together, move the changelog
-notes to the final heading, rerun the complete software matrix, complete the
-targeted hardware checklist and its evidence/sign-off if this is a stable
-release, generate a fresh local lockfile for packaging, and use a new immutable
-`v2.0.0` tag. If hardware was not run for an RC, keep that fact visible in the
-checklist and release notes.
+notes to the matching heading, rerun the complete software matrix, generate a
+fresh local lockfile for packaging, and use a new immutable tag that matches
+the version. Hardware smoke checks remain optional and private.
 
 ## Partial-publication recovery
 
@@ -342,9 +317,8 @@ source behind that version. Diagnose the failure and retry the main package
 from the exact tagged commit only when its payload is unchanged; the automated
 registry-payload equality gate must pass for that retry. If source or package
 metadata must change, choose a new patch version, update both crates and the
-changelog, and run the release validation again. For a stable major-2-or-later
-release, a source or manifest change after the bench pass also requires a new
-targeted hardware pass. Never move a tag to bypass a failed validation gate.
+changelog, and run the release validation again. Never move a tag to bypass a
+failed validation gate.
 
 After successful publication, verify both package pages and generated docs,
 then create the repository release from the matching annotated tag. These are

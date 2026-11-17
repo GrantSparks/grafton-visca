@@ -55,7 +55,6 @@ pub(crate) enum DueAction {
         terminal_at: Instant,
     },
     RetryBudget {
-        retirement: BudgetRetirement,
         certainty: crate::Certainty,
     },
     RetryReady {
@@ -93,11 +92,17 @@ pub(crate) enum CompletionDeadline {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum BudgetRetirement {
-    Queued,
-    Command,
-    Inquiry,
+/// One due raw cancellation release, with its correlation identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RawCancellationRelease {
+    pub(crate) at: Instant,
+    pub(crate) scope: ReleaseScope,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReleaseScope {
+    ExactSocket(ViscaSocket),
+    PreAckUnkeyed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -345,6 +350,9 @@ impl Lifecycle {
 
     /// Stable diagnostic/test projection, never an independently stored phase.
     pub(crate) fn phase(self) -> Phase {
+        // Every response-bearing phase has a window. Off-wire phases never
+        // consult it; their timestamps describe scheduling rather than replies.
+        let window = self.response_window_end();
         match self {
             Self::Ready { .. } => Phase::Ready,
             Self::Sending {
@@ -357,20 +365,25 @@ impl Lifecycle {
             },
             Self::AwaitingAck {
                 sent_at, deadline, ..
-            } => Phase::AwaitingAck { sent_at, deadline },
+            } => Phase::AwaitingAck {
+                sent_at,
+                deadline: window.unwrap_or(deadline),
+            },
             Self::AwaitingCompletion {
                 sent_at, deadline, ..
-            } => Phase::AwaitingCompletion { sent_at, deadline },
+            } => Phase::AwaitingCompletion {
+                sent_at,
+                deadline: window.unwrap_or(deadline),
+            },
             Self::Executing {
                 socket,
                 started_at,
                 deadline,
-                cancellation,
                 ..
             } => Phase::Executing {
                 socket,
                 started_at,
-                deadline: cancellation.response_deadline(deadline),
+                deadline: window.unwrap_or(deadline),
             },
             Self::ExecutingDisplaced {
                 started_at,
@@ -378,20 +391,20 @@ impl Lifecycle {
                 ..
             } => Phase::ExecutingDisplaced {
                 started_at,
-                deadline,
+                deadline: window.unwrap_or(deadline),
             },
             Self::AwaitingReply {
                 sent_at, deadline, ..
-            } => Phase::AwaitingReply { sent_at, deadline },
+            } => Phase::AwaitingReply {
+                sent_at,
+                deadline: window.unwrap_or(deadline),
+            },
             Self::Backoff { ready_at, .. } => Phase::Backoff { ready_at },
             Self::AwaitingCancellationResolution {
-                socket,
-                deadline,
-                cancellation,
-                ..
+                socket, deadline, ..
             } => Phase::AwaitingCancellationResolution {
                 socket,
-                deadline: deadline.max(cancellation.ambiguity_deadline()),
+                deadline: window.unwrap_or(deadline),
             },
         }
     }
@@ -470,10 +483,7 @@ impl Lifecycle {
                     },
                     None => CompletionDeadline::Accepted,
                 };
-                Some((
-                    cancellation.response_deadline(deadline),
-                    DueAction::Completion(action),
-                ))
+                Some((self.response_window_end()?, DueAction::Completion(action)))
             }
             Self::ExecutingDisplaced { deadline, .. } => Some((
                 deadline,
@@ -487,12 +497,8 @@ impl Lifecycle {
                     retry: RetryEligibility { attempt },
                 },
             )),
-            Self::AwaitingCancellationResolution {
-                deadline,
-                cancellation,
-                ..
-            } => {
-                let terminal_at = deadline.max(cancellation.ambiguity_deadline());
+            Self::AwaitingCancellationResolution { .. } => {
+                let terminal_at = self.response_window_end()?;
                 let observation_deadline = self.cancellation_observation_deadline();
                 Some(match observation_deadline {
                     Some(observation) if observation <= terminal_at => (
@@ -510,39 +516,10 @@ impl Lifecycle {
         };
         if let Some(budget) = budget_at {
             if due.is_none_or(|(at, _)| budget <= at) {
-                due = Some((
-                    budget,
-                    DueAction::RetryBudget {
-                        retirement: self.budget_retirement(),
-                        certainty,
-                    },
-                ));
+                due = Some((budget, DueAction::RetryBudget { certainty }));
             }
         }
         due
-    }
-
-    const fn budget_retirement(self) -> BudgetRetirement {
-        match self {
-            Self::Ready { .. } | Self::Backoff { .. } => BudgetRetirement::Queued,
-            Self::Sending {
-                reply: SendingReply::Inquiry,
-                ..
-            }
-            | Self::AwaitingReply { .. } => BudgetRetirement::Inquiry,
-            Self::Sending {
-                reply:
-                    SendingReply::AckThenCompletion
-                    | SendingReply::CompletionOnly
-                    | SendingReply::NoReply,
-                ..
-            }
-            | Self::AwaitingAck { .. }
-            | Self::AwaitingCompletion { .. }
-            | Self::Executing { .. }
-            | Self::ExecutingDisplaced { .. }
-            | Self::AwaitingCancellationResolution { .. } => BudgetRetirement::Command,
-        }
     }
 
     /// The old flattened view is useful to independent transition oracles.
@@ -797,40 +774,37 @@ impl Lifecycle {
     }
 
     pub(crate) fn correlated_response_deadline(self, budget: Option<Instant>) -> Option<Instant> {
-        let deadline = match self {
-            Self::AwaitingAck { .. } => self.awaiting_ack_end(),
-            Self::AwaitingCompletion { deadline, .. }
-            | Self::AwaitingReply { deadline, .. }
-            | Self::ExecutingDisplaced { deadline, .. } => Some(deadline),
-            Self::Executing {
-                deadline,
-                cancellation,
-                ..
-            } => Some(cancellation.response_deadline(deadline)),
-            Self::AwaitingCancellationResolution {
-                deadline,
-                cancellation,
-                ..
-            } => Some(deadline.max(cancellation.ambiguity_deadline())),
-            Self::Sending { .. } => None,
-            Self::Ready { .. } | Self::Backoff { .. } => return None,
-        };
-        [deadline, budget].into_iter().flatten().min()
+        if self.is_off_wire() {
+            return None;
+        }
+        [self.response_window_end(), budget]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
-    pub(crate) fn raw_cancellation_release_deadline(self) -> Option<Instant> {
+    pub(crate) fn raw_cancellation_release(self) -> Option<RawCancellationRelease> {
         let ambiguity = self.cancellation_ambiguity()?;
-        match self {
-            Self::Sending { .. } => Some(ambiguity),
-            Self::AwaitingAck { .. } => self.awaiting_ack_end(),
-            Self::Executing { deadline, .. } => Some(deadline.max(ambiguity)),
-            Self::AwaitingCancellationResolution { deadline, .. } => Some(deadline.max(ambiguity)),
-            Self::ExecutingDisplaced { .. }
+        let scope = match self {
+            Self::AwaitingAck { .. } => ReleaseScope::PreAckUnkeyed,
+            Self::Executing { socket, .. }
+            | Self::AwaitingCancellationResolution { socket, .. } => {
+                ReleaseScope::ExactSocket(socket)
+            }
+            Self::Sending { .. }
+            | Self::ExecutingDisplaced { .. }
             | Self::Ready { .. }
             | Self::AwaitingCompletion { .. }
             | Self::AwaitingReply { .. }
-            | Self::Backoff { .. } => None,
-        }
+            | Self::Backoff { .. } => return None,
+        };
+        Some(RawCancellationRelease {
+            // A requested but not yet emitted cancellation first crosses
+            // into resolution at the response window; only its ambiguity
+            // deadline can release the identity.
+            at: self.response_window_end()?.max(ambiguity),
+            scope,
+        })
     }
 
     pub(crate) const fn pending_cancellation_socket(self) -> Option<ViscaSocket> {

@@ -64,6 +64,193 @@ pub(crate) fn saturating_deadline(at: Instant, duration: Duration) -> Instant {
     latest
 }
 
+/// A strictly positive interval. Absolute representability is checked against
+/// the owner's sampled clock when a policy or request crosses the engine boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct NonZeroDuration(Duration);
+
+impl NonZeroDuration {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn new(duration: Duration) -> Result<Self> {
+        if duration.is_zero() {
+            return Err(Error::InvalidRequest {
+                reason: "timeout durations must be non-zero".into(),
+            });
+        }
+        Ok(Self(duration))
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const HALF_SECOND: Self = Self(Duration::from_millis(500));
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const fn from_secs<const SECONDS: u64>() -> Self {
+        // This constructor is used only by fixed, positive engine defaults.
+        const {
+            assert!(SECONDS > 0);
+        }
+        Self(Duration::from_secs(SECONDS))
+    }
+
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+    pub(crate) const fn from_millis(milliseconds: std::num::NonZeroU64) -> Self {
+        Self(Duration::from_millis(milliseconds.get()))
+    }
+
+    pub(crate) const fn get(self) -> Duration {
+        self.0
+    }
+}
+
+/// One profile's checked operational deadlines and pacing. Public persisted
+/// values remain `Duration`; only this internal lowering carries the proof.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ResolvedTiming {
+    pub(crate) ack: NonZeroDuration,
+    pub(crate) inquiry: NonZeroDuration,
+    pub(crate) cancellation: NonZeroDuration,
+    pub(crate) ambiguity: NonZeroDuration,
+    command: [NonZeroDuration; CommandTimeoutClass::ALL.len()],
+    // Inquiries have always retained the untuned Quick value in their unused
+    // completion field. Keeping that separate preserves the inert context.
+    inquiry_completion: NonZeroDuration,
+    pub(crate) command_spacing: Duration,
+    pub(crate) inquiry_spacing: Duration,
+    settlement: Option<NonZeroDuration>,
+    busy: Duration,
+    tuning: crate::config::OperationalTuning,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ResolvedRetryBounds {
+    pub(crate) initial_backoff: Duration,
+    pub(crate) maximum_backoff: Duration,
+    pub(crate) total_budget: NonZeroDuration,
+}
+
+impl ResolvedTiming {
+    /// Establish the override proof once, during tuning validation. The
+    /// immutable profile already proves its own deadlines are positive.
+    pub(crate) fn validate(
+        tuning: crate::config::OperationalTuning,
+        timing: &crate::profiles::ProfileTiming,
+    ) -> Result<Self> {
+        if [
+            tuning.ack_timeout(),
+            tuning.inquiry_timeout(),
+            tuning.settlement_timeout(),
+        ]
+        .into_iter()
+        .chain(CommandTimeoutClass::ALL.map(|category| tuning.command_override(category)))
+        .flatten()
+        .any(|duration| duration.is_zero())
+        {
+            return Err(Error::InvalidRequest {
+                reason: "operational timeout overrides must be non-zero".into(),
+            });
+        }
+        Ok(Self::resolve(tuning, timing))
+    }
+
+    /// Reuse the completed non-zero proof instead of testing the same
+    /// deadlines on every prepared request.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn from_validated(
+        tuning: crate::session_config::ValidatedTuning,
+        timing: &crate::profiles::ProfileTiming,
+    ) -> Self {
+        Self::resolve(tuning.get(), timing)
+    }
+
+    /// The only override-or-profile resolution. This private constructor is
+    /// reached after `validate` or through the completed `ValidatedTuning`
+    /// proof, so each wrapped interval is positive without another check.
+    fn resolve(
+        tuning: crate::config::OperationalTuning,
+        timing: &crate::profiles::ProfileTiming,
+    ) -> Self {
+        Self {
+            ack: NonZeroDuration(tuning.ack_timeout().unwrap_or(timing.ack_timeout())),
+            inquiry: NonZeroDuration(tuning.inquiry_timeout().unwrap_or(timing.inquiry_timeout())),
+            cancellation: NonZeroDuration(timing.cancellation_timeout()),
+            ambiguity: NonZeroDuration(timing.ambiguity_timeout()),
+            command: CommandTimeoutClass::ALL.map(|category| {
+                NonZeroDuration(
+                    tuning
+                        .command_override(category)
+                        .unwrap_or(timing.command_timeouts().get(category)),
+                )
+            }),
+            inquiry_completion: NonZeroDuration(timing.command_timeouts().quick_timeout()),
+            command_spacing: tuning.command_spacing().unwrap_or(timing.command_spacing()),
+            inquiry_spacing: tuning.inquiry_spacing().unwrap_or(timing.inquiry_spacing()),
+            settlement: tuning.settlement_timeout().map(NonZeroDuration),
+            busy: timing.busy_timeout(),
+            tuning,
+        }
+    }
+
+    pub(crate) fn command(self, category: CommandTimeoutClass) -> NonZeroDuration {
+        self.command[category as usize]
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn completion(self, class: TimeoutClass) -> NonZeroDuration {
+        CommandTimeoutClass::of(class)
+            .map_or(self.inquiry_completion, |category| self.command(category))
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn settlement_budget(self, class: TimeoutClass) -> Duration {
+        self.settlement
+            .unwrap_or_else(|| self.completion(class))
+            .get()
+    }
+
+    /// A command's conservative ACK-bearing budget, also the validation floor
+    /// for a targeted operation's explicit settlement budget.
+    pub(crate) fn retry_budget(self, category: CommandTimeoutClass) -> NonZeroDuration {
+        self.retry_bounds(Some(category), true).total_budget
+    }
+
+    /// The single request-budget formula. Inquiries and completion-only
+    /// commands have no ACK window; ACK-bearing commands must fit both windows.
+    pub(crate) fn retry_bounds(
+        self,
+        category: Option<CommandTimeoutClass>,
+        ack_bearing: bool,
+    ) -> ResolvedRetryBounds {
+        let deadline = category
+            .map_or(self.inquiry, |category| self.command(category))
+            .get();
+        let attempt = if ack_bearing {
+            self.ack.get().saturating_add(deadline)
+        } else {
+            deadline
+        };
+        let bounds = self
+            .tuning
+            .lengthen_retry_bounds(crate::profiles::RetryBounds::for_request(
+                self.busy, deadline, attempt,
+            ));
+        ResolvedRetryBounds {
+            initial_backoff: bounds.initial_backoff,
+            maximum_backoff: bounds.maximum_backoff,
+            // RetryBounds has a positive ten-second floor, and overrides only
+            // lengthen it. This proof does not require another runtime check.
+            total_budget: NonZeroDuration(bounds.total_budget),
+        }
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn maximum_command_sockets(
+        self,
+        baseline: crate::CommandSocketCount,
+    ) -> crate::CommandSocketCount {
+        self.tuning.maximum_command_sockets().unwrap_or(baseline)
+    }
+}
+
 /// Declares [`crate::profiles::CommandTimeoutClass`] and its [`crate::profiles::CommandTimeoutClass::ALL`] inventory
 /// from one variant list, so a category added to the enum is always visited by
 /// every walk over `ALL` (validation, override checks and table projection).
