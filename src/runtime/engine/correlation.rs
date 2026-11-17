@@ -228,24 +228,24 @@ impl StreamCorrelation {
             super::SendingReply::NoReply => Some(super::Owes::Rejection),
         }
     }
-    /// Drain one learned completion at a time so the engine can apply the
-    /// corresponding request transition before the next item is inspected.
+    /// Drain one target's learned completion at a time so the engine applies
+    /// its request transition before inspecting the next owed completion.
     pub(super) fn next_learned_completion(
         &mut self,
-    ) -> Option<(TargetSlot, super::Outstanding, super::Answered)> {
-        for target in TargetSlot::ALL {
-            let learning = &mut self.learning[target];
-            if let CompletionSockets::Named { unpaid } = &mut learning.completion_sockets {
-                if *unpaid == 0 {
-                    continue;
-                }
-                if let Some((entry, answered)) = self.ledger.take_completion(target) {
-                    *unpaid -= 1;
-                    return Some((target, entry, answered));
-                }
-                *unpaid = 0;
-            }
+        target: TargetSlot,
+    ) -> Option<(super::Outstanding, super::Answered)> {
+        let CompletionSockets::Named { unpaid } = &mut self.learning[target].completion_sockets
+        else {
+            return None;
+        };
+        if *unpaid == 0 {
+            return None;
         }
+        if let Some((entry, answered)) = self.ledger.take_completion(target) {
+            *unpaid -= 1;
+            return Some((entry, answered));
+        }
+        *unpaid = 0;
         None
     }
     pub(super) fn learn_socketless_completion(&mut self, target: TargetSlot) -> CompletionSockets {
