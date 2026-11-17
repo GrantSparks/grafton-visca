@@ -487,7 +487,7 @@ proptest! {
                 if let Effect::Transmit { transmission, request, kind: Transmission::Request { framing, .. } } = effect {
                     prop_assert!(!accepted.contains(&request), "rewrote {request:?} after camera acceptance");
                     let sequence = *written.entry(request).or_insert_with(|| 0x1000 + u32::try_from(request.get()).unwrap());
-                    if let RequestFraming::Sony { sequence: SonyRequestSequence::Replay(requested) } = framing.expectation() {
+                    if let Some(SonyRequestSequence::Replay(requested)) = framing.sony_sequence() {
                         prop_assert_eq!(requested, sequence);
                     }
                     effects.extend(engine.handle_turn(Input::TransmissionFinished {

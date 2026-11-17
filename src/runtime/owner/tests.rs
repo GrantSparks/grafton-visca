@@ -823,8 +823,8 @@ mod metrics {
             if let AppliedEffect::Transmit(staged) = state.apply_effect(effect, now) {
                 let produced = state.finish_write(
                     &staged,
-                    WriteOutcome::Sent(sequence.map_or(TransmissionMeta::Raw, |sequence| {
-                        TransmissionMeta::Sony { sequence }
+                    WriteOutcome::Sent(sequence.map_or(TransmissionMeta::Known, |sequence| {
+                        TransmissionMeta::Allocated { sequence }
                     })),
                     now,
                 );
@@ -2183,7 +2183,7 @@ mod lifecycle_trace {
 
     fn write_result(label: &str) -> Result<TransmissionMeta, Error> {
         match label {
-            "ok" => Ok(TransmissionMeta::Raw),
+            "ok" => Ok(TransmissionMeta::Known),
             "Timeout" => Err(Error::io_timeout()),
             other => Err(Error::transport_error(std::io::Error::other(
                 other.to_owned(),

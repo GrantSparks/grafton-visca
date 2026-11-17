@@ -66,7 +66,7 @@ fn fixture(scenario: Scenario) -> (ProtocolEngine, RequestId, Instant) {
                     &mut engine,
                     request,
                     transmission,
-                    Ok(TransmissionMeta::Sony { sequence: 0x2001 }),
+                    Ok(TransmissionMeta::Allocated { sequence: 0x2001 }),
                     start,
                 );
                 if matches!(scenario, Scenario::CancellationResolution) {

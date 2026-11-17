@@ -58,7 +58,8 @@ pub(in crate::runtime::owner) fn assert_axis(
 fn drive(state: &mut OwnerState, mut effects: VecDeque<Effect>, now: Instant) {
     while let Some(effect) = effects.pop_front() {
         if let AppliedEffect::Transmit(staged) = state.apply_effect(effect, now) {
-            let next = state.finish_write(&staged, WriteOutcome::Sent(TransmissionMeta::Raw), now);
+            let next =
+                state.finish_write(&staged, WriteOutcome::Sent(TransmissionMeta::Known), now);
             // Write results precede any effects remaining in their owner turn.
             for effect in next.into_iter().rev() {
                 effects.push_front(effect);

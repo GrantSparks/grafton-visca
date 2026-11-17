@@ -43,7 +43,7 @@ async fn abandoned_admission_matrix<R: Runtime>(runtime: R) {
         assert_eq!(handle.core.admissions.len(), 4);
         assert_eq!(handle.core.permits.available(), 0);
 
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -155,7 +155,7 @@ async fn dropping_last_handle_does_not_write_abandoned_admissions() {
     }
     assert_eq!(handle.core.admissions.len(), 3);
     drop(handle);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.metrics.admitted, 1);
     assert_eq!(snapshot.metrics.admission_rejected, 3);
@@ -201,7 +201,7 @@ async fn async_manual_clock_rejects_settlement_query_at_deadline() {
         started.recv_async().await.unwrap(),
         operation.observation.id()
     );
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await
@@ -250,7 +250,7 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
         .await
         .unwrap();
     assert_eq!(started.recv_async().await.unwrap(), predecessor.id);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
 
     let armed_ack_deadline = loop {
         let sleep = sleep_started.recv_async().await.unwrap();
@@ -280,7 +280,7 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
         Some(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xff]),
         "the emergency stop writes through the predecessor hold"
     );
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await
@@ -381,7 +381,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
     assert_eq!(writes.lock().unwrap().len(), 1);
     drop(receipt);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     handle.shutdown().unwrap();
     let terminal = actor_task.await.unwrap();
     assert_eq!(terminal.state, SessionState::Shutdown);
@@ -539,7 +539,7 @@ async fn async_admission_precedes_write_and_matches_blocking_terminal_trace() {
         .unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
     assert_eq!(writes.lock().unwrap().len(), 1);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await
@@ -578,7 +578,7 @@ async fn capacity_rejection_is_pre_identity_and_cancel_full_waits_without_drop()
     let first = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), first.id);
     gates
-        .send_async(Ok(TransmissionMeta::Sony { sequence: 1 }))
+        .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
         .await
         .unwrap();
     let second = handle.submit(command()).await.unwrap();
@@ -605,7 +605,7 @@ async fn capacity_rejection_is_pre_identity_and_cancel_full_waits_without_drop()
     );
 
     gates
-        .send_async(Ok(TransmissionMeta::Sony { sequence: 2 }))
+        .send_async(Ok(TransmissionMeta::Allocated { sequence: 2 }))
         .await
         .unwrap();
     let (first_observation, first) = first_cancel.await.unwrap();
@@ -638,7 +638,7 @@ async fn ordinary_async_submit_is_fail_fast_at_capacity() {
         .unwrap_err();
     assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
     drop(first);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.metrics.admitted, 1);
@@ -673,7 +673,7 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
     // The first write is deliberately held so the rejected work cannot be
     // confused with a newly admitted request. Release it only after the
     // fail-fast result, then query the actor-owned metric snapshot.
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     let metrics = handle.metrics().await.unwrap();
     assert_eq!(metrics.admitted, 1);
     assert_eq!(metrics.admission_rejected, 1);
@@ -838,7 +838,7 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
     let actor_task = tokio::spawn(actor.run(harness.driver));
     let operation = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), operation.id);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await
@@ -849,7 +849,7 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
         (observer, operation)
     });
     let _cancel_write = started.recv_async().await.unwrap();
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     let (cancellation, operation) = cancel_task.await.unwrap();
     let cancellation = cancellation.unwrap();
     frames
@@ -891,7 +891,7 @@ fn smol_actor_has_the_same_admit_write_terminal_order() {
 
         let receipt = handle.submit(command()).await.unwrap();
         assert_eq!(started.recv_async().await.unwrap(), receipt.id);
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -923,7 +923,7 @@ async fn terminal_handle_work_and_metrics_are_stable<R: Executor>(runtime: R) {
     let mut submitting = std::pin::pin!(submitting);
     assert!(future::poll_once(submitting.as_mut()).await.is_none());
     let admission = actor.core.receivers.admissions.try_recv().unwrap();
-    harness.gates.try_send(Ok(TransmissionMeta::Raw)).unwrap();
+    harness.gates.try_send(Ok(TransmissionMeta::Known)).unwrap();
     actor
         .handle_event(
             OwnerEvent::Admission(Ok(admission)),
@@ -1069,8 +1069,8 @@ fn manual_clock_terminal_metrics_stay_identical_during_concurrent_cancellation_a
     runtime.run_until(async {
         let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
         let harness = harness();
-        harness.gates.try_send(Ok(TransmissionMeta::Raw)).unwrap();
-        harness.gates.try_send(Ok(TransmissionMeta::Raw)).unwrap();
+        harness.gates.try_send(Ok(TransmissionMeta::Known)).unwrap();
+        harness.gates.try_send(Ok(TransmissionMeta::Known)).unwrap();
         let client = async {
             let operation = handle.submit(command()).await.unwrap();
             harness

@@ -12,7 +12,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
 
     let first = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), first.id);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await
@@ -24,7 +24,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
 
     let second = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), second.id);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     assert_eq!(handle.snapshot().await.unwrap().active, 2);
 
     // Deliver ACK S2 and completion S1 at S1's exact completion deadline.
@@ -73,7 +73,7 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
 
     let receipt = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+    gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await

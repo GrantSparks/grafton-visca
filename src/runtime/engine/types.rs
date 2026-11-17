@@ -784,29 +784,21 @@ pub(crate) struct DecodedFrame {
 /// Metadata returned by a successful exact transport write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TransmissionMeta {
-    Raw,
-    Sony { sequence: u32 },
+    Known,
+    Allocated { sequence: u32 },
 }
 
 impl TransmissionMeta {
     #[cfg(test)]
     pub(crate) const fn for_sequence(sequence: Option<u32>) -> Self {
         match sequence {
-            None => Self::Raw,
-            Some(sequence) => Self::Sony { sequence },
+            None => Self::Known,
+            Some(sequence) => Self::Allocated { sequence },
         }
     }
 }
 
 pub(crate) use crate::transport::envelope::SonyRequestSequence;
-
-/// Correlation expectation derived from one bound write plan.
-/// Raw VISCA has no Sony sequence axis; Sony preserves its exact retry intent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RequestFraming {
-    Raw,
-    Sony { sequence: SonyRequestSequence },
-}
 
 /// The transport boundary classifies refusal before I/O separately from a
 /// send whose bytes may have reached the camera.

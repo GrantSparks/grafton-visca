@@ -49,13 +49,11 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
     };
     let sending = SendingCancellation {
         transmission,
-        framing: RequestFraming::Raw,
         ambiguity_deadline: ambiguity,
         observer_open: true,
     };
     let command_sending = Lifecycle::Sending {
         transmission,
-        framing: RequestFraming::Raw,
         started_at: now,
         attempt,
         reply: SendingReply::AckThenCompletion,
@@ -94,7 +92,6 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             "sending STOP",
             Lifecycle::Sending {
                 transmission,
-                framing: RequestFraming::Raw,
                 started_at: now,
                 attempt,
                 reply: SendingReply::Stop,
@@ -254,7 +251,6 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
                         matches!(
                             action,
                             DueAction::Completion(CompletionDeadline::Cancelling {
-                                socket: ViscaSocket::S1,
                                 original_deadline,
                                 ..
                             }) if original_deadline == deadline
@@ -419,7 +415,6 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
     ] {
         let lifecycle = Lifecycle::Sending {
             transmission,
-            framing: RequestFraming::Raw,
             started_at: now,
             attempt,
             reply,

@@ -699,7 +699,7 @@ struct RuntimeAffinityDriver {
 impl AsyncOwnerDriver for RuntimeAffinityDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -723,7 +723,7 @@ impl RetainedStreamInput for RuntimeAffinityDriver {}
 impl AsyncOwnerDriver for PanickingReceiveDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -750,7 +750,7 @@ struct PanickingAfterAdmissionDriver {
 impl AsyncOwnerDriver for PanickingAfterAdmissionDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -844,7 +844,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -865,7 +865,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -894,7 +894,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -914,7 +914,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         assert!(matches!(
             detached.wait_with_timeout(Duration::ZERO).await,
             Err(Error::ObservationTimeout { .. })
@@ -962,7 +962,7 @@ where
             .await
             .unwrap();
         let _ = started.recv_async().await.unwrap();
-        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
@@ -977,7 +977,7 @@ where
         let replies = async {
             for _ in 0..2 {
                 let _ = started.recv_async().await.unwrap();
-                gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+                gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
                 frames
                     .send_async(batch(vec![DecodedFrame {
                         target: TargetSlot::CAMERA_1,
@@ -1110,7 +1110,7 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
                         .unwrap_or(Err(Error::RuntimeShutdown)),
                 )
             } else {
-                WriteOutcome::Sent(TransmissionMeta::Raw)
+                WriteOutcome::Sent(TransmissionMeta::Known)
             }
         }
     }
@@ -1648,7 +1648,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
     runtime.advance_silently(Duration::from_millis(1));
     harness
         .target_two_gate
-        .try_send(Ok(TransmissionMeta::Raw))
+        .try_send(Ok(TransmissionMeta::Known))
         .unwrap();
 
     enum BoundaryOrder {
@@ -1927,7 +1927,7 @@ impl AsyncOwnerDriver for AlwaysFailingReceive {
     // The private driver trait requires an explicitly `Send` future.
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -1960,7 +1960,7 @@ struct AlternatingFaultNoData {
 impl AsyncOwnerDriver for AlternatingFaultNoData {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -2003,7 +2003,7 @@ impl AsyncOwnerDriver for UngatedDriver {
     // The private driver trait requires an explicitly `Send` future.
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -2181,7 +2181,7 @@ struct BabblingDriver;
 impl AsyncOwnerDriver for BabblingDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -2214,7 +2214,7 @@ struct BufferedBabblingDriver;
 impl AsyncOwnerDriver for BufferedBabblingDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -2259,7 +2259,7 @@ struct CountingBabblingDriver {
 impl AsyncOwnerDriver for CountingBabblingDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -2394,7 +2394,7 @@ struct NoDataDriver {
 impl AsyncOwnerDriver for NoDataDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+        async { WriteOutcome::Sent(TransmissionMeta::Known) }
     }
 
     fn receive(
@@ -2461,7 +2461,7 @@ impl AsyncOwnerDriver for RawBufferedFloodDriver {
             if writes.send_async(request).await.is_err() {
                 return WriteOutcome::Failed(Error::RuntimeShutdown);
             }
-            WriteOutcome::Sent(TransmissionMeta::Raw)
+            WriteOutcome::Sent(TransmissionMeta::Known)
         }
     }
 
@@ -2508,7 +2508,7 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
             if writes.send_async(request).await.is_err() {
                 return WriteOutcome::Failed(Error::RuntimeShutdown);
             }
-            WriteOutcome::Sent(TransmissionMeta::Raw)
+            WriteOutcome::Sent(TransmissionMeta::Known)
         }
     }
 

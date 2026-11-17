@@ -1271,7 +1271,8 @@ than claimed as a snapshot-auditor check.
   (Enforcement: types: private entry table and atomic index changes; owner: sole
   admission path and safe terminal removal.)
 - Every request and cancellation transmission has one active identity and one result. (Enforcement:
-  types: identity and framing expectation belong to the active sending lifecycle; owner: named
+  types: identity belongs to the active sending lifecycle, and the bound write plan reports only
+  a newly allocated Sony sequence; owner: named
   receipts match that identity, and `duplicate_write_receipts_do_not_requeue_the_request` pins
   stale receipt rejection.)
 - Every request reaches at most one terminal engine transition. (Enforcement: owner: sole-entry
@@ -1279,7 +1280,8 @@ than claimed as a snapshot-auditor check.
 - Every retained operation or cancellation observer resolves at most once. (Enforcement: owner:
   one-shot terminal and cancellation slots.)
 - Every target/socket pair has at most one active owner. (Enforcement: types: atomic entry-table
-  transitions and the closed active/displaced placement.)
+  transitions consume an exclusive socket claim when installing ownership; successors preserve
+  the existing socket, and the closed active/displaced placement prevents reclaiming a reassigned socket.)
 - No retry path writes a command again after its ACK. (Enforcement: type: retry transitions require
   an eligibility value issued only by unacknowledged lifecycles.)
 - Every live raw byte-stream ledger entry belongs to a request that still awaits that answer; the

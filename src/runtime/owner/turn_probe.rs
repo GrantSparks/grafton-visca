@@ -86,7 +86,9 @@ impl RetainedStreamInput for ProbeTransport {}
 
 impl ProbeDriver for ProbeTransport {
     fn record_write(&mut self, metadata: TransmissionMeta, bytes: &[u8]) {
-        self.metadata = Some(metadata);
+        if metadata != TransmissionMeta::Known || self.metadata.is_none() {
+            self.metadata = Some(metadata);
+        }
         self.writes += 1;
         self.last_write.clear();
         self.last_write.extend_from_slice(bytes);
@@ -369,7 +371,7 @@ impl TurnProbe {
 
     fn sequence(&self) -> Option<EnvelopeSequence> {
         match self.driver.metadata {
-            Some(TransmissionMeta::Sony { sequence }) => Some(EnvelopeSequence {
+            Some(TransmissionMeta::Allocated { sequence }) => Some(EnvelopeSequence {
                 value: sequence,
                 width: SequenceWidth::Full32,
             }),

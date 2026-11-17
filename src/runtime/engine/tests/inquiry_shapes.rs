@@ -265,7 +265,7 @@ impl Session {
                         Input::TransmissionFinished {
                             request,
                             transmission,
-                            result: WriteOutcome::Sent(TransmissionMeta::Raw),
+                            result: WriteOutcome::Sent(TransmissionMeta::Known),
                         },
                         self.now,
                     );

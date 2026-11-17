@@ -266,7 +266,7 @@ fn physical_write_evidence_invalidates_without_mutating_retry_history() {
         assert!(engine.entry(id).unwrap().prior.is_none());
         let (transmission, request, _) = request_transmit(&write);
         let result = if late_sent {
-            WriteOutcome::Sent(TransmissionMeta::Sony { sequence: 0x1001 })
+            WriteOutcome::Sent(TransmissionMeta::Allocated { sequence: 0x1001 })
         } else {
             // A transport may return an arbitrary typed error. Its physical
             // failure must not be mistaken for a pre-ACK camera rejection.
@@ -313,7 +313,7 @@ fn queued_previous_attempt_must_agree_with_retry_history() {
         .entries
         .transition(
             id,
-            EntryChange::Lifecycle(Lifecycle::Ready {
+            EntryChange::Lifecycle(UnsocketedLifecycle::Ready {
                 previous_attempt: None,
             }),
         )
@@ -519,7 +519,7 @@ fn sequence_slots_keep_the_request_sequence_across_retries_and_cancellation() {
         Input::TransmissionFinished {
             request,
             transmission,
-            result: WriteOutcome::Sent(TransmissionMeta::Sony {
+            result: WriteOutcome::Sent(TransmissionMeta::Allocated {
                 sequence: sequence + 1,
             }),
         },

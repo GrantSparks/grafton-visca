@@ -1843,7 +1843,7 @@ mod tests {
                 core.finish_transmit(
                     None,
                     &staged,
-                    WriteOutcome::Sent(TransmissionMeta::Raw),
+                    WriteOutcome::Sent(TransmissionMeta::Known),
                     now,
                     &mut effects,
                 );
@@ -2034,7 +2034,7 @@ mod tests {
         core.finish_transmit(
             None,
             &staged,
-            WriteOutcome::Sent(TransmissionMeta::Raw),
+            WriteOutcome::Sent(TransmissionMeta::Known),
             now,
             &mut effects,
         );

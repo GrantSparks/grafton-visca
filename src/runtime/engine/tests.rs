@@ -600,7 +600,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
         .transition(
             a_id,
             EntryChange::Written {
-                receipt: TransmissionMeta::Sony {
+                receipt: TransmissionMeta::Allocated {
                     sequence: 0x1111_beef,
                 },
                 kind: CorrelationKind::Request,
@@ -864,7 +864,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
                 },
                 ..
             }
-        ] if matches!(framing.expectation(), RequestFraming::Sony { sequence: SonyRequestSequence::AllocateFresh })
+        ] if matches!(framing.sony_sequence(), Some(SonyRequestSequence::AllocateFresh))
     ));
     engine.handle(
         Input::TransmissionFinished {
@@ -893,7 +893,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         Effect::Transmit {
             kind: Transmission::Request { framing, .. },
             ..
-        } => Some(framing.expectation()),
+        } => Some(framing.sony_sequence()),
         _ => None,
     });
     assert_eq!(retry_id, id);
@@ -901,9 +901,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
     assert!(Arc::ptr_eq(&first_wire, &retry_wire));
     assert_eq!(
         requested,
-        Some(RequestFraming::Sony {
-            sequence: SonyRequestSequence::Replay(0x1020_3040)
-        })
+        Some(Some(SonyRequestSequence::Replay(0x1020_3040)))
     );
 
     // The old attempt was removed when the retry became authoritative. Its
@@ -939,14 +937,12 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         Effect::Transmit {
             kind: Transmission::Request { framing, .. },
             ..
-        } => Some(framing.expectation()),
+        } => Some(framing.sony_sequence()),
         _ => None,
     });
     assert_eq!(
         next_requested,
-        Some(RequestFraming::Sony {
-            sequence: SonyRequestSequence::AllocateFresh
-        })
+        Some(Some(SonyRequestSequence::AllocateFresh))
     );
     engine.assert_invariants().unwrap();
 }
@@ -1143,14 +1139,12 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
             request,
             kind: Transmission::Request { framing, .. },
             ..
-        } if *request == id => Some(framing.expectation()),
+        } if *request == id => Some(framing.sony_sequence()),
         _ => None,
     });
     assert_eq!(
         requested_sequence,
-        Some(RequestFraming::Sony {
-            sequence: SonyRequestSequence::Replay(first_sequence)
-        })
+        Some(Some(SonyRequestSequence::Replay(first_sequence)))
     );
     assert_eq!(
         released
@@ -1339,14 +1333,12 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             request,
             kind: Transmission::Request { framing, .. },
             ..
-        } if *request == id => Some(framing.expectation()),
+        } if *request == id => Some(framing.sony_sequence()),
         _ => None,
     });
     assert_eq!(
         requested_sequence,
-        Some(RequestFraming::Sony {
-            sequence: SonyRequestSequence::Replay(first_sequence)
-        })
+        Some(Some(SonyRequestSequence::Replay(first_sequence)))
     );
     assert_eq!(
         released
@@ -4760,14 +4752,11 @@ fn fuzz_step(
         {
             let sequence = engine
                 .transmission_owner(*request, *transmission)
-                .and_then(|owner| match owner.write.framing() {
-                    RequestFraming::Sony {
-                        sequence: SonyRequestSequence::Replay(sequence),
-                    } => Some(sequence),
-                    RequestFraming::Raw
-                    | RequestFraming::Sony {
-                        sequence: SonyRequestSequence::AllocateFresh,
-                    } => None,
+                .and_then(|owner| {
+                    engine
+                        .entries
+                        .get(request)
+                        .and_then(|entry| entry.sequences[owner.write.kind()])
                 })
                 .or(write_sequence);
             let fails = match transport {
@@ -6487,16 +6476,22 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     // become socket two; the authoritative ACK path must displace the stale
     // owner first (#721). A socketless ACK may still select the free socket.
     assert_eq!(
-        engine.assign_socket(camera(1), Some(ViscaSocket::S1), second_id),
+        engine
+            .assign_socket(camera(1), Some(ViscaSocket::S1), second_id)
+            .map(SocketClaim::socket),
         None
     );
     assert_eq!(
-        engine.assign_socket(camera(1), None, second_id),
+        engine
+            .assign_socket(camera(1), None, second_id)
+            .map(SocketClaim::socket),
         Some(ViscaSocket::S2)
     );
     // A request keeps the socket it already owns.
     assert_eq!(
-        engine.assign_socket(camera(1), Some(ViscaSocket::S1), first_id),
+        engine
+            .assign_socket(camera(1), Some(ViscaSocket::S1), first_id)
+            .map(SocketClaim::socket),
         Some(ViscaSocket::S1)
     );
 
@@ -6512,9 +6507,16 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     );
     // Every socket is now held by another request: nothing is invented.
     let stranger = RequestId::from_nonzero(NonZeroU64::new(u64::MAX).unwrap());
-    assert_eq!(engine.assign_socket(camera(1), None, stranger), None);
     assert_eq!(
-        engine.assign_socket(camera(1), Some(ViscaSocket::S1), stranger),
+        engine
+            .assign_socket(camera(1), None, stranger)
+            .map(SocketClaim::socket),
+        None
+    );
+    assert_eq!(
+        engine
+            .assign_socket(camera(1), Some(ViscaSocket::S1), stranger)
+            .map(SocketClaim::socket),
         None
     );
     engine.assert_invariants().unwrap();
@@ -6547,9 +6549,16 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         start,
     );
     assert_eq!(socket_of(&single, only_id), Some(ViscaSocket::S1));
-    assert_eq!(single.assign_socket(camera(1), None, stranger), None);
     assert_eq!(
-        single.assign_socket(camera(1), Some(ViscaSocket::S1), stranger),
+        single
+            .assign_socket(camera(1), None, stranger)
+            .map(SocketClaim::socket),
+        None
+    );
+    assert_eq!(
+        single
+            .assign_socket(camera(1), Some(ViscaSocket::S1), stranger)
+            .map(SocketClaim::socket),
         None
     );
     single.assert_invariants().unwrap();
@@ -6599,7 +6608,7 @@ fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_
         .entries
         .transition(
             third_id,
-            EntryChange::Lifecycle(Lifecycle::AwaitingAck {
+            EntryChange::Lifecycle(UnsocketedLifecycle::AwaitingAck {
                 sent_at: start,
                 deadline: start + Duration::from_millis(20),
                 attempt: AttemptFacts {
