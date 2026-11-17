@@ -7,17 +7,6 @@ pub(crate) mod connectors;
 /// TCP transport over smol.
 pub(crate) mod tcp {
     /// TCP transport for async VISCA communication using smol.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use grafton_visca::transport::smol::TcpTransport;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let transport = TcpTransport::connect("192.168.1.100:5678").await?;
-    /// let (mut reader, mut writer) = transport.split();
-    /// # Ok(())
-    /// # }
-    /// ```
     pub type Tcp =
         crate::transport::async_tcp::Tcp<crate::transport::smol::connectors::SmolTcpStream>;
 }

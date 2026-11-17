@@ -10,17 +10,6 @@ pub(crate) mod serial;
 /// TCP transport over Tokio.
 pub(crate) mod tcp {
     /// TCP transport for async VISCA communication using Tokio.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use grafton_visca::transport::tokio::TcpTransport;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let transport = TcpTransport::connect("192.168.1.100:5678").await?;
-    /// let (mut reader, mut writer) = transport.split();
-    /// # Ok(())
-    /// # }
-    /// ```
     pub type Tcp =
         crate::transport::async_tcp::Tcp<crate::transport::tokio::connectors::TokioTcpStream>;
 }

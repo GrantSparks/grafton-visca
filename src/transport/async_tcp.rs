@@ -1,7 +1,7 @@
 //! Generic async TCP transport, written once for every async runtime.
 //!
-//! A runtime supplies a stream type implementing [`NetStream`]; connecting,
-//! splitting and the transport contract are implemented here.
+//! A runtime supplies a stream type implementing [`NetStream`]; connecting
+//! and the transport contract are implemented here.
 
 use std::time::Duration;
 
@@ -23,15 +23,8 @@ const PEER_CLOSED: &str = "peer closed connection";
 pub trait NetStream: AsyncReadExt + AsyncWriteExt + Send + Sized {
     /// The runtime providing the connect primitives.
     type Net: AsyncNet;
-    /// Read half produced by [`NetStream::split`].
-    type Reader: AsyncReadExt + std::fmt::Debug;
-    /// Write half produced by [`NetStream::split`].
-    type Writer: AsyncWriteExt + std::fmt::Debug;
-
     /// Wrap a stream connected by [`NetStream::Net`].
     fn from_connected(stream: <Self::Net as AsyncNet>::TcpStream) -> Self;
-    /// Split into independently usable read and write halves.
-    fn split(self) -> (Self::Reader, Self::Writer);
 }
 
 /// Generic TCP transport for async VISCA communication.
@@ -84,42 +77,6 @@ impl<S: NetStream> Tcp<S> {
         let endpoint = preflight(address, &config)?;
         let stream = async_connect::connect_tcp::<S::Net>(&endpoint, config.into()).await?;
         Ok(Self::new(S::from_connected(stream), config))
-    }
-
-    /// Split the TCP transport into separate reader and writer halves.
-    ///
-    /// This allows concurrent reading and writing without mutable access to
-    /// the entire transport.
-    pub fn split(self) -> (TcpReader<S::Reader>, TcpWriter<S::Writer>) {
-        let (reader, writer) = self.stream.split();
-        (TcpReader { reader }, TcpWriter { writer })
-    }
-}
-
-/// Reader half of a split TCP transport.
-#[derive(Debug)]
-pub struct TcpReader<R> {
-    reader: R,
-}
-
-impl<R: AsyncReadExt> TcpReader<R> {
-    /// Receive data into `dst`. A byte stream always reports a complete
-    /// outcome; a closed connection is reported as [`Error::ConnectionClosed`].
-    pub async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-        stream_read(self.reader.read(dst).await?, PEER_CLOSED).map(ReceiveOutcome::complete)
-    }
-}
-
-/// Writer half of a split TCP transport.
-#[derive(Debug)]
-pub struct TcpWriter<W> {
-    writer: W,
-}
-
-impl<W: AsyncWriteExt> TcpWriter<W> {
-    /// Send data over the TCP connection.
-    pub async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        write_all_flush(&mut self.writer, data).await
     }
 }
 

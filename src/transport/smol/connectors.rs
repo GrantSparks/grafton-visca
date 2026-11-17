@@ -90,7 +90,7 @@ fn connect_in_progress(error: &io::Error) -> bool {
     false
 }
 
-/// smol TCP stream; its halves are clones of the same socket.
+/// smol TCP stream read and written through the whole transport.
 #[derive(Debug)]
 pub struct SmolTcpStream {
     stream: TcpStream,
@@ -114,18 +114,9 @@ impl AsyncWriteExtTrait for SmolTcpStream {
 
 impl NetStream for SmolTcpStream {
     type Net = SmolNet;
-    type Reader = Self;
-    type Writer = Self;
 
     fn from_connected(stream: TcpStream) -> Self {
         Self { stream }
-    }
-
-    fn split(self) -> (Self, Self) {
-        let writer = Self {
-            stream: self.stream.clone(),
-        };
-        (self, writer)
     }
 }
 

@@ -157,12 +157,11 @@ async fn assert_async_reads<S: crate::transport::async_tcp::NetStream>(
     assert_eq!(first, PAYLOAD[..1]);
     peer.assert_queued(PAYLOAD.len() - first.len());
 
-    let (mut reader, mut writer) = transport.split();
-    writer.send(b"outbound").await.expect("split writer");
+    transport.send(b"outbound").await.expect("outbound write");
     peer.assert_outbound();
     let mut next = [0; 256];
     assert_eq!(
-        reader.recv_into(&mut next).await.expect("split reader"),
+        transport.recv_into(&mut next).await.expect("next receive"),
         ReceiveOutcome::complete(next.len())
     );
     assert_eq!(next, PAYLOAD[1..257]);

@@ -4,10 +4,7 @@ use std::{future::Future, io, net::SocketAddr, time::Duration};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{
-        tcp::{OwnedReadHalf, OwnedWriteHalf},
-        TcpStream, UdpSocket,
-    },
+    net::{TcpStream, UdpSocket},
 };
 
 use crate::{
@@ -70,74 +67,33 @@ impl AsyncNet for TokioNet {
     }
 }
 
-/// Owned Tokio TCP read half that reads directly into the caller's slice.
-///
-/// No user-space read-ahead buffer is retained between receives.
-#[derive(Debug)]
-pub struct TokioReader {
-    inner: OwnedReadHalf,
-}
-
-impl AsyncReadExtTrait for TokioReader {
-    async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, Error> {
-        Ok(self.inner.read(buf).await?)
-    }
-}
-
-/// Wrapper around tokio streams to implement our AsyncWriteExt trait.
-#[derive(Debug)]
-pub struct TokioWriter<W> {
-    inner: W,
-}
-
-impl<W: AsyncWriteExt + Unpin + Send> AsyncWriteExtTrait for TokioWriter<W> {
-    async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
-        Ok(self.inner.write_all(buf).await?)
-    }
-
-    async fn flush(&mut self) -> Result<(), Error> {
-        Ok(self.inner.flush().await?)
-    }
-}
-
-/// Tokio TCP stream split into owned halves.
+/// Tokio TCP stream read and written directly through the whole transport.
 #[derive(Debug)]
 pub struct TokioTcpStream {
-    reader: TokioReader,
-    writer: TokioWriter<OwnedWriteHalf>,
+    stream: TcpStream,
 }
 
 impl AsyncReadExtTrait for TokioTcpStream {
     async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, Error> {
-        self.reader.read(buf).await
+        Ok(self.stream.read(buf).await?)
     }
 }
 
 impl AsyncWriteExtTrait for TokioTcpStream {
     async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
-        self.writer.write_all(buf).await
+        Ok(self.stream.write_all(buf).await?)
     }
 
     async fn flush(&mut self) -> Result<(), Error> {
-        self.writer.flush().await
+        Ok(self.stream.flush().await?)
     }
 }
 
 impl NetStream for TokioTcpStream {
     type Net = TokioNet;
-    type Reader = TokioReader;
-    type Writer = TokioWriter<OwnedWriteHalf>;
 
     fn from_connected(stream: TcpStream) -> Self {
-        let (read_half, write_half) = stream.into_split();
-        Self {
-            reader: TokioReader { inner: read_half },
-            writer: TokioWriter { inner: write_half },
-        }
-    }
-
-    fn split(self) -> (Self::Reader, Self::Writer) {
-        (self.reader, self.writer)
+        Self { stream }
     }
 }
 
