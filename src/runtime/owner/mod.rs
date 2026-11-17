@@ -95,11 +95,11 @@ use crate::{
 use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind};
 
 use super::engine::{
-    AdmissionSlot, AppliedStateProjection, CancellationObservation, CommandOutcome, ControlClass,
-    DeadlineKind, DecodedFrame, DecodedResponse, Effect, EngineTurn, IgnoreReason, Input,
-    InputTurn, InquiryOutcome, Lane, Lifecycle, ProtocolEngine, ProtocolPolicy, RequestContext,
-    RequestId, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy,
-    Transmission, TransmissionId, TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
+    AdmissionSlot, AppliedStateProjection, CancellationObservation, CommandOutcome, DeadlineKind,
+    DecodedFrame, DecodedResponse, Effect, EngineTurn, IgnoreReason, Input, InputTurn,
+    InquiryOutcome, Lane, Lifecycle, ProtocolEngine, ProtocolPolicy, RequestId, RuntimeOutcome,
+    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, Transmission, TransmissionId,
+    TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
 };
 
 #[cfg(test)]
@@ -517,23 +517,22 @@ impl AdmissionPermitPool {
             })
     }
 
-    /// Takes one admission slot for a request with `context`.
+    /// Takes one admission slot for a fully prepared request.
     ///
     /// An ordinary request that finds the ordinary budget full gets
     /// [`Error::RuntimeQueueFull`]. An urgent request that finds both its
     /// target's reserve and the ordinary budget full gets
     /// [`Error::ControlReserveExhausted`].
-    pub(crate) fn try_acquire(&self, context: &RequestContext) -> Result<AdmissionPermit, Error> {
-        let target = context.target;
+    pub(crate) fn try_acquire(&self, request: &RuntimeRequest) -> Result<AdmissionPermit, Error> {
+        let target = request.context().target;
         let mut available = self.0.available.lock().unwrap_or_else(|p| p.into_inner());
-        let slot = if context.control.class == ControlClass::Urgent && available.reserve[target] > 0
-        {
+        let slot = if request.is_stop() && available.reserve[target] > 0 {
             available.reserve[target] -= 1;
             AdmissionSlot::ControlReserve
         } else if available.ordinary > 0 {
             available.ordinary -= 1;
             AdmissionSlot::Ordinary
-        } else if context.control.class == ControlClass::Urgent {
+        } else if request.is_stop() {
             return Err(Error::ControlReserveExhausted {
                 target: target.camera(),
                 reserve: usize::from(self.0.reserves[target]),
@@ -2554,3 +2553,6 @@ pub(crate) fn prepend_effects(queue: &mut VecDeque<Effect>, produced: VecDeque<E
         queue.push_front(effect);
     }
 }
+
+#[cfg(test)]
+use crate::runtime::engine::RequestContext;

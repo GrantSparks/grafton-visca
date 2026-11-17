@@ -152,7 +152,6 @@ pub(crate) enum ControlClass {
     Background,
     Normal,
     User,
-    Urgent,
 }
 
 impl ControlClass {
@@ -161,7 +160,6 @@ impl ControlClass {
             Self::Background => 0,
             Self::Normal => 1,
             Self::User => 2,
-            Self::Urgent => 3,
         }
     }
 }
@@ -194,11 +192,13 @@ pub(crate) enum CancellationPolicy {
 /// This is the private lowering of the public [`crate::raw::RawReplyShape`]. The
 /// engine never infers it from wire bytes: preparation lowers the caller's
 /// explicit declaration into this fact, exactly as it does the envelope and
-/// control class. Built-in commands and inquiries always lower to
-/// [`Self::AckThenCompletion`]; only a custom (raw or downstream) command can
-/// declare another shape.
+/// control class. Reviewed built-in STOPs lower to [`Self::Stop`]; ordinary
+/// built-in commands use [`Self::AckThenCompletion`]. Custom commands may
+/// declare either of the remaining reply shapes, but cannot claim STOP authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum ReplyShape {
+pub(crate) enum CommandReply {
+    /// A reviewed safety STOP: always ACK-bearing, with reserved admission.
+    Stop,
     /// The camera acknowledges, is assigned a socket, then completes. The
     /// default and the shape of every built-in command.
     #[default]
@@ -354,11 +354,6 @@ pub(crate) struct RequestContext {
 }
 
 impl RequestContext {
-    /// Urgent admission authority belongs only to reviewed typed STOPs.
-    pub(crate) const fn is_stop(self) -> bool {
-        matches!(self.control.class, ControlClass::Urgent)
-    }
-
     /// Checks the completed per-request policy at its actual admission instant,
     /// without reading another clock or revalidating the session's tuning.
     pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {
@@ -402,7 +397,7 @@ pub(crate) enum RuntimeRequest {
     Command {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
-        reply_shape: ReplyShape,
+        reply_shape: CommandReply,
         applied_state: Option<AppliedStateProjection>,
     },
     Inquiry {
@@ -413,6 +408,25 @@ pub(crate) enum RuntimeRequest {
 }
 
 impl RuntimeRequest {
+    /// STOP authority belongs to the immutable ACK-bearing command class.
+    pub(crate) const fn is_stop(&self) -> bool {
+        matches!(
+            self,
+            Self::Command {
+                reply_shape: CommandReply::Stop,
+                ..
+            }
+        )
+    }
+
+    pub(super) const fn priority_index(&self) -> usize {
+        if self.is_stop() {
+            3
+        } else {
+            self.context().control.class.priority_index()
+        }
+    }
+
     pub(crate) fn context_mut(&mut self) -> &mut RequestContext {
         match self {
             Self::Command { context, .. } | Self::Inquiry { context, .. } => context,
@@ -1212,7 +1226,8 @@ impl CameraErrorCode {
             Self::NotExecutable => retry.movement_not_executable,
             Self::Syntax => match family {
                 super::SendingReply::Inquiry => retry.builtin_inquiry_syntax,
-                super::SendingReply::AckThenCompletion
+                super::SendingReply::Stop
+                | super::SendingReply::AckThenCompletion
                 | super::SendingReply::CompletionOnly
                 | super::SendingReply::NoReply => false,
             },

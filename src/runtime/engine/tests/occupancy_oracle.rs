@@ -6,7 +6,8 @@ fn command_on_wire(lifecycle: Lifecycle) -> bool {
     matches!(
         lifecycle,
         Lifecycle::Sending {
-            reply: SendingReply::AckThenCompletion
+            reply: SendingReply::Stop
+                | SendingReply::AckThenCompletion
                 | SendingReply::CompletionOnly
                 | SendingReply::NoReply,
             ..
@@ -29,7 +30,8 @@ fn unacknowledged(lifecycle: Lifecycle) -> bool {
     matches!(
         lifecycle,
         Lifecycle::Sending {
-            reply: SendingReply::AckThenCompletion
+            reply: SendingReply::Stop
+                | SendingReply::AckThenCompletion
                 | SendingReply::CompletionOnly
                 | SendingReply::NoReply,
             ..

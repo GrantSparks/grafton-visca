@@ -427,9 +427,9 @@ fn failed_datagrams_have_one_evidence_rule_inside_and_after_the_budget() {
                 };
                 if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
                     *reply_shape = match kind {
-                        0 => ReplyShape::AckThenCompletion,
-                        1 => ReplyShape::CompletionOnly,
-                        _ => ReplyShape::NoReply,
+                        0 => CommandReply::AckThenCompletion,
+                        1 => CommandReply::CompletionOnly,
+                        _ => CommandReply::NoReply,
                     };
                 }
                 request.context_mut().retry.total_budget =
@@ -643,9 +643,9 @@ fn attempt_endings_preserve_error_certainty_recovery_holds_and_cache() {
                 };
                 if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
                     *reply_shape = match family {
-                        0 => ReplyShape::AckThenCompletion,
-                        1 => ReplyShape::CompletionOnly,
-                        _ => ReplyShape::NoReply,
+                        0 => CommandReply::AckThenCompletion,
+                        1 => CommandReply::CompletionOnly,
+                        _ => CommandReply::NoReply,
                     };
                 }
                 request.context_mut().retry = RetryPolicy {
@@ -845,9 +845,9 @@ mod ending_properties {
             let mut request = if family == 3 { inquiry(1) } else { projected_command() };
             if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
                 *reply_shape = match family {
-                    0 => ReplyShape::AckThenCompletion,
-                    1 => ReplyShape::CompletionOnly,
-                    _ => ReplyShape::NoReply,
+                    0 => CommandReply::AckThenCompletion,
+                    1 => CommandReply::CompletionOnly,
+                    _ => CommandReply::NoReply,
                 };
             }
             request.context_mut().retry.total_budget = Some(NonZeroDuration::new(Duration::from_millis(100)).unwrap());

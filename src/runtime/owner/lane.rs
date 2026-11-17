@@ -4,7 +4,7 @@ use std::{marker::PhantomData, ops::Deref, sync::Arc};
 
 use crate::{
     runtime::engine::{
-        AppliedStateProjection, EncodedMessage, ReplyShape, RequestContext, RuntimeRequest,
+        AppliedStateProjection, CommandReply, EncodedMessage, RequestContext, RuntimeRequest,
     },
     PayloadShape,
 };
@@ -22,7 +22,7 @@ pub(crate) struct LaneRequest<T: TerminalLane> {
 
 impl LaneRequest<CommandOutcome> {
     pub(crate) fn command(
-        reply_shape: ReplyShape,
+        reply_shape: CommandReply,
         wire: Arc<EncodedMessage>,
         context: RequestContext,
         applied_state: Option<AppliedStateProjection>,

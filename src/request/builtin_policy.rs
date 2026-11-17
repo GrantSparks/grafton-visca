@@ -4,13 +4,12 @@ use crate::{ControlClass, RetryClass, TimeoutClass};
 /// This function is evaluated by the generated request's associated constants.
 pub(crate) const fn policy(
     stop: bool,
-    cancellation: bool,
     operation: bool,
     explicit: Option<(TimeoutClass, RetryClass, ControlClass)>,
 ) -> (TimeoutClass, RetryClass, ControlClass) {
     if let Some(policy) = explicit {
         assert!(
-            stop || cancellation || !matches!(policy.2, ControlClass::Urgent),
+            stop || !matches!(policy.2, ControlClass::Urgent),
             "only a STOP ledger row may declare an urgent request policy",
         );
         assert!(

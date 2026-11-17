@@ -24,8 +24,8 @@ use crate::{Error, Result};
 
 use crate::raw::MAX_BYTES;
 use crate::runtime::engine::{
-    AppliedStateProjection, CancellationPolicy, CommandOutcome, ControlPolicy, EncodedMessage,
-    InquiryOutcome, ReplyShape, RequestContext, RetryPolicy, TimeoutPolicy,
+    AppliedStateProjection, CancellationPolicy, CommandOutcome, CommandReply, ControlPolicy,
+    EncodedMessage, InquiryOutcome, RequestContext, RetryPolicy, TimeoutPolicy,
 };
 
 #[cfg(test)]
@@ -469,7 +469,7 @@ impl SettlementPoll {
 pub(crate) struct PreparedCommand {
     wire: PreparedWire,
     context: RequestContext,
-    reply_shape: ReplyShape,
+    reply_shape: CommandReply,
     applied_state: Option<AppliedStateProjection>,
 }
 
@@ -490,7 +490,7 @@ where
 {
     wire: PreparedWire,
     context: RequestContext,
-    reply_shape: ReplyShape,
+    reply_shape: CommandReply,
     affected_axes: AffectedAxes,
     settlement: completion::SettlementPlan<K>,
     applied_state: Option<AppliedStateProjection>,
@@ -584,15 +584,16 @@ where
 {
     validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_target(registration)?;
+    let (mut context, reply_shape) =
+        lower_request_context(command, registration, tuning, class, false)?;
     let wire = encode(command, registration)?;
-    let mut context = request_context(command, registration, tuning, class, false)?;
     context.motion = command
         .motion_axes()
         .map(|axes| crate::runtime::engine::MotionEffect { axes });
     Ok(PreparedCommand {
         wire,
         context,
-        reply_shape: lower_reply_shape(command.reply_shape()),
+        reply_shape,
         applied_state,
     })
 }
@@ -635,8 +636,8 @@ where
         });
     }
     inquiry.validate_for_target(registration)?;
+    let (mut context, _) = lower_request_context(inquiry, registration, tuning, class, true)?;
     let wire = encode(inquiry, registration)?;
-    let mut context = request_context(inquiry, registration, tuning, class, true)?;
     context.retry.builtin_inquiry_syntax = crate::requests::builtin_inquiry_syntax_retry(inquiry);
     Ok(PreparedInquiry {
         wire,
@@ -707,8 +708,9 @@ where
     // effect of discovering that its operation class is unavailable.
     operation.validate_for_target(registration)?;
     let affected_axes = operation.affected_axes();
-    let mut context = request_context(operation, registration, tuning, class, false)?;
-    let stop = context.is_stop();
+    let (mut context, reply_shape) =
+        lower_request_context(operation, registration, tuning, class, false)?;
+    let stop = matches!(reply_shape, CommandReply::Stop);
     context.motion = Some(crate::runtime::engine::MotionEffect {
         axes: affected_axes,
     });
@@ -732,7 +734,7 @@ where
     Ok(PreparedOperation {
         wire,
         context,
-        reply_shape: lower_reply_shape(operation.reply_shape()),
+        reply_shape,
         affected_axes,
         settlement,
         applied_state,
@@ -807,13 +809,13 @@ fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
     }
 }
 
-fn request_context<R>(
+fn lower_request_context<R>(
     request: &R,
     registration: &crate::TargetRegistration,
     tuning: ValidatedTuning,
     class: ClassSelection,
     inquiry: bool,
-) -> Result<RequestContext>
+) -> Result<(RequestContext, CommandReply)>
 where
     R: Request + ?Sized,
 {
@@ -832,37 +834,61 @@ where
     } else {
         resolved.command_spacing
     };
-    let reply_shape = lower_reply_shape(request.reply_shape());
-    Ok(RequestContext {
-        requires_extended_pan_tilt_speed: profile
-            .capabilities()
-            .pan_tilt
-            .as_ref()
-            .is_some_and(|pan_tilt| pan_tilt.variable_speed)
-            && crate::requests::pan_tilt_max_speed(request)
-                .is_some_and(|speed| speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM),
-        motion: None,
-        submission_order: 0,
-        dispatch_deadline: None,
-        target,
-        timeout,
-        retry: retry_policy(
-            request.retry_class(),
-            request.timeout_class(),
-            tuning.get(),
-            resolved,
-            !inquiry && matches!(reply_shape, ReplyShape::AckThenCompletion),
-        ),
-        control: ControlPolicy {
-            class: lower_control(class.resolve(crate::requests::admission_control_class(request)?)),
-            minimum_spacing: spacing,
+    let (control_class, reply_shape) = lower_command_policy(
+        class.resolve(crate::requests::admission_control_class(request)?),
+        request.reply_shape(),
+        inquiry,
+    )?;
+    Ok((
+        RequestContext {
+            requires_extended_pan_tilt_speed: profile
+                .capabilities()
+                .pan_tilt
+                .as_ref()
+                .is_some_and(|pan_tilt| pan_tilt.variable_speed)
+                && crate::requests::pan_tilt_max_speed(request).is_some_and(|speed| {
+                    speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM
+                }),
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
+            target,
+            timeout,
+            retry: retry_policy(
+                request.retry_class(),
+                request.timeout_class(),
+                tuning.get(),
+                resolved,
+                !inquiry
+                    && matches!(
+                        reply_shape,
+                        CommandReply::Stop | CommandReply::AckThenCompletion
+                    ),
+            ),
+            control: ControlPolicy {
+                class: control_class,
+                minimum_spacing: spacing,
+            },
+            cancellation: if profile.supports_command_cancel() {
+                CancellationPolicy::Supported
+            } else {
+                CancellationPolicy::Unsupported
+            },
         },
-        cancellation: if profile.supports_command_cancel() {
-            CancellationPolicy::Supported
-        } else {
-            CancellationPolicy::Unsupported
-        },
-    })
+        reply_shape,
+    ))
+}
+
+// Existing timing characterization observes the context projection alone.
+#[cfg(test)]
+fn request_context<R: Request + ?Sized>(
+    request: &R,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
+    class: ClassSelection,
+    inquiry: bool,
+) -> Result<RequestContext> {
+    lower_request_context(request, registration, tuning, class, inquiry).map(|(context, _)| context)
 }
 
 fn settlement_budget(
@@ -937,21 +963,43 @@ fn retry_policy(
     }
 }
 
-const fn lower_control(class: ControlClass) -> crate::runtime::engine::ControlClass {
-    match class {
-        ControlClass::Background => crate::runtime::engine::ControlClass::Background,
-        ControlClass::Normal => crate::runtime::engine::ControlClass::Normal,
-        ControlClass::User => crate::runtime::engine::ControlClass::User,
-        ControlClass::Urgent => crate::runtime::engine::ControlClass::Urgent,
-    }
+/// Resolve scheduling and the reply class together. Only an ACK-bearing
+/// command can carry reviewed STOP authority; the engine has no independent
+/// urgency flag that could disagree with this class.
+fn lower_command_policy(
+    class: ControlClass,
+    shape: crate::raw::RawReplyShape,
+    inquiry: bool,
+) -> Result<(crate::runtime::engine::ControlClass, CommandReply)> {
+    use crate::runtime::engine::ControlClass as EngineControlClass;
+    let ordinary = match class {
+        ControlClass::Background => EngineControlClass::Background,
+        ControlClass::Normal => EngineControlClass::Normal,
+        ControlClass::User => EngineControlClass::User,
+        ControlClass::Urgent => {
+            return if !inquiry && matches!(shape, crate::raw::RawReplyShape::AckThenCompletion) {
+                Ok((EngineControlClass::User, CommandReply::Stop))
+            } else {
+                Err(Error::InvalidRequest {
+                    reason: "a STOP requires an ACK-bearing command".into(),
+                })
+            };
+        }
+    };
+    let reply = match shape {
+        crate::raw::RawReplyShape::AckThenCompletion => CommandReply::AckThenCompletion,
+        crate::raw::RawReplyShape::CompletionOnly => CommandReply::CompletionOnly,
+        crate::raw::RawReplyShape::NoReply => CommandReply::NoReply,
+    };
+    Ok((ordinary, reply))
 }
 
-const fn lower_reply_shape(shape: crate::raw::RawReplyShape) -> ReplyShape {
-    match shape {
-        crate::raw::RawReplyShape::AckThenCompletion => ReplyShape::AckThenCompletion,
-        crate::raw::RawReplyShape::CompletionOnly => ReplyShape::CompletionOnly,
-        crate::raw::RawReplyShape::NoReply => ReplyShape::NoReply,
-    }
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+fn lower_reply_shape(shape: crate::raw::RawReplyShape) -> CommandReply {
+    lower_command_policy(ControlClass::Normal, shape, false)
+        .expect("ordinary policy")
+        .1
 }
 
 impl PreparedCommand {
@@ -989,10 +1037,12 @@ pub(crate) struct OperationTimeouts {
 /// command, operation, and inquiry paths on this one rule: an automatic retry
 /// can never outlive the default observer. A policy without a total budget
 /// leaves the governing deadline unchanged.
-fn command_attempt_timeout(timeout: &TimeoutPolicy, shape: ReplyShape) -> Duration {
+fn command_attempt_timeout(timeout: &TimeoutPolicy, shape: CommandReply) -> Duration {
     match shape {
-        ReplyShape::AckThenCompletion => timeout.ack.get().saturating_add(timeout.completion.get()),
-        ReplyShape::CompletionOnly | ReplyShape::NoReply => timeout.completion.get(),
+        CommandReply::Stop | CommandReply::AckThenCompletion => {
+            timeout.ack.get().saturating_add(timeout.completion.get())
+        }
+        CommandReply::CompletionOnly | CommandReply::NoReply => timeout.completion.get(),
     }
 }
 
@@ -4059,7 +4109,7 @@ mod tests {
             .expect("zoom stop"),
         ];
         for prepared in &stop_policies {
-            assert!(prepared.context.is_stop());
+            assert_eq!(prepared.reply_shape, CommandReply::Stop);
             assert!(!prepared.context.retry.movement_not_executable);
             assert!(prepared.context.retry.buffer_full);
         }
@@ -4072,7 +4122,7 @@ mod tests {
             OperationalTuning::new(),
         )
         .expect("zoom drive");
-        assert!(!drive.context.is_stop());
+        assert_ne!(drive.reply_shape, CommandReply::Stop);
         assert!(drive.context.retry.movement_not_executable);
     }
 
@@ -4640,7 +4690,7 @@ mod tests {
             )
         }
 
-        fn builtin_stop_class(class: ClassSelection) -> EngineControlClass {
+        fn builtin_stop_class(class: ClassSelection) -> CommandReply {
             prepare_operation::<completion::AppliedOnly, _>(
                 &ZoomStop,
                 &crate::TargetRegistration::new(
@@ -4651,9 +4701,7 @@ mod tests {
                 class,
             )
             .expect("crate-owned stop prepares")
-            .context
-            .control
-            .class
+            .reply_shape
         }
 
         /// Both public QoS sources preserve an urgent intrinsic class and
@@ -4748,16 +4796,16 @@ mod tests {
         fn crate_owned_urgent_stop_is_preserved_by_every_submission_class() {
             assert_eq!(
                 builtin_stop_class(ClassSelection::Request),
-                EngineControlClass::Urgent
+                CommandReply::Stop
             );
             assert_eq!(
                 builtin_stop_class(ClassSelection::Handle(SubmissionClass::Background)),
-                EngineControlClass::Urgent,
+                CommandReply::Stop,
                 "issue #630: a handle default must never demote an urgent stop",
             );
             assert_eq!(
                 builtin_stop_class(ClassSelection::Handle(SubmissionClass::Background)),
-                EngineControlClass::Urgent,
+                CommandReply::Stop,
                 "issue #542: view QoS must never demote an urgent stop",
             );
         }
@@ -4999,13 +5047,13 @@ mod tests {
         for (declared, expected) in [
             (
                 crate::raw::RawReplyShape::AckThenCompletion,
-                ReplyShape::AckThenCompletion,
+                CommandReply::AckThenCompletion,
             ),
             (
                 crate::raw::RawReplyShape::CompletionOnly,
-                ReplyShape::CompletionOnly,
+                CommandReply::CompletionOnly,
             ),
-            (crate::raw::RawReplyShape::NoReply, ReplyShape::NoReply),
+            (crate::raw::RawReplyShape::NoReply, CommandReply::NoReply),
         ] {
             let policy = crate::raw::CommandPolicy::new(
                 crate::CommandTimeoutClass::Quick,
@@ -5047,7 +5095,7 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("prepares");
-        assert_eq!(prepared.reply_shape, ReplyShape::AckThenCompletion);
+        assert_eq!(prepared.reply_shape, CommandReply::AckThenCompletion);
     }
 
     #[test]
@@ -5138,3 +5186,69 @@ pub(crate) fn prepare_halt(
 #[cfg(test)]
 #[path = "prepared/timing_characterization.rs"]
 mod timing_characterization;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod stop_class_tests {
+    use super::test_support::prepare_command;
+    use super::*;
+
+    struct SyntheticStop(crate::raw::RawReplyShape);
+
+    impl Request for SyntheticStop {
+        type Class = crate::request::PlainClass;
+        const MAX_SIZE: usize = 5;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+        const RETRY_CLASS: RetryClass = RetryClass::Movement;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn reply_shape(&self) -> crate::raw::RawReplyShape {
+            self.0
+        }
+
+        fn admission_control_class(
+            &self,
+            _: crate::requests::RequestContractAuthority,
+        ) -> Result<ControlClass> {
+            Ok(ControlClass::Urgent)
+        }
+
+        fn write_into(&self, _: CameraId, _: &mut [u8]) -> Result<usize> {
+            panic!("invalid STOP must fail before encoding")
+        }
+    }
+
+    #[test]
+    fn stop_authority_lowers_only_to_an_ack_bearing_command() {
+        use crate::raw::RawReplyShape;
+        let registration = crate::TargetRegistration::new(
+            crate::IndividualCameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap(),
+        );
+        for shape in [RawReplyShape::CompletionOnly, RawReplyShape::NoReply] {
+            assert!(matches!(
+                prepare_command(
+                    &SyntheticStop(shape),
+                    &registration,
+                    OperationalTuning::new(),
+                    ClassSelection::Request,
+                ),
+                Err(Error::InvalidRequest { .. })
+            ));
+        }
+        assert!(
+            lower_command_policy(ControlClass::Urgent, RawReplyShape::AckThenCompletion, true)
+                .is_err()
+        );
+        assert_eq!(
+            lower_command_policy(
+                ControlClass::Urgent,
+                RawReplyShape::AckThenCompletion,
+                false
+            )
+            .unwrap()
+            .1,
+            CommandReply::Stop,
+        );
+    }
+}

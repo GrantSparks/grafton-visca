@@ -91,6 +91,18 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             None,
         ),
         (
+            "sending STOP",
+            Lifecycle::Sending {
+                transmission,
+                framing: RequestFraming::Raw,
+                started_at: now,
+                attempt,
+                reply: SendingReply::Stop,
+            },
+            SENDING | COMMAND | UNACKNOWLEDGED,
+            None,
+        ),
+        (
             "ACK",
             Lifecycle::AwaitingAck {
                 sent_at: now,
@@ -211,7 +223,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             Some(ambiguity),
         ),
     ];
-    assert_eq!(rows.len(), 16);
+    assert_eq!(rows.len(), 17);
     for (name, lifecycle, expected, window) in rows {
         assert_eq!(mask(lifecycle), expected, "{name}: {lifecycle:?}");
         assert_eq!(lifecycle.response_window_end(), window, "{name}");
@@ -414,5 +426,106 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
         };
         assert_eq!(mask(lifecycle), expected, "{reply:?}");
         assert_eq!(lifecycle.response_window_end(), None);
+    }
+}
+
+/// Characterizes the five reachable request classes before #1017. The same
+/// literal table must survive moving STOP authority into the command class.
+#[test]
+fn reachable_request_classes_keep_stop_gates_and_physical_pacing() {
+    let start = Instant::now();
+    for (envelope, transport) in [
+        (EnvelopeKind::Raw, TransportKind::Datagram),
+        (EnvelopeKind::Raw, TransportKind::Stream),
+        (EnvelopeKind::Sony, TransportKind::Datagram),
+    ] {
+        for (name, mut request, stop, command_lane) in [
+            (
+                "STOP",
+                urgent_command(1, CancellationPolicy::Supported),
+                true,
+                true,
+            ),
+            (
+                "ACK command",
+                command(1, CancellationPolicy::Supported),
+                false,
+                true,
+            ),
+            (
+                "completion only",
+                command_with_reply_shape(
+                    1,
+                    CancellationPolicy::Supported,
+                    CommandReply::CompletionOnly,
+                ),
+                false,
+                true,
+            ),
+            (
+                "no reply",
+                command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+                false,
+                true,
+            ),
+            ("inquiry", inquiry(1), false, false),
+        ] {
+            let mut engine = engine(envelope, transport);
+            engine.targets[camera(1)]
+                .policy
+                .as_mut()
+                .unwrap()
+                .control_reserve = 1;
+            request.context_mut().motion = Some(MotionEffect {
+                axes: crate::AffectedAxes::ZOOM,
+            });
+            request.context_mut().submission_order = 1;
+            request.context_mut().control.minimum_spacing = Duration::from_millis(20);
+            let turn = engine.begin_input_turn(start);
+            let id = engine
+                .admit_in_turn(&turn, request, AdmissionSlot::Ordinary)
+                .unwrap();
+            engine.pacing.last_command = Some(start + Duration::from_millis(1));
+            engine.pacing.last_inquiry = Some(start + Duration::from_millis(5));
+            let entry = engine.entry(id).unwrap();
+            let occupancy = Occupancy::build(&engine.entries);
+            assert_eq!(
+                engine.pre_ack_bypass_in(entry, camera(1), &occupancy),
+                stop,
+                "{name} {envelope:?}/{transport:?}"
+            );
+            assert!(
+                !engine.command_gate_in(entry, camera(1), &occupancy),
+                "{name}"
+            );
+            assert!(
+                !engine.hold_blocks_in(entry, camera(1), &occupancy),
+                "{name}"
+            );
+            assert_eq!(
+                entry.request.lane() == Lane::Command,
+                command_lane,
+                "{name}"
+            );
+            assert_eq!(
+                engine.candidate_send_at(entry),
+                start + Duration::from_millis(if stop { 21 } else { 25 }),
+                "{name}"
+            );
+            assert_eq!(
+                engine
+                    .admission_slot_available(&entry.request, AdmissionSlot::ControlReserve)
+                    .is_ok(),
+                stop,
+                "{name}"
+            );
+            engine.targets[camera(1)].motion_fences[1] = 1;
+            let entry = engine.entry(id).unwrap();
+            assert_eq!(
+                engine.motion_superseded(&entry.request).is_some(),
+                !stop,
+                "{name}"
+            );
+        }
     }
 }

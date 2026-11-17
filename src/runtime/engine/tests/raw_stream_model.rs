@@ -519,7 +519,7 @@ const CAUSES: [Cause; 5] = [
 
 #[derive(Debug, Clone, Copy)]
 enum Job {
-    Command { id: RequestId, shape: ReplyShape },
+    Command { id: RequestId, shape: CommandReply },
     Inquiry(RequestId),
     Cancel { id: RequestId, socket: ViscaSocket },
 }
@@ -781,7 +781,7 @@ impl Session {
             let request = command_with_reply_shape(
                 target,
                 CancellationPolicy::Supported,
-                ReplyShape::NoReply,
+                CommandReply::NoReply,
             );
             self.admit(request, AdmissionSlot::Ordinary);
             return;
@@ -805,7 +805,7 @@ impl Session {
                 command_with_reply_shape(
                     target,
                     CancellationPolicy::Supported,
-                    ReplyShape::CompletionOnly,
+                    CommandReply::CompletionOnly,
                 ),
                 AdmissionSlot::Ordinary,
             ),
@@ -1014,7 +1014,7 @@ impl Session {
                 && !matches!(
                     job,
                     Job::Command {
-                        shape: ReplyShape::CompletionOnly,
+                        shape: CommandReply::CompletionOnly,
                         ..
                     }
                 )
@@ -1048,7 +1048,7 @@ impl Session {
             }
             Job::Command {
                 id,
-                shape: ReplyShape::NoReply,
+                shape: CommandReply::NoReply,
             } => {
                 self.coverage.no_reply += 1;
                 if self.roll(6) == 0 {
@@ -1065,7 +1065,7 @@ impl Session {
             }
             Job::Command {
                 id,
-                shape: ReplyShape::CompletionOnly,
+                shape: CommandReply::CompletionOnly,
             } => {
                 self.coverage.completion_only += 1;
                 if self.roll(6) == 0 {
@@ -1091,7 +1091,7 @@ impl Session {
             }
             Job::Command {
                 id,
-                shape: ReplyShape::AckThenCompletion,
+                shape: CommandReply::Stop | CommandReply::AckThenCompletion,
             } => {
                 let roll = self.roll(100);
                 let latency = self.latency();
@@ -1649,7 +1649,11 @@ fn learned_completion_chunking(
     let (write, completion_only) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         now,
     );
     observed.extend(write.iter().map(|effect| format!("{effect:?}")));

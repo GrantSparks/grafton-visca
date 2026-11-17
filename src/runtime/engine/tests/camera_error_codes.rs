@@ -29,6 +29,7 @@ fn every_camera_code_preserves_routing_evidence_and_retry_permissions() {
             };
             for family in [
                 SendingReply::Inquiry,
+                SendingReply::Stop,
                 SendingReply::AckThenCompletion,
                 SendingReply::CompletionOnly,
                 SendingReply::NoReply,

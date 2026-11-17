@@ -99,7 +99,7 @@ fn sony_late_completion_applies_each_unacknowledged_retry_path() {
                 command_with_reply_shape(
                     1,
                     CancellationPolicy::Supported,
-                    ReplyShape::CompletionOnly,
+                    CommandReply::CompletionOnly,
                 )
             } else {
                 command(1, CancellationPolicy::Supported)

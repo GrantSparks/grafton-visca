@@ -817,7 +817,11 @@ fn stream_owed_completion_only_answer_holds_back_ordinary_work() {
     let (effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         now,
     );
     send_ok(&mut engine, &effects, None, now);
@@ -838,7 +842,11 @@ fn stream_owed_completion_only_answer_holds_back_ordinary_work() {
         (2, command(1, CancellationPolicy::Supported), false),
         (
             3,
-            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            command_with_reply_shape(
+                1,
+                CancellationPolicy::Supported,
+                CommandReply::CompletionOnly,
+            ),
             true,
         ),
         (6, inquiry(1), true),
@@ -1305,7 +1313,9 @@ fn only_a_write_that_left_owes_its_answer() {
 
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
     let mut request = budgeted();
-    request.context_mut().control.class = ControlClass::Urgent;
+    if let RuntimeRequest::Command { reply_shape, .. } = &mut request {
+        *reply_shape = CommandReply::Stop;
+    }
     request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(10));
     let (staged, id) = admit(&mut engine, 1, request, now);
     let (transmission, _, _) = request_transmit(&staged);
@@ -1342,7 +1352,11 @@ fn owed_completion_only(engine: &mut ProtocolEngine, now: Instant) -> Instant {
     let (effects, completion_only) = admit(
         engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        ),
         now,
     );
     send_ok(engine, &effects, None, now);
@@ -1373,7 +1387,7 @@ fn disputed(engine: &mut ProtocolEngine, now: Instant) -> (RequestId, RequestId,
         command_with_reply_shape_and_retry(
             1,
             CancellationPolicy::Supported,
-            ReplyShape::CompletionOnly,
+            CommandReply::CompletionOnly,
             no_not_executable_retry(),
         ),
         now,
@@ -2086,7 +2100,7 @@ fn stop_inside_no_reply_hold(
     let (effects, no_reply) = admit(
         engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         now,
     );
     let written = send_ok(engine, &effects, None, now);
@@ -2200,7 +2214,7 @@ fn a_late_no_reply_rejection_never_reaches_a_later_command() {
     let (effects, no_reply) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         start,
     );
     let written = send_ok(&mut engine, &effects, None, start);
@@ -2266,8 +2280,13 @@ fn leftover_ambiguous_completions_never_complete_a_later_command() {
     assert!(terminal_failure(&expired, executing).is_some());
     let now = start + Duration::from_millis(100);
     engine.advance(now);
-    let completion_only_request =
-        || command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly);
+    let completion_only_request = || {
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        )
+    };
     let (effects, first) = admit(&mut engine, 2, completion_only_request(), now);
     assert_eq!(request_transmit(&effects).1, first);
     send_ok(&mut engine, &effects, None, now);
@@ -2468,12 +2487,17 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
     let (effects, _) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
         start,
     );
     send_ok(&mut engine, &effects, None, start);
-    let completion_only_request =
-        || command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly);
+    let completion_only_request = || {
+        command_with_reply_shape(
+            1,
+            CancellationPolicy::Supported,
+            CommandReply::CompletionOnly,
+        )
+    };
     let (queued, waiting) = admit(&mut engine, 2, completion_only_request(), start);
     assert!(request_transmit_optional(&queued).is_none());
     let window_end = start + Duration::from_millis(50);
@@ -2545,7 +2569,7 @@ fn a_learned_completion_decides_its_dispute_accepted() {
         command_with_reply_shape_and_retry(
             1,
             CancellationPolicy::Supported,
-            ReplyShape::CompletionOnly,
+            CommandReply::CompletionOnly,
             no_not_executable_retry(),
         ),
         now,
@@ -2901,7 +2925,7 @@ fn accepting_a_dispute_preserves_the_second_stop_debt_in_the_engine() {
     let mut co = command_with_reply_shape_and_retry(
         1,
         CancellationPolicy::Supported,
-        ReplyShape::CompletionOnly,
+        CommandReply::CompletionOnly,
         no_not_executable_retry(),
     );
     co.context_mut().timeout.completion = NonZeroDuration::new(Duration::from_secs(2)).unwrap();

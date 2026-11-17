@@ -272,7 +272,7 @@ impl Fixture {
             AwaitingCompletion => command_with_reply_shape(
                 1,
                 CancellationPolicy::Supported,
-                ReplyShape::CompletionOnly,
+                CommandReply::CompletionOnly,
             ),
             _ => command(1, CancellationPolicy::Supported),
         };

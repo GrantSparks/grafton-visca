@@ -920,7 +920,7 @@ impl OwnerHandleCore {
             self.record_pre_admission_rejection(target, lane, &error);
             return Err(error);
         }
-        let permit = match self.permits.try_acquire(request.context()) {
+        let permit = match self.permits.try_acquire(&request) {
             Ok(permit) => permit,
             Err(error) => {
                 self.record_pre_admission_rejection(target, lane, &error);

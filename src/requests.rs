@@ -938,8 +938,8 @@ pub trait Request: Send + Sync {
     ///
     /// The private authority makes this an unforgeable crate-only hook. The
     /// default accepts every ordinary class and refuses `Urgent`; the built-in
-    /// request implementations use the hook to carry their reviewed stop and
-    /// protocol-cancellation authority through generic preparation.
+    /// request implementations use the hook to carry their reviewed STOP
+    /// authority through generic preparation.
     #[doc(hidden)]
     #[allow(private_interfaces)]
     fn admission_control_class(
@@ -947,8 +947,9 @@ pub trait Request: Send + Sync {
         _authority: RequestContractAuthority,
     ) -> Result<ControlClass> {
         match self.control_class() {
-            ControlClass::Urgent => Err(Error::InvalidRequest { reason: "ControlClass::Urgent is reserved for crate-owned stops and protocol cancellation"
-                    .into() }),
+            ControlClass::Urgent => Err(Error::InvalidRequest {
+                reason: "ControlClass::Urgent is reserved for crate-owned stops".into(),
+            }),
             class => Ok(class),
         }
     }

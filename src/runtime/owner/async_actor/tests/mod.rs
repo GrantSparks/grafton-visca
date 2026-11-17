@@ -15,8 +15,8 @@ use crate::runtime::engine::CommandOutcome;
 use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
-        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, ProtocolPolicy,
-        ReplyShape, RequestContext, RequestId, RetryPolicy, RuntimeRequest, TargetPolicy,
+        CancellationPolicy, CommandReply, ControlPolicy, DecodedResponse, EncodedMessage,
+        ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeRequest, TargetPolicy,
         TimeoutPolicy,
     },
     ViscaSocket,
@@ -24,7 +24,7 @@ use crate::{
 
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::engine::{
-    ControlClass, EnvelopeKind, EnvelopeSequence, InquiryOutcome, SequenceWidth, TransportKind,
+    EnvelopeKind, EnvelopeSequence, InquiryOutcome, SequenceWidth, TransportKind,
 };
 
 use crate::observability::DiagnosticEvent;
@@ -336,10 +336,10 @@ fn command() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn urgent_command() -> RuntimeRequest {
     let mut request = command();
-    let RuntimeRequest::Command { context, .. } = &mut request else {
+    let RuntimeRequest::Command { reply_shape, .. } = &mut request else {
         unreachable!("command helper always builds a command request");
     };
-    context.control.class = ControlClass::Urgent;
+    *reply_shape = CommandReply::Stop;
     request
 }
 
@@ -349,11 +349,14 @@ fn urgent_command() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn urgent_stop_command() -> RuntimeRequest {
     let mut request = command();
-    let RuntimeRequest::Command { wire, context, .. } = &mut request else {
+    let RuntimeRequest::Command {
+        wire, reply_shape, ..
+    } = &mut request
+    else {
         unreachable!("command helper always constructs a command");
     };
     *wire = Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap());
-    context.control.class = ControlClass::Urgent;
+    *reply_shape = CommandReply::Stop;
     request
 }
 
@@ -370,7 +373,7 @@ fn no_reply_command_for(target: TargetSlot, ambiguity: Duration) -> RuntimeReque
     else {
         unreachable!("command helper always builds a command request");
     };
-    *reply_shape = ReplyShape::NoReply;
+    *reply_shape = CommandReply::NoReply;
     context.timeout.ambiguity = crate::runtime::engine::NonZeroDuration::new(ambiguity).unwrap();
     request
 }
@@ -387,7 +390,7 @@ fn command_with_ack_timeout(timeout: Duration) -> RuntimeRequest {
 
 fn command_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(
             EncodedMessage::new(&[
                 0x80_u8.saturating_add(target.camera().value()),
@@ -427,7 +430,7 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
 /// in flight settles quickly on the fix's success path (#675).
 fn command_with_short_deadlines() -> RuntimeRequest {
     RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff]).unwrap()),
         context: RequestContext {
             requires_extended_pan_tilt_speed: false,
@@ -466,7 +469,7 @@ fn command_with_short_deadlines() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> RuntimeRequest {
     RuntimeRequest::Command {
-        reply_shape: ReplyShape::AckThenCompletion,
+        reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, marker, 0xff]).unwrap()),
         context: RequestContext {
             requires_extended_pan_tilt_speed: false,

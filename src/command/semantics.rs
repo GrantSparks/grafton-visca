@@ -959,8 +959,8 @@ mod tests {
     /// - Image-tuning writes (sharpness, gamma, noise reduction, flip) are quick
     ///   configuration writes; the 2D noise-reduction mode control shares that
     ///   policy.
-    /// - `CommandCancel` is quick and never retried; preset set/reset/recall use
-    ///   the preset deadline and retry class.
+    /// - Preset set/reset/recall use the preset deadline and retry class.
+    ///   Command Cancel is encoded directly by the owner, never prepared.
     #[test]
     fn deliberate_request_timeout_and_retry_policies_are_pinned() {
         use crate::request::builtin as req;
@@ -976,8 +976,7 @@ mod tests {
             assert_eq!(R::RETRY_CLASS, retry, "{command:?} retry class");
             assert_eq!(
                 matches!(R::CONTROL_CLASS, crate::ControlClass::Urgent),
-                command.classification().is_stop()
-                    || matches!(command, BuiltinCommand::CommandCancel),
+                command.classification().is_stop(),
                 "{command:?} urgent admission authority",
             );
             assert!(
@@ -1149,13 +1148,7 @@ mod tests {
             p,
         );
 
-        // Cancellation is never replayed; presets have their own class.
-        pin::<crate::command::system_wire::CommandCancelCommand>(
-            BuiltinCommand::CommandCancel,
-            Timeout::Quick,
-            Retry::Never,
-            p,
-        );
+        // Command Cancel is owner-issued wire traffic, with no request policy.
         pin::<req::PresetSet>(BuiltinCommand::PresetSet, Timeout::Preset, Retry::Preset, p);
         pin::<req::PresetReset>(
             BuiltinCommand::PresetReset,

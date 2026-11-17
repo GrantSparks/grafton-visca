@@ -110,7 +110,6 @@ macro_rules! builtin_request {
     (@policy $row:ident $class:ident $(($timeout:ident, $retry:ident, $control:ident))?) => {
         crate::request::builtin_policy::policy(
             BuiltinCommand::$row.classification().is_stop(),
-            matches!(BuiltinCommand::$row, BuiltinCommand::CommandCancel),
             !matches!(BuiltinCommand::$row.classification(), crate::command::semantics::BuiltinRequestClass::Plain { .. }),
             builtin_request!(@explicit $(($timeout, $retry, $control))?),
         )
@@ -1403,10 +1402,7 @@ builtin_request! {
     // correlation.
     crate::command::system_wire::AddressSetCommand => AddressSet: Plain { size: 4 };
     crate::command::system_wire::InterfaceClearCommand => InterfaceClear: Plain { size: 5 };
-    crate::command::system_wire::CommandCancelCommand => CommandCancel: Plain {
-        size: 3,
-        policy: (Quick, Never, Urgent),
-    };
+    crate::command::system_wire::CommandCancelCommand => CommandCancel: Plain { size: 3 };
 }
 
 /// Separate vertical-flip command with its own VISCA opcode.

@@ -370,10 +370,10 @@ fn observer_resolution_distinguishes_receiver_loss_from_duplicate_delivery() {
 /// D26 (#778): the permit pool's two budgets.
 mod control_reserve {
     use super::*;
-    use crate::runtime::engine::{ControlPolicy, RetryPolicy, TimeoutPolicy};
+    use crate::runtime::engine::{CommandReply, ControlPolicy, RetryPolicy, TimeoutPolicy};
 
-    fn context(target: u8, class: ControlClass) -> RequestContext {
-        RequestContext {
+    fn request(target: u8, reply_shape: CommandReply) -> RuntimeRequest {
+        let context = RequestContext {
             requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
@@ -394,11 +394,17 @@ mod control_reserve {
                     .unwrap(),
             },
             retry: RetryPolicy::NEVER,
-            control: ControlPolicy {
-                class,
-                ..ControlPolicy::default()
-            },
+            control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
+        };
+        RuntimeRequest::Command {
+            reply_shape,
+            context,
+            wire: Arc::new(
+                crate::runtime::engine::EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff])
+                    .unwrap(),
+            ),
+            applied_state: None,
         }
     }
 
@@ -421,7 +427,7 @@ mod control_reserve {
 
         struct Resubmit {
             pool: AdmissionPermitPool,
-            context: RequestContext,
+            request: RuntimeRequest,
             expected: AdmissionSlot,
             woke: AtomicBool,
         }
@@ -432,14 +438,14 @@ mod control_reserve {
             fn wake_by_ref(self: &Arc<Self>) {
                 let permit = self
                     .pool
-                    .try_acquire(&self.context)
+                    .try_acquire(&self.request)
                     .expect("terminal capacity is free inside the waiter's wake-up");
                 assert_eq!(permit.slot(), self.expected);
                 self.woke.store(true, Ordering::Release);
             }
         }
 
-        for class in [ControlClass::Normal, ControlClass::Urgent] {
+        for class in [CommandReply::AckThenCompletion, CommandReply::Stop] {
             for outcome in [
                 CommandOutcome::Applied,
                 CommandOutcome::Cancelled,
@@ -462,27 +468,18 @@ mod control_reserve {
                 // Exhaust ordinary admission too, so an urgent resubmission
                 // cannot hide an unreleased reserve by borrowing that budget.
                 let _ordinary =
-                    (class == ControlClass::Urgent).then(|| pool.try_acquire_ordinary().unwrap());
-                let context = context(1, class);
-                let permit = pool.try_acquire(&context).unwrap();
+                    (class == CommandReply::Stop).then(|| pool.try_acquire_ordinary().unwrap());
+                let request = request(1, class);
+                let permit = pool.try_acquire(&request).unwrap();
                 let expected = permit.slot();
-                let request = RuntimeRequest::Command {
-                    reply_shape: crate::runtime::engine::ReplyShape::AckThenCompletion,
-                    wire: Arc::new(
-                        crate::runtime::engine::EncodedMessage::new(&[
-                            0x81, 0x01, 0x04, 0x00, 0xff,
-                        ])
-                        .unwrap(),
-                    ),
-                    context,
-                    applied_state: None,
-                };
                 let (observer, cell) = TerminalObserver::<CommandOutcome>::pair();
                 let turn = state.begin_input_turn(now);
-                let admitted = state.admit_in_turn(&turn, request, permit, cell).unwrap();
+                let admitted = state
+                    .admit_in_turn(&turn, request.clone(), permit, cell)
+                    .unwrap();
                 let wake = Arc::new(Resubmit {
                     pool,
-                    context,
+                    request,
                     expected,
                     woke: AtomicBool::new(false),
                 });
@@ -511,7 +508,7 @@ mod control_reserve {
     #[test]
     fn urgent_requests_take_their_reserve_first_then_ordinary_slots() {
         let pool = pool();
-        let urgent = context(1, ControlClass::Urgent);
+        let urgent = request(1, CommandReply::Stop);
         let first = pool.try_acquire(&urgent).unwrap();
         let second = pool.try_acquire(&urgent).unwrap();
         assert_eq!(first.slot(), AdmissionSlot::ControlReserve);
@@ -524,18 +521,18 @@ mod control_reserve {
                 if target == TargetSlot::CAMERA_1.camera()
         ));
         assert!(matches!(
-            pool.try_acquire(&context(1, ControlClass::User)),
+            pool.try_acquire(&request(1, CommandReply::AckThenCompletion)),
             Err(Error::RuntimeQueueFull { capacity: 1 })
         ));
         // Camera 1 cannot use camera 2's reserve.
-        let other = pool.try_acquire(&context(2, ControlClass::Urgent)).unwrap();
+        let other = pool.try_acquire(&request(2, CommandReply::Stop)).unwrap();
         assert_eq!(other.slot(), AdmissionSlot::ControlReserve);
     }
 
     #[test]
     fn ordinary_requests_never_take_a_reserve_and_slots_return_to_their_budget() {
         let pool = pool();
-        let ordinary = context(1, ControlClass::Normal);
+        let ordinary = request(1, CommandReply::AckThenCompletion);
         let held = pool.try_acquire(&ordinary).unwrap();
         assert_eq!(held.slot(), AdmissionSlot::Ordinary);
         assert!(matches!(
@@ -543,7 +540,7 @@ mod control_reserve {
             Err(Error::RuntimeQueueFull { capacity: 1 })
         ));
 
-        let urgent = context(1, ControlClass::Urgent);
+        let urgent = request(1, CommandReply::Stop);
         let reserved = pool.try_acquire(&urgent).unwrap();
         drop(reserved);
         assert_eq!(
@@ -716,8 +713,8 @@ mod metrics {
     use super::super::*;
     use crate::{
         runtime::engine::{
-            CancellationPolicy, ControlPolicy, DeadlineKind, DecodedFrame, DecodedResponse,
-            EncodedMessage, EnvelopeKind, EnvelopeSequence, ReplyShape, RequestContext,
+            CancellationPolicy, CommandReply, ControlPolicy, DeadlineKind, DecodedFrame,
+            DecodedResponse, EncodedMessage, EnvelopeKind, EnvelopeSequence, RequestContext,
             RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
         },
         Error, ViscaSocket,
@@ -789,7 +786,7 @@ mod metrics {
 
     fn command(retry: RetryPolicy) -> RuntimeRequest {
         RuntimeRequest::Command {
-            reply_shape: ReplyShape::AckThenCompletion,
+            reply_shape: CommandReply::AckThenCompletion,
             wire: wire(),
             context: request_context(retry),
             applied_state: None,
@@ -1215,7 +1212,7 @@ mod metrics {
         request: RuntimeRequest,
         now: Instant,
     ) -> (OperationObservation, Arc<ObserverCell<CommandOutcome>>) {
-        let permit = state.permits.try_acquire(request.context()).unwrap();
+        let permit = state.permits.try_acquire(&request).unwrap();
         let (observer, cell) = TerminalObserver::<CommandOutcome>::pair();
         let (reply, admitted) = flume::bounded(1);
         let input = super::StagedAdmission {
@@ -1431,7 +1428,7 @@ mod metrics {
         assert!(original.check_settlement().is_ok());
         drop(held);
         request.context_mut().submission_order = 2;
-        let permit = state.permits.try_acquire(request.context()).unwrap();
+        let permit = state.permits.try_acquire(&request).unwrap();
         let (completion, observer) = TerminalObserver::<CommandOutcome>::pair();
         let (reply_sender, reply) = flume::bounded(1);
         let input = super::StagedAdmission {
@@ -1756,14 +1753,16 @@ mod metrics {
             .map(|_| state.permits.try_acquire_ordinary().unwrap())
             .collect();
         let mut stop = command(retrying());
-        stop.context_mut().control.class = ControlClass::Urgent;
+        if let RuntimeRequest::Command { reply_shape, .. } = &mut stop {
+            *reply_shape = CommandReply::Stop;
+        }
         let reserved: Vec<_> = (0..2)
-            .map(|_| state.permits.try_acquire(stop.context()).unwrap())
+            .map(|_| state.permits.try_acquire(&stop).unwrap())
             .collect();
         assert!(reserved
             .iter()
             .all(|permit| permit.slot() == AdmissionSlot::ControlReserve));
-        let stop_context = *stop.context();
+        let stop_request = stop.clone();
         let prepared = crate::prepared::PreparedHalt {
             target: TargetSlot::CAMERA_1,
             axes: Some(crate::AffectedAxes::MOVEMENT),
@@ -1805,7 +1804,7 @@ mod metrics {
         assert_eq!(state.permits.available(), 0);
         drop(reserved);
         assert_eq!(
-            state.permits.try_acquire(&stop_context).unwrap().slot(),
+            state.permits.try_acquire(&stop_request).unwrap().slot(),
             AdmissionSlot::ControlReserve
         );
         assert_eq!(state.permits.available(), 0);
@@ -2014,7 +2013,7 @@ mod lifecycle_trace {
     use crate::{
         protocol::response::{decode_basic, BasicKind},
         runtime::engine::{
-            CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape, RequestContext,
+            CancellationPolicy, CommandReply, ControlPolicy, EncodedMessage, RequestContext,
             RetryPolicy, TimeoutPolicy, TransportKind,
         },
         wire::WireValue,
@@ -2247,7 +2246,7 @@ mod lifecycle_trace {
         ack: Duration,
     ) -> RuntimeRequest {
         RuntimeRequest::Command {
-            reply_shape: ReplyShape::AckThenCompletion,
+            reply_shape: CommandReply::AckThenCompletion,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,

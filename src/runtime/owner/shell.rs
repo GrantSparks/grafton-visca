@@ -1331,7 +1331,11 @@ mod tests {
     fn declared_request(stop: bool) -> crate::runtime::engine::RuntimeRequest {
         use crate::runtime::engine::*;
         RuntimeRequest::Command {
-            reply_shape: ReplyShape::AckThenCompletion,
+            reply_shape: if stop {
+                CommandReply::Stop
+            } else {
+                CommandReply::AckThenCompletion
+            },
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,
@@ -1350,11 +1354,7 @@ mod tests {
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy {
-                    class: if stop {
-                        ControlClass::Urgent
-                    } else {
-                        ControlClass::Normal
-                    },
+                    class: ControlClass::Normal,
                     ..ControlPolicy::default()
                 },
                 cancellation: CancellationPolicy::Supported,
@@ -1367,7 +1367,7 @@ mod tests {
     /// catches a reply-before-drop race even on a single-threaded executor.
     struct AdmissionReplyWake {
         permits: super::super::AdmissionPermitPool,
-        context: crate::runtime::engine::RequestContext,
+        request: crate::runtime::engine::RuntimeRequest,
         wakes: std::sync::atomic::AtomicUsize,
     }
 
@@ -1378,7 +1378,7 @@ mod tests {
 
         fn wake_by_ref(self: &Arc<Self>) {
             assert_eq!(self.permits.available(), 1, "capacity is free at wake-up");
-            let permit = self.permits.try_acquire(&self.context).unwrap();
+            let permit = self.permits.try_acquire(&self.request).unwrap();
             drop(permit);
             self.wakes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
@@ -1403,7 +1403,7 @@ mod tests {
             let request = declared_request(false);
             let wake = Arc::new(AdmissionReplyWake {
                 permits: handle.permits.clone(),
-                context: *request.context(),
+                request: request.clone(),
                 wakes: std::sync::atomic::AtomicUsize::new(0),
             });
             let (observer, reply) = handle
