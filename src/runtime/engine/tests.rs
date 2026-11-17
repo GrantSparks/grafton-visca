@@ -115,7 +115,7 @@ fn retrying() -> RetryPolicy {
     }
 }
 
-fn context(target: u8, cancellation: CancellationPolicy) -> RequestContext {
+fn context(target: u8) -> RequestContext {
     RequestContext {
         requires_extended_pan_tilt_speed: false,
         motion: None,
@@ -131,7 +131,6 @@ fn context(target: u8, cancellation: CancellationPolicy) -> RequestContext {
         },
         retry: retrying(),
         control: ControlPolicy::default(),
-        cancellation,
     }
 }
 
@@ -139,17 +138,17 @@ fn wire(address: u8) -> Arc<EncodedMessage> {
     Arc::new(EncodedMessage::new(&[address, 0x01, 0x04, 0x00, 0xff]).unwrap())
 }
 
-fn command(target: u8, cancellation: CancellationPolicy) -> RuntimeRequest {
+fn command(target: u8) -> RuntimeRequest {
     RuntimeRequest::Command {
         reply_shape: CommandReply::AckThenCompletion,
         wire: wire(0x80 | target),
-        context: context(target, cancellation),
+        context: context(target),
         applied_state: None,
     }
 }
 
-fn urgent_command(target: u8, cancellation: CancellationPolicy) -> RuntimeRequest {
-    let mut request = command(target, cancellation);
+fn urgent_command(target: u8) -> RuntimeRequest {
+    let mut request = command(target);
     let RuntimeRequest::Command { reply_shape, .. } = &mut request else {
         unreachable!("command helper always constructs a command");
     };
@@ -158,12 +157,8 @@ fn urgent_command(target: u8, cancellation: CancellationPolicy) -> RuntimeReques
 }
 
 /// A raw command that declares a non-default reply shape (issue #700).
-fn command_with_reply_shape(
-    target: u8,
-    cancellation: CancellationPolicy,
-    reply_shape: CommandReply,
-) -> RuntimeRequest {
-    let context = context(target, cancellation);
+fn command_with_reply_shape(target: u8, reply_shape: CommandReply) -> RuntimeRequest {
+    let context = context(target);
 
     RuntimeRequest::Command {
         reply_shape,
@@ -175,11 +170,10 @@ fn command_with_reply_shape(
 
 fn command_with_reply_shape_and_retry(
     target: u8,
-    cancellation: CancellationPolicy,
     reply_shape: CommandReply,
     retry: RetryPolicy,
 ) -> RuntimeRequest {
-    let mut request = command_with_reply_shape(target, cancellation, reply_shape);
+    let mut request = command_with_reply_shape(target, reply_shape);
     let RuntimeRequest::Command { context, .. } = &mut request else {
         unreachable!("reply shapes apply only to commands");
     };
@@ -241,7 +235,7 @@ fn inquiry(target: u8) -> RuntimeRequest {
 }
 
 fn inquiry_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
-    let mut inquiry_context = context(target, CancellationPolicy::Supported);
+    let mut inquiry_context = context(target);
     inquiry_context.retry = retry;
     RuntimeRequest::Inquiry {
         payload_shape: PayloadShape::Unknown,
@@ -254,7 +248,7 @@ fn inquiry_with_shape(target: u8, shape: PayloadShape) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
         payload_shape: shape,
         wire: wire(0x80 | target),
-        context: context(target, CancellationPolicy::Supported),
+        context: context(target),
     }
 }
 
@@ -364,7 +358,7 @@ fn inert_wire_is_inline_and_reused_across_retry_without_reallocation() {
     let request = RuntimeRequest::Command {
         reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::clone(&prepared),
-        context: context(1, CancellationPolicy::Supported),
+        context: context(1),
         applied_state: None,
     };
     let admitted_effects = engine.handle(
@@ -402,14 +396,14 @@ fn explicit_target_not_wire_bytes_drives_independent_socket_ownership() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     // Both requests intentionally carry Camera 1 in the inert bytes.
-    let mut target_two = command(2, CancellationPolicy::Supported);
+    let mut target_two = command(2);
     if let RuntimeRequest::Command { wire, .. } = &mut target_two {
         *wire = wire_for_test(&[0x81, 0x01, 0xff]);
     }
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -472,7 +466,7 @@ fn duplicate_write_receipts_do_not_requeue_the_request() {
     let effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -516,7 +510,7 @@ fn request_and_transmission_allocators_stop_at_exhaustion() {
     let first = request_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -527,7 +521,7 @@ fn request_and_transmission_allocators_stop_at_exhaustion() {
     let second = request_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -545,7 +539,7 @@ fn request_and_transmission_allocators_stop_at_exhaustion() {
     let first = transmission_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -557,7 +551,7 @@ fn request_and_transmission_allocators_stop_at_exhaustion() {
     let second = transmission_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -715,7 +709,7 @@ fn sony_exact_request_and_cancellation_collision_is_ignored() {
     let admitted_effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -783,7 +777,7 @@ fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
     let admitted_effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -852,7 +846,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -936,7 +930,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
     let next = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         retry_ready,
@@ -969,7 +963,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -1039,7 +1033,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let blocker = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(2),
@@ -1469,7 +1463,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let admission = command_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command(1, CancellationPolicy::Supported),
+                request: command(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1576,7 +1570,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let command_admission = collision_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(2),
-                request: command(1, CancellationPolicy::Supported),
+                request: command(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1671,7 +1665,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let admission = unowned_socket_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command(1, CancellationPolicy::Supported),
+                request: command(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1704,7 +1698,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let admission = executing_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command(1, CancellationPolicy::Supported),
+                request: command(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1767,7 +1761,7 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_request_order() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -1838,7 +1832,6 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                     1,
                     command_with_reply_shape_and_retry(
                         1,
-                        CancellationPolicy::Supported,
                         CommandReply::AckThenCompletion,
                         RetryPolicy::NEVER,
                     ),
@@ -1920,7 +1913,6 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                     3,
                     command_with_reply_shape_and_retry(
                         1,
-                        CancellationPolicy::Supported,
                         CommandReply::AckThenCompletion,
                         RetryPolicy::NEVER,
                     ),
@@ -1974,7 +1966,6 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                     4,
                     command_with_reply_shape_and_retry(
                         1,
-                        CancellationPolicy::Supported,
                         CommandReply::CompletionOnly,
                         RetryPolicy::NEVER,
                     ),
@@ -2013,7 +2004,6 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                 5,
                 command_with_reply_shape_and_retry(
                     1,
-                    CancellationPolicy::Supported,
                     CommandReply::AckThenCompletion,
                     RetryPolicy::NEVER,
                 ),
@@ -2055,12 +2045,7 @@ fn an_overdue_request_does_not_make_an_unrelated_correlated_frame_stale() {
     let (overdue_admission, overdue_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape_and_retry(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::AckThenCompletion,
-            RetryPolicy::NEVER,
-        ),
+        command_with_reply_shape_and_retry(1, CommandReply::AckThenCompletion, RetryPolicy::NEVER),
         start,
     );
     send_ok(&mut engine, &overdue_admission, None, start);
@@ -2125,7 +2110,6 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
                 1,
                 command_with_reply_shape_and_retry(
                     1,
-                    CancellationPolicy::Supported,
                     CommandReply::AckThenCompletion,
                     RetryPolicy::NEVER,
                 ),
@@ -2219,12 +2203,8 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
 fn executing_response_outlives_cancellation_ambiguity_until_its_completion_deadline() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let mut request = command_with_reply_shape_and_retry(
-        1,
-        CancellationPolicy::Supported,
-        CommandReply::AckThenCompletion,
-        RetryPolicy::NEVER,
-    );
+    let mut request =
+        command_with_reply_shape_and_retry(1, CommandReply::AckThenCompletion, RetryPolicy::NEVER);
     let RuntimeRequest::Command { context, .. } = &mut request else {
         unreachable!("test constructs a command");
     };
@@ -2304,7 +2284,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
     let a = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -2329,7 +2309,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
     let b = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         b_started,
@@ -2449,7 +2429,7 @@ fn engine_turn_options_share_one_input_tail_without_implicit_dispatch() {
     let admitted_only = engine.handle_turn(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -2496,7 +2476,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
     let active = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Unsupported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -2506,7 +2486,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
     let queued = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Unsupported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -2589,7 +2569,7 @@ fn request_transmit_optional(
 fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let mut request = command(1, CancellationPolicy::Supported);
+    let mut request = command(1);
     if let RuntimeRequest::Command { applied_state, .. } = &mut request {
         *applied_state = Some(AppliedStateProjection::set(
             crate::KnownState::ExposureSpotlight(true),
@@ -2701,7 +2681,7 @@ fn requested_cancellation_waits_for_shared_command_spacing() {
     let admitted_effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -2746,7 +2726,7 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -2768,7 +2748,7 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
     let queued = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
@@ -2814,7 +2794,7 @@ fn zero_spacing_drains_pending_cancellations_in_request_order() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -2834,7 +2814,7 @@ fn zero_spacing_drains_pending_cancellations_in_request_order() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -2856,7 +2836,7 @@ fn zero_spacing_drains_pending_cancellations_in_request_order() {
     let ordinary = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(3),
-            request: command(2, CancellationPolicy::Supported),
+            request: command(2),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
@@ -2925,7 +2905,7 @@ fn executing_cancel_waits_for_pacing_without_expiring_at_ambiguity() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     engine.policy.command_spacing = Duration::from_millis(100);
-    let mut request_context = context(1, CancellationPolicy::Supported);
+    let mut request_context = context(1);
     request_context.timeout.completion = NonZeroDuration::new(Duration::from_secs(1)).unwrap();
     let effects = engine.handle(
         Input::Admit {
@@ -2992,7 +2972,7 @@ fn cancel_after_raw_ack_timeout_cannot_resurrect_the_terminal_owner() {
     let request = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3056,7 +3036,7 @@ fn completion_before_cancellation_pacing_due_wins_and_removes_intent() {
     let effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3127,7 +3107,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3154,7 +3134,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
     let queued = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(21),
@@ -3195,7 +3175,7 @@ fn ambiguity_expiry_is_unconfirmed_and_releases_only_after_deadline() {
     let effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3231,7 +3211,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
     let effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3299,7 +3279,7 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_request_order() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3319,7 +3299,7 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_request_order() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(2, CancellationPolicy::Supported),
+            request: command(2),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3380,7 +3360,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
     let first = datagram_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3453,7 +3433,7 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
     let request = RuntimeRequest::Command {
         reply_shape: CommandReply::AckThenCompletion,
         wire: wire(0x82),
-        context: context(2, CancellationPolicy::Supported),
+        context: context(2),
         applied_state: Some(projection),
     };
     let effects = engine.handle(
@@ -3533,7 +3513,7 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
                 request: RuntimeRequest::Command {
                     reply_shape: CommandReply::AckThenCompletion,
                     wire: wire(0x81),
-                    context: context(1, CancellationPolicy::Supported),
+                    context: context(1),
                     applied_state: Some(projection),
                 },
                 slot: AdmissionSlot::Ordinary,
@@ -3574,7 +3554,7 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
         )));
     }
 
-    let mut context = context(1, CancellationPolicy::Supported);
+    let mut context = context(1);
     context.retry = RetryPolicy::NEVER;
     let failed = engine.handle(
         Input::Admit {
@@ -3637,13 +3617,13 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
     let seed = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
     );
     send_ok(&mut engine, &seed, None, start);
-    let mut background_command = command(2, CancellationPolicy::Supported);
+    let mut background_command = command(2);
     let RuntimeRequest::Command {
         context: command_context,
         ..
@@ -3695,7 +3675,7 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
     let occupying = fifo.handle(
         Input::Admit {
             ticket: AdmissionTicket(10),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3714,7 +3694,7 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
     let first_queued = fifo.handle(
         Input::Admit {
             ticket: AdmissionTicket(11),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3723,7 +3703,7 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
     let second_queued = fifo.handle(
         Input::Admit {
             ticket: AdmissionTicket(12),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3759,7 +3739,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
     let seed = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3768,7 +3748,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
     let queued_command = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(2, CancellationPolicy::Supported),
+            request: command(2),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3815,7 +3795,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3838,7 +3818,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3869,7 +3849,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
     let third = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(3),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
@@ -3955,11 +3935,7 @@ fn retune_runs_the_production_debug_invariant_hook() {
     let (admission, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &admission, None, start);
@@ -3989,7 +3965,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     let first_request = RuntimeRequest::Inquiry {
         payload_shape: PayloadShape::Unknown,
         wire: Arc::clone(&first_wire),
-        context: context(1, CancellationPolicy::Supported),
+        context: context(1),
     };
     let first = engine.handle(
         Input::Admit {
@@ -4120,7 +4096,7 @@ fn replaying_identical_ordered_trace_produces_identical_effects() {
         let admitted_effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(7),
-                request: command(1, CancellationPolicy::Supported),
+                request: command(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -4227,7 +4203,7 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                 assert_eq!(envelope, Some(record_envelope));
                 ticket += 1;
                 let target = fixture_required(&fields, "target").parse::<u8>().unwrap();
-                let mut fixture_context = context(target, CancellationPolicy::Supported);
+                let mut fixture_context = context(target);
                 fixture_context.retry = RetryPolicy::NEVER;
                 let request = match fixture_required(&fields, "kind") {
                     "command" => RuntimeRequest::Command {
@@ -4662,21 +4638,11 @@ fn fuzz_step(
             // An urgent STOP is never blocked by a latched raw stream lane
             // (#795), so the generator keeps writing even then.
             let request = match (action >> 16) & 0x3 {
-                _ if (action >> 40) & 0x7 == 0 => {
-                    urgent_command(target, CancellationPolicy::Supported)
-                }
-                0 => command(target, CancellationPolicy::Supported),
+                _ if (action >> 40) & 0x7 == 0 => urgent_command(target),
+                0 => command(target),
                 1 => inquiry(target),
-                2 => command_with_reply_shape(
-                    target,
-                    CancellationPolicy::Supported,
-                    CommandReply::CompletionOnly,
-                ),
-                _ => command_with_reply_shape(
-                    target,
-                    CancellationPolicy::Supported,
-                    CommandReply::NoReply,
-                ),
+                2 => command_with_reply_shape(target, CommandReply::CompletionOnly),
+                _ => command_with_reply_shape(target, CommandReply::NoReply),
             };
             engine.handle(
                 Input::Admit {
@@ -4986,13 +4952,7 @@ fn seed_fuzz_coverage(
 
     // A normal command reaches Applied, exercising ACK and completion
     // attribution for both envelopes.
-    let admitted_effects = seed_admit(
-        engine,
-        ticket,
-        coverage,
-        command(1, CancellationPolicy::Supported),
-        *now,
-    );
+    let admitted_effects = seed_admit(engine, ticket, coverage, command(1), *now);
     let (transmission, id, _) = request_transmit(&admitted_effects);
     let sent = engine.handle(
         Input::TransmissionFinished {
@@ -5074,13 +5034,7 @@ fn seed_fuzz_coverage(
 
     // A conclusive buffer-full rejection is retryable even for raw VISCA;
     // only an ambiguous timeout after a successful send is unsequenced.
-    let admitted_effects = seed_admit(
-        engine,
-        ticket,
-        coverage,
-        command(2, CancellationPolicy::Supported),
-        *now,
-    );
+    let admitted_effects = seed_admit(engine, ticket, coverage, command(2), *now);
     let (transmission, retry_id, _) = request_transmit(&admitted_effects);
     let sent = engine.handle(
         Input::TransmissionFinished {
@@ -5153,13 +5107,7 @@ fn seed_fuzz_coverage(
 
     // Cancellation is a separate wire operation. A successful response keeps
     // this seed non-terminal for both the raw and Sony correlation paths.
-    let admitted_effects = seed_admit(
-        engine,
-        ticket,
-        coverage,
-        command(1, CancellationPolicy::Supported),
-        *now,
-    );
+    let admitted_effects = seed_admit(engine, ticket, coverage, command(1), *now);
     let (transmission, cancel_id, _) = request_transmit(&admitted_effects);
     let sent = engine.handle(
         Input::TransmissionFinished {
@@ -5238,11 +5186,7 @@ fn seed_fuzz_coverage(
         engine,
         ticket,
         coverage,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         *now + Duration::from_micros(1),
     );
     let (transmission, completion_only_id, _) = request_transmit(&completion_only);
@@ -5277,7 +5221,7 @@ fn seed_fuzz_coverage(
         engine,
         ticket,
         coverage,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         *now + Duration::from_micros(1),
     );
     let (transmission, no_reply_id, _) = request_transmit(&no_reply);
@@ -5398,13 +5342,7 @@ fn seed_fuzz_coverage(
     // precedes the evidence, so this can poison only through displacement.
     // Keep this last: a strict session is terminal after the second ACK.
     if envelope == EnvelopeKind::Raw && configuration.strict_unconfirmed_poison {
-        let first = seed_admit(
-            engine,
-            ticket,
-            coverage,
-            command(2, CancellationPolicy::Supported),
-            *now,
-        );
+        let first = seed_admit(engine, ticket, coverage, command(2), *now);
         let sent = send_ok(engine, &first, None, *now);
         coverage.record(engine, &sent);
         let first_id = admitted(&first);
@@ -5419,13 +5357,7 @@ fn seed_fuzz_coverage(
             *now,
         );
         coverage.record(engine, &acked);
-        let second = seed_admit(
-            engine,
-            ticket,
-            coverage,
-            command(2, CancellationPolicy::Supported),
-            *now,
-        );
+        let second = seed_admit(engine, ticket, coverage, command(2), *now);
         let sent = send_ok(engine, &second, None, *now);
         coverage.record(engine, &sent);
         let second_id = admitted(&second);
@@ -5461,7 +5393,6 @@ fn seed_fuzz_coverage(
             coverage,
             command_with_reply_shape_and_retry(
                 2,
-                CancellationPolicy::Supported,
                 CommandReply::AckThenCompletion,
                 RetryPolicy::NEVER,
             ),
@@ -5673,7 +5604,7 @@ fn raw_late_ack_at_ambiguity_boundary_is_routed_and_cancel_remains_active() {
     let admitted_effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -5750,7 +5681,7 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
     let effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -5805,7 +5736,7 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
 fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let mut request_context = context(1, CancellationPolicy::Supported);
+    let mut request_context = context(1);
     request_context.timeout.completion = NonZeroDuration::new(Duration::from_millis(5)).unwrap();
     request_context.timeout.ambiguity = NonZeroDuration::new(Duration::from_millis(50)).unwrap();
     let effects = engine.handle(
@@ -5859,7 +5790,7 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
 fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let mut request_context = context(1, CancellationPolicy::Supported);
+    let mut request_context = context(1);
     request_context.timeout.completion = NonZeroDuration::new(Duration::from_millis(100)).unwrap();
     request_context.timeout.ambiguity = NonZeroDuration::new(Duration::from_millis(50)).unwrap();
     let (admission, id) = admit(
@@ -5945,7 +5876,7 @@ fn retryable_rejection_after_cancel_intent_is_cancelled_without_retry() {
     let effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6070,7 +6001,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
     let occupying = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6089,7 +6020,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
     let blocked = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6099,7 +6030,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
         let queued = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
-                request: command(1, CancellationPolicy::Supported),
+                request: command(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -6116,7 +6047,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
     let other_target = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(20),
-            request: command(2, CancellationPolicy::Supported),
+            request: command(2),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6135,7 +6066,7 @@ fn retry_backoff_must_fit_inside_total_budget() {
     // about the budget rather than about the draw: 30ms/2 = 15ms, and the
     // error below arrives 5ms in.
     retry.initial_backoff = Duration::from_millis(30);
-    let mut request_context = context(1, CancellationPolicy::Supported);
+    let mut request_context = context(1);
     request_context.retry = retry;
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let effects = engine.handle(
@@ -6205,7 +6136,7 @@ fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6215,7 +6146,7 @@ fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(2, CancellationPolicy::Supported),
+            request: command(2),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6259,7 +6190,7 @@ fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
 fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let mut once = context(1, CancellationPolicy::Supported);
+    let mut once = context(1);
     once.retry = RetryPolicy::NEVER;
     let admission = engine.handle(
         Input::Admit {
@@ -6345,7 +6276,7 @@ fn stream_write_failure_poisons_with_the_typed_transport_cause() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6355,7 +6286,7 @@ fn stream_write_failure_poisons_with_the_typed_transport_cause() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(2, CancellationPolicy::Supported),
+            request: command(2),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6410,7 +6341,7 @@ fn datagram_write_failure_fails_exactly_one_request() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6420,7 +6351,7 @@ fn datagram_write_failure_fails_exactly_one_request() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(2, CancellationPolicy::Supported),
+            request: command(2),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6452,7 +6383,7 @@ fn socketless_ack_assigns_the_first_free_socket() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6480,7 +6411,7 @@ fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6500,7 +6431,7 @@ fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6524,7 +6455,7 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6544,7 +6475,7 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6598,7 +6529,7 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     let only = single.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6634,7 +6565,7 @@ fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_
         let admitted_effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
-                request: command(1, CancellationPolicy::Supported),
+                request: command(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -6658,7 +6589,7 @@ fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_
     let queued = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(3),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6718,7 +6649,7 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6738,7 +6669,7 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6817,7 +6748,7 @@ fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6852,7 +6783,7 @@ fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(41),
@@ -6924,7 +6855,7 @@ fn raw_ack_in_awaiting_ack_uses_the_unique_command_candidate() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6968,20 +6899,10 @@ fn raw_gate_serializes_pre_ack_while_sony_allows_pipeline() {
     let now = Instant::now();
     for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
         let mut engine = engine(envelope, TransportKind::Datagram);
-        let (first, first_id) = admit(
-            &mut engine,
-            1,
-            command(1, CancellationPolicy::Supported),
-            now,
-        );
+        let (first, first_id) = admit(&mut engine, 1, command(1), now);
         let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
         send_ok(&mut engine, &first, sequence, now);
-        let (second, second_id) = admit(
-            &mut engine,
-            2,
-            command(1, CancellationPolicy::Supported),
-            now,
-        );
+        let (second, second_id) = admit(&mut engine, 2, command(1), now);
         if envelope == EnvelopeKind::Sony {
             assert_eq!(request_transmit(&second).1, second_id);
             send_ok(&mut engine, &second, Some(0x1002), now);
@@ -7029,7 +6950,7 @@ fn socketless_completion_needs_a_sole_socket_holder() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -7049,7 +6970,7 @@ fn socketless_completion_needs_a_sole_socket_holder() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -7105,7 +7026,7 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -7134,7 +7055,7 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
 }
 
 fn command_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
-    let mut command_context = context(target, CancellationPolicy::Supported);
+    let mut command_context = context(target);
     command_context.retry = retry;
     RuntimeRequest::Command {
         reply_shape: CommandReply::AckThenCompletion,
@@ -7218,7 +7139,7 @@ fn ack_deadline_expiry_reports_its_own_retry_decision_before_the_retry() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -7289,7 +7210,7 @@ fn completion_deadline_expiry_is_reported_as_a_completion_deadline() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -7556,7 +7477,7 @@ fn concurrent_retries_of_the_same_instant_are_separated() {
         let effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
-                request: command(target, CancellationPolicy::Supported),
+                request: command(target),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -7583,7 +7504,7 @@ fn the_jitter_sequence_moves_with_the_seed() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -7874,12 +7795,7 @@ fn raw_sending_with_reply_shape(
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command_with_reply_shape_and_retry(
-                1,
-                CancellationPolicy::Supported,
-                reply_shape,
-                retry,
-            ),
+            request: command_with_reply_shape_and_retry(1, reply_shape, retry),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -7920,7 +7836,7 @@ fn initial_ready_request_expires_at_admission_budget_without_transmitting() {
     let owner = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -8031,7 +7947,6 @@ fn initial_active_phases_expire_at_admission_budget() {
                 ticket: AdmissionTicket(1),
                 request: command_with_reply_shape_and_retry(
                     1,
-                    CancellationPolicy::Supported,
                     CommandReply::CompletionOnly,
                     immediate_retry_budget(Duration::from_millis(10)),
                 ),
@@ -8201,12 +8116,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
         let admission = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: command_with_reply_shape_and_retry(
-                    1,
-                    CancellationPolicy::Supported,
-                    CommandReply::NoReply,
-                    retry,
-                ),
+                request: command_with_reply_shape_and_retry(1, CommandReply::NoReply, retry),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -8493,7 +8403,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
         let rejected = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(3),
-                request: command(1, CancellationPolicy::Supported),
+                request: command(1),
                 slot: AdmissionSlot::Ordinary,
             },
             late_at,
@@ -9103,7 +9013,7 @@ fn raw_receive_fault_leaves_unacked_command_and_keeps_the_session() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -9150,7 +9060,7 @@ fn raw_receive_fault_poisons_under_strict_opt_in() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -9186,7 +9096,7 @@ fn strict_raw_receive_fault_after_cancel_uses_cancellation_resolution() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -9282,7 +9192,7 @@ fn raw_ack_timeout_hold_rejects_late_ack_and_protects_successor() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -9310,7 +9220,7 @@ fn raw_ack_timeout_hold_rejects_late_ack_and_protects_successor() {
     let queued = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(21),
@@ -9357,7 +9267,7 @@ fn raw_completion_timeout_hold_rejects_exact_late_completion() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -9490,7 +9400,7 @@ fn no_socket_is_retried_like_a_full_command_buffer() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -9555,7 +9465,7 @@ fn a_post_ack_completion_timeout_never_rewrites_the_command() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -9610,11 +9520,7 @@ fn raw_single_candidate_invariant_includes_completion_only_awaiting_completion()
     let (first_admission, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &first_admission, None, start);
@@ -9630,11 +9536,7 @@ fn raw_single_candidate_invariant_includes_completion_only_awaiting_completion()
     let (second_admission, second_id) = admit(
         &mut engine,
         2,
-        command_with_reply_shape(
-            2,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(2, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &second_admission, None, start);
@@ -9650,11 +9552,7 @@ fn raw_single_candidate_invariant_includes_completion_only_awaiting_completion()
     // the second otherwise-valid completion-only request onto target 1. There
     // are now two socketless candidates for one target and the audit must
     // reject them before any raw terminal could require a temporal guess.
-    let same_target = command_with_reply_shape(
-        1,
-        CancellationPolicy::Supported,
-        CommandReply::CompletionOnly,
-    );
+    let same_target = command_with_reply_shape(1, CommandReply::CompletionOnly);
     engine
         .entries
         .replace_request_for_audit(second_id, same_target);
@@ -9671,22 +9569,13 @@ fn raw_uncorrelatable_command_invariant_rejects_the_urgent_lane_exception() {
     let (completion, _) = admit(
         &mut runtime,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut runtime, &completion, None, start);
 
     // A real urgent request cannot cross the #700 exclusive lane.
-    let (blocked, blocked_id) = admit(
-        &mut runtime,
-        2,
-        urgent_command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (blocked, blocked_id) = admit(&mut runtime, 2, urgent_command(1), start);
     assert!(request_transmit_optional(&blocked).is_none());
     assert!(matches!(phase_of(&runtime, blocked_id), Some(Phase::Ready)));
 
@@ -9698,21 +9587,12 @@ fn raw_uncorrelatable_command_invariant_rejects_the_urgent_lane_exception() {
     let (completion, _) = admit(
         &mut corrupted,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut corrupted, &completion, None, start);
-    let (urgent, urgent_id) = admit(
-        &mut corrupted,
-        2,
-        urgent_command(2, CancellationPolicy::Supported),
-        start,
-    );
-    let mut same_target = urgent_command(1, CancellationPolicy::Supported);
+    let (urgent, urgent_id) = admit(&mut corrupted, 2, urgent_command(2), start);
+    let mut same_target = urgent_command(1);
     same_target.context_mut().submission_order = corrupted
         .entry(urgent_id)
         .unwrap()
@@ -9740,11 +9620,7 @@ fn completion_only_command_skips_ack_and_terminates_on_completion() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     let send = send_ok(&mut engine, &admitted_effects, None, start);
@@ -9793,11 +9669,7 @@ fn completion_only_stray_acks_remain_inert_across_its_lifecycle() {
         let (admitted_effects, id) = admit(
             &mut engine,
             1,
-            command_with_reply_shape(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-            ),
+            command_with_reply_shape(1, CommandReply::CompletionOnly),
             start,
         );
         send_ok(&mut engine, &admitted_effects, None, start);
@@ -9831,11 +9703,7 @@ fn completion_only_stray_acks_remain_inert_across_its_lifecycle() {
         let (admitted_effects, id) = admit(
             &mut engine,
             1,
-            command_with_reply_shape(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-            ),
+            command_with_reply_shape(1, CommandReply::CompletionOnly),
             start,
         );
         send_ok(&mut engine, &admitted_effects, None, start);
@@ -9876,11 +9744,7 @@ fn completion_only_stray_acks_remain_inert_across_its_lifecycle() {
         let (admitted_effects, id) = admit(
             &mut engine,
             1,
-            command_with_reply_shape(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-            ),
+            command_with_reply_shape(1, CommandReply::CompletionOnly),
             start,
         );
         send_ok(&mut engine, &admitted_effects, None, start);
@@ -9930,11 +9794,7 @@ fn completion_only_accepts_socket_bearing_terminal_completion() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -9973,11 +9833,7 @@ fn completion_only_command_has_no_ack_timeout_and_does_not_poison_strict() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -10021,11 +9877,7 @@ fn completion_only_command_without_completion_fails_per_request_not_the_session(
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -10059,7 +9911,7 @@ fn no_reply_command_terminates_on_send() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         start,
     );
     let send = send_ok(&mut engine, &admitted_effects, None, start);
@@ -10095,11 +9947,7 @@ fn late_reply_to_completed_completion_only_is_ignored() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -10141,7 +9989,7 @@ fn no_reply_terminal_quarantine_blocks_successor_then_restores_liveness() {
     let (first, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         start,
     );
     let sent = send_ok(&mut engine, &first, None, start);
@@ -10151,21 +9999,11 @@ fn no_reply_terminal_quarantine_blocks_successor_then_restores_liveness() {
     ));
     // The owner applies this admission only after the immediate write result
     // installed the predecessor's target tombstone.
-    let (second, second_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (second, second_id) = admit(&mut engine, 2, command(1), start);
     assert!(request_transmit_optional(&second).is_none());
     assert!(matches!(phase_of(&engine, second_id), Some(Phase::Ready)));
 
-    let (other_target, other_target_id) = admit(
-        &mut engine,
-        3,
-        command(2, CancellationPolicy::Supported),
-        start,
-    );
+    let (other_target, other_target_id) = admit(&mut engine, 3, command(2), start);
     assert_eq!(
         request_transmit(&other_target).1,
         other_target_id,
@@ -10237,7 +10075,7 @@ fn terminal_tombstone_ignores_frame_at_exact_expiry_before_releasing_successor()
     let (first, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         start,
     );
     let written = send_ok(&mut engine, &first, None, start);
@@ -10245,12 +10083,7 @@ fn terminal_tombstone_ignores_frame_at_exact_expiry_before_releasing_successor()
         terminal_outcome(&written, first_id),
         Some(RuntimeOutcome::Command(CommandOutcome::Written))
     ));
-    let (successor, successor_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (successor, successor_id) = admit(&mut engine, 2, command(1), start);
     assert!(request_transmit_optional(&successor).is_none());
 
     let at_deadline = engine.handle(
@@ -10373,21 +10206,11 @@ fn successful_inquiry_does_not_pace_urgent_but_urgent_commands_pace_each_other()
     );
     assert!(terminal_outcome(&reply, inquiry_id).is_some());
 
-    let (first_urgent, first_urgent_id) = admit(
-        &mut engine,
-        2,
-        urgent_command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (first_urgent, first_urgent_id) = admit(&mut engine, 2, urgent_command(1), start);
     assert_eq!(request_transmit(&first_urgent).1, first_urgent_id);
     send_ok(&mut engine, &first_urgent, None, start);
 
-    let (second_urgent, second_urgent_id) = admit(
-        &mut engine,
-        3,
-        urgent_command(2, CancellationPolicy::Supported),
-        start,
-    );
+    let (second_urgent, second_urgent_id) = admit(&mut engine, 3, urgent_command(2), start);
     assert!(request_transmit_optional(&second_urgent).is_none());
     assert!(
         request_transmit_optional(&engine.advance(start + spacing - Duration::from_nanos(1)))
@@ -10423,12 +10246,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
         Some(Error::Timeout { .. })
     ));
 
-    let (command_send, command_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        timeout_at,
-    );
+    let (command_send, command_id) = admit(&mut engine, 2, command(1), timeout_at);
     send_ok(&mut engine, &command_send, None, timeout_at);
     assert!(matches!(
         phase_of(&engine, command_id),
@@ -10541,12 +10359,7 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
             terminal_cause(&timed_out, inquiry_id),
             Some(Error::Timeout { .. })
         ));
-        let (command_send, command_id) = admit(
-            &mut engine,
-            2,
-            command(1, CancellationPolicy::Supported),
-            timeout_at,
-        );
+        let (command_send, command_id) = admit(&mut engine, 2, command(1), timeout_at);
         send_ok(&mut engine, &command_send, None, timeout_at);
         engine.handle(
             frame(
@@ -10603,7 +10416,7 @@ fn raw_uncorrelatable_terminal_hold_still_filters_all_response_shapes() {
     let (send, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         start,
     );
     let written = send_ok(&mut engine, &send, None, start);
@@ -10772,12 +10585,7 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
 fn raw_typed_release_scopes_preserve_only_live_other_socket_evidence() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (send, command_id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (send, command_id) = admit(&mut engine, 1, command(1), start);
     send_ok(&mut engine, &send, None, start);
     engine.handle(
         frame(
@@ -10984,12 +10792,7 @@ fn raw_release_gate_advances_immediately_when_no_input_is_retained() {
 fn raw_release_projection_excludes_ordinary_response_deadlines() {
     let start = Instant::now();
     let mut command_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (command_send, command_id) = admit(
-        &mut command_engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (command_send, command_id) = admit(&mut command_engine, 1, command(1), start);
     send_ok(&mut command_engine, &command_send, None, start);
     command_engine.handle(
         frame(
@@ -11010,12 +10813,7 @@ fn raw_release_projection_excludes_ordinary_response_deadlines() {
         .is_empty());
 
     let mut cancelled_preack = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (cancelled_send, cancelled_id) = admit(
-        &mut cancelled_preack,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (cancelled_send, cancelled_id) = admit(&mut cancelled_preack, 1, command(1), start);
     send_ok(&mut cancelled_preack, &cancelled_send, None, start);
     let ack_deadline = match phase_of(&cancelled_preack, cancelled_id) {
         Some(Phase::AwaitingAck { deadline, .. }) => deadline,
@@ -11150,12 +10948,7 @@ fn raw_inquiry_timeout_hold_blocks_only_inquiries_and_never_urgent_commands() {
         Some(Phase::Ready)
     ));
 
-    let (urgent_effects, urgent_id) = admit(
-        &mut engine,
-        3,
-        urgent_command(1, CancellationPolicy::Supported),
-        timeout_at,
-    );
+    let (urgent_effects, urgent_id) = admit(&mut engine, 3, urgent_command(1), timeout_at);
     assert_eq!(
         request_transmit(&urgent_effects).1,
         urgent_id,
@@ -11199,12 +10992,7 @@ fn urgent_ack_binds_when_its_preack_hold_has_no_live_predecessor() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
 
-    let (predecessor_effects, predecessor_id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (predecessor_effects, predecessor_id) = admit(&mut engine, 1, command(1), start);
     send_ok(&mut engine, &predecessor_effects, None, start);
     let ack_deadline = start + Duration::from_millis(20);
     let expired = engine.advance(ack_deadline);
@@ -11216,12 +11004,7 @@ fn urgent_ack_binds_when_its_preack_hold_has_no_live_predecessor() {
         .raw_hold(camera(1), RawHoldScope::PreAck)
         .expect("lost predecessor retains its pre-ACK hold");
 
-    let (urgent_admission, urgent_id) = admit(
-        &mut engine,
-        2,
-        urgent_command(1, CancellationPolicy::Supported),
-        ack_deadline,
-    );
+    let (urgent_admission, urgent_id) = admit(&mut engine, 2, urgent_command(1), ack_deadline);
     assert_eq!(request_transmit(&urgent_admission).1, urgent_id);
     send_ok(&mut engine, &urgent_admission, None, ack_deadline);
 
@@ -11282,19 +11065,9 @@ fn urgent_ack_binds_when_its_preack_hold_has_no_live_predecessor() {
 fn urgent_raw_command_bypasses_preack_gate_and_ambiguous_ack_binds_neither() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (ordinary, ordinary_id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (ordinary, ordinary_id) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &ordinary, None, now);
-    let (urgent, urgent_id) = admit(
-        &mut engine,
-        2,
-        urgent_command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (urgent, urgent_id) = admit(&mut engine, 2, urgent_command(1), now);
     assert_eq!(request_transmit(&urgent).1, urgent_id);
     send_ok(&mut engine, &urgent, None, now);
     let answer = engine.handle(
@@ -11381,23 +11154,14 @@ fn completion_only_terminal_quarantine_blocks_successor_then_restores_liveness()
     let (first, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &first, None, start);
 
     // B is already ready when A's uncorrelated terminal arrives. The target
     // tombstone must be present before `finish_input_turn` can dispatch it.
-    let (second, second_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (second, second_id) = admit(&mut engine, 2, command(1), start);
     assert!(request_transmit_optional(&second).is_none());
     let turn = engine.begin_input_turn(start);
     let completed = engine.handle_in_turn(
@@ -11447,7 +11211,7 @@ fn no_reply_terminal_quarantine_holds_same_target_inquiry_until_expiry() {
     let (first, first_id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         start,
     );
     let written = send_ok(&mut engine, &first, None, start);
@@ -11513,12 +11277,7 @@ fn no_reply_waits_for_same_target_response_owners() {
     // An executing socket-owning command makes a no-reply write wait rather
     // than letting its later target tombstone swallow this command's terminal.
     let mut command_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (command_effects, command_id) = admit(
-        &mut command_engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (command_effects, command_id) = admit(&mut command_engine, 1, command(1), start);
     send_ok(&mut command_engine, &command_effects, None, start);
     command_engine.handle(
         frame(
@@ -11537,7 +11296,7 @@ fn no_reply_waits_for_same_target_response_owners() {
     let (no_reply_after_command, _) = admit(
         &mut command_engine,
         2,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         start,
     );
     assert!(request_transmit_optional(&no_reply_after_command).is_none());
@@ -11554,7 +11313,7 @@ fn no_reply_waits_for_same_target_response_owners() {
     let (no_reply_after_inquiry, _) = admit(
         &mut inquiry_engine,
         2,
-        command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+        command_with_reply_shape(1, CommandReply::NoReply),
         start,
     );
     assert!(request_transmit_optional(&no_reply_after_inquiry).is_none());
@@ -11574,7 +11333,7 @@ fn uncorrelatable_terminal_allows_no_reply_successor_and_extends_hold() {
         let (first, first_id) = admit(
             &mut engine,
             1,
-            command_with_reply_shape(1, CancellationPolicy::Supported, reply_shape),
+            command_with_reply_shape(1, reply_shape),
             start,
         );
         let first_terminal = match reply_shape {
@@ -11596,7 +11355,7 @@ fn uncorrelatable_terminal_allows_no_reply_successor_and_extends_hold() {
         let (second, second_id) = admit(
             &mut engine,
             2,
-            command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+            command_with_reply_shape(1, CommandReply::NoReply),
             successor_at,
         );
         assert_eq!(request_transmit(&second).1, second_id);
@@ -11636,12 +11395,7 @@ fn completed_raw_command_allows_immediate_same_socket_reuse() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
 
-    let (first, first_id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (first, first_id) = admit(&mut engine, 1, command(1), start);
     send_ok(&mut engine, &first, None, start);
     engine.handle(
         frame(
@@ -11667,12 +11421,7 @@ fn completed_raw_command_allows_immediate_same_socket_reuse() {
         terminal_outcome(&complete_first, first_id),
         Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
-    let (second, second_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
+    let (second, second_id) = admit(&mut engine, 2, command(1), start);
     assert_eq!(request_transmit(&second).1, second_id);
     send_ok(&mut engine, &second, None, start);
     let ack = engine.handle(
@@ -11721,21 +11470,11 @@ fn completion_only_command_holds_the_command_channel_exclusively() {
         let (first, _c1) = admit(
             &mut runtime,
             1,
-            command_with_reply_shape(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-            ),
+            command_with_reply_shape(1, CommandReply::CompletionOnly),
             start,
         );
         send_ok(&mut runtime, &first, None, start);
-        let second = admit(
-            &mut runtime,
-            2,
-            command(1, CancellationPolicy::Supported),
-            start,
-        )
-        .0;
+        let second = admit(&mut runtime, 2, command(1), start).0;
         assert!(
             request_transmit_optional(&second).is_none(),
             "no command dispatches while a completion-only command awaits its completion",
@@ -11747,12 +11486,7 @@ fn completion_only_command_holds_the_command_channel_exclusively() {
     // completion-only command still may not start — it needs exclusivity.
     {
         let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-        let (first, c1) = admit(
-            &mut runtime,
-            1,
-            command(1, CancellationPolicy::Supported),
-            start,
-        );
+        let (first, c1) = admit(&mut runtime, 1, command(1), start);
         send_ok(&mut runtime, &first, None, start);
         runtime.handle(
             frame(
@@ -11771,11 +11505,7 @@ fn completion_only_command_holds_the_command_channel_exclusively() {
         let second = admit(
             &mut runtime,
             2,
-            command_with_reply_shape(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-            ),
+            command_with_reply_shape(1, CommandReply::CompletionOnly),
             start,
         )
         .0;
@@ -11798,11 +11528,7 @@ fn raw_completion_only_blocks_same_target_inquiry_and_routes_socketless_error() 
     let (completion_only, completion_id) = admit(
         &mut runtime,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut runtime, &completion_only, None, start);
@@ -11865,11 +11591,7 @@ fn raw_inquiry_blocks_same_target_completion_only_until_reply() {
     let (completion_only, completion_id) = admit(
         &mut runtime,
         2,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     assert!(
@@ -11918,11 +11640,7 @@ fn sony_completion_only_does_not_block_same_target_inquiry() {
     let (completion_only, completion_id) = admit(
         &mut runtime,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut runtime, &completion_only, Some(0x1001), start);
@@ -12002,11 +11720,7 @@ fn completion_only_socketless_capacity_errors_retry() {
         let (admitted_effects, id) = admit(
             &mut engine,
             u64::from(code),
-            command_with_reply_shape(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-            ),
+            command_with_reply_shape(1, CommandReply::CompletionOnly),
             start,
         );
         send_ok(&mut engine, &admitted_effects, None, start);
@@ -12046,11 +11760,7 @@ fn completion_only_socketless_nonretryable_error_is_terminal() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -12085,11 +11795,7 @@ fn completion_only_named_unowned_error_does_not_fallback() {
     let (admitted_effects, id) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         start,
     );
     send_ok(&mut engine, &admitted_effects, None, start);
@@ -12139,12 +11845,7 @@ fn pre_ack_cancellation_extends_correlation_before_due_work() {
     let start = Instant::now();
     for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
         let mut engine = engine(envelope, TransportKind::Datagram);
-        let (admission, id) = admit(
-            &mut engine,
-            1,
-            command(1, CancellationPolicy::Supported),
-            start,
-        );
+        let (admission, id) = admit(&mut engine, 1, command(1), start);
         let sequence = (envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));
         send_ok(&mut engine, &admission, sequence, start);
 
@@ -12182,11 +11883,7 @@ fn completion_only_refused_cancel_does_not_extend_correlation() {
         let (admission, id) = admit(
             &mut engine,
             1,
-            command_with_reply_shape(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-            ),
+            command_with_reply_shape(1, CommandReply::CompletionOnly),
             start,
         );
         let sequence = (envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));
@@ -12320,23 +12017,10 @@ fn admit_into(
 fn control_reserve_admits_urgent_stops_past_ordinary_saturation() {
     let now = Instant::now();
     let mut engine = reserved_engine();
-    let supported = CancellationPolicy::Supported;
-    admit_into(
-        &mut engine,
-        1,
-        command(1, supported),
-        AdmissionSlot::Ordinary,
-        now,
-    )
-    .expect("the one ordinary slot");
+    admit_into(&mut engine, 1, command(1), AdmissionSlot::Ordinary, now)
+        .expect("the one ordinary slot");
     assert!(matches!(
-        admit_into(
-            &mut engine,
-            2,
-            command(1, supported),
-            AdmissionSlot::Ordinary,
-            now
-        ),
+        admit_into(&mut engine, 2, command(1), AdmissionSlot::Ordinary, now),
         Err(Error::RuntimeQueueFull { capacity: 1 })
     ));
 
@@ -12344,7 +12028,7 @@ fn control_reserve_admits_urgent_stops_past_ordinary_saturation() {
         admit_into(
             &mut engine,
             ticket,
-            urgent_command(1, supported),
+            urgent_command(1),
             AdmissionSlot::ControlReserve,
             now,
         )
@@ -12354,7 +12038,7 @@ fn control_reserve_admits_urgent_stops_past_ordinary_saturation() {
         admit_into(
             &mut engine,
             5,
-            urgent_command(1, supported),
+            urgent_command(1),
             AdmissionSlot::ControlReserve,
             now,
         ),
@@ -12365,7 +12049,7 @@ fn control_reserve_admits_urgent_stops_past_ordinary_saturation() {
     admit_into(
         &mut engine,
         6,
-        urgent_command(2, supported),
+        urgent_command(2),
         AdmissionSlot::ControlReserve,
         now,
     )
@@ -12379,12 +12063,11 @@ fn control_reserve_admits_urgent_stops_past_ordinary_saturation() {
 fn control_reserve_is_urgent_only_and_released_at_terminal() {
     let now = Instant::now();
     let mut engine = reserved_engine();
-    let supported = CancellationPolicy::Supported;
     assert!(matches!(
         admit_into(
             &mut engine,
             1,
-            command(1, supported),
+            command(1),
             AdmissionSlot::ControlReserve,
             now
         ),
@@ -12394,7 +12077,7 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: urgent_command(1, supported),
+            request: urgent_command(1),
             slot: AdmissionSlot::ControlReserve,
         },
         now,
@@ -12405,7 +12088,7 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
     admit_into(
         &mut engine,
         3,
-        urgent_command(1, supported),
+        urgent_command(1),
         AdmissionSlot::ControlReserve,
         now,
     )
@@ -12433,7 +12116,7 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
     admit_into(
         &mut engine,
         4,
-        urgent_command(1, supported),
+        urgent_command(1),
         AdmissionSlot::ControlReserve,
         now,
     )
@@ -12442,7 +12125,7 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
 }
 
 fn declared_motion(target: u8, axes: crate::AffectedAxes, order: u64) -> RuntimeRequest {
-    let mut request = command(target, CancellationPolicy::Supported);
+    let mut request = command(target);
     request.context_mut().motion = Some(MotionEffect { axes });
     request.context_mut().submission_order = order;
     request
@@ -12457,7 +12140,7 @@ fn halt_fence_suppresses_queued_declared_motion_only_and_preserves_new_work() {
         declared_motion(1, crate::AffectedAxes::PAN_TILT, 1),
         declared_motion(1, crate::AffectedAxes::ZOOM, 2),
         declared_motion(2, crate::AffectedAxes::PAN_TILT, 3),
-        command(1, CancellationPolicy::Supported),
+        command(1),
         declared_motion(1, crate::AffectedAxes::PAN_TILT, 6),
     ]
     .into_iter()
@@ -12572,7 +12255,7 @@ fn halt_stop_write_cutoff_is_strict_and_stale_staged_effect_cannot_write() {
         let now = Instant::now();
         let deadline = now + Duration::from_millis(10);
         let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
-        let mut stop = urgent_command(1, CancellationPolicy::Supported);
+        let mut stop = urgent_command(1);
         stop.context_mut().dispatch_deadline = Some(deadline);
         stop.context_mut().retry.total_budget =
             Some(NonZeroDuration::new(Duration::from_millis(10)).unwrap());
@@ -12603,7 +12286,7 @@ fn halt_stop_write_cutoff_is_strict_and_stale_staged_effect_cannot_write() {
 #[test]
 fn halt_raw_siblings_wait_for_ack_not_completion_and_still_bypass_ordinary_motion() {
     let now = Instant::now();
-    let mut stop = urgent_command(1, CancellationPolicy::Supported);
+    let mut stop = urgent_command(1);
     stop.context_mut().dispatch_deadline = Some(now + Duration::from_secs(1));
     stop.context_mut().submission_order = 2;
     let mut owner = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -12635,12 +12318,7 @@ fn halt_raw_siblings_wait_for_ack_not_completion_and_still_bypass_ordinary_motio
     ));
     owner.assert_invariants().unwrap();
     let mut owner = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (ordinary, _) = admit(
-        &mut owner,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (ordinary, _) = admit(&mut owner, 1, command(1), now);
     send_ok(&mut owner, &ordinary, None, now);
     let (urgent, urgent_id) = admit(&mut owner, 2, stop, now);
     assert_eq!(
@@ -12796,12 +12474,7 @@ fn socketless_error_settles_the_owed_reply_while_a_command_executes() {
     let mut engine = single_flight_raw_stream_engine();
     let (_, timeout_at) = time_out_stream_inquiry(&mut engine, start);
 
-    let (command_send, command_id) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        timeout_at,
-    );
+    let (command_send, command_id) = admit(&mut engine, 2, command(1), timeout_at);
     send_ok(&mut engine, &command_send, None, timeout_at);
     engine.handle(
         frame(
@@ -12898,12 +12571,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     // A command to the latched target and an inquiry to another target still
     // dispatch.
     let now = window_end + Duration::from_millis(2);
-    let (command_send, command_id) = admit(
-        &mut engine,
-        4,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (command_send, command_id) = admit(&mut engine, 4, command(1), now);
     assert_eq!(request_transmit(&command_send).1, command_id);
     send_ok(&mut engine, &command_send, None, now);
     let (other_send, other_id) = admit(&mut engine, 5, inquiry(2), now);
@@ -13018,12 +12686,7 @@ fn latched_target_settles_its_owed_reply_before_a_commands_socketless_rejection(
     let (send, id) = admit(
         &mut engine,
         2,
-        command_with_reply_shape_and_retry(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::AckThenCompletion,
-            RetryPolicy::NEVER,
-        ),
+        command_with_reply_shape_and_retry(1, CommandReply::AckThenCompletion, RetryPolicy::NEVER),
         latched_at,
     );
     assert_eq!(request_transmit(&send).1, id, "commands still dispatch");
@@ -13064,14 +12727,8 @@ fn latched_target_fails_completion_only_commands_promptly() {
         total_budget: None,
         ..RetryPolicy::NEVER
     };
-    let completion_only = || {
-        command_with_reply_shape_and_retry(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-            unbounded,
-        )
-    };
+    let completion_only =
+        || command_with_reply_shape_and_retry(1, CommandReply::CompletionOnly, unbounded);
     let (queued_send, queued) = admit(&mut engine, 2, completion_only(), timeout_at);
     assert!(request_transmit_optional(&queued_send).is_none());
 
@@ -13151,7 +12808,6 @@ fn next_wake_ignores_a_stream_socket_hold_that_expired_after_the_last_turn() {
             ticket: AdmissionTicket(1),
             request: command_with_reply_shape_and_retry(
                 1,
-                CancellationPolicy::Supported,
                 CommandReply::CompletionOnly,
                 retrying(),
             ),

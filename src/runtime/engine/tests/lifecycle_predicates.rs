@@ -440,31 +440,17 @@ fn reachable_request_classes_keep_stop_gates_and_physical_pacing() {
         (EnvelopeKind::Sony, TransportKind::Datagram),
     ] {
         for (name, mut request, stop, command_lane) in [
-            (
-                "STOP",
-                urgent_command(1, CancellationPolicy::Supported),
-                true,
-                true,
-            ),
-            (
-                "ACK command",
-                command(1, CancellationPolicy::Supported),
-                false,
-                true,
-            ),
+            ("STOP", urgent_command(1), true, true),
+            ("ACK command", command(1), false, true),
             (
                 "completion only",
-                command_with_reply_shape(
-                    1,
-                    CancellationPolicy::Supported,
-                    CommandReply::CompletionOnly,
-                ),
+                command_with_reply_shape(1, CommandReply::CompletionOnly),
                 false,
                 true,
             ),
             (
                 "no reply",
-                command_with_reply_shape(1, CancellationPolicy::Supported, CommandReply::NoReply),
+                command_with_reply_shape(1, CommandReply::NoReply),
                 false,
                 true,
             ),

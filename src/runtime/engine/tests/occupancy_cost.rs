@@ -22,7 +22,7 @@ fn blocked_engine(
         )
         .unwrap();
     for index in 0..ENTRIES {
-        let mut request = command(1, CancellationPolicy::Supported);
+        let mut request = command(1);
         if index == ENTRIES - 1 {
             let RuntimeRequest::Command { context, .. } = &mut request else {
                 unreachable!()

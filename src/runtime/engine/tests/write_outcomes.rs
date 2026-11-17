@@ -3,7 +3,7 @@ use super::*;
 use crate::{KnownState, Recovery, StateKey};
 
 fn projected_command() -> RuntimeRequest {
-    let mut request = command(1, CancellationPolicy::Supported);
+    let mut request = command(1);
     let RuntimeRequest::Command { applied_state, .. } = &mut request else {
         unreachable!();
     };
@@ -367,19 +367,9 @@ fn a_result_with_another_requests_identity_cannot_consume_the_active_write() {
     engine
         .register_target(camera(2), TargetPolicy::test_default())
         .unwrap();
-    let (first, first_id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (first, first_id) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &first, Some(0x1001), now);
-    let (second, second_id) = admit(
-        &mut engine,
-        2,
-        command(2, CancellationPolicy::Supported),
-        now,
-    );
+    let (second, second_id) = admit(&mut engine, 2, command(2), now);
     let (transmission, _, _) = request_transmit(&second);
     let wrong = engine.handle_turn(
         Input::TransmissionFinished {

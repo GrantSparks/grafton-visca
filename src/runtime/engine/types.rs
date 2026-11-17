@@ -350,7 +350,6 @@ pub(crate) struct RequestContext {
     pub(crate) timeout: TimeoutPolicy,
     pub(crate) retry: RetryPolicy,
     pub(crate) control: ControlPolicy,
-    pub(crate) cancellation: CancellationPolicy,
 }
 
 impl RequestContext {
@@ -1250,7 +1249,6 @@ mod duration_proof_tests {
             timeout,
             retry,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         }
     }
 

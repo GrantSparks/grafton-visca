@@ -104,7 +104,7 @@ fn queued_exact_declarations_reserve_c16_independently_on_all_seven_targets() {
         let command = engine.handle_turn(
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
-                request: command(target, CancellationPolicy::Supported),
+                request: command(target),
                 slot: AdmissionSlot::Ordinary,
             },
             now,

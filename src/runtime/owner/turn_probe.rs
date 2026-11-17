@@ -17,9 +17,8 @@ use super::{
 use crate::{
     request::Request,
     runtime::engine::{
-        CancellationPolicy, CommandReply, ControlPolicy, DecodedFrame, DecodedResponse,
-        EncodedMessage, EnvelopeKind, EnvelopeSequence, RequestContext, RetryPolicy, SequenceWidth,
-        TimeoutPolicy,
+        CommandReply, ControlPolicy, DecodedFrame, DecodedResponse, EncodedMessage, EnvelopeKind,
+        EnvelopeSequence, RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy,
     },
     target::TargetSlot,
     transport::{
@@ -219,7 +218,6 @@ impl TurnProbe {
                 builtin_inquiry_syntax: false,
             },
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         };
         let request = RuntimeRequest::Command {
             wire: Arc::clone(&self.wire),
@@ -409,6 +407,20 @@ impl TurnProbe {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_registered_profile_supports_command_and_frame_turns() {
+        for id in crate::profiles::ProfileId::all() {
+            let profile = id.spec().unwrap();
+            for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
+                let mut probe =
+                    TurnProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+                probe.stage_command().unwrap();
+                probe.command_turn().unwrap();
+                probe.frame_turn().unwrap();
+            }
+        }
+    }
 
     #[test]
     fn probe_pacing_reads_the_retuned_engine() {

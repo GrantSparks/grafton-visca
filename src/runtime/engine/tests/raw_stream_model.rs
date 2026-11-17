@@ -778,11 +778,7 @@ impl Session {
 
     fn admit_random(&mut self, target: u8) {
         if self.roll(1_000) < self.kind.link.no_reply_per_mille {
-            let request = command_with_reply_shape(
-                target,
-                CancellationPolicy::Supported,
-                CommandReply::NoReply,
-            );
+            let request = command_with_reply_shape(target, CommandReply::NoReply);
             self.admit(request, AdmissionSlot::Ordinary);
             return;
         }
@@ -797,22 +793,12 @@ impl Session {
                 AdmissionSlot::ControlReserve,
             ),
             3..=8 => (inquiry(target), AdmissionSlot::Ordinary),
-            9..=15 => (
-                command(target, CancellationPolicy::Supported),
-                AdmissionSlot::Ordinary,
-            ),
+            9..=15 => (command(target), AdmissionSlot::Ordinary),
             16..=17 => (
-                command_with_reply_shape(
-                    target,
-                    CancellationPolicy::Supported,
-                    CommandReply::CompletionOnly,
-                ),
+                command_with_reply_shape(target, CommandReply::CompletionOnly),
                 AdmissionSlot::Ordinary,
             ),
-            _ => (
-                command(target, CancellationPolicy::Supported),
-                AdmissionSlot::Ordinary,
-            ),
+            _ => (command(target), AdmissionSlot::Ordinary),
         };
         self.admit(request, slot);
     }
@@ -1588,7 +1574,7 @@ impl Session {
 /// A STOP as the owner admits it: within a halt (its siblings share
 /// `order`) or alone.
 fn stop(target: u8, now: Instant, budget: Duration, order: u64) -> RuntimeRequest {
-    let mut request = urgent_command(target, CancellationPolicy::Supported);
+    let mut request = urgent_command(target);
     let context = request.context_mut();
     context.submission_order = order;
     context.retry = RetryPolicy {
@@ -1649,21 +1635,12 @@ fn learned_completion_chunking(
     let (write, completion_only) = admit(
         &mut engine,
         1,
-        command_with_reply_shape(
-            1,
-            CancellationPolicy::Supported,
-            CommandReply::CompletionOnly,
-        ),
+        command_with_reply_shape(1, CommandReply::CompletionOnly),
         now,
     );
     observed.extend(write.iter().map(|effect| format!("{effect:?}")));
     observed.extend(snapshot(send_ok(&mut engine, &write, None, now)));
-    let (write, first) = admit(
-        &mut engine,
-        2,
-        urgent_command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (write, first) = admit(&mut engine, 2, urgent_command(1), now);
     observed.extend(write.iter().map(|effect| format!("{effect:?}")));
     observed.extend(snapshot(send_ok(&mut engine, &write, None, now)));
     observed.extend(snapshot(engine.handle(
@@ -1677,7 +1654,7 @@ fn learned_completion_chunking(
         now,
     )));
     assert_eq!(socket_of(&engine, first), Some(ViscaSocket::S1));
-    let mut stop = urgent_command(1, CancellationPolicy::Supported);
+    let mut stop = urgent_command(1);
     stop.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
     let (mut write, second) = admit(&mut engine, 3, stop, now);
     let at = now + Duration::from_millis(10);
@@ -1765,12 +1742,7 @@ proptest::proptest! {
 fn terminal_stream_reset_clears_and_audits_every_learning_field() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
-    let (write, id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (write, id) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &write, None, now);
     let stream = engine.correlation.stream_mut().unwrap();
     stream.learning[camera(1)] = correlation::CompletionLearning {

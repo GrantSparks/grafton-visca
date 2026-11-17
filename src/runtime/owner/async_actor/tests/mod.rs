@@ -420,7 +420,6 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         },
         applied_state: None,
     }
@@ -456,7 +455,6 @@ fn command_with_short_deadlines() -> RuntimeRequest {
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         },
         applied_state: None,
     }
@@ -489,7 +487,6 @@ fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> Run
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         },
         applied_state: None,
     }
@@ -601,7 +598,6 @@ fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         },
     }
 }

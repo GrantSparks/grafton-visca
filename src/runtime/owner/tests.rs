@@ -395,7 +395,6 @@ mod control_reserve {
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         };
         RuntimeRequest::Command {
             reply_shape,
@@ -776,7 +775,6 @@ mod metrics {
             },
             retry,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         }
     }
 
@@ -1306,8 +1304,7 @@ mod metrics {
                 .unwrap()
                 .cancellation = cancellation;
             let mut state = OwnerState::new(policy, now).unwrap();
-            let mut request = command(RetryPolicy::NEVER);
-            request.context_mut().cancellation = cancellation;
+            let request = command(RetryPolicy::NEVER);
             let _terminal = sent(&mut state, request, None, now);
             let id = *state.active.keys().next().unwrap();
             let (_observation, observer) = CancellationObserver::pair();
@@ -2239,12 +2236,7 @@ mod lifecycle_trace {
         )
     }
 
-    fn command(
-        target: TargetSlot,
-        wire: &str,
-        cancellation: CancellationPolicy,
-        ack: Duration,
-    ) -> RuntimeRequest {
+    fn command(target: TargetSlot, wire: &str, ack: Duration) -> RuntimeRequest {
         RuntimeRequest::Command {
             reply_shape: CommandReply::AckThenCompletion,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
@@ -2264,7 +2256,6 @@ mod lifecycle_trace {
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
-                cancellation,
             },
             // Fixtures observe this exact write-only effect through StateCache.
             applied_state: Some(AppliedStateProjection::set(
@@ -2273,12 +2264,7 @@ mod lifecycle_trace {
         }
     }
 
-    fn inquiry(
-        target: TargetSlot,
-        wire: &str,
-        cancellation: CancellationPolicy,
-        reply: Duration,
-    ) -> RuntimeRequest {
+    fn inquiry(target: TargetSlot, wire: &str, reply: Duration) -> RuntimeRequest {
         RuntimeRequest::Inquiry {
             payload_shape: crate::PayloadShape::Unknown,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
@@ -2298,7 +2284,6 @@ mod lifecycle_trace {
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
-                cancellation,
             },
         }
     }
@@ -2468,8 +2453,8 @@ mod lifecycle_trace {
             };
 
             let request = match field(input, "kind").unwrap_or("command") {
-                "command" => command(target, wire, self.cancellation, ack),
-                "inquiry" => inquiry(target, wire, self.cancellation, ack),
+                "command" => command(target, wire, ack),
+                "inquiry" => inquiry(target, wire, ack),
                 other => panic!("unknown fixture request kind {other}"),
             };
             let now = self.now;

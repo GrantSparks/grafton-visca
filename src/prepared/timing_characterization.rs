@@ -276,11 +276,6 @@ fn every_profile_class_and_override_preserves_the_characterized_context() {
                             class: crate::runtime::engine::ControlClass::Normal,
                             minimum_spacing: actual.control.minimum_spacing,
                         },
-                        cancellation: if profile.supports_command_cancel() {
-                            CancellationPolicy::Supported
-                        } else {
-                            CancellationPolicy::Unsupported
-                        },
                     }
                 );
                 assert_eq!(

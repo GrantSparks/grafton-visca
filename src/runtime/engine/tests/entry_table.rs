@@ -5,12 +5,7 @@ use super::*;
 fn displaced_entry_removal_cannot_release_the_successors_socket() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let (first, predecessor) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (first, predecessor) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &first, Some(0x1001), now);
     engine.handle(
         frame(
@@ -22,12 +17,7 @@ fn displaced_entry_removal_cannot_release_the_successors_socket() {
         ),
         now,
     );
-    let (second, successor) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (second, successor) = admit(&mut engine, 2, command(1), now);
     send_ok(&mut engine, &second, Some(0x1002), now);
     let logical = engine.entry(predecessor).unwrap().lifecycle();
     engine
@@ -144,9 +134,9 @@ fn admission_and_transitions_never_duplicate_a_ready_position() {
 fn stop_class_alone_selects_the_highest_priority_ready_index() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let mut ordinary = command(1, CancellationPolicy::Supported);
+    let mut ordinary = command(1);
     ordinary.context_mut().control.class = ControlClass::User;
-    let mut stop = urgent_command(1, CancellationPolicy::Supported);
+    let mut stop = urgent_command(1);
     // Even a lowest-priority context cannot demote the immutable STOP class.
     stop.context_mut().control.class = ControlClass::Background;
     let turn = engine.begin_input_turn(now);

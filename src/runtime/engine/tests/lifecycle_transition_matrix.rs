@@ -269,12 +269,8 @@ impl Fixture {
         let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
         let mut request = match state {
             AwaitingReply => inquiry(1),
-            AwaitingCompletion => command_with_reply_shape(
-                1,
-                CancellationPolicy::Supported,
-                CommandReply::CompletionOnly,
-            ),
-            _ => command(1, CancellationPolicy::Supported),
+            AwaitingCompletion => command_with_reply_shape(1, CommandReply::CompletionOnly),
+            _ => command(1),
         };
         if state != Backoff {
             request.context_mut().retry.max_retries = 0;
@@ -616,7 +612,7 @@ fn flattened_pair_oracle_has_exactly_the_sixteen_documented_pairs() {
 fn sony_lost_ack_backoff_cancel_is_an_unconfirmed_terminal() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    let mut request = command(1, CancellationPolicy::Supported);
+    let mut request = command(1);
     request.context_mut().retry = retrying();
     let (write, id) = admit(&mut engine, 1, request, now);
     send_ok(&mut engine, &write, Some(0x1001), now);

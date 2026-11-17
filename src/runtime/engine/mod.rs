@@ -1442,7 +1442,7 @@ trait EngineMethods: EngineAccess {
             });
         }
         self.admission_slot_available(&request, slot)?;
-        let Some(target_policy) = self.targets[context.target].policy else {
+        let Some(_) = self.targets[context.target].policy else {
             return Err(Error::InvalidState {
                 reason: "target is not registered in this session".into(),
             });
@@ -1463,11 +1463,6 @@ trait EngineMethods: EngineAccess {
         }
         if let Some(error) = self.latched_raw_lane_error(&request) {
             return Err(error);
-        }
-        if target_policy.cancellation != context.cancellation {
-            return Err(Error::InvalidState {
-                reason: "request cancellation policy conflicts with target registration".into(),
-            });
         }
         let Some(id) = self.allocate_request_id() else {
             return Err(Error::RuntimeIdentityExhausted);
@@ -3722,7 +3717,9 @@ trait EngineMethods: EngineAccess {
             CancellationDecision::Refused(Error::InquiryNotCancellable)
         } else {
             entry.lifecycle().cancellation_decision(
-                entry.request.context().cancellation == CancellationPolicy::Supported,
+                self.targets[entry.request.context().target]
+                    .policy
+                    .is_some_and(|policy| policy.cancellation == CancellationPolicy::Supported),
                 add_duration(now, entry.request.context().timeout.ambiguity.get()),
             )
         };
@@ -5273,7 +5270,6 @@ mod cancellation_regression_tests {
             ),
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
-            cancellation: CancellationPolicy::Supported,
         }
     }
 

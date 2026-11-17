@@ -2,11 +2,7 @@
 use super::*;
 
 fn completion_only() -> RuntimeRequest {
-    let mut request = command_with_reply_shape(
-        1,
-        CancellationPolicy::Supported,
-        CommandReply::CompletionOnly,
-    );
+    let mut request = command_with_reply_shape(1, CommandReply::CompletionOnly);
     request.context_mut().timeout.completion =
         NonZeroDuration::new(Duration::from_secs(5)).unwrap();
     request
@@ -33,12 +29,7 @@ fn completion_only_cancel_preserves_window_and_late_completion_cannot_apply_succ
         .advance(now + Duration::from_millis(51))
         .iter()
         .all(|effect| !matches!(effect, Effect::Terminal { id: ended, .. } if *ended == id)));
-    let (queued, successor) = admit(
-        &mut engine,
-        2,
-        command(1, CancellationPolicy::Supported),
-        now + Duration::from_millis(52),
-    );
+    let (queued, successor) = admit(&mut engine, 2, command(1), now + Duration::from_millis(52));
     assert!(request_transmit_optional(&queued).is_none());
     let completion = engine.handle(
         frame(1, None, DecodedResponse::Completion { socket: None }),
@@ -78,12 +69,7 @@ fn sending_command_cannot_record_cancellation_intent() {
     ] {
         let now = Instant::now();
         let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-        let (write, id) = admit(
-            &mut engine,
-            1,
-            command_with_reply_shape(1, CancellationPolicy::Supported, shape),
-            now,
-        );
+        let (write, id) = admit(&mut engine, 1, command_with_reply_shape(1, shape), now);
         assert!(engine.assert_input_boundary().is_err());
         let mut sink = Vec::new();
         let mut effects = Decision::new(&mut sink);
@@ -105,12 +91,7 @@ fn sending_command_cannot_record_cancellation_intent() {
 fn unconfirmed_pre_ack_cancel_retains_a_future_pre_ack_hold() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (write, id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        now,
-    );
+    let (write, id) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &write, None, now);
     engine.handle(Input::Cancel { id }, now);
     let terminal = now + Duration::from_millis(50);
@@ -129,12 +110,7 @@ fn unconfirmed_cancel_write_failure_and_resolution_expiry_retain_future_socket_h
     for success in [false, true] {
         let now = Instant::now();
         let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-        let (write, id) = admit(
-            &mut engine,
-            1,
-            command(1, CancellationPolicy::Supported),
-            now,
-        );
+        let (write, id) = admit(&mut engine, 1, command(1), now);
         send_ok(&mut engine, &write, None, now);
         engine.handle(
             frame(
@@ -186,7 +162,7 @@ fn pre_ack_cancel_never_shortens_a_long_ack_window() {
     ] {
         let now = Instant::now();
         let mut engine = engine(envelope, transport);
-        let mut request = command(1, CancellationPolicy::Supported);
+        let mut request = command(1);
         request.context_mut().timeout.ack = NonZeroDuration::new(Duration::from_secs(1)).unwrap();
         let (write, id) = admit(&mut engine, 1, request, now);
         let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
@@ -274,7 +250,7 @@ fn pre_ack_cancel_expires_at_the_later_deadline_and_retains_a_full_raw_window() 
         ] {
             let now = Instant::now();
             let mut engine = engine(envelope, transport);
-            let mut request = command(1, CancellationPolicy::Supported);
+            let mut request = command(1);
             request.context_mut().timeout.ack =
                 NonZeroDuration::new(Duration::from_millis(ack_ms)).unwrap();
             let (write, id) = admit(&mut engine, 1, request, now);

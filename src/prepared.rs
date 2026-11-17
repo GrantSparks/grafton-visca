@@ -24,8 +24,8 @@ use crate::{Error, Result};
 
 use crate::raw::MAX_BYTES;
 use crate::runtime::engine::{
-    AppliedStateProjection, CancellationPolicy, CommandOutcome, CommandReply, ControlPolicy,
-    EncodedMessage, InquiryOutcome, RequestContext, RetryPolicy, TimeoutPolicy,
+    AppliedStateProjection, CommandOutcome, CommandReply, ControlPolicy, EncodedMessage,
+    InquiryOutcome, RequestContext, RetryPolicy, TimeoutPolicy,
 };
 
 #[cfg(test)]
@@ -829,11 +829,6 @@ where
             control: ControlPolicy {
                 class: control_class,
                 minimum_spacing: spacing,
-            },
-            cancellation: if profile.supports_command_cancel() {
-                CancellationPolicy::Supported
-            } else {
-                CancellationPolicy::Unsupported
             },
         },
         reply_shape,

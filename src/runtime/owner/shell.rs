@@ -1357,7 +1357,6 @@ mod tests {
                     class: ControlClass::Normal,
                     ..ControlPolicy::default()
                 },
-                cancellation: CancellationPolicy::Supported,
             },
             applied_state: None,
         }

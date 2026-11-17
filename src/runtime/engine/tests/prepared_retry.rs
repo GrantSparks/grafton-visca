@@ -45,7 +45,11 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
             envelope,
             TransportKind::Datagram,
             profile.maximum_command_sockets(),
-            context.cancellation,
+            if profile.supports_command_cancel() {
+                CancellationPolicy::Supported
+            } else {
+                CancellationPolicy::Unsupported
+            },
         );
         let (admission, id) = admit(&mut engine, 1, request, start);
         let sequence = (envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));

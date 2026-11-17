@@ -817,7 +817,7 @@ fn warmed_malformed_receive_decoding_does_not_allocate() {
 #[test]
 fn warmed_owner_command_and_frame_turns_do_not_allocate() {
     use grafton_visca::{
-        profiles::{GenericVisca, ProfileSpec, SonyFr7},
+        profiles::{GenericVisca, ProfileSpec, PtzOpticsG2, SonyFr7},
         testing::turns::TurnProbe,
         transport::{SendSemantics, TransportConfig},
     };
@@ -828,6 +828,10 @@ fn warmed_owner_command_and_frame_turns_do_not_allocate() {
             ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
         ),
         ("Sony", ProfileSpec::from_compile_time::<SonyFr7>().unwrap()),
+        (
+            "PTZOptics",
+            ProfileSpec::from_compile_time::<PtzOpticsG2>().unwrap(),
+        ),
     ] {
         for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
             let mut probe =

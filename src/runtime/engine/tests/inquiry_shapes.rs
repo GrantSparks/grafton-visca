@@ -507,7 +507,7 @@ fn distinct_shape_debts_stay_bounded_at_single_request_capacity() {
     let effects = model.engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(model.ticket),
-            request: command(1, CancellationPolicy::Supported),
+            request: command(1),
             slot: AdmissionSlot::Ordinary,
         },
         model.now,
@@ -638,7 +638,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
     }
 
     fn stop_request(target: u8) -> RuntimeRequest {
-        let mut request = urgent_command(target, CancellationPolicy::Supported);
+        let mut request = urgent_command(target);
         request.context_mut().motion = Some(MotionEffect {
             axes: crate::AffectedAxes::PAN_TILT,
         });
