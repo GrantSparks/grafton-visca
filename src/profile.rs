@@ -1355,29 +1355,6 @@ impl ProfileSpec {
             });
         }
 
-        // Command and inquiry overrides feed the same derived retry-budget
-        // calculation as their profile-owned counterparts.
-        let ack = tuning
-            .ack_timeout()
-            .unwrap_or(self.facts.timing.ack_timeout);
-        if CommandTimeoutClass::ALL.into_iter().any(|category| {
-            let deadline = tuning
-                .command_override(category)
-                .unwrap_or(self.facts.timing.command_timeouts.get(category));
-            !retry_budget_is_representable(now, deadline, ack)
-        }) || !retry_budget_is_representable(
-            now,
-            tuning
-                .inquiry_timeout()
-                .unwrap_or(self.facts.timing.inquiry_timeout),
-            Duration::ZERO,
-        ) {
-            return Err(Error::InvalidRequest {
-                reason: "operational retry deadlines must be representable by the monotonic clock"
-                    .into(),
-            });
-        }
-
         if tuning
             .command_spacing()
             .is_some_and(|value| value < self.facts.timing.command_spacing)
@@ -1397,20 +1374,22 @@ impl ProfileSpec {
                 reason: "operational tuning cannot raise the profile socket limit".into(),
             });
         }
-        if [
-            tuning.ack_timeout(),
-            tuning.settlement_timeout(),
-            tuning.inquiry_timeout(),
-        ]
-        .into_iter()
-        .chain(command_overrides)
-        .flatten()
-        .any(|timeout| timeout.is_zero())
+        let resolved = crate::timeout::ResolvedTiming::validate(tuning, &self.facts.timing)?;
+        // Check the same effective retry budget preparation will lower.
+        if CommandTimeoutClass::ALL.into_iter().any(|category| {
+            !retry_budget_is_representable(
+                now,
+                resolved.command(category).get(),
+                resolved.ack.get(),
+            )
+        }) || !retry_budget_is_representable(now, resolved.inquiry.get(), Duration::ZERO)
         {
             return Err(Error::InvalidRequest {
-                reason: "operational timeout overrides must be non-zero".into(),
+                reason: "operational retry deadlines must be representable by the monotonic clock"
+                    .into(),
             });
         }
+
         let undercuts =
             |value: Option<Duration>, floor: Duration| value.is_some_and(|value| value < floor);
         if undercuts(tuning.ack_timeout(), self.facts.timing.ack_timeout)
@@ -1427,20 +1406,10 @@ impl ProfileSpec {
             });
         }
         if let Some(settlement) = tuning.settlement_timeout() {
-            let budget = |category| {
-                let deadline = tuning
-                    .command_override(category)
-                    .unwrap_or(self.facts.timing.command_timeouts.get(category));
-                tuning
-                    .lengthen_retry_bounds(RetryBounds::for_request(
-                        self.facts.timing.busy_timeout,
-                        deadline,
-                        ack.saturating_add(deadline),
-                    ))
-                    .total_budget
-            };
-            let floor =
-                budget(CommandTimeoutClass::Movement).min(budget(CommandTimeoutClass::Preset));
+            let floor = resolved
+                .retry_budget(CommandTimeoutClass::Movement)
+                .get()
+                .min(resolved.retry_budget(CommandTimeoutClass::Preset).get());
             if settlement < floor {
                 return Err(Error::InvalidRequest { reason: format!(
                     "operational settlement timeout cannot undercut the smallest targeted retry budget ({floor:?})"

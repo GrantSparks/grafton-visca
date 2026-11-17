@@ -97,6 +97,14 @@ documented lifecycle.
 
 ### Timeout and retry ownership
 
+`ValidatedTuning::resolve` selects operational overrides against one validated
+profile through `ResolvedTiming`. Its positive deadlines lower directly into
+`TimeoutPolicy`; preparation does not validate the same intervals again.
+Resolution owns the retry-budget formula used by both the settlement floor and
+request preparation, retaining the ACK window only for ACK-bearing commands.
+Owner construction and retuning use the same resolution for aggregate pacing
+and target socket limits. Public timing configuration remains `Duration` data.
+
 Timeout policy has one ownership boundary. A validated profile owns its exact
 `CommandTimeouts` category table and its inquiry, acknowledgement,
 cancellation, ambiguity, raw inquiry-reply skew, busy, and pacing facts.
