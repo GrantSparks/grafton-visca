@@ -652,10 +652,6 @@ pub(crate) struct ValidatedSessionConfig(SessionConfig, ValidatedTuning);
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl ValidatedSessionConfig {
-    pub(crate) fn target_count(&self) -> usize {
-        self.targets.iter().count()
-    }
-
     pub(crate) const fn validated_tuning(&self) -> ValidatedTuning {
         self.1
     }

@@ -465,6 +465,29 @@ mod tests {
         session.shutdown().expect("session shutdown");
     }
 
+    /// A session's `Debug` output lists exactly its registered targets in
+    /// camera-number order, not every addressable slot.
+    #[test]
+    fn session_debug_lists_only_registered_targets() {
+        let session = Session::open(
+            ScriptedBlockingTransport::new([]),
+            &SessionConfig::for_target(
+                crate::IndividualCameraId::CAMERA_3,
+                ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+                    .expect("generic profile"),
+            ),
+        )
+        .expect("single-target session");
+        assert_eq!(
+            format!("{session:?}"),
+            format!(
+                "Session {{ targets: {:?}, .. }}",
+                [crate::IndividualCameraId::CAMERA_3]
+            )
+        );
+        session.shutdown().expect("session shutdown");
+    }
+
     /// Issue #805: tuning is validated once, when the session opens, before
     /// any write: an open that would send the Sony RESET writes nothing.
     #[test]

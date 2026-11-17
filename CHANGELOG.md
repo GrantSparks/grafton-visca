@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inquiries use `InquiryRetryClass`. The former class-agnostic policy enums
   leave the public API; persisted command and operation policies reject the
   former `"inquiry"` retry alias (#1016, #909, #970).
+- **BREAKING**: `Session`'s `Debug` output lists its registered target IDs in
+  camera-number order, as in `Session { targets: [IndividualCameraId(1)], .. }`,
+  instead of their count (#1033).
 
 ### Fixed
 
