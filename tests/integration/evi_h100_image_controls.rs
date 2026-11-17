@@ -206,7 +206,7 @@ fn r8_picture_effect_is_metadata_only() {
         .capabilities()
         .image
         .as_ref()
-        .is_some_and(|image| image.picture_effect));
+        .is_some_and(|image| !image.picture_effects.is_empty()));
     assert!(!profile
         .capabilities()
         .supports(TypedSupportSurface::PictureEffect));

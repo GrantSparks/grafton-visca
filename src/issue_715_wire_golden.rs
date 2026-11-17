@@ -964,13 +964,15 @@ pub(crate) fn rows() -> Vec<String> {
             mode: PictureEffectMode::BlackAndWhite
         }
     );
-    rowr!(
-        o,
-        "PictureEffect[Unknown 0x05]",
-        Ok(PictureEffectCommand {
-            mode: PictureEffectMode::Unknown(UnknownPictureEffect::new(0x05)?)
-        })
-    );
+    let extension = PictureEffectCommand {
+        mode: PictureEffectMode::Unknown(UnknownPictureEffect::new(0x05).expect("extension code")),
+    };
+    let target = registered_target::<crate::profiles::PtzOpticsG2>();
+    let result = prepared_limit(&extension, &target);
+    o.lines.push(match result {
+        Ok(bytes) => format!("PictureEffect[Unknown 0x05]\t{}", hex(&bytes)),
+        Err(error) => format!("PictureEffect[Unknown 0x05]\tREJECT({:?})", error.kind()),
+    });
     row!(o, "ImageFlip[On]", flip::ImageFlip { flip: true });
     row!(o, "ImageFlip[Off]", flip::ImageFlip { flip: false });
     row!(o, "HorizontalFlip[on]", flip::HorizontalFlip { on: true });

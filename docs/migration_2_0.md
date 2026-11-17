@@ -471,7 +471,7 @@ not established:
 | `ResolutionInquiry`, `ResolutionMode`, `image().resolution()` | No typed replacement. The claimed `09 04 63` register is the sourced Picture Effect inquiry. Use a model-specific `raw::InquiryRequest` only when that camera's documentation establishes a resolution query. |
 | `BlackWhiteInquiry`, `BlackWhiteModeInquiry`, `BlackWhiteMode`, `image().black_white*` | Use `image().picture_effect()` when BlackAndWhite/Off is what the profile documents. Otherwise use a model-specific raw inquiry with evidence. |
 | `NrLevelInquiry`, `NrModeInquiry`, `NrSpeedInquiry`, `NoiseReductionLevel`, `NoiseReductionMode`, `NoiseReductionSpeed` and aggregate NR accessors | Use the dimension-specific 2D-mode, 2D-level, and 3D-level API described below. |
-| `PictureEffectMode::{Negative, Sepia, Sketch, Emboss, Mosaic}` | Built-ins expose only sourced `Off` and `BlackAndWhite` names. Use `PictureEffectMode::Unknown(UnknownPictureEffect::new(raw)?)` only when the selected model's documentation establishes that raw value. |
+| `PictureEffectMode::{Negative, Sepia, Sketch, Emboss, Mosaic}` | Built-ins expose only sourced `Off` and `BlackAndWhite` names. Use `PictureEffectMode::Unknown(UnknownPictureEffect::new(raw)?)` only when that value appears in the selected profile's `ImageCaps::picture_effects` inventory. Built-in PTZOptics profiles admit only Off and BlackAndWhite. |
 
 These are breaking source and wire corrections, not aliases: code that names a
 removed item must choose the model-specific behavior it intended.
@@ -483,7 +483,7 @@ removed item must choose the model-specific behavior it intended.
 | ND density conversion truncated fractional quarter stops | The conversion rounds to the nearest quarter stop using `f32`, with halves away from zero: `6.99` becomes code `14` hex and `2.24` becomes `01`. |
 | `DirectMenuControl::new(u8, u8)` and `menu().direct(u8, u8)` | Pass `DirectMenuTarget` and `MenuButton`. The constructor is infallible; both enums admit only R7's documented targets and release/press states. Raw requests remain available for model-specific experiments. |
 | Noise-reduction level zero and `off()` represented the same register value | `NoiseReduction2DLevel` and `NoiseReduction3DLevel` are nonzero. Use `NoiseReduction2D::Off` / `NoiseReduction3D::Off` for zero. Typed inquiry readback returns the same `Off` / `Level(level)` value, preserving an off register without constructing level zero. |
-| `PictureEffectMode::Unknown(u8)` admitted aliases for known codes | `Unknown(UnknownPictureEffect)` validates model-specific codes, rejecting `00`, `02`, and `04`. `WireValue::from_wire` decodes command Off (`00`) and black and white (`04`); the built-in inquiry decoder also normalizes the inquiry Off spelling (`02`). |
+| `PictureEffectMode::Unknown(u8)` admitted aliases for known codes | `Unknown(UnknownPictureEffect)` validates model-specific codes, rejecting `00`, `02`, `04`, and the `FF` frame terminator. Typed setters also require the value in the profile's `ImageCaps::picture_effects` inventory. `WireValue::from_wire` decodes command Off (`00`) and black and white (`04`); the built-in inquiry decoder also normalizes the inquiry Off spelling (`02`). |
 
 ### Noise-reduction control families
 

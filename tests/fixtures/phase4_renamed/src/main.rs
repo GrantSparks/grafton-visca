@@ -566,7 +566,7 @@ impl CompileTimeProfile for DownstreamProfile {
             flip: false,
             mirror: false,
             requires_settings_save_for_flip: false,
-            picture_effect: false,
+            picture_effects: vec![],
         });
         image.flip = true;
         image.mirror = true;

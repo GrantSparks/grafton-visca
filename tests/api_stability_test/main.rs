@@ -206,7 +206,12 @@ fn profile_marker_and_capability_contract() {
         .expect("exposure domain")
         .iris_range
         .is_some());
-    assert!(g2.image.as_ref().expect("image domain").picture_effect);
+    assert!(!g2
+        .image
+        .as_ref()
+        .expect("image domain")
+        .picture_effects
+        .is_empty());
     let fr7 = fr7_profile.capabilities();
     assert_eq!(fr7.default_camera_id.value(), 1);
     assert!(fr7.supports(TypedSupportSurface::IrisSteps));

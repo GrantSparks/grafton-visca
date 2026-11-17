@@ -137,7 +137,10 @@ fn synthetic_spec(
             flip: true,
             mirror: true,
             requires_settings_save_for_flip: false,
-            picture_effect: true,
+            picture_effects: vec![
+                grafton_visca::types::PictureEffectMode::Off,
+                grafton_visca::types::PictureEffectMode::BlackAndWhite,
+            ],
         });
     }
     caps.presets = Some(PresetCaps {

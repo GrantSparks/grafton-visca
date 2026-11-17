@@ -3888,6 +3888,7 @@ mod tests {
         for (path, key) in [
             ("/capabilities", "focus"),
             ("/capabilities/zoom", "optical_ratio"),
+            ("/capabilities/image", "picture_effects"),
             ("/capabilities/pan_tilt/coordinates", "wire_codec"),
         ] {
             let mut missing = value.clone();
@@ -3912,6 +3913,75 @@ mod tests {
         assert!(serde_json::from_value::<ProfileSpec>(invalid).is_err());
         let restored: ProfileSpec = serde_json::from_value(value).expect("current grouped shape");
         assert_eq!(restored, base);
+    }
+
+    #[test]
+    fn picture_effect_inventories_allow_checked_extensions_and_reject_duplicates() {
+        let base = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
+        let mut caps = base.capabilities().clone();
+        caps.profile_id = None;
+        let extension = crate::types::PictureEffectMode::Unknown(
+            crate::types::UnknownPictureEffect::new(0x05).expect("extension"),
+        );
+        caps.image
+            .as_mut()
+            .expect("image")
+            .picture_effects
+            .push(extension);
+        let custom = copy_builder(&base, caps.clone())
+            .build()
+            .expect("custom inventory");
+        assert!(custom
+            .capabilities()
+            .image
+            .as_ref()
+            .expect("image")
+            .picture_effects
+            .contains(&extension));
+        caps.image
+            .as_mut()
+            .expect("image")
+            .picture_effects
+            .push(extension);
+        let error = copy_builder(&base, caps)
+            .build()
+            .expect_err("duplicate effect");
+        assert!(error
+            .to_string()
+            .contains("capabilities.image.picture_effects"));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn picture_effect_inventory_has_a_required_round_tripping_persisted_key() {
+        let base = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
+        let value = serde_json::to_value(&base).expect("serialize inventory");
+        let image = &value["capabilities"]["image"];
+        assert_eq!(
+            image["picture_effects"],
+            serde_json::json!(["off", "black_and_white"])
+        );
+        assert!(image.get("picture_effect").is_none());
+        assert_eq!(
+            serde_json::from_value::<ProfileSpec>(value.clone()).expect("round trip"),
+            base
+        );
+        let mut obsolete = value.clone();
+        let image = obsolete["capabilities"]["image"]
+            .as_object_mut()
+            .expect("image object");
+        image.remove("picture_effects");
+        image.insert("picture_effect".into(), serde_json::Value::Bool(true));
+        let error =
+            serde_json::from_value::<ProfileSpec>(obsolete).expect_err("obsolete inventory");
+        assert!(error.to_string().contains(REGENERATE_SPEC));
+        let mut empty = value;
+        empty["capabilities"]["profile_id"] = serde_json::Value::Null;
+        empty["capabilities"]["image"]["picture_effects"] = serde_json::json!([]);
+        assert!(
+            serde_json::from_value::<ProfileSpec>(empty).is_err(),
+            "a typed grant requires a nonempty inventory"
+        );
     }
 
     #[cfg(feature = "serde")]

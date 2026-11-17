@@ -260,7 +260,7 @@ impl Capabilities {
             S::Hue => Dedicated(image.is_some_and(|domain| domain.hue_range.is_some())),
             S::Luminance => Dedicated(image.is_some_and(|domain| domain.luminance_range.is_some())),
             S::Gamma => Dedicated(image.is_some_and(|domain| domain.gamma_range.is_some())),
-            S::PictureEffect => Dedicated(image.is_some_and(|domain| domain.picture_effect)),
+            S::PictureEffect => Dedicated(image.is_some_and(|domain| !domain.picture_effects.is_empty())),
             S::PanTiltSpeedMode => Dedicated(
                 self.pan_tilt
                     .as_ref()
@@ -481,7 +481,7 @@ mod tests {
                 baseline.white_balance = caps.white_balance.clone();
             }
             if baseline.image.is_none() {
-                baseline.image = caps.image;
+                baseline.image = caps.image.clone();
             }
             if baseline.presets.is_none() {
                 baseline.presets = caps.presets;
@@ -785,7 +785,7 @@ mod tests {
         assert!(caps
             .image
             .as_ref()
-            .is_some_and(|domain| domain.picture_effect));
+            .is_some_and(|domain| !domain.picture_effects.is_empty()));
 
         assert!(
             caps.pan_tilt.is_some()
@@ -899,7 +899,7 @@ mod tests {
         assert!(!caps
             .image
             .as_ref()
-            .is_some_and(|domain| domain.picture_effect));
+            .is_some_and(|domain| !domain.picture_effects.is_empty()));
 
         // FR7 shares the one-shot capture concept even though it has no
         // standard OnePush mode variant or shared Kelvin-control family.
@@ -1086,7 +1086,7 @@ mod tests {
             assert!(caps
                 .image
                 .as_ref()
-                .is_some_and(|domain| domain.picture_effect));
+                .is_some_and(|domain| !domain.picture_effects.is_empty()));
             assert!(caps.supports(TypedSupportSurface::PictureEffect));
         }
 

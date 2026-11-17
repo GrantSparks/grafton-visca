@@ -1332,16 +1332,16 @@ macro_rules! noun_table {
             ///
             /// `PictureEffectMode` is an effect selector rather than an intensity. It
             /// preserves unknown reply codes as well as the named effects; the selected
-            /// profile's `ImageCaps::picture_effect` fact and picture-effect grant declare
+            /// profile's `ImageCaps::picture_effects` inventory and picture-effect grant declare
             /// availability.
             inquiry [PictureEffectInquiry] picture_effect() -> types::PictureEffectMode where HasPictureEffect
                 = [command::image::PictureEffectInquiry];
             /// Sets picture-effect mode.
             ///
             /// `PictureEffectMode` is an effect selector rather than an intensity. It
-            /// preserves unknown reply codes as well as the named effects; the selected
-            /// profile's `ImageCaps::picture_effect` fact and picture-effect grant declare
-            /// availability.
+            /// accepts only values in the selected profile's `ImageCaps::picture_effects`
+            /// inventory, including checked extension codes documented by custom profiles.
+            /// Built-in PTZOptics profiles admit Off and BlackAndWhite. Returns after application.
             plain [SetPictureEffect] set_picture_effect(mode: types::PictureEffectMode) -> command::image::SetPictureEffect where HasPictureEffect
                 = [command::image::SetPictureEffect::new(mode)];
             /// Raises the master black level by `1..=255` relative adjustment steps. Direct levels span −99.0 to

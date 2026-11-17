@@ -1252,6 +1252,7 @@ mod tests {
             (B::MenuDisplay, &[1, 6, 6][..], &[2, 3][..]),
             (B::MenuSelect, &[1, 6, 6][..], &[5][..]),
             (B::MenuCancel, &[1, 6, 6][..], &[4][..]),
+            (B::PictureEffect, &[1, 4, 0x63][..], &[0, 4][..]),
         ] {
             for selector in 0..=u8::MAX {
                 let frame = [vec![0x81], body.to_vec(), vec![selector, 0xff]].concat();

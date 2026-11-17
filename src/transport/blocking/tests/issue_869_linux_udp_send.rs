@@ -369,7 +369,10 @@ fn synthetic_spec(
             flip: true,
             mirror: true,
             requires_settings_save_for_flip: false,
-            picture_effect: true,
+            picture_effects: vec![
+                crate::types::PictureEffectMode::Off,
+                crate::types::PictureEffectMode::BlackAndWhite,
+            ],
         });
     }
     caps.presets = Some(PresetCaps {

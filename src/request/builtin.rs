@@ -925,7 +925,26 @@ impl BuiltinValidation for crate::command::image_wire::NoiseReduction3DCommand {
 
 impl BuiltinValidation for crate::command::image_wire::ImageFlipCombinedCommand {}
 
-impl BuiltinValidation for crate::command::image_wire::PictureEffectCommand {}
+impl BuiltinValidation for crate::command::image_wire::PictureEffectCommand {
+    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+        if profile
+            .capabilities()
+            .image
+            .as_ref()
+            .is_some_and(|domain| domain.picture_effects.contains(&self.mode))
+        {
+            Ok(())
+        } else {
+            Err(Error::InvalidParameter {
+                parameter: "picture_effect",
+                value: Cow::Owned(format!("{:02X}", self.mode.to_wire())),
+                reason: Cow::Borrowed(
+                    "the profile has no evidence that the camera accepts this picture-effect value",
+                ),
+            })
+        }
+    }
+}
 
 impl BuiltinValidation for crate::command::focus_wire::FocusZoneCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {

@@ -382,7 +382,7 @@ impl WhiteBalanceCaps {
 }
 
 /// Image-processing source facts and optional adjustment domains.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -439,8 +439,8 @@ pub struct ImageCaps {
     pub mirror: bool,
     /// Whether flip changes need explicit settings persistence.
     pub requires_settings_save_for_flip: bool,
-    /// Whether the shared picture-effect family is supported.
-    pub picture_effect: bool,
+    /// Picture-effect values documented for this model; empty means unsupported.
+    pub picture_effects: Vec<crate::types::PictureEffectMode>,
 }
 
 /// Preset memory facts; presence supplies an exact recall-axis set.
@@ -858,6 +858,12 @@ impl super::Capabilities {
             }
         }
         if let Some(image) = &self.image {
+            if !unique(&image.picture_effects) {
+                return Err(invalid(
+                    &["capabilities.image.picture_effects"],
+                    "picture-effect inventory must be unique",
+                ));
+            }
             optional!(
                 "capabilities.image.contrast_range",
                 image.contrast_range,

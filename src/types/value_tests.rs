@@ -133,7 +133,7 @@ fn scalar_schemas_use_the_checked_semantic_domain() {
     assert_bounds::<GainLevel>(0, 25);
     assert_bounds::<ExposureCompensationLevel>(-7, 7);
     assert_bounds::<Kelvin>(2000, 15000);
-    assert_bounds::<UnknownPictureEffect>(1, 255);
+    assert_bounds::<UnknownPictureEffect>(1, 254);
 
     let schema = schemars::schema_for!(UnknownPictureEffect);
     let values = schema

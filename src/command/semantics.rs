@@ -624,7 +624,7 @@ builtin_command_ledger! {
     // cache entry.
     ImageFreezeOn => { class: plain(Set(ImageFreeze)), packet: None, source: crate::source_evidence::Source::Unsourced },
     ImageFreezeOff => { class: plain(Set(ImageFreeze)), packet: None, source: crate::source_evidence::Source::Unsourced },
-    PictureEffect => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::image::PICTURE_EFFECT)), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pictureeffect-command"), (R14, [PtzOpticsG3], "r14-pictureeffect-command")]) },
+    PictureEffect => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::image::PICTURE_EFFECT).select(&[&[0x00], &[0x04]])), source: crate::source_evidence::source!([(R1, [PtzOpticsG2, PtzOptics30x], "r1-pictureeffect-command"), (R14, [PtzOpticsG3], "r14-pictureeffect-command")]) },
     // Neutral-density filter.
     NdFilterMode => { class: plain(Set(NdFilterMode)), packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::nd_filter::MODE)), source: crate::source_evidence::source!([(R7, [SonyFr7], "r7-ndfiltermode-command")]) },
     // ND direct and step commands physically reposition the filter. The
