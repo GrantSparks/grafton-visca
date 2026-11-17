@@ -1499,7 +1499,7 @@ mod metrics {
             .unwrap();
         let _held = joined.join().unwrap();
         let concurrent = ends.receivers.admissions.recv().unwrap();
-        let order = concurrent.request.context().submission_order;
+        let order = concurrent.request().context().submission_order;
         assert_ne!(
             order, cutoff,
             "concurrent enqueue has exactly one side of acceptance"
@@ -1516,7 +1516,7 @@ mod metrics {
                 .admissions
                 .recv()
                 .unwrap()
-                .request
+                .request()
                 .context()
                 .submission_order
                 > cutoff

@@ -276,6 +276,8 @@ The construction and request path has a fixed order:
    values occupy one typed inline slot per declared `StateKey`.
 8. Record terminal outcome, release admission capacity, and retain only the
    bounded diagnostic/history state promised by the public API.
+   Release admission capacity before any admission answer becomes observable;
+   a consuming boundary rejection enforces the same order before admission.
 
 ### Correlation state ownership
 

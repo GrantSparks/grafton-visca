@@ -32,9 +32,9 @@ use super::WriteOutcome;
 use crate::Error;
 
 use super::boundary::{
-    AdmissionBoundary, AdmissionBoundaryClaim, AdmissionClaim, AdmissionRejectionIngress,
-    BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle,
-    OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
+    AdmissionBoundary, AdmissionClaim, AdmissionRejectionIngress, BoundaryReceivers,
+    CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle, OwnerSnapshot,
+    PreAdmissionRejection, RetainedBoundary,
 };
 use super::turn::{Disposition, OwnerCoordinator, ReceiveClass, Selected, TurnOutcome, TurnPlan};
 use super::{
@@ -61,6 +61,9 @@ pub(super) enum OwnerEvent {
     },
     Wake,
 }
+
+/// The consuming admission claim already answered or abandoned its boundary.
+struct RejectedAdmission;
 
 /// An event the coordinator let through to its engine turn.
 #[derive(Debug)]
@@ -892,10 +895,10 @@ impl OwnerShellCore {
         selected_at: Instant,
     ) -> Option<OwnerEvent> {
         let boundary = match event {
-            OwnerEvent::Admission(Ok(mut admission)) => {
-                if !self.claim_admission_boundary(&mut admission, selected_at) {
+            OwnerEvent::Admission(Ok(admission)) => {
+                let Ok(admission) = self.claim_admission_boundary(admission, selected_at) else {
                     return None;
-                }
+                };
                 RetainedBoundary::Admission(admission)
             }
             OwnerEvent::Cancellation(cancellation) => {
@@ -924,53 +927,30 @@ impl OwnerShellCore {
 
     /// Claims the one-way pre-admission deadline race before this boundary is
     /// either staged immediately or held behind an exact raw-release gate.
-    /// Returning `false` means the boundary was rejected or abandoned, and
-    /// its permit and observer must be dropped without entering the engine.
+    /// A rejection consumes the boundary and releases its permit before its
+    /// answer becomes observable, without entering the engine.
     fn claim_admission_boundary(
         &mut self,
-        admission: &mut AdmissionBoundary,
+        mut admission: AdmissionBoundary,
         now: Instant,
-    ) -> bool {
-        let target = admission.request.context().target;
-        let lane = admission.request.lane();
-        if admission.reply.is_disconnected() {
-            // No receipt can be returned to this caller. Check again when a
-            // retained boundary is replayed: claiming its deadline race did
-            // not yet admit it to engine state. A caller that already won
-            // deadline expiry recorded this rejection through its ingress.
-            let record = match &admission.claim {
-                AdmissionBoundaryClaim::Pending(validity) => validity.expire_before_admission(),
-                AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => true,
-            };
-            if record {
-                self.state
-                    .record_admission_rejection(target, lane, &Error::CommandCancelled);
-            }
-            return false;
-        }
-        let validity = match &admission.claim {
-            AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => return true,
-            AdmissionBoundaryClaim::Pending(validity) => validity,
-        };
-        match validity.claim_for_admission(now) {
-            AdmissionClaim::Claimed { .. } => {
-                admission.claim = AdmissionBoundaryClaim::Claimed;
-                true
-            }
-            AdmissionClaim::ExpiredHere => {
-                let error = Error::admission_timeout();
-                self.state.record_admission_rejection(target, lane, &error);
-                let _ = admission.reply.try_send(Err(error));
-                false
-            }
-            AdmissionClaim::ExpiredElsewhere => {
-                let _ = admission.reply.try_send(Err(Error::admission_timeout()));
-                false
+    ) -> Result<AdmissionBoundary, RejectedAdmission> {
+        match admission.claim_for_admission(now) {
+            Ok(()) => Ok(admission),
+            Err(rejection) => {
+                if rejection.record {
+                    self.state.record_admission_rejection(
+                        admission.request().context().target,
+                        admission.request().lane(),
+                        &rejection.error,
+                    );
+                }
+                admission.reject(rejection.error);
+                Err(RejectedAdmission)
             }
         }
     }
 
-    fn admit(&mut self, mut admission: AdmissionBoundary, accepted_at: Instant) -> TurnStep {
+    fn admit(&mut self, admission: AdmissionBoundary, accepted_at: Instant) -> TurnStep {
         // A deadline or abandoned caller that wins before this exact boundary
         // is admitted is not observer detachment: no engine entry exists yet.
         // Drop the boundary (and therefore its permit and observer) before
@@ -978,17 +958,13 @@ impl OwnerShellCore {
         // winner records the rejection exactly once: caller-expiry already
         // entered the handle-side ingress, while owner-expiry records directly
         // into the serialized owner state.
-        if !self.claim_admission_boundary(&mut admission, accepted_at) {
+        let Ok(admission) = self.claim_admission_boundary(admission, accepted_at) else {
             return TurnStep::Done(TurnOutcome::Continue);
-        }
+        };
+        let (request, permit, observer, reply) = admission.into_parts();
         let turn = self.state.begin_input_turn(accepted_at);
-        let verdict = self.state.admit_in_turn(
-            &turn,
-            admission.request,
-            admission.permit,
-            admission.observer,
-        );
-        let _ = admission.reply.try_send(verdict);
+        let verdict = self.state.admit_in_turn(&turn, request, permit, observer);
+        let _ = reply.try_send(verdict);
         TurnStep::Drive {
             effects: self.state.finish_input_turn(turn, EngineTurn::Complete),
             then: Resume::done(TurnOutcome::Continue),
@@ -1079,7 +1055,7 @@ impl OwnerShellCore {
     fn answer_retained_boundary(&mut self, retained: RetainedBoundary, error: Error) {
         match retained {
             RetainedBoundary::Admission(admission) => {
-                let _ = admission.reply.try_send(Err(error));
+                admission.reject(error);
             }
             // The caller still holds its handle; a terminal outcome already
             // delivered to it takes precedence over this error (#777).
@@ -1106,8 +1082,7 @@ impl OwnerShellCore {
         loop {
             let before = dropped;
             while let Ok(admission) = self.receivers.admissions.try_recv() {
-                let _ = admission.reply.try_send(Err(error.clone()));
-                drop(admission);
+                admission.reject(error.clone());
                 dropped = dropped.saturating_add(1);
             }
             while let Ok(cancel) = self.receivers.cancellations.try_recv() {
@@ -1365,6 +1340,120 @@ mod tests {
             },
             applied_state: None,
         }
+    }
+
+    /// flume invokes this waker synchronously from its send. Checking here
+    /// catches a reply-before-drop race even on a single-threaded executor.
+    struct AdmissionReplyWake {
+        permits: super::super::AdmissionPermitPool,
+        context: crate::runtime::engine::RequestContext,
+        wakes: std::sync::atomic::AtomicUsize,
+    }
+
+    impl std::task::Wake for AdmissionReplyWake {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            assert_eq!(self.permits.available(), 1, "capacity is free at wake-up");
+            let permit = self.permits.try_acquire(&self.context).unwrap();
+            drop(permit);
+            self.wakes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn every_admission_rejection_releases_capacity_before_waking_its_receiver() {
+        use std::{future::Future, pin::pin, task::Context};
+
+        use super::super::boundary::AdmissionValidity;
+
+        for path in [
+            "reject",
+            "owner expiry",
+            "caller expiry",
+            "retained",
+            "drain",
+        ] {
+            let (handle, mut core) = owner();
+            let deadline = Instant::now() + Duration::from_millis(10);
+            let validity = AdmissionValidity::until(deadline);
+            let request = declared_request(false);
+            let wake = Arc::new(AdmissionReplyWake {
+                permits: handle.permits.clone(),
+                context: *request.context(),
+                wakes: std::sync::atomic::AtomicUsize::new(0),
+            });
+            let (observer, reply) = handle
+                .enqueue_admission::<super::super::CommandOutcome>(request, Some(validity.clone()))
+                .unwrap();
+            let boundary = core.receivers.admissions.recv().unwrap();
+            assert_eq!(handle.permits.available(), 0);
+            let mut receive = pin!(reply.recv_async());
+            let waker = std::task::Waker::from(Arc::clone(&wake));
+            let mut context = Context::from_waker(&waker);
+            assert!(receive.as_mut().poll(&mut context).is_pending());
+
+            match path {
+                "reject" => boundary.reject(Error::admission_timeout()),
+                "owner expiry" => {
+                    assert!(core.claim_admission_boundary(boundary, deadline).is_err());
+                }
+                "caller expiry" => {
+                    assert!(validity.expire_before_admission());
+                    assert!(core.claim_admission_boundary(boundary, deadline).is_err());
+                }
+                "retained" => core.answer_retained_boundary(
+                    RetainedBoundary::Admission(boundary),
+                    Error::admission_timeout(),
+                ),
+                "drain" => {
+                    handle.admissions.try_send(boundary).unwrap();
+                    core.drain_boundaries(Error::admission_timeout());
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                wake.wakes.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "{path}"
+            );
+            assert!(matches!(
+                receive.as_mut().poll(&mut context),
+                std::task::Poll::Ready(Ok(Err(error))) if error.kind() == Error::admission_timeout().kind()
+            ));
+            assert_eq!(handle.permits.available(), 1, "{path}");
+            assert!(
+                observer.try_observed().is_none(),
+                "rejected work has no terminal"
+            );
+            assert_eq!(core.state.active_len(), 0);
+        }
+    }
+
+    #[test]
+    fn capacity_one_owner_expiry_allows_immediate_repeated_resubmission() {
+        use super::super::boundary::AdmissionValidity;
+
+        let (handle, mut core) = owner();
+        let deadline = Instant::now();
+        for _ in 0..10_000 {
+            let (_observer, reply) = handle
+                .enqueue_admission::<super::super::CommandOutcome>(
+                    declared_request(false),
+                    Some(AdmissionValidity::until(deadline)),
+                )
+                .unwrap();
+            let boundary = core.receivers.admissions.recv().unwrap();
+            assert!(core.claim_admission_boundary(boundary, deadline).is_err());
+            assert!(matches!(reply.recv().unwrap(), Err(error)
+                if error.kind() == Error::admission_timeout().kind()));
+        }
+        assert_eq!(handle.permits.available(), 1);
+        assert_eq!(core.state.metrics().admission_rejected, 10_000);
+        assert_eq!(core.state.metrics().admitted, 0);
+        assert_eq!(core.state.metrics().writes, 0);
     }
 
     #[test]
