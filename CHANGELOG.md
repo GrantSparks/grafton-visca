@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-17
+
+2.0 is a breaking upgrade from 1.x, with owner-backed sessions, matching
+blocking and async camera APIs, checked values and source-backed profiles.
+See [the migration guide](docs/migration_2_0.md) for caller changes.
+
+Hardware coverage is limited to the exact models, firmware and scenarios in
+[the hardware checklist](docs/hardware_release_checklist.md). Raw serial and
+Sony UDP remain accepted known limitations: implemented and covered by software
+tests, but not verified on physical cameras. Source-backed packet fixtures and
+software tests do not establish physical FR7 verification.
+
 ### Added
 
 - `wire::Nibbles` provides total fixed-width `value`, `signed` and `halves`
