@@ -1487,9 +1487,12 @@ transport configuration is read at construction rather than again per write
 (#986). Built-in TCP,
 UDP, and serial transports install that bound at the OS/device layer, and
 construction rejects a zero advertised read or write timeout. A serial device
-receives at least one millisecond even when a derived owner budget is smaller:
-Windows treats a zero-millisecond serial timeout as no timeout, while the owner
-still rechecks its precise deadline after that I/O call. Serial command and
+receives a whole-millisecond timeout rounded up, with a one-millisecond floor,
+even when a derived owner budget is smaller: Windows treats a zero-millisecond
+serial timeout as no timeout. The shared blocking `read_before` helper rechecks
+its precise deadline after an idle I/O result and re-arms the remaining budget,
+so a truncating device or socket timer cannot make a built-in read return idle
+early and trigger receive pacing. Serial command and
 startup writes deliberately do not drain the device (`flush`/`tcdrain`), since
 that kernel call is not bounded by the write timeout; a VISCA reply or the
 required startup settle interval confirms queued output instead. Finally, both

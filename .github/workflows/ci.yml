@@ -519,6 +519,11 @@ jobs:
       # `serialport` binds IOKit on macOS; no system package is needed, unlike
       # the libudev install every Linux job performs.
       - run: cargo check --no-default-features --features transport-serial --all-targets
+      # Pin precise read budgets and whole-millisecond serial timeout rounding
+      # on the POSIX backend whose poll timer truncates fractional milliseconds.
+      - run: cargo test --no-default-features --features transport-serial --lib transport::blocking::helper_tests
+      - run: cargo test --no-default-features --features transport-serial --lib transport::serial::tests
+      - run: cargo test --no-default-features --features transport-serial --lib fractional_serial_idle_reads_do_not_escalate_receive_pauses
 
   cargo-audit:
     name: cargo-audit advisories

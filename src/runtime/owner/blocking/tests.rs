@@ -887,6 +887,100 @@ fn an_eager_idle_transport_is_paced() {
     assert!(reads < 100, "eager idle reads hot-spun: {reads} in 500 ms");
 }
 
+/// Local fake: run the production bounded-read helper against a serial
+/// backend that truncates its device timeout to whole milliseconds.
+#[cfg(feature = "transport-serial")]
+#[test]
+fn fractional_serial_idle_reads_do_not_escalate_receive_pauses() {
+    struct TruncatingDevice {
+        clock: Clock,
+        timeout: Duration,
+    }
+    impl TruncatingDevice {
+        fn arm(&mut self, timeout: Duration) -> std::io::Result<()> {
+            self.timeout = crate::transport::serial::device_timeout(timeout);
+            Ok(())
+        }
+    }
+    impl std::io::Read for TruncatingDevice {
+        fn read(&mut self, _dst: &mut [u8]) -> std::io::Result<usize> {
+            let millis = self.timeout.as_millis().try_into().unwrap();
+            self.clock.sleep(Duration::from_millis(millis));
+            Err(std::io::ErrorKind::TimedOut.into())
+        }
+    }
+    struct IdleSerial {
+        device: TruncatingDevice,
+        config: TransportConfig,
+        read_starts: Arc<Mutex<Vec<Instant>>>,
+    }
+    impl HasTransportConfig for IdleSerial {
+        fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+            crate::transport::TransportIdentity::Serial { bus: None }
+        }
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+    impl BlockingTransport for IdleSerial {
+        fn send_with_timeout(&mut self, _bytes: &[u8], _timeout: Duration) -> Result<(), Error> {
+            Ok(())
+        }
+        fn recv_into_with_timeout(
+            &mut self,
+            dst: &mut [u8],
+            timeout: Duration,
+        ) -> Result<ReceiveOutcome, Error> {
+            use crate::{
+                timeout::Deadline,
+                transport::blocking::{read_before, TimedIo},
+            };
+            let clock = self.device.clock.clone();
+            self.read_starts.lock().unwrap().push(clock.now());
+            let deadline = Deadline::after(clock.now(), timeout, "read_timeout")?;
+            read_before(
+                &mut self.device,
+                TruncatingDevice::arm,
+                dst,
+                deadline,
+                TimedIo::SerialDevice,
+                || clock.now(),
+            )
+            .map(ReceiveOutcome::complete)
+        }
+    }
+
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let read_timeout = Duration::from_micros(9_600);
+    let starts = Arc::new(Mutex::new(Vec::new()));
+    let transport = IdleSerial {
+        device: TruncatingDevice {
+            clock: Clock::Manual(clock.clone()),
+            timeout: Duration::ZERO,
+        },
+        config: TransportConfig::for_serial().with_read_timeout(read_timeout),
+        read_starts: Arc::clone(&starts),
+    };
+    let (adapter, policy) = BlockingTransportAdapter::new(
+        transport,
+        &generic_profile(),
+        crate::target::TargetSlot::CAMERA_1,
+    )
+    .unwrap();
+    let owner = BlockingOwnerHandle::spawn(policy, adapter, Clock::Manual(clock.clone())).unwrap();
+    clock.sleep(read_timeout * 10);
+    owner.close().unwrap();
+    let starts = starts.lock().unwrap();
+    assert!(starts.len() >= 10, "idle reads were paused: {starts:?}");
+    assert!(
+        starts
+            .windows(2)
+            .all(|pair| pair[1].duration_since(pair[0]) <= Duration::from_millis(10)),
+        "a full-budget serial idle read gained an extra receive pause: {starts:?}"
+    );
+}
+
 /// #713/#775: a stale reply to a timed-out raw inquiry arrives inside its
 /// release hold. The successor is written only after the hold, and the stale
 /// reply cannot resolve it.

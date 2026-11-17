@@ -78,15 +78,23 @@ const EXCLUSIVE_ACCESS: bool = true;
 ///
 /// Windows interprets a zero-millisecond serial timeout as *no timeout*.
 /// Derived owner budgets can legitimately be shorter than a millisecond, so
-/// clamp only at this device boundary; the owner still checks its precise
-/// deadline after every I/O operation.
+/// round up only at this device boundary. The bounded read helper rechecks
+/// its precise deadline after every idle result before it returns a timeout.
 #[cfg(feature = "transport-serial")]
 const MIN_DEVICE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1);
 
-/// Round a serial-device timeout up to the backend's smallest safe value.
+/// Round up to whole milliseconds, with the backend's one-millisecond floor.
 #[cfg(feature = "transport-serial")]
-fn device_timeout(timeout: std::time::Duration) -> std::time::Duration {
-    timeout.max(MIN_DEVICE_TIMEOUT)
+pub(crate) fn device_timeout(timeout: std::time::Duration) -> std::time::Duration {
+    let timeout = timeout.max(MIN_DEVICE_TIMEOUT);
+    let remainder = timeout.subsec_nanos() % 1_000_000;
+    if remainder == 0 {
+        timeout
+    } else {
+        timeout.saturating_add(std::time::Duration::from_nanos(u64::from(
+            1_000_000 - remainder,
+        )))
+    }
 }
 
 /// The one port builder both facades open with exclusive access. No timeout
@@ -115,4 +123,28 @@ pub(crate) fn set_device_timeout(
 ) -> std::io::Result<()> {
     port.set_timeout(device_timeout(timeout))
         .map_err(std::io::Error::from)
+}
+
+#[cfg(all(test, feature = "transport-serial"))]
+mod tests {
+    use super::device_timeout;
+    use std::time::Duration;
+
+    #[test]
+    fn device_timeouts_round_fractional_milliseconds_up() {
+        for (input, expected) in [
+            (Duration::ZERO, Duration::from_millis(1)),
+            (Duration::from_nanos(1), Duration::from_millis(1)),
+            (Duration::from_millis(1), Duration::from_millis(1)),
+            (Duration::from_micros(1_001), Duration::from_millis(2)),
+            (Duration::from_micros(9_600), Duration::from_millis(10)),
+            (
+                Duration::from_secs(1) + Duration::from_nanos(1),
+                Duration::from_millis(1_001),
+            ),
+            (Duration::MAX, Duration::MAX),
+        ] {
+            assert_eq!(device_timeout(input), expected);
+        }
+    }
 }
