@@ -33,22 +33,53 @@ fn simultaneous_source_readiness_follows_the_planned_order() {
                 else {
                     continue;
                 };
-                let source = |source: Source| async move {
-                    if ready & bit(source) != 0 {
-                        source
-                    } else {
-                        future::pending().await
-                    }
+                let mut coordinator =
+                    crate::runtime::owner::turn::OwnerCoordinator::<Source>::default();
+                let now = Instant::now();
+                let TurnPlan::Select { turn, .. } =
+                    coordinator.plan(now, None, Default::default(), || false)
+                else {
+                    panic!("select");
                 };
-                let winner = future::block_on(select_in_order(
+                let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+                let polled = turn.poll_in_order(
                     selection,
-                    source(Source::Receive),
-                    source(Source::Shutdown),
-                    source(Source::Cancellation),
-                    source(Source::Admission),
-                    source(Source::Control),
-                    source(Source::Timer),
-                ));
+                    &mut context,
+                    |_, source, _| {
+                        let source = match source {
+                            NonBoundarySource::Receive => Source::Receive,
+                            NonBoundarySource::Shutdown => Source::Shutdown,
+                            NonBoundarySource::Control => Source::Control,
+                            NonBoundarySource::Timer => Source::Timer,
+                        };
+                        if ready & bit(source) != 0 {
+                            Poll::Ready(source)
+                        } else {
+                            Poll::Pending
+                        }
+                    },
+                    |source, _| {
+                        let source = match source {
+                            BoundarySource::Cancellation => Source::Cancellation,
+                            BoundarySource::Admission => Source::Admission,
+                        };
+                        if ready & bit(source) != 0 {
+                            Poll::Ready(BoundaryPoll::Boundary(source))
+                        } else {
+                            Poll::Pending
+                        }
+                    },
+                );
+                let winner = match polled {
+                    SelectionPoll::Ready(
+                        crate::runtime::owner::turn::SelectedInput::Boundary { boundary, .. },
+                    ) => boundary,
+                    SelectionPoll::Ready(crate::runtime::owner::turn::SelectedInput::Other {
+                        event,
+                        ..
+                    }) => event,
+                    SelectionPoll::Pending(_) => panic!("one source is ready"),
+                };
                 assert_eq!(
                     winner, expected,
                     "{selection:?} with ready mask {ready:#08b}"

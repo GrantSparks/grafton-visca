@@ -1,4 +1,14 @@
 use super::*;
+use crate::runtime::owner::turn::{OwnerCoordinator, SelectedInput};
+
+fn turn(coordinator: &mut OwnerCoordinator<RetainedBoundary>) -> PlannedTurn<'_, RetainedBoundary> {
+    let TurnPlan::Select { turn, .. } =
+        coordinator.plan(Instant::now(), None, Default::default(), || false)
+    else {
+        panic!("select");
+    };
+    turn
+}
 
 fn selection(boundaries_eligible: bool) -> Selection {
     Selection {
@@ -18,12 +28,14 @@ fn registered_ineligible_admission_keeps_control_live_and_next_turn_ordered() {
     let state = OwnerState::new(policy(1), Instant::now()).unwrap();
     let (handle, ends) = OwnerHandleCore::new(&state);
     let mut lanes = ActorLanes::new(&ends.receivers);
+    let mut coordinator = OwnerCoordinator::default();
 
     // Register every idle stream hook in a parked selection first. A later
     // plan suppresses admission without dropping its existing hook.
     {
         let mut parked = pin!(select_actor_event(
             selection(true),
+            turn(&mut coordinator),
             future::pending(),
             &mut lanes,
             future::pending(),
@@ -41,11 +53,18 @@ fn registered_ineligible_admission_keeps_control_live_and_next_turn_ordered() {
         .unwrap();
     let event = future::block_on(select_actor_event(
         selection(false),
+        turn(&mut coordinator),
         future::pending(),
         &mut lanes,
         future::pending(),
     ));
-    assert!(matches!(event, OwnerEvent::Control(_)));
+    assert!(matches!(
+        event,
+        SelectedInput::Other {
+            event: NonBoundaryEvent::Control(_),
+            ..
+        }
+    ));
     assert_eq!(ends.receivers.admissions.len(), 1);
     assert!(ends.receivers.control.is_empty());
 
@@ -58,11 +77,18 @@ fn registered_ineligible_admission_keeps_control_live_and_next_turn_ordered() {
         .unwrap();
     let event = future::block_on(select_actor_event(
         selection(true),
-        async { OwnerEvent::Wake },
+        turn(&mut coordinator),
+        async { NonBoundaryEvent::Wake },
         &mut lanes,
         future::pending(),
     ));
-    assert!(matches!(event, OwnerEvent::Admission(Ok(_))));
+    assert!(matches!(
+        event,
+        SelectedInput::Boundary {
+            boundary: RetainedBoundary::Admission(_),
+            ..
+        }
+    ));
     assert!(ends.receivers.admissions.is_empty());
     assert_eq!(ends.receivers.control.len(), 1);
 }
@@ -80,10 +106,12 @@ fn disconnected_optional_lanes_stay_pending_and_admission_reports_disconnect() {
         control,
     };
     let mut lanes = ActorLanes::new(&receivers);
+    let mut coordinator = OwnerCoordinator::default();
     drop((shutdown_tx, cancellation_tx, control_tx));
     {
         let mut parked = pin!(select_actor_event(
             selection(true),
+            turn(&mut coordinator),
             future::pending(),
             &mut lanes,
             future::pending(),
@@ -93,13 +121,17 @@ fn disconnected_optional_lanes_stay_pending_and_admission_reports_disconnect() {
     drop(admission_tx);
     let event = future::block_on(select_actor_event(
         selection(true),
+        turn(&mut coordinator),
         future::pending(),
         &mut lanes,
         future::pending(),
     ));
     assert!(matches!(
         event,
-        OwnerEvent::Admission(Err(flume::RecvError::Disconnected))
+        SelectedInput::Other {
+            event: NonBoundaryEvent::AdmissionDisconnected,
+            ..
+        }
     ));
 }
 

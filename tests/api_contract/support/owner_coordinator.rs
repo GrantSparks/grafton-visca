@@ -32,6 +32,19 @@ macro_rules! owner_coordinator_contract {
                         include!(concat!(env!("GRAFTON_VISCA_SOURCE_ROOT"), "/src/runtime/owner/turn/coordinator.rs"));
                     }
                 }
+                fn vacancy(turn: turn::coordinator::PlannedTurn<'_, u32>) -> turn::coordinator::VacantSlot<'_, u32> {
+                    use turn::coordinator::*;
+                    let selection = Selection { phase: SourcePhase::ReceiveFirst, receive: ReceiveArm::Poll,
+                        timer: TimerArm::Engine { at: None, due: false }, boundaries_eligible: true,
+                        timer_precedes_control: false };
+                    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+                    match turn.poll_in_order(selection, &mut context,
+                        |_, _, _| std::task::Poll::<()>::Pending,
+                        |_, _| std::task::Poll::Ready(BoundaryPoll::Boundary(7))) {
+                        SelectionPoll::Ready(SelectedInput::Boundary { vacancy, .. }) => vacancy,
+                        _ => unreachable!("a vacant selection polls its boundary"),
+                    }
+                }
                 pub fn check() $body
             }
         }

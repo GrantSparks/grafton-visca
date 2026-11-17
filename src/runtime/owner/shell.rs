@@ -37,8 +37,8 @@ use super::boundary::{
     PreAdmissionRejection, RetainedBoundary,
 };
 use super::turn::{
-    Disposition, OwnerCoordinator, PlannedTurn, ReceiveClass, Selected, TurnOutcome, TurnPlan,
-    VacantSlot,
+    Disposition, NonBoundarySelected, OwnerCoordinator, ReceiveClass, Selected, SelectedInput,
+    TurnOutcome, TurnPlan, VacantSlot,
 };
 use super::{
     clamp_receive_pause, transient_receive_pause, AppliedEffect, IdleReceiveRun, Input,
@@ -63,6 +63,48 @@ pub(super) enum OwnerEvent {
         received_at: Instant,
     },
     Wake,
+}
+
+/// A source event that cannot contain a live admission or cancellation.
+#[derive(Debug)]
+pub(super) enum NonBoundaryEvent {
+    Shutdown,
+    Control(ControlBoundary),
+    Receive {
+        result: OwnerReceive,
+        received_at: Instant,
+    },
+    Wake,
+    AdmissionDisconnected,
+}
+
+pub(super) type SelectedOwnerInput<'a> = SelectedInput<'a, RetainedBoundary, NonBoundaryEvent>;
+
+impl NonBoundaryEvent {
+    fn into_event(self) -> OwnerEvent {
+        match self {
+            Self::Shutdown => OwnerEvent::Shutdown,
+            Self::Control(control) => OwnerEvent::Control(control),
+            Self::Receive {
+                result,
+                received_at,
+            } => OwnerEvent::Receive {
+                result,
+                received_at,
+            },
+            Self::Wake => OwnerEvent::Wake,
+            Self::AdmissionDisconnected => {
+                OwnerEvent::Admission(Err(flume::RecvError::Disconnected))
+            }
+        }
+    }
+}
+
+fn boundary_event(boundary: RetainedBoundary) -> OwnerEvent {
+    match boundary {
+        RetainedBoundary::Admission(admission) => OwnerEvent::Admission(Ok(admission)),
+        RetainedBoundary::Cancellation(cancellation) => OwnerEvent::Cancellation(cancellation),
+    }
 }
 
 /// The consuming admission claim already answered or abandoned its boundary.
@@ -274,17 +316,13 @@ impl OwnerShellCore {
         receivers: &BoundaryReceivers,
         vacancy: VacantSlot<'a, RetainedBoundary>,
         retained: RetainedBoundary,
-    ) -> (OwnerEvent, PlannedTurn<'a, RetainedBoundary>) {
+    ) -> SelectedOwnerInput<'a> {
         match receivers.shutdown.try_recv() {
-            Ok(()) => (OwnerEvent::Shutdown, vacancy.restore_for_shutdown(retained)),
+            Ok(()) => vacancy
+                .restore_for_shutdown(retained)
+                .into_other(NonBoundaryEvent::Shutdown),
             Err(flume::TryRecvError::Empty | flume::TryRecvError::Disconnected) => {
-                let event = match retained {
-                    RetainedBoundary::Admission(admission) => OwnerEvent::Admission(Ok(admission)),
-                    RetainedBoundary::Cancellation(cancellation) => {
-                        OwnerEvent::Cancellation(cancellation)
-                    }
-                };
-                (event, vacancy.into_turn())
+                vacancy.into_boundary(retained)
             }
         }
     }
@@ -299,39 +337,48 @@ impl OwnerShellCore {
     /// later; the next plan then enters the raw-release proof.
     pub(super) fn classify(
         state: &mut OwnerState,
-        turn: PlannedTurn<'_, RetainedBoundary>,
-        event: OwnerEvent,
+        input: SelectedOwnerInput<'_>,
         selected_at: Instant,
     ) -> Option<ClassifiedEvent> {
-        let selected = match &event {
-            OwnerEvent::Wake => Selected::Timer,
-            OwnerEvent::Admission(Ok(_)) | OwnerEvent::Cancellation(_) => Selected::Boundary,
-            OwnerEvent::Receive {
-                result,
-                received_at,
-            } => Selected::Receive {
-                due_at_receive: state.raw_correlation_releases_due(*received_at),
-                // A normalized idle fault is semantically identical to
-                // `NoData`: it consumed no bytes. A genuine transient fault
-                // cannot prove there is no ready stale frame behind it.
-                class: match result {
-                    OwnerReceive::NoProgress(
-                        super::NoProgressReason::EagerIdle | super::NoProgressReason::IdleTimeout,
-                    ) => ReceiveClass::NoInput,
-                    OwnerReceive::Transient(_) => ReceiveClass::TransientFault,
-                    _ => ReceiveClass::Other,
-                },
-            },
-            _ => Selected::Other,
-        };
-        let disposition = turn.classify(selected, state.raw_correlation_releases_due(selected_at));
-        let (event, suppress_due) = match disposition {
-            Disposition::Restart => return None,
-            Disposition::Retain(vacancy) => {
-                Self::retain_selected_boundary(state, vacancy, event, selected_at);
-                return None;
+        let due = state.raw_correlation_releases_due(selected_at);
+        let (event, selected, suppress_due) = match input {
+            SelectedInput::Boundary { vacancy, boundary } => {
+                if !due.is_empty() {
+                    Self::retain_selected_boundary(
+                        state,
+                        vacancy.retaining(),
+                        boundary,
+                        selected_at,
+                    );
+                    return None;
+                }
+                (boundary_event(boundary), Selected::Boundary, false)
             }
-            Disposition::Apply { suppress_due } => (event, suppress_due),
+            SelectedInput::Other { turn, event } => {
+                let selected = match &event {
+                    NonBoundaryEvent::Wake => NonBoundarySelected::timer(),
+                    NonBoundaryEvent::Receive {
+                        result,
+                        received_at,
+                    } => NonBoundarySelected::receive(
+                        state.raw_correlation_releases_due(*received_at),
+                        match result {
+                            OwnerReceive::NoProgress(
+                                super::NoProgressReason::EagerIdle
+                                | super::NoProgressReason::IdleTimeout,
+                            ) => ReceiveClass::NoInput,
+                            OwnerReceive::Transient(_) => ReceiveClass::TransientFault,
+                            _ => ReceiveClass::Other,
+                        },
+                    ),
+                    _ => NonBoundarySelected::other(),
+                };
+                let suppress_due = match turn.classify(selected, due) {
+                    Disposition::Restart => return None,
+                    Disposition::Apply { suppress_due } => suppress_due,
+                };
+                (event.into_event(), selected.kind(), suppress_due)
+            }
         };
         Some(ClassifiedEvent {
             event,
@@ -893,18 +940,18 @@ impl OwnerShellCore {
     fn retain_selected_boundary(
         state: &mut OwnerState,
         vacancy: VacantSlot<'_, RetainedBoundary>,
-        event: OwnerEvent,
+        boundary: RetainedBoundary,
         selected_at: Instant,
     ) {
-        let boundary = match event {
-            OwnerEvent::Admission(Ok(admission)) => {
+        let boundary = match boundary {
+            RetainedBoundary::Admission(admission) => {
                 let Ok(admission) = Self::claim_admission_boundary(state, admission, selected_at)
                 else {
                     return;
                 };
                 RetainedBoundary::Admission(admission)
             }
-            OwnerEvent::Cancellation(cancellation) => {
+            RetainedBoundary::Cancellation(cancellation) => {
                 if let CancellationBoundary::Cancel { request, reply } = &cancellation {
                     if !state.is_active(request.id) {
                         let _ = reply.try_send(Ok(()));
@@ -913,7 +960,6 @@ impl OwnerShellCore {
                 }
                 RetainedBoundary::Cancellation(cancellation)
             }
-            _ => return,
         };
         OwnerCoordinator::retain(vacancy, boundary);
     }

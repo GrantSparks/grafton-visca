@@ -1446,7 +1446,10 @@ A raw release does not create an exception to that order; it adds two rules.
   Its `VacantSlot` token is the proof required to retain a boundary or restore
   a redelivery when shutdown wins; consuming the token fills its originating
   slot directly. Tokens cannot be forged, reused, sent to another coordinator,
-  or kept across a newer plan (#1004).
+  or kept across a newer plan (#1004). Ordered polling requires the vacancy
+  before invoking an admission or cancellation receiver. Every selected live
+  boundary carries that proof with its payload; the nonboundary event type
+  cannot carry an admission or cancellation.
 
 Thus an Urgent stop is selected within the fairness bound under raw input
 pressure, while no scope is released using evidence collected before its own

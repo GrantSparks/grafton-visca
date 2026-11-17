@@ -128,16 +128,11 @@ impl Core {
         (plan, &mut self.state, &())
     }
 
-    fn redeliver(_receivers: &(), _vacancy: (), event: OwnerEvent) -> (OwnerEvent, ()) {
-        (event, ())
+    fn redeliver(_receivers: &(), _vacancy: (), event: OwnerEvent) -> OwnerEvent {
+        event
     }
 
-    fn classify(
-        state: &mut State,
-        _turn: (),
-        event: OwnerEvent,
-        _at: Instant,
-    ) -> Option<ClassifiedEvent> {
+    fn classify(state: &mut State, event: OwnerEvent, _at: Instant) -> Option<ClassifiedEvent> {
         if matches!(event, OwnerEvent::Completion) {
             state.trace.borrow_mut().push("redeliver");
         }
@@ -292,6 +287,7 @@ macro_rules! test_shell {
                 _state: &mut State,
                 _receivers: &(),
                 selected: OwnerEvent,
+                _turn: (),
                 _driver: &mut D,
             ) -> OwnerEvent {
                 self.trace.borrow_mut().push("select_event");

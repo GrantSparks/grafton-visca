@@ -34,6 +34,29 @@ fn select(plan: TurnPlan<'_, u32>) -> Selection {
     }
 }
 
+fn selected_boundary<'a, B>(
+    turn: PlannedTurn<'a, B>,
+    selection: Selection,
+    boundary: B,
+) -> (VacantSlot<'a, B>, B) {
+    let mut boundary = Some(boundary);
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    match turn.poll_in_order(
+        selection,
+        &mut context,
+        |_, _, _| std::task::Poll::<()>::Pending,
+        |_, _| {
+            boundary
+                .take()
+                .map(BoundaryPoll::Boundary)
+                .map_or(std::task::Poll::Pending, std::task::Poll::Ready)
+        },
+    ) {
+        SelectionPoll::Ready(SelectedInput::Boundary { vacancy, boundary }) => (vacancy, boundary),
+        _ => panic!("a vacant plan must select the boundary"),
+    }
+}
+
 fn ms(value: u64) -> Duration {
     Duration::from_millis(value)
 }
@@ -197,7 +220,7 @@ fn a_pending_release_keeps_its_probe_paced_and_proof_complete_unpaced() {
             },
             set(&[1]),
         ),
-        Classification::Apply {
+        Disposition::Apply {
             suppress_due: false
         }
     );
@@ -243,7 +266,7 @@ fn a_pending_release_plans_each_proof_state() {
     };
     assert_eq!(
         coordinator.classify(no_input, s1),
-        Classification::Apply {
+        Disposition::Apply {
             suppress_due: false,
         }
     );
@@ -260,7 +283,7 @@ fn a_pending_release_plans_each_proof_state() {
     // The timer clears the fence; a retained prefix then waits for its grace.
     assert_eq!(
         coordinator.classify(Selected::Timer, s1),
-        Classification::Apply {
+        Disposition::Apply {
             suppress_due: false,
         }
     );
@@ -348,7 +371,7 @@ fn a_timer_selected_before_a_hold_matured_restarts() {
     let _ = select(coordinator.plan(now, Some(now + ms(5)), empty(), || false));
     assert_eq!(
         coordinator.classify(Selected::Timer, set(&[1])),
-        Classification::Restart
+        Disposition::Restart
     );
     coordinator.begin_turn();
     let probe = select(coordinator.plan(now + ms(5), Some(now + ms(5)), set(&[1]), || false));
@@ -369,7 +392,7 @@ fn a_transient_fault_probe_suppresses_due_without_fencing() {
     };
     assert_eq!(
         coordinator.classify(fault, s1),
-        Classification::Apply { suppress_due: true }
+        Disposition::Apply { suppress_due: true }
     );
     assert!(coordinator.finish(fault, None, TurnOutcome::YieldBoundaries));
     coordinator.begin_turn();
@@ -390,7 +413,7 @@ fn a_receive_that_crossed_a_hold_deadline_is_its_probe() {
     };
     assert_eq!(
         coordinator.classify(fault, s1),
-        Classification::Apply { suppress_due: true },
+        Disposition::Apply { suppress_due: true },
         "a fault stamped at or after H suppresses due work"
     );
     let stale = Selected::Receive {
@@ -399,7 +422,7 @@ fn a_receive_that_crossed_a_hold_deadline_is_its_probe() {
     };
     assert_eq!(
         coordinator.classify(stale, s1),
-        Classification::Apply {
+        Disposition::Apply {
             suppress_due: false,
         },
         "a read that completed before H is not a probe"
@@ -419,7 +442,7 @@ fn a_crossing_no_input_read_leaves_the_new_set_unproved() {
     };
     assert_eq!(
         coordinator.classify(idle, s1),
-        Classification::Apply {
+        Disposition::Apply {
             suppress_due: false,
         }
     );
@@ -441,13 +464,12 @@ fn a_retained_boundary_blocks_boundaries_until_the_release_resolves() {
     let mut coordinator = OwnerCoordinator::<u32>::default();
     coordinator.begin_turn();
     let _ = coordinator.plan(now, Some(now), s1, || false);
-    let TurnPlan::Select { turn, .. } = coordinator.plan(now, Some(now), s1, || false) else {
+    let TurnPlan::Select { turn, selection } = coordinator.plan(now, Some(now), s1, || false)
+    else {
         panic!("select");
     };
-    let Disposition::Retain(vacancy) = turn.classify(Selected::Boundary, s1) else {
-        panic!("retain");
-    };
-    OwnerCoordinator::retain(vacancy, 7);
+    let (vacancy, boundary) = selected_boundary(turn, selection, 7);
+    OwnerCoordinator::retain(vacancy.retaining(), boundary);
     coordinator.restart_after_retain();
     assert!(coordinator.has_retained());
 
@@ -971,23 +993,20 @@ mod model {
                     let now = self.now;
                     let wake = self.next_wake();
                     let due = self.due(now);
-                    let TurnPlan::Select { turn, .. } =
+                    let TurnPlan::Select { turn, selection } =
                         self.coordinator.plan(now, wake, due, || false)
                     else {
                         panic!("select for retention");
                     };
-                    let Disposition::Retain(vacancy) = turn.classify(Selected::Boundary, due)
-                    else {
-                        panic!("vacant retained slot");
-                    };
-                    OwnerCoordinator::retain(vacancy, token);
+                    let (vacancy, token) = selected_boundary(turn, selection, token);
+                    OwnerCoordinator::retain(vacancy.retaining(), token);
                 }
                 self.coordinator.restart_after_retain();
                 return;
             }
             let suppress_due = match self.coordinator.classify(selected, self.due(selected_at)) {
-                Classification::Restart => return,
-                Classification::Apply { suppress_due } => suppress_due,
+                Disposition::Restart => return,
+                Disposition::Apply { suppress_due } => suppress_due,
             };
             let consumed = if matches!(event, Event::Control) {
                 self.coordinator
@@ -1332,4 +1351,54 @@ fn a_pause_that_meets_a_deadline_polls_receive_before_timer() {
             assert_eq!(selection.phase, SourcePhase::ReceiveFirst);
         }
     }
+}
+
+#[test]
+fn occupied_plan_cannot_poll_a_boundary_even_with_a_forged_eligible_descriptor() {
+    let mut coordinator = OwnerCoordinator::<u32>::default();
+    let now = Instant::now();
+    let due = set(&[1]);
+    let TurnPlan::Select { selection, turn } = coordinator.plan(now, Some(now), due, || false)
+    else {
+        panic!("select");
+    };
+    let (vacancy, boundary) = selected_boundary(turn, selection, 7);
+    OwnerCoordinator::retain(vacancy.retaining(), boundary);
+    let TurnPlan::Select {
+        mut selection,
+        turn,
+    } = coordinator.plan(now, Some(now), due, || false)
+    else {
+        panic!("occupied selection");
+    };
+    assert!(!selection.boundaries_eligible);
+    selection.boundaries_eligible = true;
+    let mut boundary_polls = 0;
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    let selected = turn.poll_in_order(
+        selection,
+        &mut context,
+        |_, source, _| {
+            if matches!(source, NonBoundarySource::Control) {
+                std::task::Poll::Ready(())
+            } else {
+                std::task::Poll::Pending
+            }
+        },
+        |_, _| {
+            boundary_polls += 1;
+            std::task::Poll::Ready(BoundaryPoll::Boundary(8))
+        },
+    );
+    let SelectionPoll::Ready(SelectedInput::Other { turn, event: () }) = selected else {
+        panic!("control selected");
+    };
+    assert_eq!(
+        turn.classify(NonBoundarySelected::other(), due),
+        Disposition::Apply {
+            suppress_due: false
+        }
+    );
+    assert_eq!(boundary_polls, 0, "ineligible payloads cannot be dequeued");
+    assert_eq!(coordinator.take_retained(), Some(7));
 }

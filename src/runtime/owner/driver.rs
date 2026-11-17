@@ -22,13 +22,12 @@ macro_rules! owner_turn_driver {
                 // only after it, using this shell's selected clock.
                 let now = self.io.now();
                 let (plan, state, receivers) = self.core.plan(now, &mut driver);
-                let (event, turn) = match plan {
+                let input = match plan {
                     TurnPlan::Redeliver { boundary, vacancy } => {
                         OwnerShellCore::redeliver(receivers, vacancy, boundary)
                     }
                     TurnPlan::Select { selection, turn } => {
-                        let event = self.io.select_event(state, receivers, selection, &mut driver) $($await)*;
-                        (event, turn)
+                        self.io.select_event(state, receivers, selection, turn, &mut driver) $($await)*
                     }
                 };
                 let selected_at = self.io.now();
@@ -36,7 +35,7 @@ macro_rules! owner_turn_driver {
                     event,
                     selected,
                     suppress_due,
-                }) = OwnerShellCore::classify(state, turn, event, selected_at)
+                }) = OwnerShellCore::classify(state, input, selected_at)
                 else {
                     continue;
                 };

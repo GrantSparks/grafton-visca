@@ -20,16 +20,23 @@ use crate::{
 
 use super::boundary::{
     AdmissionBoundary, BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerHandleCore,
-    OwnerSnapshot,
+    OwnerSnapshot, RetainedBoundary,
 };
 use super::receipt::{ObservationWake, OperationReceipt, TerminalWake};
-use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
+use super::shell::{
+    ClassifiedEvent, NonBoundaryEvent, OwnerEvent, OwnerShellCore, SelectedOwnerInput, TurnStep,
+};
 use super::{
     CancellationObserver, OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState,
     RetainedStreamInput, TerminalObserver, WireWrite, WriteOutcome,
 };
 
-use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
+#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
+use super::turn::Source;
+use super::turn::{
+    BoundaryPoll, BoundarySource, NonBoundarySource, PlannedTurn, ReceiveArm, Selection,
+    SelectionPoll, TimerArm, TurnOutcome, TurnPlan,
+};
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 use super::{receipt::CommandReceipt, CancellationRequest, ReceiptCore, RuntimeRequest};
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
@@ -39,99 +46,73 @@ use super::{
 };
 use crate::runtime::engine::Effect;
 
-/// Poll the six actor sources in the coordinator's planned order.
-///
-/// Each poll walks [`Selection::order`] and returns the first ready source,
-/// so simultaneous readiness is decided by that one definition rather than by
-/// an executor's wake order. Sources the selection omits are never polled.
-async fn select_in_order<T, Rx, Sh, Ca, Ad, Co, Ti>(
-    selection: Selection,
-    receive: Rx,
-    shutdown: Sh,
-    cancellation: Ca,
-    admission: Ad,
-    control: Co,
-    timer: Ti,
-) -> T
-where
-    Rx: Future<Output = T>,
-    Sh: Future<Output = T>,
-    Ca: Future<Output = T>,
-    Ad: Future<Output = T>,
-    Co: Future<Output = T>,
-    Ti: Future<Output = T>,
-{
-    let mut receive = pin!(receive);
-    let mut shutdown = pin!(shutdown);
-    let mut cancellation = pin!(cancellation);
-    let mut admission = pin!(admission);
-    let mut control = pin!(control);
-    let mut timer = pin!(timer);
-    let order = selection.order();
-    future::poll_fn(|context| {
-        for source in order.clone() {
-            let poll = match source {
-                Source::Receive => receive.as_mut().poll(context),
-                Source::Shutdown => shutdown.as_mut().poll(context),
-                Source::Cancellation => cancellation.as_mut().poll(context),
-                Source::Admission => admission.as_mut().poll(context),
-                Source::Control => control.as_mut().poll(context),
-                Source::Timer => timer.as_mut().poll(context),
-            };
-            if poll.is_ready() {
-                return poll;
-            }
-        }
-        Poll::Pending
-    })
-    .await
-}
-
 /// Select one actor event as planned by the [`OwnerCoordinator`]. The caller
 /// has already mapped the selection's receive and timer arms onto `receive`
 /// and `timer`. A disconnected shutdown, cancellation or control lane never
 /// becomes ready; a disconnected admission lane is reported.
-async fn select_actor_event<Receive, Timer>(
+async fn select_actor_event<'a, Receive, Timer>(
     selection: Selection,
+    turn: PlannedTurn<'a, RetainedBoundary>,
     receive: Receive,
     lanes: &mut ActorLanes,
     timer: Timer,
-) -> OwnerEvent
+) -> SelectedOwnerInput<'a>
 where
-    Receive: Future<Output = OwnerEvent>,
-    Timer: Future<Output = OwnerEvent>,
+    Receive: Future<Output = NonBoundaryEvent>,
+    Timer: Future<Output = NonBoundaryEvent>,
 {
-    let shutdown = future::poll_fn(|context| match lanes.shutdown.as_mut().poll_next(context) {
-        Poll::Ready(Some(())) => Poll::Ready(OwnerEvent::Shutdown),
-        Poll::Ready(None) | Poll::Pending => Poll::Pending,
-    });
-    let cancellation =
-        future::poll_fn(
-            |context| match lanes.cancellations.as_mut().poll_next(context) {
-                Poll::Ready(Some(value)) => Poll::Ready(OwnerEvent::Cancellation(value)),
-                Poll::Ready(None) | Poll::Pending => Poll::Pending,
+    let mut receive = pin!(receive);
+    let mut timer = pin!(timer);
+    let mut turn = Some(turn);
+    future::poll_fn(|context| {
+        let Some(planned) = turn.take() else {
+            return Poll::Pending;
+        };
+        match planned.poll_in_order(
+            selection,
+            context,
+            |_, source, context| match source {
+                NonBoundarySource::Receive => receive.as_mut().poll(context),
+                NonBoundarySource::Timer => timer.as_mut().poll(context),
+                NonBoundarySource::Shutdown => match lanes.shutdown.as_mut().poll_next(context) {
+                    Poll::Ready(Some(())) => Poll::Ready(NonBoundaryEvent::Shutdown),
+                    Poll::Ready(None) | Poll::Pending => Poll::Pending,
+                },
+                NonBoundarySource::Control => match lanes.control.as_mut().poll_next(context) {
+                    Poll::Ready(Some(value)) => Poll::Ready(NonBoundaryEvent::Control(value)),
+                    Poll::Ready(None) | Poll::Pending => Poll::Pending,
+                },
             },
-        );
-    let admission = future::poll_fn(|context| {
-        lanes
-            .admissions
-            .as_mut()
-            .poll_next(context)
-            .map(|value| OwnerEvent::Admission(value.ok_or(flume::RecvError::Disconnected)))
-    });
-    let control = future::poll_fn(|context| match lanes.control.as_mut().poll_next(context) {
-        Poll::Ready(Some(value)) => Poll::Ready(OwnerEvent::Control(value)),
-        Poll::Ready(None) | Poll::Pending => Poll::Pending,
-    });
-    select_in_order(
-        selection,
-        receive,
-        shutdown,
-        cancellation,
-        admission,
-        control,
-        timer,
-    )
+            |source, context| match source {
+                BoundarySource::Cancellation => {
+                    match lanes.cancellations.as_mut().poll_next(context) {
+                        Poll::Ready(Some(value)) => Poll::Ready(BoundaryPoll::Boundary(
+                            RetainedBoundary::Cancellation(value),
+                        )),
+                        Poll::Ready(None) | Poll::Pending => Poll::Pending,
+                    }
+                }
+                BoundarySource::Admission => {
+                    lanes
+                        .admissions
+                        .as_mut()
+                        .poll_next(context)
+                        .map(|value| match value {
+                            Some(value) => {
+                                BoundaryPoll::Boundary(RetainedBoundary::Admission(value))
+                            }
+                            None => BoundaryPoll::Other(NonBoundaryEvent::AdmissionDisconnected),
+                        })
+                }
+            },
+        ) {
+            SelectionPoll::Ready(input) => Poll::Ready(input),
+            SelectionPoll::Pending(parked) => {
+                turn = Some(parked);
+                Poll::Pending
+            }
+        }
+    })
     .await
 }
 
@@ -606,13 +587,14 @@ impl<R: Executor> AsyncOwnerIo<R> {
         cooperative_yield().await;
     }
 
-    async fn select_event<D: AsyncOwnerDriver>(
+    async fn select_event<'a, D: AsyncOwnerDriver>(
         &mut self,
         state: &mut OwnerState,
         receivers: &BoundaryReceivers,
         selection: Selection,
+        turn: PlannedTurn<'a, RetainedBoundary>,
         driver: &mut D,
-    ) -> OwnerEvent {
+    ) -> SelectedOwnerInput<'a> {
         let runtime = &self.runtime;
         let now = Executor::now(runtime.as_ref());
         let read_timeout = state.facts().read_timeout;
@@ -624,7 +606,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
                 // The exact no-input probe for this release set is
                 // done: the receive source is immediately ready
                 // with the timer event instead of another read.
-                ReceiveArm::ProofComplete => return OwnerEvent::Wake,
+                ReceiveArm::ProofComplete => return NonBoundaryEvent::Wake,
                 // An idle or faulted read paces the next one; the
                 // other sources stay live while this one waits.
                 ReceiveArm::Paced { until } => {
@@ -642,7 +624,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
                 self.timers.read.as_mut(),
             )
             .await;
-            OwnerEvent::Receive {
+            NonBoundaryEvent::Receive {
                 result,
                 received_at: Executor::now(runtime.as_ref()),
             }
@@ -654,13 +636,13 @@ impl<R: Executor> AsyncOwnerIo<R> {
                         self.timers.wake.as_mut().reset(until);
                         self.timers.wake.as_mut().await;
                     }
-                    OwnerEvent::Wake
+                    NonBoundaryEvent::Wake
                 }
                 TimerArm::Engine { at, due } => {
                     // Do not rely on a zero-duration executor
                     // sleep being ready on its first poll: the
                     // plan already established that this timer is
-                    // due, and `OwnerEvent::Wake` remains the only
+                    // due, and `NonBoundaryEvent::Wake` remains the only
                     // path that advances engine time.
                     if !due {
                         match at {
@@ -671,11 +653,11 @@ impl<R: Executor> AsyncOwnerIo<R> {
                             None => future::pending::<()>().await,
                         }
                     }
-                    OwnerEvent::Wake
+                    NonBoundaryEvent::Wake
                 }
             }
         };
-        select_actor_event(selection, receive, lanes, wake).await
+        select_actor_event(selection, turn, receive, lanes, wake).await
     }
 
     async fn write<D: AsyncOwnerDriver>(

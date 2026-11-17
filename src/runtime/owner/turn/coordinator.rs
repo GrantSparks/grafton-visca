@@ -204,13 +204,6 @@ impl<'a, B> VacantSlot<'a, B> {
         self.coordinator
     }
 
-    pub(in crate::runtime::owner) fn into_turn(self) -> PlannedTurn<'a, B> {
-        PlannedTurn {
-            coordinator: self.coordinator,
-            vacancy: Some(Vacancy),
-        }
-    }
-
     pub(in crate::runtime::owner) fn restore_for_shutdown(self, boundary: B) -> PlannedTurn<'a, B> {
         let coordinator = self.coordinator;
         OwnerCoordinator::restore(
@@ -226,26 +219,181 @@ impl<'a, B> VacantSlot<'a, B> {
     }
 }
 
+/// A boundary source can be polled only while its plan owns a vacancy.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::runtime::owner) enum BoundarySource {
+    Cancellation,
+    Admission,
+}
+
+/// Sources whose events do not need the retained slot.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::runtime::owner) enum NonBoundarySource {
+    Receive,
+    Shutdown,
+    Control,
+    Timer,
+}
+
+enum PollSource {
+    Boundary(BoundarySource),
+    Other(NonBoundarySource),
+}
+
+impl Source {
+    const fn polling(self) -> PollSource {
+        match self {
+            Self::Cancellation => PollSource::Boundary(BoundarySource::Cancellation),
+            Self::Admission => PollSource::Boundary(BoundarySource::Admission),
+            Self::Receive => PollSource::Other(NonBoundarySource::Receive),
+            Self::Shutdown => PollSource::Other(NonBoundarySource::Shutdown),
+            Self::Control => PollSource::Other(NonBoundarySource::Control),
+            Self::Timer => PollSource::Other(NonBoundarySource::Timer),
+        }
+    }
+}
+
+/// Admission disconnection is a nonboundary event even though the admission
+/// source discovers it.
+pub(in crate::runtime::owner) enum BoundaryPoll<B, O> {
+    Boundary(B),
+    Other(O),
+}
+
+/// Every selected live boundary carries the vacancy consumed by its dequeue.
+/// Other events retain their plan loan until classification.
+pub(in crate::runtime::owner) enum SelectedInput<'a, B, O> {
+    Boundary {
+        vacancy: VacantSlot<'a, B>,
+        boundary: B,
+    },
+    Other {
+        turn: PlannedTurn<'a, B>,
+        event: O,
+    },
+}
+
+pub(in crate::runtime::owner) enum SelectionPoll<'a, B, O> {
+    Ready(SelectedInput<'a, B, O>),
+    Pending(PlannedTurn<'a, B>),
+}
+
 impl<'a, B> PlannedTurn<'a, B> {
-    pub(in crate::runtime::owner) fn classify(
+    /// Poll the planned source order once. Vacancy gates the callback itself,
+    /// so an occupied plan cannot even dequeue an admission or cancellation.
+    pub(in crate::runtime::owner) fn poll_in_order<O>(
         self,
-        selected: Selected,
-        due: RawCorrelationReleaseSet,
-    ) -> Disposition<'a, B> {
-        // The vacancy is the source of cancellation/admission eligibility.
-        // The exclusive loan prevents the slot changing while selection parks.
-        if selected == Selected::Boundary && !due.is_empty() {
-            if let Some(Vacancy) = self.vacancy {
-                self.coordinator.restart_after_retain();
-                return Disposition::Retain(VacantSlot {
-                    coordinator: self.coordinator,
-                });
+        selection: Selection,
+        context: &mut std::task::Context<'_>,
+        mut other: impl FnMut(
+            usize,
+            NonBoundarySource,
+            &mut std::task::Context<'_>,
+        ) -> std::task::Poll<O>,
+        mut boundary: impl FnMut(
+            BoundarySource,
+            &mut std::task::Context<'_>,
+        ) -> std::task::Poll<BoundaryPoll<B, O>>,
+    ) -> SelectionPoll<'a, B, O> {
+        use std::task::Poll;
+        let Self {
+            coordinator,
+            mut vacancy,
+        } = self;
+        for (position, source) in selection.order().enumerate() {
+            match (source.polling(), vacancy) {
+                (PollSource::Boundary(source), Some(Vacancy)) => match boundary(source, context) {
+                    Poll::Ready(BoundaryPoll::Boundary(boundary)) => {
+                        return SelectionPoll::Ready(SelectedInput::Boundary {
+                            vacancy: VacantSlot { coordinator },
+                            boundary,
+                        });
+                    }
+                    Poll::Ready(BoundaryPoll::Other(event)) => {
+                        return SelectionPoll::Ready(SelectedInput::Other {
+                            turn: Self {
+                                coordinator,
+                                vacancy: Some(Vacancy),
+                            },
+                            event,
+                        });
+                    }
+                    Poll::Pending => vacancy = Some(Vacancy),
+                },
+                (PollSource::Boundary(_), None) => vacancy = None,
+                (PollSource::Other(source), available) => {
+                    vacancy = available;
+                    if let Poll::Ready(event) = other(position, source, context) {
+                        return SelectionPoll::Ready(SelectedInput::Other {
+                            turn: Self {
+                                coordinator,
+                                vacancy,
+                            },
+                            event,
+                        });
+                    }
+                }
             }
         }
-        match self.coordinator.classify(selected, due) {
-            Classification::Restart => Disposition::Restart,
-            Classification::Apply { suppress_due } => Disposition::Apply { suppress_due },
+        SelectionPoll::Pending(Self {
+            coordinator,
+            vacancy,
+        })
+    }
+
+    pub(in crate::runtime::owner) fn into_other<O>(self, event: O) -> SelectedInput<'a, B, O> {
+        SelectedInput::Other { turn: self, event }
+    }
+
+    pub(in crate::runtime::owner) fn classify(
+        self,
+        selected: NonBoundarySelected,
+        due: RawCorrelationReleaseSet,
+    ) -> Disposition {
+        self.coordinator.classify(selected.0, due)
+    }
+}
+
+impl<'a, B> VacantSlot<'a, B> {
+    pub(in crate::runtime::owner) fn into_boundary<O>(
+        self,
+        boundary: B,
+    ) -> SelectedInput<'a, B, O> {
+        SelectedInput::Boundary {
+            vacancy: self,
+            boundary,
         }
+    }
+
+    pub(in crate::runtime::owner) fn retaining(self) -> Self {
+        self.coordinator.restart_after_retain();
+        self
+    }
+}
+
+/// The public classification input excludes live boundary events. Those must
+/// already carry a vacancy through `SelectedInput::Boundary`.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::runtime::owner) struct NonBoundarySelected(Selected);
+
+impl NonBoundarySelected {
+    pub(in crate::runtime::owner) const fn timer() -> Self {
+        Self(Selected::Timer)
+    }
+    pub(in crate::runtime::owner) const fn other() -> Self {
+        Self(Selected::Other)
+    }
+    pub(in crate::runtime::owner) const fn receive(
+        due_at_receive: RawCorrelationReleaseSet,
+        class: ReceiveClass,
+    ) -> Self {
+        Self(Selected::Receive {
+            due_at_receive,
+            class,
+        })
+    }
+    pub(in crate::runtime::owner) const fn kind(self) -> Selected {
+        self.0
     }
 }
 
@@ -281,25 +429,9 @@ pub(in crate::runtime::owner) enum ReceiveClass {
     Other,
 }
 
-/// What the shell must do with a selected event.
-#[derive(Debug)]
-pub(in crate::runtime::owner) enum Disposition<'a, B> {
-    /// A timer selected from a view that predates a raw hold expiry: it has not
-    /// earned the receive-first release pass. Discard it and plan again.
-    Restart,
-    /// A boundary selected while a raw release is due must not enter its
-    /// engine turn yet. The shell answers it if it can (a lost admission claim,
-    /// a cancellation whose terminal result is already buffered) and otherwise
-    /// hands it to [`OwnerCoordinator::retain`]; either way it then plans again.
-    Retain(VacantSlot<'a, B>),
-    /// Run the event's engine turn. `suppress_due` is set when a raw release
-    /// probe hit a transient fault, so that turn must not run due work.
-    Apply { suppress_due: bool },
-}
-
-/// Pure classification result, before the planned vacancy is attached.
+/// What the shell must do with a selected nonboundary event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Classification {
+pub(in crate::runtime::owner) enum Disposition {
     Restart,
     Apply { suppress_due: bool },
 }
@@ -523,7 +655,7 @@ impl<B> OwnerCoordinator<B> {
         &mut self,
         selected: Selected,
         due_after_selection: RawCorrelationReleaseSet,
-    ) -> Classification {
+    ) -> Disposition {
         let planned = self.planned;
         if !due_after_selection.is_empty() {
             match selected {
@@ -532,7 +664,7 @@ impl<B> OwnerCoordinator<B> {
                 // has not earned the receive-first release pass.
                 Selected::Timer if !planned.release.is_pending() => {
                     self.phase = SourcePhase::ReceiveFirst;
-                    return Classification::Restart;
+                    return Disposition::Restart;
                 }
                 _ => {}
             }
@@ -564,7 +696,7 @@ impl<B> OwnerCoordinator<B> {
             // framing; either way the next turn needs a fresh probe.
             self.release.clear_fence();
         }
-        Classification::Apply {
+        Disposition::Apply {
             suppress_due: probe && class == Some(ReceiveClass::TransientFault),
         }
     }
