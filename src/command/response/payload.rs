@@ -163,6 +163,23 @@ impl<'a> Payload<'a> {
 ///
 /// This type provides strongly-typed access to fixed-size payloads,
 /// converting runtime length checks to compile-time guarantees where possible.
+/// Widths 1, 3 and 4 have total `value` accessors; widths 4 and 5 have total
+/// signed accessors, and width 8 splits into two borrowed four-nibble views.
+/// The positional accessors accept arbitrary indices and return `None` when
+/// the requested range is outside the view.
+///
+/// # Examples
+///
+/// ```
+/// use grafton_visca::wire::Nibbles;
+///
+/// let reply = [0x0F, 0x0F, 0x0F, 0x0F, 0, 0, 0, 1];
+/// let (first, second) = Nibbles::from_array(&reply)?.halves();
+/// assert_eq!(first.value(), u16::MAX);
+/// assert_eq!(first.signed(), -1);
+/// assert_eq!(second.value(), 1);
+/// # Ok::<(), grafton_visca::Error>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Nibbles<'a, const N: usize>(&'a [u8; N]);
 
@@ -203,58 +220,98 @@ impl<'a, const N: usize> Nibbles<'a, N> {
         self.u16_quad(start).map(|value| value as i16)
     }
 
-    /// Combines five nibbles, or `None` if the range is out of bounds.
-    #[inline]
-    pub(crate) fn u20_penta(&self, start: usize) -> Option<u32> {
-        let end = start.checked_add(5)?;
-        self.0.get(start..end).map(combine)
-    }
-
-    /// Combines a signed 20-bit value, or `None` if the range is out of bounds.
-    #[inline]
-    pub(crate) fn i20_penta(&self, start: usize) -> Option<i32> {
-        let value = self.u20_penta(start)?;
-        Some(if value & 0x0008_0000 != 0 {
-            value as i32 - 0x0010_0000
-        } else {
-            value as i32
-        })
-    }
-
     /// The value of the trailing two nibbles of a zero-padded reply
     /// (`00 … 0p 0q` → `pq`).
+    ///
+    /// The view must contain at least two nibbles; a smaller width is rejected
+    /// at compile time.
     ///
     /// # Errors
     ///
     /// Returns [`Error::InvalidResponseFormat`] when a leading padding nibble
-    /// is not zero (the reply carries a value the field cannot hold) or the
-    /// view is shorter than two nibbles.
+    /// is not zero (the reply carries a value the field cannot hold).
     pub fn zero_extended_u8(&self) -> Result<u8, Error> {
-        self.zero_extended(2)
+        self.zero_extended::<2>()
     }
 
     /// The value of the trailing nibble of a zero-padded reply
     /// (`00 … 00 0p` → `p`).
     ///
+    /// The view must contain at least one nibble; an empty width is rejected
+    /// at compile time.
+    ///
     /// # Errors
     ///
     /// Returns [`Error::InvalidResponseFormat`] when a leading padding nibble
-    /// is not zero or the view is empty.
+    /// is not zero.
     pub fn zero_extended_nibble(&self) -> Result<u8, Error> {
-        self.zero_extended(1)
+        self.zero_extended::<1>()
     }
 
     /// Combines the trailing `digits` nibbles, requiring every leading nibble
     /// to be zero, as the reference's padded reply layouts do.
-    fn zero_extended(&self, digits: usize) -> Result<u8, Error> {
-        let Some(padding) = N.checked_sub(digits) else {
-            return Err(Error::InvalidResponseFormat);
-        };
-        let (padding, value) = self.0.split_at(padding);
+    fn zero_extended<const DIGITS: usize>(&self) -> Result<u8, Error> {
+        const { assert!(N >= DIGITS, "zero-extended reply width is too small") };
+        let (padding, value) = self.0.split_at(N - DIGITS);
         if padding.iter().any(|&nibble| nibble != 0) {
             return Err(Error::InvalidResponseFormat);
         }
         Ok(combine(value) as u8)
+    }
+}
+
+impl Nibbles<'_, 1> {
+    /// Returns the single nibble's value in `0..=15`.
+    #[inline]
+    pub fn value(&self) -> u8 {
+        combine(self.0) as u8
+    }
+}
+
+impl Nibbles<'_, 3> {
+    /// Combines all three nibbles into a value in `0..=4095`.
+    #[inline]
+    pub fn value(&self) -> u16 {
+        combine(self.0) as u16
+    }
+}
+
+impl Nibbles<'_, 4> {
+    /// Combines all four nibbles into an unsigned 16-bit value.
+    #[inline]
+    pub fn value(&self) -> u16 {
+        combine(self.0) as u16
+    }
+
+    /// Interprets all four nibbles as a signed two's-complement 16-bit value.
+    #[inline]
+    pub fn signed(&self) -> i16 {
+        self.value() as i16
+    }
+}
+
+impl Nibbles<'_, 5> {
+    /// Interprets all five nibbles as a signed two's-complement 20-bit value.
+    ///
+    /// The returned value lies in `-524_288..=524_287`.
+    #[inline]
+    pub fn signed(&self) -> i32 {
+        let value = combine(self.0);
+        if value & 0x0008_0000 != 0 {
+            value as i32 - 0x0010_0000
+        } else {
+            value as i32
+        }
+    }
+}
+
+impl<'a> Nibbles<'a, 8> {
+    /// Borrows the first and last four nibbles as already-validated views.
+    #[inline]
+    pub fn halves(&self) -> (Nibbles<'a, 4>, Nibbles<'a, 4>) {
+        let [first @ .., _, _, _, _] = self.0;
+        let [_, _, _, _, second @ ..] = self.0;
+        (Nibbles(first), Nibbles(second))
     }
 }
 
@@ -288,6 +345,17 @@ impl<'a, const N: usize> TryFrom<Payload<'a>> for Nibbles<'a, N> {
 mod tests {
     use super::*;
 
+    fn encoded_nibbles<const N: usize>(value: u32) -> [u8; N] {
+        let mut frame = [0; 10];
+        let length =
+            crate::command::bytes::FrameWriter::new(crate::types::CameraId::CAMERA_1, &mut frame)
+                .nibbles::<N>(value)
+                .finish()
+                .expect("frame fits");
+        assert_eq!(length, N + 2);
+        frame[1..=N].try_into().expect("exact nibble width")
+    }
+
     proptest::proptest! {
         #[test]
         fn indexed_nibble_access_is_total_for_arbitrary_indices(index in proptest::prelude::any::<usize>()) {
@@ -302,6 +370,27 @@ mod tests {
             proptest::prop_assert_eq!(empty.u16_quad(index), None);
             proptest::prop_assert_eq!(empty.i16_quad(index), None);
         }
+
+        #[test]
+        fn total_unsigned_word_round_trips(value in proptest::prelude::any::<u16>()) {
+            let encoded = encoded_nibbles::<4>(u32::from(value));
+            let nibbles = Nibbles::from_array(&encoded).expect("encoded nibbles");
+            proptest::prop_assert_eq!(nibbles.value(), value);
+        }
+
+        #[test]
+        fn total_signed_word_round_trips(value in proptest::prelude::any::<i16>()) {
+            let encoded = encoded_nibbles::<4>(u32::from(value as u16));
+            let nibbles = Nibbles::from_array(&encoded).expect("encoded nibbles");
+            proptest::prop_assert_eq!(nibbles.signed(), value);
+        }
+
+        #[test]
+        fn total_signed_twenty_bit_word_round_trips(value in -524_288i32..=524_287) {
+            let encoded = encoded_nibbles::<5>(value as u32);
+            let nibbles = Nibbles::from_array(&encoded).expect("encoded nibbles");
+            proptest::prop_assert_eq!(nibbles.signed(), value);
+        }
     }
 
     #[test]
@@ -311,11 +400,54 @@ mod tests {
         for index in [usize::MAX, usize::MAX - 1, usize::MAX - 3, 5, 8] {
             assert_eq!(nibbles.u16_quad(index), None);
             assert_eq!(nibbles.i16_quad(index), None);
-            assert_eq!(nibbles.u20_penta(index), None);
-            assert_eq!(nibbles.i20_penta(index), None);
         }
         let short = Nibbles::<3>::from_array(&[0, 1, 2]).expect("short validated view");
         assert_eq!(short.u16_quad(0), None);
+    }
+
+    #[test]
+    fn total_unsigned_accessors_cover_their_boundaries() {
+        for (data, expected) in [([0], 0), ([0xF], 0xF)] {
+            assert_eq!(Nibbles::from_array(&data).unwrap().value(), expected);
+        }
+        for (data, expected) in [([0; 3], 0), ([0xF; 3], 0xFFF)] {
+            assert_eq!(Nibbles::from_array(&data).unwrap().value(), expected);
+        }
+        for (data, expected) in [([0; 4], 0), ([0xF; 4], u16::MAX)] {
+            assert_eq!(Nibbles::from_array(&data).unwrap().value(), expected);
+        }
+    }
+
+    #[test]
+    fn total_signed_accessors_cover_sign_boundaries() {
+        for (data, expected) in [
+            ([0; 4], 0),
+            ([0xF; 4], -1),
+            ([0x8, 0, 0, 0], i16::MIN),
+            ([0x7, 0xF, 0xF, 0xF], i16::MAX),
+        ] {
+            assert_eq!(Nibbles::from_array(&data).unwrap().signed(), expected);
+        }
+        for (data, expected) in [
+            ([0; 5], 0),
+            ([0xF; 5], -1),
+            ([0x8, 0, 0, 0, 0], -524_288),
+            ([0x7, 0xF, 0xF, 0xF, 0xF], 524_287),
+        ] {
+            assert_eq!(Nibbles::from_array(&data).unwrap().signed(), expected);
+        }
+    }
+
+    #[test]
+    fn total_halves_borrow_both_words_without_revalidation() {
+        for data in [[0; 8], [0xF; 8], [0, 1, 2, 3, 4, 5, 6, 7]] {
+            let nibbles = Nibbles::from_array(&data).unwrap();
+            let (first, second) = nibbles.halves();
+            assert_eq!(Some(first.value()), nibbles.u16_quad(0));
+            assert_eq!(Some(second.value()), nibbles.u16_quad(4));
+            assert_eq!(first.as_array().as_ptr(), data.as_ptr());
+            assert_eq!(second.as_array().as_ptr(), data[4..].as_ptr());
+        }
     }
 
     #[test]
@@ -435,12 +567,6 @@ mod tests {
                 Err(Error::InvalidResponseFormat)
             ));
         }
-        assert!(matches!(
-            Nibbles::<1>::from_array(&[0x01])
-                .expect("valid nibbles")
-                .zero_extended_u8(),
-            Err(Error::InvalidResponseFormat)
-        ));
     }
 
     #[test]

@@ -12,7 +12,7 @@ CommandBufferFull	src/error.rs	0x03 => Self::CommandBufferFull,
 CommandCancelled	src/error.rs	0x04 => Self::CommandCancelled,
 NoSocket	src/error.rs	0x05 => Self::NoSocket,
 CommandNotExecutable	src/error.rs	0x41 => Self::CommandNotExecutable,
-InvalidResponseFormat	src/command/response/payload.rs	let Some(padding) = N.checked_sub(digits) else { return Err(Error::InvalidResponseFormat);
+InvalidResponseFormat	src/command/response/payload.rs	if padding.iter().any(|&nibble| nibble != 0) { return Err(Error::InvalidResponseFormat);
 InvalidResponseLength	src/error.rs	Self::InvalidResponseLength { expected, actual: payload.len(),
 UnexpectedResponseType	src/command/inquiry_structs.rs	Response::Error(e) => Err(e), _ => Err(Error::UnexpectedResponseType),
 Unknown	src/error.rs	_ => Self::Unknown { code },

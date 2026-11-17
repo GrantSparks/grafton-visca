@@ -998,7 +998,7 @@ define_builtin_inquiries! {
             /// Zoom position value.
             position: crate::types::ZoomPosition,
         } => |payload| Ok(InquiryData::ZoomPosition {
-            position: crate::types::ZoomPosition::new(Nibbles::<4>::try_from(payload)?.u16_quad(0).ok_or(Error::InvalidResponseFormat)?)?,
+            position: crate::types::ZoomPosition::new(Nibbles::<4>::try_from(payload)?.value())?,
         });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -1022,7 +1022,7 @@ define_builtin_inquiries! {
             /// Focus position value.
             position: crate::types::FocusPosition,
         } => |payload| Ok(InquiryData::FocusPosition {
-            position: crate::types::FocusPosition::new(Nibbles::<4>::try_from(payload)?.u16_quad(0).ok_or(Error::InvalidResponseFormat)?)?,
+            position: crate::types::FocusPosition::new(Nibbles::<4>::try_from(payload)?.value())?,
         });
         shape: crate::PayloadShape::Nibbles(4);
         commands [
@@ -1376,7 +1376,7 @@ define_builtin_inquiries! {
             /// Maximum gain limit (0x0=0 to 0xF=15).
             limit: crate::types::GainLimit,
         } => |payload| Ok(InquiryData::GainLimit {
-            limit: crate::types::GainLimit::new(Nibbles::<1>::try_from(payload)?.byte(0).ok_or(Error::InvalidResponseFormat)?)?,
+            limit: crate::types::GainLimit::new(Nibbles::<1>::try_from(payload)?.value())?,
         });
         shape: crate::PayloadShape::Nibbles(1);
         commands [
@@ -1583,7 +1583,7 @@ define_builtin_inquiries! {
             /// Near limit position value.
             position: crate::types::FocusPosition,
         } => |payload| Ok(InquiryData::FocusNearLimit {
-            position: crate::types::FocusPosition::new(Nibbles::<4>::try_from(payload)?.u16_quad(0).ok_or(Error::InvalidResponseFormat)?)?,
+            position: crate::types::FocusPosition::new(Nibbles::<4>::try_from(payload)?.value())?,
         });
         shape: crate::PayloadShape::Nibbles(4);
         commands [

@@ -284,12 +284,7 @@ pub(crate) fn decode_separate_preset_speed(payload: Payload<'_>) -> Result<Prese
 }
 
 pub(crate) fn decode_separate_preset_duration(payload: Payload<'_>) -> Result<Duration, Error> {
-    let &[high, middle, low] = Nibbles::<3>::try_from(payload)?.as_array();
-    // Pad the strict three-nibble view to reuse the canonical nibble combiner.
-    let padded = [0, high, middle, low];
-    let value = Nibbles::<4>::from_array(&padded)?
-        .u16_quad(0)
-        .ok_or(Error::InvalidResponseFormat)?;
+    let value = Nibbles::<3>::try_from(payload)?.value();
     PresetDuration::from_wire(value).map(PresetDuration::duration)
 }
 
