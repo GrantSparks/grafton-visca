@@ -6,6 +6,16 @@
 //! [`TransportConfig::for_serial`](crate::transport::TransportConfig::for_serial),
 //! which are the defaults every built-in entry point uses.
 
+/// Validate the byte count a transport reported before indexing its buffer.
+#[cfg(any(feature = "async", feature = "blocking", test))]
+pub(crate) fn checked_read(reported: usize, capacity: usize) -> crate::Result<usize> {
+    if reported > capacity {
+        Err(crate::Error::buffer_too_small(reported, capacity))
+    } else {
+        Ok(reported)
+    }
+}
+
 /// Frame limit of the transport-neutral [`BufferConfig::default`].
 const DEFAULT_FRAME_LIMIT: usize = 128;
 
@@ -158,6 +168,19 @@ impl BufferConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_counts_are_checked_before_buffer_access() {
+        assert_eq!(checked_read(0, 0).ok(), Some(0));
+        assert_eq!(checked_read(4, 4).ok(), Some(4));
+        assert!(matches!(
+            checked_read(5, 4),
+            Err(crate::Error::BufferTooSmall {
+                required: 5,
+                actual: 4
+            })
+        ));
+    }
 
     #[test]
     fn presets_differ_only_in_their_frame_limit() {

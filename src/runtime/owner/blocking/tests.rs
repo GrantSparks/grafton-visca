@@ -65,6 +65,7 @@ enum Read {
     /// An oversized datagram: the prefix that fits is copied and the read
     /// reports the rest as lost.
     Truncated(Vec<u8>),
+    Overreported,
     EndOfStream,
     Fail(Error),
     Panic,
@@ -174,6 +175,7 @@ impl BlockingTransport for ChannelTransport {
                 dst[..copied].copy_from_slice(&prefix[..copied]);
                 Ok(ReceiveOutcome::truncated(copied))
             }
+            Ok(Read::Overreported) => Ok(ReceiveOutcome::complete(dst.len() + 1)),
             Ok(Read::EndOfStream) => Ok(ReceiveOutcome::complete(0)),
             Ok(Read::Fail(error)) => Err(error),
             Ok(Read::Panic) => panic!("injected transport panic"),
@@ -730,6 +732,22 @@ fn fatal_stream_reads_retain_the_typed_os_cause() {
         assert!(std::error::Error::source(&error).is_some());
         assert!(matches!(owner.close(), Err(Error::ConnectionClosed { .. })));
     }
+}
+
+/// A caller transport that violates the supplied buffer bound ends the
+/// stream session and preserves the typed reported and available counts.
+#[test]
+fn an_overreported_stream_read_ends_the_session_with_typed_counts() {
+    let (owner, peer) = Setup::stream().spawn();
+    let receipt = owner.submit_command(focus_manual()).unwrap();
+    peer.next_write();
+    peer.send(Read::Overreported);
+    let error = receipt.wait().expect_err("invalid read ends the stream");
+    let capacity = TransportConfig::default().buffer_config.recv_buffer_size;
+    assert!(
+        matches!(&error, Error::StreamPoisoned { source } if matches!(source.as_ref(), Error::BufferTooSmall { required, actual } if *required == capacity + 1 && *actual == capacity))
+    );
+    assert!(matches!(owner.close(), Err(Error::StreamPoisoned { .. })));
 }
 
 /// #625: a read that keeps failing transiently for long enough is a broken

@@ -10,7 +10,8 @@
 //!    resolution *and* connection setup on every facade.
 //! 3. Name resolution reports failure through
 //!    [`resolved`](crate::transport::address::resolved), so an unresolvable
-//!    host is the same [`Error::InvalidAddress`] on every facade.
+//!    host is the same [`Error::ConnectionFailed`] with a retained I/O cause
+//!    on every facade.
 //! 4. TCP tries each resolved address in order ([`TcpAttempts`]), giving each
 //!    an equal share of the remaining budget (at least
 //!    [`MIN_ADDRESS_ATTEMPT`]) so an unroutable early address cannot starve
@@ -27,12 +28,15 @@
 //! # Errors
 //!
 //! - Invalid configuration: [`Error::InvalidRequest`]; malformed endpoint or
-//!   failed resolution: [`Error::InvalidAddress`].
+//!   an empty resolution result: [`Error::InvalidAddress`].
 //! - The budget expired: [`Error::Timeout`] (stage `Session`, certainty
 //!   `NotAccepted`).
-//! - Socket creation, binding, connection or socket-option setup failed:
-//!   [`Error::ConnectionFailed`] naming the endpoint and carrying the socket
-//!   error (the last attempt's error for TCP).
+//! - Name resolution, socket creation, binding, connection or socket-option
+//!   setup failed: [`Error::ConnectionFailed`] naming the endpoint and carrying
+//!   the I/O error (the last attempt's error for TCP). The standard error
+//!   source is the stored `Arc<std::io::Error>`; downcast to that type, then
+//!   use `as_ref()` to inspect the original error kind or OS code. Cloning a
+//!   public error retains the same I/O cause.
 
 use std::{
     net::SocketAddr,

@@ -142,13 +142,7 @@ pub(crate) fn deliverable(
     outcome: ReceiveOutcome,
     capacity: usize,
 ) -> Result<Option<ReceiveOutcome>, Error> {
-    let copied = outcome.copied_len();
-    if copied > capacity {
-        return Err(Error::InvalidResponse {
-            expected: "datagram receive fitting the supplied buffer".into(),
-            actual: copied.to_le_bytes().to_vec(),
-        });
-    }
+    let copied = super::buffer::checked_read(outcome.copied_len(), capacity)?;
     if outcome.is_complete() && copied == 0 {
         Ok(None)
     } else {
@@ -310,7 +304,10 @@ mod tests {
         }
         assert!(matches!(
             deliverable(ReceiveOutcome::complete(5), 4),
-            Err(Error::InvalidResponse { .. })
+            Err(Error::BufferTooSmall {
+                required: 5,
+                actual: 4
+            })
         ));
     }
 }
