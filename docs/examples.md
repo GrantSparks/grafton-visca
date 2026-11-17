@@ -86,12 +86,8 @@ cargo clippy --examples --no-default-features --features blocking -- -D warnings
 bash .github/scripts/test-all-features.sh
 ```
 
-An RC may be published with the physical-camera checklist still pending under
-#753's proportional policy, which supersedes #738/D8 in #732. Its release notes
-must state plainly: **"No physical hardware validation has been performed, and
-no hardware support has been verified for this release candidate."** See the
-[hardware release checklist](hardware_release_checklist.md) for the separate
-stable-release evidence requirement.
+Hardware smoke checks are optional and private for stable releases and
+prereleases (#1008). See the [optional guidance](hardware_release_checklist.md).
 
 The ignored profile probe reads queries on a known camera bench. Its candidate
 results require evidence review; they do not install grants. AE validation is a

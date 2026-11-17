@@ -619,11 +619,9 @@ application idle timeout there are two application-side levers:
    absent-frame silence decision and positive liveness after the rebuild.
 
 Which cameras enforce an application idle timeout, what that interval is, and
-whether a heartbeat prevents the close are firmware-specific and belong to
-hardware validation rather than a library guarantee; the idle-disconnect row in
-[`hardware_release_checklist.md`](hardware_release_checklist.md) captures that
-evidence (including the FIN/RST direction that distinguishes a camera-initiated
-close from an intervening network device).
+whether a heartbeat prevents the close are firmware-specific, not a library
+guarantee. An optional private device check can distinguish a camera-initiated
+close from an intervening network device by observing the FIN/RST direction.
 
 ## Fresh-session poison recovery
 

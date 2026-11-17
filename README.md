@@ -10,25 +10,14 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 > **2.0.0** — The owner-backed API keeps one protocol owner per session and
 > exposes compile-time and runtime-selected profile views in blocking and async
 > over that owner.
->
-> **Hardware validation status** — Verified on a PTZOptics G2 bench
-> (PT30X-NDI G2, SOC 6.3.32 / ARM 6.3.51THI; PT20X-NDI G2, SOC 6.3.22 /
-> ARM 6.3.76THI; PT12X-NDI G2, SOC 6.3.62 / ARM 6.4.18SHI) for Raw VISCA over
-> TCP and UDP: commands, inquiries, motion stop, owner halt, disconnect
-> recovery, the corrected wire rows, and concurrent use of five cameras. Raw
-> serial and Sony UDP are implemented and tested in software but **not verified
-> on hardware**; this is a known limitation. Evidence and firmware details are
-> in the [hardware release checklist](docs/hardware_release_checklist.md).
 
 ---
 
 ## 2.0.0 Support Matrix
 
 The 2.0 contract is owner-backed construction, mode-native sessions, typed
-profile views, and one request path for each semantic class. Hardware validation
-is narrower than software support: the library contract is checked in CI, while
-device-specific firmware behavior is tracked in the
-[hardware release checklist](docs/hardware_release_checklist.md).
+profile views, and one request path for each semantic class. Source-backed
+profile capability gates and automated protocol tests define software support.
 
 The 2.0 release is a clean break from the pre-2.0 API. Use
 `config::SessionConfig` for reusable target/profile registration,
@@ -63,9 +52,9 @@ lives in `config::CameraConfig<P>`.
 | Profile family | Protocol | 2.0 support |
 | -------------- | -------- | ----------- |
 | `GenericVisca` | Raw VISCA | Supported baseline profile with conservative capabilities |
-| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` | Raw VISCA | `PtzOpticsG2` verified over TCP and UDP on the PTZOptics G2 bench; `PtzOptics30x` verified for the corrected wire rows on a PT30X-NDI G2; `PtzOpticsG3` not verified on hardware (see the [hardware release checklist](docs/hardware_release_checklist.md)) |
-| `SonyEviH100`, `SonyBrc300`, `NearusBrc300` | Raw VISCA | Supported through profile capability gates and protocol tests; not verified on hardware |
-| `SonyBrcH900`, `SonyFr7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests; not verified on hardware (known limitation) |
+| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` | Raw VISCA | Supported through profile capability gates and protocol tests |
+| `SonyEviH100`, `SonyBrc300`, `NearusBrc300` | Raw VISCA | Supported through profile capability gates and protocol tests |
+| `SonyBrcH900`, `SonyFr7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests |
 
 Built-in identifiers have explicit persisted spellings:
 `ptzoptics_g2`, `ptzoptics_g3`, `ptzoptics_30x`, `sony_fr7`,
@@ -461,8 +450,8 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
   or stable samples reporting their axes, window, and tolerance. Stable samples
   do not prove arrival at the requested endpoint. A later conflicting admission
   supersedes unfinished polled settlement; previously cached evidence remains
-  valid. Physical bench evidence remains in the
-  [hardware release checklist](docs/hardware_release_checklist.md).
+  valid. Settlement describes protocol evidence rather than a guarantee that
+  physical motion has ended.
 - Waits borrow the handle, and the handle caches what it observes: `applied`
   then `settled` on one handle continues from the cached application, a
   repeated wait answers from the cache, and a wait that times out or loses a
@@ -680,7 +669,7 @@ before any socket or serial device is opened.
 - **[Request Semantics](docs/request_semantics.md)** — Plain, inquiry, targeted, and applied-only request classes
 - **[Allocation and Validation](docs/allocation_and_validation.md)** — Release gates for bounded work and preflight validation
 - **[Observability and Recovery](docs/observability_and_recovery.md)** — Metrics, diagnostics, cache, and recovery behavior
-- **[Hardware Release Checklist](docs/hardware_release_checklist.md)** — Assigned physical validation rows and evidence status
+- **[Optional Hardware Smoke Checks](docs/hardware_release_checklist.md)** — Private, optional device checks for maintainers
 - **[2.0 Migration Guide](docs/migration_2_0.md)** — Destination APIs for pre-2.0 applications
 - **[VISCA Protocol Reference](docs/visca_reference.md)** — Consolidated PTZOptics, Axis, and protocol evidence used for built-in profile decisions
 - **[Camera Profile Support Guide](docs/camera_profile_support.md)** — Workflow and testing rules for adding camera capabilities

@@ -106,10 +106,8 @@
 //! - **Settled** — a targeted operation was applied *and* meets the
 //!   profile-selected protocol settlement condition: a profile-declared
 //!   completion-is-settled signal, or two affected-axis position samples within
-//!   tolerance. It is an intended indication of target rest, not a
-//!   2.0.0-rc.3 bench-verified assertion that physical motion ended; exact
-//!   model/firmware/transport/command evidence remains in the repository's
-//!   `docs/hardware_release_checklist.md`.
+//!   tolerance. This is protocol evidence of target rest; it does not
+//!   independently prove that physical motion has ended.
 //!   Settlement is a caller wait, not an engine phase.
 //!
 //! **Deadline classes** (three independent owners; every default request

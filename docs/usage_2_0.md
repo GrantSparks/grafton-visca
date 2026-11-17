@@ -276,9 +276,8 @@ applicable pacing and capacity policy wins. A settlement timeout is separate
 from protocol completion: a targeted operation may be acknowledged before the
 profile-selected settlement evidence is established. `Settlement` distinguishes
 exact profile completion from stable samples with a window and tolerance;
-stable samples do not prove arrival at the endpoint. See the
-[hardware release checklist](hardware_release_checklist.md). Inquiries always
-use `inquiry_timeout`.
+stable samples do not prove arrival at the endpoint or independently guarantee
+that physical motion has ended. Inquiries always use `inquiry_timeout`.
 
 ## Caller-owned transports and executors
 

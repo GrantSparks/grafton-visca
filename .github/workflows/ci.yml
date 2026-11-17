@@ -315,7 +315,7 @@ jobs:
           bash .github/scripts/test-validate-change-record.sh
           bash .github/scripts/test-check-public-api.sh
           PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/test-check-public-layout.py
-      - name: Check clean-checkout, hardware, and registry-payload gates
+      - name: Check clean-checkout, release-identity, and registry-payload gates
         run: |
           bash .github/scripts/test-validate-release.sh
           bash .github/scripts/test-verify-crate-payload.sh
@@ -495,8 +495,8 @@ jobs:
       # `src/transport/serial_blocking.rs`). The Win32 backend is *compiled*
       # here — which is the check that catches
       # Windows-only type, cfg, and API-shape breakage — and never executed.
-      # Behaviour against a real Win32 port is hardware evidence and belongs in
-      # `docs/hardware_release_checklist.md`, not in this job.
+      # Real-device smoke checks are optional and private; this job validates
+      # the software contract without attached serial hardware.
       - run: cargo test --no-default-features --features transport-serial
 
       # Exercise Winsock's UDP ICMP port-unreachable behavior on real loopback
