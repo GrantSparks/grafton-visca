@@ -12,7 +12,7 @@
 use std::time::Duration;
 
 use grafton_visca::{
-    config::{MountPosition, SessionConfig},
+    config::{CameraConfig, MountPosition, SessionConfig},
     profiles::SonyFr7,
     types::{AffectedAxes, Degrees, IdleWait, MotionQuery, PanTiltLimitCorner, SpeedLevel},
 };
@@ -65,6 +65,57 @@ facade_matrix! {
         assert!(payloads.contains(&vec![0x81, 1, 6, 7, 1, 1, 7, 15, 15, 15, 15, 7, 15, 15, 15, 15, 0xff]));
         assert_eq!(payloads.last().expect("relative frame").len(), 17);
         wait!(session.close()).expect("close FR7 session");
+    }
+
+    fn fr7_single_camera_ceiling_mount_controls_preparation_before_io() {
+        let fake = camera();
+        let config = CameraConfig::<SonyFr7>::udp("unused.invalid")
+            .with_mount(MountPosition::Ceiling);
+        let session = open_camera!(fake, &config).expect("single-camera ceiling session");
+        let camera = session.camera();
+        assert_eq!(camera.registration().tilt_range_degrees(), Some(-210.0..=15.0));
+        assert!(matches!(
+            wait!(camera.pan_tilt().absolute(grafton_visca::types::PanTiltPosition {
+                pan: Degrees::new(0.0).expect("valid degrees"),
+                tilt: Degrees::new(80.0).expect("valid degrees"),
+            }, SpeedLevel::Slowest)),
+            Err(grafton_visca::Error::InvalidParameter { parameter: "tilt position", .. })
+        ));
+        assert!(wait!(camera.pan_tilt().set_limit(PanTiltLimitCorner::UpRight,
+            grafton_visca::types::PanTiltPosition {
+                pan: Degrees::new(0.0).expect("valid degrees"),
+                tilt: Degrees::new(80.0).expect("valid degrees"),
+            })).is_err());
+        assert_eq!(fake.write_count(), 0);
+        let mut operation = wait!(camera.pan_tilt().absolute(grafton_visca::types::PanTiltPosition {
+            pan: Degrees::new(0.0).expect("valid degrees"),
+            tilt: Degrees::new(-210.0).expect("valid degrees"),
+        }, SpeedLevel::Slowest)).expect("ceiling lower endpoint");
+        wait!(operation.applied()).expect("ceiling application");
+        assert_eq!(&fake.take_only_payload()[11..16], [15, 3, 14, 7, 13]);
+        wait!(session.close()).expect("close single-camera ceiling session");
+    }
+
+    fn fr7_single_camera_default_mount_keeps_desktop_limits() {
+        let fake = camera();
+        let config = CameraConfig::<SonyFr7>::udp("unused.invalid");
+        assert_eq!(config.mount(), None);
+        let session = open_camera!(fake, &config).expect("single-camera default session");
+        let camera = session.camera();
+        assert_eq!(camera.registration().mount(), Some(MountPosition::Desktop));
+        assert_eq!(camera.registration().tilt_range_degrees(), Some(-30.0..=195.0));
+        assert!(wait!(camera.pan_tilt().absolute(grafton_visca::types::PanTiltPosition {
+            pan: Degrees::new(0.0).expect("valid degrees"),
+            tilt: Degrees::new(-100.0).expect("valid degrees"),
+        }, SpeedLevel::Slowest)).is_err());
+        assert_eq!(fake.write_count(), 0);
+        let mut operation = wait!(camera.pan_tilt().absolute(grafton_visca::types::PanTiltPosition {
+            pan: Degrees::new(0.0).expect("valid degrees"),
+            tilt: Degrees::new(80.0).expect("valid degrees"),
+        }, SpeedLevel::Slowest)).expect("desktop position");
+        wait!(operation.applied()).expect("desktop application");
+        assert_eq!(fake.write_count(), 1);
+        wait!(session.close()).expect("close single-camera default session");
     }
 
     fn fr7_ceiling_registration_controls_noun_preparation_before_io() {

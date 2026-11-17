@@ -12,6 +12,7 @@ use crate::{
         AnyProfile, CameraProfile, CompileTimeProfile, ProfileSelection, TypedProfileSelection,
     },
     transport::{SerialStartup, TransportConfig},
+    MountPosition,
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -198,6 +199,7 @@ pub struct CameraConfig<P: CameraProfile = AnyProfile> {
     transport_config: Option<TransportConfig>,
     serial_startup: SerialStartup,
     camera_id: Option<IndividualCameraId>,
+    mount: Option<MountPosition>,
 }
 
 impl<P: CameraProfile> Clone for CameraConfig<P> {
@@ -209,6 +211,7 @@ impl<P: CameraProfile> Clone for CameraConfig<P> {
             transport_config: self.transport_config,
             serial_startup: self.serial_startup,
             camera_id: self.camera_id,
+            mount: self.mount,
         }
     }
 }
@@ -221,6 +224,7 @@ impl<P: CameraProfile> std::fmt::Debug for CameraConfig<P> {
             .field("transport_config", &self.transport_config)
             .field("serial_startup", &self.serial_startup)
             .field("camera_id", &self.camera_id)
+            .field("mount", &self.mount)
             .finish()
     }
 }
@@ -267,6 +271,7 @@ impl<P: CameraProfile> CameraConfig<P> {
             transport_config: None,
             serial_startup: SerialStartup::default(),
             camera_id: None,
+            mount: None,
         }
     }
     /// Resolves the selected profile, including deferred community-profile validation.
@@ -312,6 +317,22 @@ impl<P: CameraProfile> CameraConfig<P> {
         self.camera_id = Some(id);
         self
     }
+    /// Returns the explicit installation mount, or `None` for the profile default.
+    ///
+    /// Mount-dependent profiles default to [`MountPosition::Desktop`]; fixed-range
+    /// profiles have no mount selection.
+    pub const fn mount(&self) -> Option<MountPosition> {
+        self.mount
+    }
+    /// Selects the mounting position already configured on the camera.
+    ///
+    /// Validation refuses this override for profiles with one fixed tilt range,
+    /// before endpoint parsing or connection I/O.
+    #[must_use]
+    pub const fn with_mount(mut self, mount: MountPosition) -> Self {
+        self.mount = Some(mount);
+        self
+    }
     /// Returns an explicit transport configuration, or `None` for transport defaults.
     pub const fn transport_config(&self) -> Option<TransportConfig> {
         self.transport_config
@@ -353,6 +374,7 @@ impl<P: CameraProfile> CameraConfig<P> {
             transport_config: self.transport_config,
             serial_startup: self.serial_startup,
             camera_id: self.camera_id,
+            mount: self.mount,
         }
     }
     /// Resolves the sole registration once and builds its reusable session data.
@@ -367,7 +389,11 @@ impl<P: CameraProfile> CameraConfig<P> {
         let id = self
             .camera_id
             .unwrap_or(profile.capabilities().default_camera_id);
-        let registration = std::sync::Arc::new(crate::TargetRegistration::new(id, profile));
+        let mut registration = crate::TargetRegistration::new(id, profile);
+        if let Some(mount) = self.mount {
+            registration = registration.with_mount(mount)?;
+        }
+        let registration = std::sync::Arc::new(registration);
         let config = crate::session_config::SessionConfig::from_registration(registration.clone())
             .with_policy(self.policy)
             .with_transport(self.transport.clone())
@@ -549,6 +575,49 @@ mod tests {
                     "/dev/not-opened"
                 );
             }
+        }
+        let config = CameraConfig::<crate::profiles::SonyFr7>::udp("camera.invalid")
+            .with_camera_id(IndividualCameraId::CAMERA_3)
+            .with_mount(crate::MountPosition::Ceiling);
+        let plan = config.connection_plan().expect("ceiling connection plan");
+        let stored = plan
+            .connection
+            .session_config
+            .registered_target(plan.registration.slot())
+            .expect("registered ceiling camera");
+        assert!(std::sync::Arc::ptr_eq(&plan.registration, &stored));
+        assert_eq!(
+            plan.registration.mount(),
+            Some(crate::MountPosition::Ceiling)
+        );
+        assert_eq!(plan.registration.tilt_range_degrees(), Some(-210.0..=15.0));
+        let session = config.session_config().expect("ceiling session data");
+        assert_eq!(
+            session
+                .registration(IndividualCameraId::CAMERA_3)
+                .expect("target")
+                .mount(),
+            Some(crate::MountPosition::Ceiling)
+        );
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn fixed_range_mount_is_refused_before_endpoint_parsing() {
+        let config = super::CameraConfig::<crate::profiles::PtzOpticsG2>::tcp("/never-parsed")
+            .with_mount(crate::MountPosition::Ceiling);
+        for error in [
+            config.validate().expect_err("fixed-range mount"),
+            config
+                .connection_plan()
+                .expect_err("mount before endpoint parsing"),
+        ] {
+            assert!(matches!(
+                error,
+                crate::Error::FeatureNotSupported {
+                    feature: "mount-dependent tilt range",
+                }
+            ));
         }
     }
 
@@ -1174,14 +1243,40 @@ mod tests {
         }
         impl crate::capabilities::SupportsTcp for Community {}
         let config = super::CameraConfig::<Community>::tcp("camera.local")
-            .with_camera_id(crate::IndividualCameraId::CAMERA_2);
+            .with_camera_id(crate::IndividualCameraId::CAMERA_2)
+            .with_mount(crate::MountPosition::Ceiling);
         let cloned = config.clone();
         assert_eq!(cloned.address(), Some("camera.local"));
         assert_eq!(
             cloned.camera_id(),
             Some(crate::IndividualCameraId::CAMERA_2)
         );
+        assert_eq!(cloned.mount(), Some(crate::MountPosition::Ceiling));
         assert!(!format!("{cloned:?}").is_empty());
+    }
+
+    #[cfg(all(feature = "schemars", feature = "ts-rs"))]
+    #[test]
+    fn portable_camera_config_keeps_mount_optional() {
+        let schema = schemars::schema_for!(super::CameraConfig);
+        let mount = schema
+            .get("properties")
+            .expect("config properties")
+            .get("mount")
+            .expect("mount property");
+        assert!(mount.to_string().contains("MountPosition"));
+        assert!(!schema
+            .get("required")
+            .expect("required config fields")
+            .as_array()
+            .expect("required fields array")
+            .iter()
+            .any(|field| field == "mount"));
+        let declaration = <super::CameraConfig as ts_rs::TS>::decl(&ts_rs::Config::default());
+        assert!(
+            declaration.contains("mount: MountPosition | null"),
+            "{declaration}"
+        );
     }
 
     #[cfg(feature = "serde")]
@@ -1221,5 +1316,56 @@ mod tests {
         let mut unknown_policy = json;
         unknown_policy["policy"]["unexpected"] = true.into();
         assert!(serde_json::from_value::<super::CameraConfig>(unknown_policy).is_err());
+
+        let ceiling = super::CameraConfig::<SonyFr7>::udp("camera.local")
+            .with_mount(crate::MountPosition::Ceiling);
+        let ceiling_json = serde_json::to_value(&ceiling).expect("ceiling serialization");
+        assert_eq!(ceiling_json["mount"], "ceiling");
+        let runtime: super::CameraConfig =
+            serde_json::from_value(ceiling_json.clone()).expect("runtime ceiling config");
+        assert_eq!(runtime.mount(), Some(crate::MountPosition::Ceiling));
+        let typed = runtime
+            .into_typed::<SonyFr7>()
+            .expect("typed FR7 selection");
+        assert_eq!(typed.mount(), Some(crate::MountPosition::Ceiling));
+        assert_eq!(
+            serde_json::to_value(typed.into_any().expect("runtime FR7 selection"))
+                .expect("runtime ceiling serialization"),
+            ceiling_json
+        );
+        for mount in [None, Some(serde_json::Value::Null)] {
+            let mut json = ceiling_json.clone();
+            if let Some(value) = mount {
+                json["mount"] = value;
+            } else {
+                json.as_object_mut().expect("config object").remove("mount");
+            }
+            let restored: super::CameraConfig<SonyFr7> =
+                serde_json::from_value(json).expect("default mount config");
+            assert_eq!(restored.mount(), None);
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            assert_eq!(
+                restored
+                    .validated_camera_config()
+                    .expect("valid FR7 config")
+                    .1
+                    .mount(),
+                Some(crate::MountPosition::Desktop)
+            );
+        }
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        {
+            let mut json =
+                serde_json::to_value(super::CameraConfig::<PtzOpticsG2>::tcp("camera.local"))
+                    .expect("G2 config");
+            json["mount"] = "ceiling".into();
+            let restored: super::CameraConfig = serde_json::from_value(json).expect("mount data");
+            assert!(matches!(
+                restored.validate(),
+                Err(crate::Error::FeatureNotSupported {
+                    feature: "mount-dependent tilt range",
+                })
+            ));
+        }
     }
 }

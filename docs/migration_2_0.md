@@ -18,8 +18,10 @@ encoding a raw frame.
 `TargetRegistration::new(target, profile)` and
 `SessionConfig::for_target(target, profile)` return their value directly (#989).
 Remove `?`, `.unwrap()` or `.expect(...)` from those constructor calls. The
-checked individual target already guarantees a valid address; `with_target`
-and `with_mount` remain fallible.
+checked individual target already guarantees a valid address;
+`SessionConfig::with_target`, `SessionConfig::with_mount` and
+`TargetRegistration::with_mount` remain fallible. `CameraConfig::with_mount`
+stores the override and validates it before opening or connecting.
 
 ## Command socket capacities (#984)
 
@@ -341,8 +343,10 @@ variant is removed in 2.0 (#722).
 
 The FR7 uses five signed nibbles on both axes and a 235.9-unit degree scale
 from R7. Its rightward pan uses decreasing raw coordinates. Select the actual
-Desktop or Ceiling installation with `SessionConfig::set_mount`; target
-registration keeps those limits separate from the canonical profile. Position
+Desktop or Ceiling installation with `CameraConfig::with_mount` for a
+single-camera session or `SessionConfig::with_mount` for a target in a
+multi-camera session; target registration keeps those limits separate from
+the canonical profile. Position
 request constructors accept `camera.registration()` so conversion and
 admission use the same installation facts.
 

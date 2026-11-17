@@ -62,6 +62,18 @@ fn blocking_connect_preflights_every_transport_before_io() {
             transport,
         );
     }
+    let mounted = CameraConfig::new(
+        ProfileId::PtzOpticsG2,
+        TransportOptions::tcp("/never-parsed"),
+    )
+    .with_mount(grafton_visca::config::MountPosition::Ceiling);
+    assert!(matches!(
+        grafton_visca::blocking::CameraSession::connect(&mounted),
+        Err(Error::FeatureNotSupported {
+            feature: "mount-dependent tilt range",
+            ..
+        })
+    ));
     #[cfg(not(feature = "transport-serial"))]
     {
         let config = CameraConfig::new(
@@ -98,6 +110,18 @@ async fn async_connect_preflights_every_transport_before_io() {
             transport,
         );
     }
+    let mounted = CameraConfig::new(
+        ProfileId::PtzOpticsG2,
+        TransportOptions::tcp("/never-parsed"),
+    )
+    .with_mount(grafton_visca::config::MountPosition::Ceiling);
+    assert!(matches!(
+        grafton_visca::r#async::CameraSession::connect(&mounted, runtime.clone()).await,
+        Err(Error::FeatureNotSupported {
+            feature: "mount-dependent tilt range",
+            ..
+        })
+    ));
     #[cfg(not(feature = "transport-serial-tokio"))]
     {
         let config = CameraConfig::new(

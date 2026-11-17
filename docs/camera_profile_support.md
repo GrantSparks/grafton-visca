@@ -939,9 +939,12 @@ Sony R7 pp. 12, 18 and 22 specify signed twenty-bit pan and tilt words, with
 235.9 units/degree on each axis. Positive R7 pan is counterclockwise, so the
 library's positive rightward angle uses a negative pan scale. Desktop tilt
 uses −30° to +195°; Ceiling uses −210° to +15°. Configure the matching mount
-with `SessionConfig::with_mount(target, MountPosition::Ceiling)` before opening
-the session. `camera.registration().tilt_range()` reports the effective target
-limits; `camera.profile()` remains the canonical source inventory.
+with `CameraConfig::with_mount(MountPosition::Ceiling)` for a single-camera
+`CameraSession`, or `SessionConfig::with_mount(target, MountPosition::Ceiling)`
+for a target in a multi-camera `Session`, before opening the session. The mount
+is preserved when a `CameraConfig` is serialized; an absent or `null` mount uses
+the profile default (Desktop for FR7). `camera.registration().tilt_range()`
+reports the effective target limits; `camera.profile()` remains the canonical source inventory.
 
 The nominal degree endpoints and integer words differ by up to half a unit.
 The FR7 converter snaps that endpoint cell to R7's exact word and uses nearest
