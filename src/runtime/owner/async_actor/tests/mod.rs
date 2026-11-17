@@ -53,6 +53,7 @@ use crate::{completion, CancellationOutcome};
 mod deadline_pacing;
 mod fairness;
 mod faults;
+mod lanes;
 #[cfg(feature = "runtime-tokio")]
 mod lifecycle;
 #[cfg(feature = "runtime-tokio")]

@@ -10,14 +10,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_lite::future;
+use flume::r#async::RecvStream;
+use futures_lite::{future, Stream, StreamExt};
 
 use crate::{
     executor::{Executor, ResettableTimer},
     Error,
 };
 
-use super::boundary::{BoundaryReceivers, OwnerHandleCore, OwnerSnapshot};
+use super::boundary::{
+    AdmissionBoundary, BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerHandleCore,
+    OwnerSnapshot,
+};
 use super::receipt::{ObservationWake, OperationReceipt, TerminalWake};
 use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::{
@@ -27,10 +31,7 @@ use super::{
 
 use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-use super::{
-    boundary::ControlBoundary, receipt::CommandReceipt, CancellationRequest, ReceiptCore,
-    RuntimeRequest,
-};
+use super::{receipt::CommandReceipt, CancellationRequest, ReceiptCore, RuntimeRequest};
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 use super::{
     MAXIMUM_TRANSIENT_RECEIVE_PAUSE, TRANSIENT_RECEIVE_FAULT_LIMIT, TRANSIENT_RECEIVE_FAULT_RESET,
@@ -93,32 +94,35 @@ where
 async fn select_actor_event<Receive, Timer>(
     selection: Selection,
     receive: Receive,
-    boundaries: &BoundaryReceivers,
+    lanes: &mut ActorLanes,
     timer: Timer,
 ) -> OwnerEvent
 where
     Receive: Future<Output = OwnerEvent>,
     Timer: Future<Output = OwnerEvent>,
 {
-    let shutdown = async {
-        match boundaries.shutdown.recv_async().await {
-            Ok(()) => OwnerEvent::Shutdown,
-            Err(_) => future::pending().await,
-        }
-    };
-    let cancellation = async {
-        match boundaries.cancellations.recv_async().await {
-            Ok(value) => OwnerEvent::Cancellation(value),
-            Err(_) => future::pending().await,
-        }
-    };
-    let admission = async { OwnerEvent::Admission(boundaries.admissions.recv_async().await) };
-    let control = async {
-        match boundaries.control.recv_async().await {
-            Ok(value) => OwnerEvent::Control(value),
-            Err(_) => future::pending().await,
-        }
-    };
+    let shutdown = future::poll_fn(|context| match lanes.shutdown.as_mut().poll_next(context) {
+        Poll::Ready(Some(())) => Poll::Ready(OwnerEvent::Shutdown),
+        Poll::Ready(None) | Poll::Pending => Poll::Pending,
+    });
+    let cancellation =
+        future::poll_fn(
+            |context| match lanes.cancellations.as_mut().poll_next(context) {
+                Poll::Ready(Some(value)) => Poll::Ready(OwnerEvent::Cancellation(value)),
+                Poll::Ready(None) | Poll::Pending => Poll::Pending,
+            },
+        );
+    let admission = future::poll_fn(|context| {
+        lanes
+            .admissions
+            .as_mut()
+            .poll_next(context)
+            .map(|value| OwnerEvent::Admission(value.ok_or(flume::RecvError::Disconnected)))
+    });
+    let control = future::poll_fn(|context| match lanes.control.as_mut().poll_next(context) {
+        Poll::Ready(Some(value)) => Poll::Ready(OwnerEvent::Control(value)),
+        Poll::Ready(None) | Poll::Pending => Poll::Pending,
+    });
     select_in_order(
         selection,
         receive,
@@ -254,8 +258,15 @@ impl AsyncOwnerHandle {
     pub(crate) async fn wait_closed(&self) -> Result<(), Error> {
         // Nothing is ever sent on this lane.  It resolves when the actor drops
         // its sender, after the driver/transport has been dropped.
-        let _ = self.core.actor_alive.recv_async().await;
+        self.owner_gone().await;
         self.core.closed_result()
+    }
+
+    /// Retain one liveness hook for this wait, including any defensive
+    /// re-polls before the owner drops the lane's sole sender.
+    async fn owner_gone(&self) {
+        let mut liveness = self.core.actor_alive.stream();
+        while liveness.next().await.is_some() {}
     }
 
     // Shared handle methods guard blocking worker re-entry. Async callers
@@ -285,14 +296,15 @@ impl AsyncOwnerHandle {
     {
         let answered = async {
             reply
-                .recv_async()
+                .stream()
+                .next()
                 .await
-                .map_err(|_| self.core.disconnected_error())
+                .ok_or_else(|| self.core.disconnected_error())
         };
         let actor_gone = async {
             // Nobody ever sends on this lane, so this resolves exactly once,
             // when actor teardown drops its end after the driver.
-            while self.core.actor_alive.recv_async().await.is_ok() {}
+            self.owner_gone().await;
             reply.try_recv().map_err(|_| self.core.disconnected_error())
         };
         future::or(answered, actor_gone).await
@@ -363,7 +375,7 @@ impl AsyncOwnerHandle {
     ) -> TerminalWake<T> {
         let terminal = async { TerminalWake::Terminal(terminal.recv_observed_async().await) };
         let owner_gone = async {
-            while self.core.actor_alive.recv_async().await.is_ok() {}
+            self.owner_gone().await;
             TerminalWake::OwnerGone
         };
         let timer = self.sleep(deadline.saturating_duration_since(self.now()));
@@ -392,7 +404,7 @@ impl AsyncOwnerHandle {
             // Nothing is ever sent on this lane. It resolves when the actor has
             // dropped its sender, including an unwind before `run` can latch a
             // terminal owner error.
-            while self.core.actor_alive.recv_async().await.is_ok() {}
+            self.owner_gone().await;
             ObservationWake::OwnerGone
         };
         crate::timeout::within(
@@ -482,6 +494,27 @@ impl CommandReceipt<AsyncOwnerHandle> {
     }
 }
 
+/// Each actor owns one pinned receive stream per boundary lane. A pending
+/// stream keeps its channel hook across selections; only consuming an item
+/// resets that lane's hook. Ineligible lanes are not polled or dequeued.
+struct ActorLanes {
+    shutdown: Pin<Box<RecvStream<'static, ()>>>,
+    cancellations: Pin<Box<RecvStream<'static, CancellationBoundary>>>,
+    admissions: Pin<Box<RecvStream<'static, AdmissionBoundary>>>,
+    control: Pin<Box<RecvStream<'static, ControlBoundary>>>,
+}
+
+impl ActorLanes {
+    fn new(receivers: &BoundaryReceivers) -> Self {
+        Self {
+            shutdown: Box::pin(receivers.shutdown.clone().into_stream()),
+            cancellations: Box::pin(receivers.cancellations.clone().into_stream()),
+            admissions: Box::pin(receivers.admissions.clone().into_stream()),
+            control: Box::pin(receivers.control.clone().into_stream()),
+        }
+    }
+}
+
 /// Each actor owns four pinned timers for its lifetime. Re-arming a timer
 /// never constructs another future, even when a selection loses its race.
 struct ActorTimers<T> {
@@ -538,7 +571,11 @@ where
             },
             Self {
                 core: OwnerShellCore::new(state, ends),
-                io: AsyncOwnerIo { runtime, timers },
+                io: AsyncOwnerIo {
+                    runtime,
+                    timers,
+                    lanes: None,
+                },
             },
         ))
     }
@@ -555,6 +592,9 @@ where
 struct AsyncOwnerIo<R: Executor> {
     runtime: Arc<R>,
     timers: ActorTimers<R::Timer>,
+    // Initialize when selection first starts, so constructing an actor does
+    // not create additional receiver owners before it begins running.
+    lanes: Option<ActorLanes>,
 }
 
 impl<R: Executor> AsyncOwnerIo<R> {
@@ -576,6 +616,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
         let runtime = &self.runtime;
         let now = Executor::now(runtime.as_ref());
         let read_timeout = state.facts().read_timeout;
+        let lanes = self.lanes.get_or_insert_with(|| ActorLanes::new(receivers));
 
         let frame_limit = state.facts().limits.frames_per_receive;
         let receive = async {
@@ -634,7 +675,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
                 }
             }
         };
-        select_actor_event(selection, receive, receivers, wake).await
+        select_actor_event(selection, receive, lanes, wake).await
     }
 
     async fn write<D: AsyncOwnerDriver>(

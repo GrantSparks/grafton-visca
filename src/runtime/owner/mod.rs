@@ -41,6 +41,10 @@ mod turn;
 mod turn_probe;
 #[cfg(feature = "test-utils")]
 pub(crate) use turn_probe::TurnProbe;
+#[cfg(all(feature = "test-utils", feature = "async"))]
+mod select_probe;
+#[cfg(all(feature = "test-utils", feature = "async"))]
+pub(crate) use select_probe::SelectProbe;
 
 #[cfg(feature = "async")]
 pub(crate) use async_actor::*;
