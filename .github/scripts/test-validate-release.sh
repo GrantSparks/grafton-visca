@@ -192,6 +192,6 @@ done
 
 # Publication consumes the same version output after successful validation.
 GITHUB_OUTPUT="${root_temp}/version-output" run_validator "${complete_root}" v2.0.0
-rg -Fx 'version=2.0.0' "${root_temp}/version-output"
+grep -Fx 'version=2.0.0' "${root_temp}/version-output"
 
 echo "release validator regression checks passed"
