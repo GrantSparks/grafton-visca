@@ -520,10 +520,36 @@ mod tests {
             }
             record(&format!("without_{absent}"), &caps);
         }
-        assert_eq!(
-            actual,
-            include_str!("../../tests/fixtures/issue_1000_surface_metadata.txt")
+        assert_surface_metadata_rows(
+            &actual,
+            include_str!("../../tests/fixtures/issue_1000_surface_metadata.txt"),
         );
+    }
+
+    fn assert_surface_metadata_rows(actual: &str, expected: &str) {
+        assert_eq!(
+            actual.lines().collect::<Vec<_>>(),
+            expected.lines().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn surface_metadata_rows_accept_crlf_and_reject_changed_bitmasks() {
+        let fixture = include_str!("../../tests/fixtures/issue_1000_surface_metadata.txt");
+        let lf = fixture.replace("\r\n", "\n");
+        let crlf = lf.replace('\n', "\r\n");
+        assert_surface_metadata_rows(&lf, &crlf);
+        assert_surface_metadata_rows(&crlf, &lf);
+
+        let mut changed = crlf;
+        let first_bitmask = changed.find(' ').expect("profile and bitmask separator") + 1;
+        let replacement = if changed.as_bytes()[first_bitmask] == b'0' {
+            "1"
+        } else {
+            "0"
+        };
+        changed.replace_range(first_bitmask..first_bitmask + 1, replacement);
+        assert!(std::panic::catch_unwind(|| assert_surface_metadata_rows(&lf, &changed)).is_err());
     }
 
     fn profile_capabilities<P: crate::CompileTimeProfile>() -> Capabilities {
