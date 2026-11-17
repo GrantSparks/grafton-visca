@@ -4393,26 +4393,16 @@ trait EngineMethods: EngineAccess {
             // phase or install a new keyed hold in the due pass. Neither case
             // releases correlation before that input-first turn, so project
             // only the deadline which can actually remove this live entry.
-            let due = entry
-                .lifecycle()
-                .raw_cancellation_release_deadline()
-                .is_some_and(|deadline| deadline <= now);
-            if !due {
+            let Some(cancellation) = entry.lifecycle().raw_cancellation_release() else {
+                continue;
+            };
+            if cancellation.at > now {
                 continue;
             }
             let release = releases.for_target_mut(entry.request.context().target);
-            match entry.lifecycle() {
-                Lifecycle::Executing { socket, .. }
-                | Lifecycle::AwaitingCancellationResolution { socket, .. } => {
-                    release.release_exact_socket(socket);
-                }
-                Lifecycle::AwaitingReply { .. } => release.release_inquiry_unkeyed(),
-                Lifecycle::Sending { .. }
-                | Lifecycle::AwaitingAck { .. }
-                | Lifecycle::AwaitingCompletion { .. } => release.release_pre_ack_unkeyed(),
-                Lifecycle::Ready { .. }
-                | Lifecycle::Backoff { .. }
-                | Lifecycle::ExecutingDisplaced { .. } => {}
+            match cancellation.scope {
+                ReleaseScope::ExactSocket(socket) => release.release_exact_socket(socket),
+                ReleaseScope::PreAckUnkeyed => release.release_pre_ack_unkeyed(),
             }
         }
         releases

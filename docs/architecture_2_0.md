@@ -1058,8 +1058,12 @@ Retry waiting retains the last written attempt so a late exact-sequence ACK
 honors that attempt's capacity. `SendingReply` carries only its response
 family: it contains no reply latch or cancellation intent (#858, #860).
 The original ACK or completion deadline and cancellation ambiguity deadline each
-have one home; lifecycle methods derive their effective maximum. Pre-ACK
-cancellation therefore retains every ACK accepted by the original window (#978).
+have one home; `Lifecycle::response_window_end` derives each phase's effective
+response window. Diagnostics, due actions and correlated response deadlines read
+that projection. Raw cancellation release carries its deadline and exact-socket
+or pre-ACK scope together; a requested cancellation retains its identity until
+its ambiguity window also ends. Pre-ACK cancellation therefore retains every
+ACK accepted by the original window (#978, #996).
 A transition accepts one lifecycle value, and closed due actions preserve
 response/cancellation-before-retry ordering (#836).
 

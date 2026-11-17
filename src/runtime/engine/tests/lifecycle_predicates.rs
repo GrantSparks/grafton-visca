@@ -215,6 +215,50 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
     for (name, lifecycle, expected, window) in rows {
         assert_eq!(mask(lifecycle), expected, "{name}: {lifecycle:?}");
         assert_eq!(lifecycle.response_window_end(), window, "{name}");
+        let projected_window = match lifecycle.phase() {
+            Phase::Ready | Phase::Sending { .. } | Phase::Backoff { .. } => None,
+            Phase::AwaitingAck { deadline, .. }
+            | Phase::AwaitingCompletion { deadline, .. }
+            | Phase::Executing { deadline, .. }
+            | Phase::ExecutingDisplaced { deadline, .. }
+            | Phase::AwaitingReply { deadline, .. }
+            | Phase::AwaitingCancellationResolution { deadline, .. } => Some(deadline),
+        };
+        assert_eq!(projected_window, window, "{name}: diagnostic projection");
+        let expected_release = match name {
+            "ACK/cancel requested" => Some(RawCancellationRelease {
+                at: ambiguity,
+                scope: ReleaseScope::PreAckUnkeyed,
+            }),
+            "executing/cancel requested"
+            | "executing/cancel sending"
+            | "executing/observation failed"
+            | "resolving/requested"
+            | "resolving/sending"
+            | "resolving/awaiting terminal"
+            | "resolving/observation failed" => Some(RawCancellationRelease {
+                at: ambiguity,
+                scope: ReleaseScope::ExactSocket(ViscaSocket::S1),
+            }),
+            _ => None,
+        };
+        assert_eq!(
+            lifecycle.raw_cancellation_release(),
+            expected_release,
+            "{name}: release projection"
+        );
+        for budget in [None, Some(now), Some(ambiguity + Duration::from_millis(1))] {
+            let expected = if lifecycle.is_off_wire() {
+                None
+            } else {
+                [window, budget].into_iter().flatten().min()
+            };
+            assert_eq!(
+                lifecycle.correlated_response_deadline(budget),
+                expected,
+                "{name}: correlation window"
+            );
+        }
     }
     // Retried Ready is still off-wire, independent of its retained facts.
     assert_eq!(
