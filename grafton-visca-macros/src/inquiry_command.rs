@@ -463,9 +463,9 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
         impl #crate_path::request::Request for #struct_name {
             type Class = #crate_path::request::InquiryClass;
             const MAX_SIZE: usize = #crate_path::__macro_support::frame_len(&Self::__GRAFTON_VISCA_INQUIRY_BODY);
-            const TIMEOUT_CLASS: #crate_path::request::TimeoutClass = #crate_path::request::TimeoutClass::Inquiry;
-            const RETRY_CLASS: #crate_path::request::RetryClass = #crate_path::request::RetryClass::Inquiry;
-            const CONTROL_CLASS: #crate_path::request::ControlClass = #crate_path::request::ControlClass::Normal;
+            fn policy(&self) -> #crate_path::request::InquiryPolicy {
+                #crate_path::request::InquiryPolicy::new(#crate_path::request::InquiryRetryClass::Inquiry, #crate_path::request::SubmissionClass::Normal)
+            }
             fn write_into(&self, camera_id: #crate_path::types::CameraId, buffer: &mut [u8]) -> ::core::result::Result<usize, #crate_path::Error> {
                 #crate_path::__macro_support::write_frame(camera_id, &[&Self::__GRAFTON_VISCA_INQUIRY_BODY], buffer)
             }
@@ -586,9 +586,9 @@ mod tests {
             "request :: Inquiry",
             "request :: ResponseDecoder",
             "request :: PayloadShape",
-            "request :: TimeoutClass",
-            "request :: RetryClass",
-            "request :: ControlClass",
+            "request :: InquiryPolicy",
+            "request :: InquiryRetryClass",
+            "request :: SubmissionClass",
             "types :: CameraId",
             "profiles :: ProfileSpec",
             "wire :: ResponseParser",

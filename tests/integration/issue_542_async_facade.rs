@@ -32,10 +32,7 @@ use grafton_visca::{
         SonyFr7, TransportCompatibility,
     },
     r#async::{Camera, Operation, Session},
-    request::{
-        self, ControlClass, Inquiry, OperationCommand, Request, ResponseDecoder, RetryClass,
-        TimeoutClass,
-    },
+    request::{self, Inquiry, OperationCommand, Request, ResponseDecoder},
     runtime::Executor,
     transport::{AddressingMode, TransportConfig},
     types::CameraId,
@@ -63,9 +60,13 @@ struct PlainPing;
 impl Request for PlainPing {
     type Class = request::PlainClass;
     const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+    fn policy(&self) -> grafton_visca::request::CommandPolicy {
+        grafton_visca::request::CommandPolicy::new(
+            grafton_visca::profiles::CommandTimeoutClass::Quick,
+            grafton_visca::request::CommandRetryClass::Never,
+            grafton_visca::request::SubmissionClass::Normal,
+        )
+    }
 
     fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
         out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
@@ -79,9 +80,12 @@ struct RawInquiry;
 impl Request for RawInquiry {
     type Class = request::InquiryClass;
     const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+    fn policy(&self) -> grafton_visca::request::InquiryPolicy {
+        grafton_visca::request::InquiryPolicy::new(
+            grafton_visca::request::InquiryRetryClass::Never,
+            grafton_visca::request::SubmissionClass::Normal,
+        )
+    }
 
     fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
         out[..3].copy_from_slice(&[(0x80 | target.value()), 0x09, 0xff]);

@@ -38,10 +38,7 @@ mod paused {
         error::FailureStage,
         operation::AppliedOnly,
         profiles::{ProfileSpec, SonyFr7},
-        request::{
-            self, ControlClass, Inquiry, OperationCommand, Request, ResponseDecoder, RetryClass,
-            TimeoutClass,
-        },
+        request::{self, Inquiry, OperationCommand, Request, ResponseDecoder},
         types::{AffectedAxes, CameraId},
         Error,
     };
@@ -73,9 +70,13 @@ mod paused {
     impl Request for SilentOperation {
         type Class = request::OperationClass<AppliedOnly>;
         const MAX_SIZE: usize = 3;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-        const RETRY_CLASS: RetryClass = RetryClass::Never;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+        fn policy(&self) -> grafton_visca::request::OperationPolicy {
+            grafton_visca::request::OperationPolicy::new(
+                grafton_visca::profiles::CommandTimeoutClass::Quick,
+                grafton_visca::request::CommandRetryClass::Never,
+                grafton_visca::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
             out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
@@ -97,9 +98,12 @@ mod paused {
     impl Request for SilentInquiry {
         type Class = request::InquiryClass;
         const MAX_SIZE: usize = 3;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-        const RETRY_CLASS: RetryClass = RetryClass::Never;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+        fn policy(&self) -> grafton_visca::request::InquiryPolicy {
+            grafton_visca::request::InquiryPolicy::new(
+                grafton_visca::request::InquiryRetryClass::Never,
+                grafton_visca::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
             out[..3].copy_from_slice(&[(0x80 | target.value()), 0x09, 0xff]);

@@ -500,7 +500,7 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
     let raw = grafton_visca::raw::PlainRequest::new(
         [0x81, 1, 4, 0, 2, 0xff],
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        grafton_visca::request::RetryClass::Never,
+        grafton_visca::request::CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("inline raw request");

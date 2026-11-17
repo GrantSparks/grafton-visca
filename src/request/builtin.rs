@@ -15,8 +15,7 @@ use crate::{
     },
     completion,
     noun_table::noun_table,
-    request, AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request, RetryClass,
-    TimeoutClass,
+    request, AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request,
 };
 use crate::{command::preset_wire::PresetAction, wire::WireValue};
 use std::borrow::Cow;
@@ -66,6 +65,8 @@ use crate::{
     command::pan_tilt_wire::{MoveSpeeds, PanTiltFraming, PanTiltProfiled},
 };
 use crate::{units::Degrees, PanTiltCoordinateConversion};
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+use crate::{RetryClass, TimeoutClass};
 
 /// Implements the typed request contract of built-in request types from
 /// their ledger rows.
@@ -103,6 +104,9 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 /// to declare the exact row set of a value-selecting type; the generated
 /// typed-request inventory checks each noun's evaluated request against it.
 macro_rules! builtin_request {
+    (@typed Plain, $policy:expr) => { ($policy).command() };
+    (@typed $class:ident, $policy:expr) => { ($policy).operation() };
+
     (@class Plain) => { request::PlainClass };
     (@class Targeted) => { request::OperationClass<completion::Targeted> };
     (@class AppliedOnly) => { request::OperationClass<completion::AppliedOnly> };
@@ -115,7 +119,7 @@ macro_rules! builtin_request {
         )
     };
     (@explicit ($timeout:ident, $retry:ident, $control:ident)) => {
-        Some((TimeoutClass::$timeout, RetryClass::$retry, ControlClass::$control))
+        Some((crate::CommandTimeoutClass::$timeout, crate::request::CommandRetryClass::$retry, ControlClass::$control))
     };
     (@explicit) => { None };
 
@@ -135,9 +139,10 @@ macro_rules! builtin_request {
         ($wire)($this, $target, $buffer)
     };
 
-    (@contract $type:ty, $row:ident [$(profile_axes)?] [$($by_value:ident)?]) => {
+    (@contract $type:ty, $row:ident [$(profile_axes)?] [$($by_value:ident)?], $policy:expr) => {
         impl BuiltinRequestContract for $type {
             const LEDGER_ROW: BuiltinCommand = BuiltinCommand::$row;
+            const POLICY: crate::request::builtin_policy::BuiltinPolicy = $policy;
             #[cfg(test)]
             fn selected_ledger_row(&self) -> BuiltinCommand {
                 builtin_request!(@row self $(, $by_value)?)
@@ -146,7 +151,7 @@ macro_rules! builtin_request {
             type State = <crate::command::semantics::LedgerRow<{ BuiltinCommand::$row as usize }> as crate::command::semantics::LedgerState>::State;
         }
     };
-    (@contract $type:ty, $row:ident [$flag:ident] $by_value:tt) => {
+    (@contract $type:ty, $row:ident [$flag:ident] $by_value:tt, $policy:expr) => {
         compile_error!(concat!(
             "unknown builtin_request! flag `",
             stringify!($flag),
@@ -209,12 +214,9 @@ macro_rules! builtin_request {
             type Class = builtin_request!(@class $class);
 
             const MAX_SIZE: usize = $size;
-            const TIMEOUT_CLASS: TimeoutClass =
-                builtin_request!(@policy $row $class $(($timeout, $retry, $control))?).0;
-            const RETRY_CLASS: RetryClass =
-                builtin_request!(@policy $row $class $(($timeout, $retry, $control))?).1;
-            const CONTROL_CLASS: ControlClass =
-                builtin_request!(@policy $row $class $(($timeout, $retry, $control))?).2;
+            fn policy(&self) -> <Self::Class as request::Class>::Policy {
+                builtin_request!(@typed $class, <Self as BuiltinRequestContract>::POLICY)
+            }
 
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 #[cfg(test)]
@@ -260,8 +262,8 @@ macro_rules! builtin_request {
             fn admission_control_class(
                 &self,
                 _authority: crate::requests::RequestContractAuthority,
-            ) -> Result<ControlClass, Error> {
-                Ok(Self::CONTROL_CLASS)
+            ) -> ControlClass {
+                <Self as BuiltinRequestContract>::POLICY.class
             }
 
             #[cfg(any(feature = "blocking", feature = "async"))]
@@ -274,7 +276,7 @@ macro_rules! builtin_request {
             }
         }
 
-        builtin_request!(@contract $type, $row [$($flag)?] [$($value)?]);
+        builtin_request!(@contract $type, $row [$($flag)?] [$($value)?], builtin_request!(@policy $row $class $(($timeout, $retry, $control))?));
         // Evaluated by `cargo check`: fails when the class disagrees with the row.
         const _: () = <$type as BuiltinRequestContract>::CLASS_MATCHES_ROW;
         const _: () = {
@@ -4289,16 +4291,16 @@ mod tests {
         let _ = core::marker::PhantomData::<R>;
     }
 
-    fn assert_policy<R: Request>(
+    fn assert_policy<R: BuiltinRequestContract>(
         max_size: usize,
         timeout: TimeoutClass,
         retry: RetryClass,
         control: ControlClass,
     ) {
         assert_eq!(R::MAX_SIZE, max_size);
-        assert_eq!(R::TIMEOUT_CLASS, timeout);
-        assert_eq!(R::RETRY_CLASS, retry);
-        assert_eq!(R::CONTROL_CLASS, control);
+        assert_eq!(R::POLICY.timeout.lower(), timeout);
+        assert_eq!(R::POLICY.retry.lower(), retry);
+        assert_eq!(R::POLICY.class, control);
     }
 
     fn assert_exact_request_size<R: Request>(request: &R) {

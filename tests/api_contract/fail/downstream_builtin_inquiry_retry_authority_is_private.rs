@@ -1,6 +1,6 @@
 use grafton_visca::{
     request, request::ControlClass, request::Inquiry, request::Request, request::ResponseDecoder,
-    request::RetryClass, request::TimeoutClass, types::CameraId,
+    request::CommandRetryClass, profiles::CommandTimeoutClass, types::CameraId,
 };
 
 struct DownstreamInquiry;
@@ -9,9 +9,9 @@ impl Request for DownstreamInquiry {
     type Class = request::InquiryClass;
 
     const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-    const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+    fn policy(&self) -> grafton_visca::request::InquiryPolicy {
+        grafton_visca::request::InquiryPolicy::new(grafton_visca::request::InquiryRetryClass::Inquiry, grafton_visca::request::SubmissionClass::Normal)
+    }
 
     fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> grafton_visca::Result<usize> {
         buffer[..3].copy_from_slice(&[(0x80 | target.value()), 0x09, 0xff]);

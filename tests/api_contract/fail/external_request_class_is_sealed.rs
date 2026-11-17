@@ -1,6 +1,8 @@
 struct ExternalClass;
 
-impl grafton_visca::request::Class for ExternalClass {}
+impl grafton_visca::request::Class for ExternalClass {
+    type Policy = grafton_visca::request::CommandPolicy;
+}
 
 fn main() {}
 

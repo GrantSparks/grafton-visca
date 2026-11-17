@@ -325,12 +325,15 @@ no standard kind (`None`) may bypass only that standard profile/transport pair m
 custom path still undergoes target-registry, envelope, addressing/topology,
 pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
 executor must provide coherent spawn, sleep, timeout, and clock behavior from
-one runtime. `raw::InquiryRequest::new` selects its fixed inquiry timeout class and
-accepts no timeout argument; `from_fn`, `with_context`, and explicit inquiry
-policies select that class. Raw inquiry constructors take
+one runtime. `raw::InquiryRequest::new` uses the inquiry lifecycle's fixed
+timeout and accepts no timeout argument; `from_fn`, `with_context`, and explicit
+`request::InquiryPolicy` values follow the same rule. Inquiry constructors take
 `request::InquiryRetryClass::Never` or `InquiryRetryClass::Inquiry`; the latter
-preserves bounded lost-reply recovery. Raw commands and operations reject the
-inquiry timeout class at construction (#854, #970).
+preserves bounded lost-reply recovery. Commands and operations instead take
+`profiles::CommandTimeoutClass` and `request::CommandRetryClass`, which cannot
+express inquiry timing or retry semantics. Custom `Request::policy()` methods
+return the same policy types selected by their sealed lifecycle class
+(#854, #970, #1016).
 
 ### Sharing a blocking session
 

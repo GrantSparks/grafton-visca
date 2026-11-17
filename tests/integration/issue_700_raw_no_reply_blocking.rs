@@ -13,7 +13,7 @@ use grafton_visca::{
     observability::{DiagnosticEvent, DiagnosticOutcome},
     profiles::ProfileSpec,
     raw::{self, RawReplyShape},
-    request::RetryClass,
+    request::CommandRetryClass,
 };
 
 #[test]
@@ -31,9 +31,9 @@ fn no_reply_plain_command_returns_after_one_write() {
     let diagnostics = session.subscribe_diagnostics(16).expect("diagnostics");
 
     let wire = [0x81, 0x01, 0x04, 0x07, 0xff];
-    let policy = grafton_visca::raw::CommandPolicy::new(
+    let policy = grafton_visca::request::CommandPolicy::new(
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .with_reply_shape(RawReplyShape::NoReply);

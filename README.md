@@ -545,6 +545,12 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
   crate-provided direct requests report `FeatureNotSupported` before writing
   when unsupported. Raw and other downstream requests remain explicit
   low-level extensions and may supply their own validation.
+- Custom `Request::policy()` methods return the policy selected by their
+  lifecycle: `request::CommandPolicy` for plain commands,
+  `request::InquiryPolicy` for inquiries, and `request::OperationPolicy` for
+  operations. Raw requests use these same policies. Commands and operations
+  choose `request::CommandRetryClass`; inquiries choose
+  `request::InquiryRetryClass`.
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the
   checked `0.0..=1.0` values taken by `camera.zoom().set_normalized(..)` and
   by profile-aware zoom normalization. Other typed control input uses checked

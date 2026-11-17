@@ -1,5 +1,5 @@
 use grafton_visca::{
-    raw::InquiryPolicy, raw::RawReplyShape, request::InquiryRetryClass, request::SubmissionClass,
+    request::InquiryPolicy, raw::RawReplyShape, request::InquiryRetryClass, request::SubmissionClass,
 };
 
 fn main() {

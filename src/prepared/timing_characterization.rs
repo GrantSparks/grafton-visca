@@ -4,27 +4,88 @@ use super::*;
 
 type TuningSetter = fn(OperationalTuning, Duration) -> OperationalTuning;
 
-struct TimingRequest(TimeoutClass, RetryClass, crate::raw::RawReplyShape);
+struct TimingRequest(crate::request::CommandPolicy);
+struct TimingInquiry(crate::request::InquiryPolicy);
 
 impl Request for TimingRequest {
     type Class = crate::request::PlainClass;
     const MAX_SIZE: usize = 5;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Standard;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn timeout_class(&self) -> TimeoutClass {
+    fn policy(&self) -> crate::request::CommandPolicy {
         self.0
-    }
-    fn retry_class(&self) -> RetryClass {
-        self.1
-    }
-    fn reply_shape(&self) -> crate::raw::RawReplyShape {
-        self.2
     }
     fn write_into(&self, _: CameraId, _: &mut [u8]) -> Result<usize> {
         unreachable!("timing characterization never encodes")
     }
+}
+impl Request for TimingInquiry {
+    type Class = crate::request::InquiryClass;
+    const MAX_SIZE: usize = 5;
+    fn policy(&self) -> crate::request::InquiryPolicy {
+        self.0
+    }
+    fn write_into(&self, _: CameraId, _: &mut [u8]) -> Result<usize> {
+        unreachable!("timing characterization never encodes")
+    }
+}
+
+#[derive(Clone, Copy)]
+enum TimingPolicy {
+    Command(crate::request::CommandPolicy),
+    Inquiry(crate::request::InquiryPolicy),
+}
+
+fn valid_policies() -> Vec<(
+    TimingPolicy,
+    TimeoutClass,
+    RetryClass,
+    crate::raw::RawReplyShape,
+)> {
+    use crate::request::{CommandPolicy, CommandRetryClass, InquiryPolicy, InquiryRetryClass};
+    let mut policies = Vec::new();
+    // Literal pairs preserve the pre-refactor lowering independently of the
+    // production policy projection; changing that projection must fail here.
+    for (category, timeout) in [
+        (CommandTimeoutClass::Quick, TimeoutClass::Quick),
+        (CommandTimeoutClass::Movement, TimeoutClass::Movement),
+        (CommandTimeoutClass::Preset, TimeoutClass::Preset),
+        (CommandTimeoutClass::LongRunning, TimeoutClass::LongRunning),
+        (CommandTimeoutClass::Network, TimeoutClass::Network),
+    ] {
+        for shape in [
+            crate::raw::RawReplyShape::AckThenCompletion,
+            crate::raw::RawReplyShape::CompletionOnly,
+            crate::raw::RawReplyShape::NoReply,
+        ] {
+            for (retry, expected_retry) in [
+                (CommandRetryClass::Never, RetryClass::Never),
+                (CommandRetryClass::Standard, RetryClass::Standard),
+                (CommandRetryClass::Movement, RetryClass::Movement),
+                (CommandRetryClass::Preset, RetryClass::Preset),
+            ] {
+                policies.push((
+                    TimingPolicy::Command(
+                        CommandPolicy::new(category, retry, SubmissionClass::Normal)
+                            .with_reply_shape(shape),
+                    ),
+                    timeout,
+                    expected_retry,
+                    shape,
+                ));
+            }
+        }
+    }
+    for (retry, expected_retry) in [
+        (InquiryRetryClass::Never, RetryClass::Never),
+        (InquiryRetryClass::Inquiry, RetryClass::Inquiry),
+    ] {
+        policies.push((
+            TimingPolicy::Inquiry(InquiryPolicy::new(retry, SubmissionClass::Normal)),
+            TimeoutClass::Inquiry,
+            expected_retry,
+            crate::raw::RawReplyShape::AckThenCompletion,
+        ));
+    }
+    policies
 }
 
 #[test]
@@ -90,144 +151,142 @@ fn every_profile_class_and_override_preserves_the_characterized_context() {
         for tuning in tunings {
             let validated = ValidatedTuning::validate(tuning, [&profile])
                 .expect("valid characterization tuning");
-            for class in CommandTimeoutClass::ALL
-                .into_iter()
-                .map(CommandTimeoutClass::timeout_class)
-                .chain([TimeoutClass::Inquiry])
-            {
-                for shape in [
-                    RawReplyShape::AckThenCompletion,
-                    RawReplyShape::CompletionOnly,
-                    RawReplyShape::NoReply,
-                ] {
-                    for retry in [
-                        RetryClass::Never,
-                        RetryClass::Standard,
-                        RetryClass::Movement,
-                        RetryClass::Preset,
-                        RetryClass::Inquiry,
-                    ] {
-                        let inquiry = class == TimeoutClass::Inquiry;
-                        let actual = request_context(
-                            &TimingRequest(class, retry, shape),
+            for (policy, class, retry, shape) in valid_policies() {
+                let actual = match policy {
+                    TimingPolicy::Command(policy) => {
+                        let request = TimingRequest(policy);
+                        request_context(
+                            &request,
                             &registration,
                             validated,
                             ClassSelection::Request,
-                            inquiry,
+                            false,
                         )
-                        .expect("context");
-                        let ack = tuning.ack_timeout().unwrap_or_else(|| timing.ack_timeout());
-                        let completion = CommandTimeoutClass::of(class).map_or(
-                            timing.command_timeouts().quick_timeout(),
-                            |category| {
-                                tuning
-                                    .command_override(category)
-                                    .unwrap_or_else(|| timing.command_timeouts().get(category))
-                            },
-                        );
-                        let inquiry_timeout = tuning
-                            .inquiry_timeout()
-                            .unwrap_or_else(|| timing.inquiry_timeout());
-                        let deadline = if inquiry { inquiry_timeout } else { completion };
-                        let attempt = if inquiry || shape != RawReplyShape::AckThenCompletion {
-                            deadline
-                        } else {
-                            ack + completion
-                        };
-                        let lengthen = |override_value: Option<Duration>, floor| {
-                            override_value.map_or(floor, |value| value.max(floor))
-                        };
-                        let total_budget = lengthen(
-                            tuning.retry_budget(),
-                            Duration::from_secs(10)
-                                .max(deadline.saturating_mul(2))
-                                .max(attempt)
-                                .max(timing.busy_timeout()),
-                        );
-                        let base = tuning.retry_limit().map_or(3, |limit| limit.min(3));
-                        let count = match class {
-                            TimeoutClass::Quick | TimeoutClass::Inquiry => base + 2,
-                            TimeoutClass::Movement | TimeoutClass::Preset => base,
-                            TimeoutClass::Network => base.saturating_sub(1).max(1),
-                            TimeoutClass::LongRunning => 1,
-                        };
-                        assert_eq!(actual.timeout.ack.get(), ack, "{id:?} {class:?}");
-                        assert_eq!(actual.timeout.completion.get(), completion);
-                        assert_eq!(actual.timeout.inquiry.get(), inquiry_timeout);
-                        assert_eq!(
-                            actual.timeout.cancellation.get(),
-                            timing.cancellation_timeout()
-                        );
-                        assert_eq!(actual.timeout.ambiguity.get(), timing.ambiguity_timeout());
-                        assert_eq!(
-                            actual.control.minimum_spacing,
-                            if inquiry {
-                                tuning
-                                    .inquiry_spacing()
-                                    .unwrap_or_else(|| timing.inquiry_spacing())
-                            } else {
-                                tuning
-                                    .command_spacing()
-                                    .unwrap_or_else(|| timing.command_spacing())
-                            }
-                        );
-                        assert_eq!(
-                            actual.retry,
-                            RetryPolicy {
-                                max_retries: if retry == RetryClass::Never { 0 } else { count },
-                                initial_backoff: lengthen(
-                                    tuning.initial_retry_backoff(),
-                                    Duration::from_millis(50)
-                                ),
-                                maximum_backoff: lengthen(
-                                    tuning.maximum_retry_backoff(),
-                                    Duration::from_millis(500).max(timing.busy_timeout())
-                                ),
-                                total_budget: Some(
-                                    crate::runtime::engine::NonZeroDuration::new(total_budget)
-                                        .expect("positive characterized budget")
-                                ),
-                                ack_timeout: retry != RetryClass::Never,
-                                completion_timeout: retry != RetryClass::Never,
-                                inquiry_timeout: retry == RetryClass::Inquiry,
-                                buffer_full: retry != RetryClass::Never,
-                                movement_not_executable: matches!(
-                                    retry,
-                                    RetryClass::Movement | RetryClass::Preset
-                                ),
-                                builtin_inquiry_syntax: false,
-                            },
-                            "{id:?} {class:?} {shape:?} {tuning:?}"
-                        );
-                        // The field-level independent oracle above checks all
-                        // timing bytes; compare the complete inert context too.
-                        assert_eq!(
-                            actual,
-                            RequestContext {
-                                requires_extended_pan_tilt_speed: false,
-                                motion: None,
-                                submission_order: 0,
-                                dispatch_deadline: None,
-                                target: TargetSlot::CAMERA_1,
-                                timeout: actual.timeout,
-                                retry: actual.retry,
-                                control: ControlPolicy {
-                                    class: crate::runtime::engine::ControlClass::Normal,
-                                    minimum_spacing: actual.control.minimum_spacing,
-                                },
-                                cancellation: if profile.supports_command_cancel() {
-                                    CancellationPolicy::Supported
-                                } else {
-                                    CancellationPolicy::Unsupported
-                                },
-                            }
-                        );
-                        assert_eq!(
-                            settlement_budget(class, &profile, validated),
-                            tuning.settlement_timeout().unwrap_or(completion)
-                        );
+                        .expect("command context")
                     }
-                }
+                    TimingPolicy::Inquiry(policy) => {
+                        let request = TimingInquiry(policy);
+                        request_context(
+                            &request,
+                            &registration,
+                            validated,
+                            ClassSelection::Request,
+                            true,
+                        )
+                        .expect("inquiry context")
+                    }
+                };
+                let inquiry = matches!(policy, TimingPolicy::Inquiry(_));
+                let ack = tuning.ack_timeout().unwrap_or_else(|| timing.ack_timeout());
+                let completion = CommandTimeoutClass::of(class).map_or(
+                    timing.command_timeouts().quick_timeout(),
+                    |category| {
+                        tuning
+                            .command_override(category)
+                            .unwrap_or_else(|| timing.command_timeouts().get(category))
+                    },
+                );
+                let inquiry_timeout = tuning
+                    .inquiry_timeout()
+                    .unwrap_or_else(|| timing.inquiry_timeout());
+                let deadline = if inquiry { inquiry_timeout } else { completion };
+                let attempt = if inquiry || shape != RawReplyShape::AckThenCompletion {
+                    deadline
+                } else {
+                    ack + completion
+                };
+                let lengthen = |override_value: Option<Duration>, floor| {
+                    override_value.map_or(floor, |value| value.max(floor))
+                };
+                let total_budget = lengthen(
+                    tuning.retry_budget(),
+                    Duration::from_secs(10)
+                        .max(deadline.saturating_mul(2))
+                        .max(attempt)
+                        .max(timing.busy_timeout()),
+                );
+                let base = tuning.retry_limit().map_or(3, |limit| limit.min(3));
+                let count = match class {
+                    TimeoutClass::Quick | TimeoutClass::Inquiry => base + 2,
+                    TimeoutClass::Movement | TimeoutClass::Preset => base,
+                    TimeoutClass::Network => base.saturating_sub(1).max(1),
+                    TimeoutClass::LongRunning => 1,
+                };
+                assert_eq!(actual.timeout.ack.get(), ack, "{id:?} {class:?}");
+                assert_eq!(actual.timeout.completion.get(), completion);
+                assert_eq!(actual.timeout.inquiry.get(), inquiry_timeout);
+                assert_eq!(
+                    actual.timeout.cancellation.get(),
+                    timing.cancellation_timeout()
+                );
+                assert_eq!(actual.timeout.ambiguity.get(), timing.ambiguity_timeout());
+                assert_eq!(
+                    actual.control.minimum_spacing,
+                    if inquiry {
+                        tuning
+                            .inquiry_spacing()
+                            .unwrap_or_else(|| timing.inquiry_spacing())
+                    } else {
+                        tuning
+                            .command_spacing()
+                            .unwrap_or_else(|| timing.command_spacing())
+                    }
+                );
+                assert_eq!(
+                    actual.retry,
+                    RetryPolicy {
+                        max_retries: if retry == RetryClass::Never { 0 } else { count },
+                        initial_backoff: lengthen(
+                            tuning.initial_retry_backoff(),
+                            Duration::from_millis(50)
+                        ),
+                        maximum_backoff: lengthen(
+                            tuning.maximum_retry_backoff(),
+                            Duration::from_millis(500).max(timing.busy_timeout())
+                        ),
+                        total_budget: Some(
+                            crate::runtime::engine::NonZeroDuration::new(total_budget)
+                                .expect("positive characterized budget")
+                        ),
+                        ack_timeout: retry != RetryClass::Never,
+                        completion_timeout: retry != RetryClass::Never,
+                        inquiry_timeout: retry == RetryClass::Inquiry,
+                        buffer_full: retry != RetryClass::Never,
+                        movement_not_executable: matches!(
+                            retry,
+                            RetryClass::Movement | RetryClass::Preset
+                        ),
+                        builtin_inquiry_syntax: false,
+                    },
+                    "{id:?} {class:?} {shape:?} {tuning:?}"
+                );
+                // The field-level independent oracle above checks all
+                // timing bytes; compare the complete inert context too.
+                assert_eq!(
+                    actual,
+                    RequestContext {
+                        requires_extended_pan_tilt_speed: false,
+                        motion: None,
+                        submission_order: 0,
+                        dispatch_deadline: None,
+                        target: TargetSlot::CAMERA_1,
+                        timeout: actual.timeout,
+                        retry: actual.retry,
+                        control: ControlPolicy {
+                            class: crate::runtime::engine::ControlClass::Normal,
+                            minimum_spacing: actual.control.minimum_spacing,
+                        },
+                        cancellation: if profile.supports_command_cancel() {
+                            CancellationPolicy::Supported
+                        } else {
+                            CancellationPolicy::Unsupported
+                        },
+                    }
+                );
+                assert_eq!(
+                    settlement_budget(class, &profile, validated),
+                    tuning.settlement_timeout().unwrap_or(completion)
+                );
             }
         }
     }
@@ -248,11 +307,11 @@ fn resolved_retry_budgets_are_the_settlement_validation_floor() {
                 profile.clone(),
             );
             for category in CommandTimeoutClass::ALL {
-                let request = TimingRequest(
-                    category.timeout_class(),
-                    RetryClass::Standard,
-                    crate::raw::RawReplyShape::AckThenCompletion,
-                );
+                let request = TimingRequest(crate::request::CommandPolicy::new(
+                    category,
+                    crate::request::CommandRetryClass::Standard,
+                    SubmissionClass::Normal,
+                ));
                 let context = request_context(
                     &request,
                     &registration,

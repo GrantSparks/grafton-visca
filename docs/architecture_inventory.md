@@ -183,16 +183,23 @@ cannot manufacture or demote the intrinsic urgent safety class:
 ordinary-work type. Submission APIs also accept no caller-supplied lifecycle
 IDs, target, completion class, retry class, or settlement metadata.
 
-Raw frames use `raw::CommandPolicy` for `raw::PlainRequest`, `raw::OperationPolicy`
-for `raw::TargetedRequest` and `raw::AppliedOnlyRequest`, and `raw::InquiryPolicy` for
-`raw::InquiryRequest`. Command and operation policies take `CommandTimeoutClass`, whose
-five variants exclude `Inquiry`; inquiry timing is fixed by the request kind.
-A plain command may select any `raw::RawReplyShape`, while an operation uses
-`raw::OperationReplyShape`, which has no `NoReply` variant. Inquiry policy
-stores only retry and submission classes; its retry family is the closed
-`request::InquiryRetryClass::{Never, Inquiry}` subset. Shared inquiry preparation
-also refuses command retry families from downstream `Request` implementations.
-Policy constructors are infallible; raw request constructors validate wire bytes.
+The sealed `request::Class` associates each lifecycle with one policy type:
+`PlainClass` selects `request::CommandPolicy`, `InquiryClass` selects
+`request::InquiryPolicy`, and `OperationClass<K>` selects
+`request::OperationPolicy`. A downstream `Request::policy()` returns that type;
+raw requests use the same policies with `raw::PlainRequest`,
+`raw::InquiryRequest`, and `raw::{TargetedRequest, AppliedOnlyRequest}`.
+
+Command and operation policies take `profiles::CommandTimeoutClass`, whose five
+variants exclude inquiry timing, and the closed
+`request::CommandRetryClass::{Never, Standard, Movement, Preset}` family. Inquiry
+policy stores only `request::InquiryRetryClass::{Never, Inquiry}` and an ordinary
+submission class; inquiry timing and reply handling follow from its lifecycle.
+All policies take `SubmissionClass`, which excludes `Urgent`. A plain command
+may select any `raw::RawReplyShape`, while an operation uses
+`raw::OperationReplyShape`, which excludes `NoReply`. These restrictions apply
+to custom and raw requests before submission. Policy constructors are
+infallible; raw request constructors validate wire bytes.
 
 ## Allocation baselines
 

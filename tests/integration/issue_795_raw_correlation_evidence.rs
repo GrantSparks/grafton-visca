@@ -512,8 +512,9 @@ mod dispute_regressions {
         config::SessionConfig,
         operation::AppliedOnly,
         profiles::{AnyProfile, CommandTimeoutClass, CommandTimeouts, ProfileSpec, ProfileTiming},
-        raw::{AppliedOnlyRequest, OperationPolicy, OperationReplyShape},
-        request::{RetryClass, SubmissionClass},
+        raw::{AppliedOnlyRequest, OperationReplyShape},
+        request::OperationPolicy,
+        request::{CommandRetryClass, SubmissionClass},
         testing::testkit::{ManualClock, ScriptedBlockingTransport, Step},
         types::AffectedAxes,
         Error,
@@ -526,7 +527,7 @@ mod dispute_regressions {
         AppliedOnlyRequest::with_policy(
             [0x81, 0x01, 0x04, 0x07, 0x00, 0xff],
             AffectedAxes::ZOOM,
-            OperationPolicy::new(timeout, RetryClass::Never, SubmissionClass::Normal)
+            OperationPolicy::new(timeout, CommandRetryClass::Never, SubmissionClass::Normal)
                 .with_reply_shape(OperationReplyShape::CompletionOnly),
         )
         .expect("completion-only request")

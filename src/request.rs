@@ -6,7 +6,10 @@
 use core::marker::PhantomData;
 
 /// A closed request class.
-pub trait Class: private::Sealed + Send + Sync + 'static {}
+pub trait Class: private::Sealed + Send + Sync + 'static {
+    /// The policy meaningful for this request lifecycle.
+    type Policy: policy::Sealed;
+}
 
 /// A command that returns its final applied result.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -20,9 +23,18 @@ pub struct InquiryClass;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct OperationClass<K>(PhantomData<fn() -> K>);
 
-impl Class for PlainClass {}
-impl Class for InquiryClass {}
-impl<K> Class for OperationClass<K> where K: crate::completion::Kind {}
+impl Class for PlainClass {
+    type Policy = CommandPolicy;
+}
+impl Class for InquiryClass {
+    type Policy = InquiryPolicy;
+}
+impl<K> Class for OperationClass<K>
+where
+    K: crate::completion::Kind,
+{
+    type Policy = OperationPolicy;
+}
 
 mod private {
     pub trait Sealed {}
@@ -40,6 +52,13 @@ pub(crate) mod builtin_contract;
 pub(crate) mod builtin_policy;
 
 pub use crate::requests::{
-    ControlClass, Inquiry, InquiryRetryClass, OperationCommand, PayloadShape, PlainCommand,
-    Request, ResponseDecoder, RetryClass, SubmissionClass, TimeoutClass,
+    CommandRetryClass, ControlClass, Inquiry, InquiryRetryClass, OperationCommand, PayloadShape,
+    PlainCommand, Request, ResponseDecoder, SubmissionClass,
 };
+
+pub(crate) mod policy;
+pub use policy::{CommandPolicy, InquiryPolicy, OperationPolicy};
+
+pub(crate) fn policy_parts<R: Request + ?Sized>(request: &R) -> policy::Parts {
+    policy::Sealed::parts(request.policy())
+}

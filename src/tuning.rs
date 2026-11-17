@@ -168,7 +168,8 @@ impl OperationalTuning {
     /// inquiry work gets two more attempts, network work one fewer (at least
     /// one), and a long-running command exactly one, so the effective count is
     /// not always the number given here. A request whose retry class is
-    /// [`crate::request::RetryClass::Never`](crate::request::RetryClass::Never) is never replayed
+    /// [`crate::request::CommandRetryClass::Never`] or
+    /// [`crate::request::InquiryRetryClass::Never`] is never replayed
     /// regardless of this value.
     #[must_use]
     pub const fn with_retry_limit(mut self, maximum: u32) -> Self {

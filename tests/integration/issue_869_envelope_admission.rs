@@ -17,7 +17,7 @@ use grafton_visca::{
     observability::SessionStatus,
     profiles::{GenericVisca, ProfileEnvelope, ProfileSpec, TransportCompatibility},
     raw,
-    request::RetryClass,
+    request::CommandRetryClass,
     types::CameraId,
     Error,
 };
@@ -82,7 +82,7 @@ facade_matrix! {
             bytes[0] = 0x80 | CameraId::CAMERA_1.value();
             bytes[16] = 0xff;
             let oversized = raw::PlainRequest::new(bytes, grafton_visca::profiles::CommandTimeoutClass::Quick,
-                RetryClass::Never, grafton_visca::request::SubmissionClass::Normal).expect("bounded raw value");
+                CommandRetryClass::Never, grafton_visca::request::SubmissionClass::Normal).expect("bounded raw value");
             assert!(matches!(wait!(view.execute(&oversized)), Err(Error::InvalidRequest { .. })));
             let metrics = wait!(session.metrics()).expect("metrics");
             assert_eq!(metrics.admitted, 0);
@@ -91,7 +91,7 @@ facade_matrix! {
             assert_eq!(fake.write_count(), 0);
 
             let valid = raw::PlainRequest::new([0x81, 1, 4, 0, 2, 0xff], grafton_visca::profiles::CommandTimeoutClass::Quick,
-                RetryClass::Never, grafton_visca::request::SubmissionClass::Normal).expect("ordinary command");
+                CommandRetryClass::Never, grafton_visca::request::SubmissionClass::Normal).expect("ordinary command");
             wait!(view.execute(&valid)).expect("later command applies on the same session");
             let metrics = wait!(session.metrics()).expect("metrics");
             assert_eq!(metrics.admitted, 1);

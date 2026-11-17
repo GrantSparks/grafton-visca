@@ -179,11 +179,13 @@ session starts every target at `Unknown`; target views remain isolated.
 
 ## What is retried, and for how long
 
-Retry requires evidence that replay is safe. Every retry class except
-`RetryClass::Never` may retry a camera reporting a full command buffer (`0x03`)
-or no free socket (`0x05`), because that response conclusively rejected the
-attempt. `0x41` (`CommandNotExecutable`) is the one answer whose retryability
-depends on the class: it is transient for movement and preset work, where the
+Retry requires evidence that replay is safe. Commands and operations select
+`request::CommandRetryClass`; inquiries select `request::InquiryRetryClass`.
+Every family except its `Never` variant may retry a camera reporting a full
+command buffer (`0x03`) or no free socket (`0x05`), because that response
+conclusively rejected the attempt. `0x41` (`CommandNotExecutable`) is the one
+answer whose retryability depends on the class: it is transient for movement
+and preset work, where the
 camera is reporting a state that passes, and terminal everywhere else, where
 it is the camera's verdict on the command.
 
@@ -232,8 +234,8 @@ at most one more attempt than its budget:
 
 `OperationalTuning::retry_limit` may lower that base, which defaults to 3;
 `validate_tuning` rejects a larger value, so tuning never adds retries.
-`RetryClass::Never` overrides the table with zero retries — one attempt — for
-every timeout category.
+`CommandRetryClass::Never` and `InquiryRetryClass::Never` override the table
+with zero retries — one attempt — for their respective lifecycles.
 
 Two bounds stop a request retrying: the count above, and one wall-clock budget
 counted from admission. That same budget remains active through every later

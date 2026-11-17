@@ -8,6 +8,14 @@ fn final_request_classification_contracts() {
         &features,
     );
     let mut fixtures = vec![
+        "tests/api_contract/fail/command_policy_has_no_inquiry_retry.rs",
+        "tests/api_contract/fail/command_policy_has_no_inquiry_timeout.rs",
+        "tests/api_contract/fail/inquiry_policy_has_no_timeout.rs",
+        "tests/api_contract/fail/inquiry_policy_has_no_reply_shape.rs",
+        "tests/api_contract/fail/inquiry_policy_refuses_command_retry.rs",
+        "tests/api_contract/fail/inquiry_request_rejects_command_policy.rs",
+        "tests/api_contract/fail/operation_policy_has_no_no_reply.rs",
+        "tests/api_contract/fail/operation_request_rejects_no_reply_command_policy.rs",
         "tests/api_contract/fail/operation_without_affected_axes_is_rejected.rs",
         "tests/api_contract/fail/plain_request_is_not_an_operation.rs",
         "tests/api_contract/fail/inquiry_request_is_not_plain.rs",

@@ -1,5 +1,6 @@
 use grafton_visca::{
-    request, request::ControlClass, request::Request, request::RetryClass, request::TimeoutClass,
+    profiles::CommandTimeoutClass,
+    request::{self, CommandPolicy, CommandRetryClass, ControlClass, Request, SubmissionClass},
     types::CameraId,
 };
 
@@ -9,9 +10,13 @@ impl Request for DownstreamUrgent {
     type Class = request::PlainClass;
 
     const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Urgent;
+    fn policy(&self) -> CommandPolicy {
+        CommandPolicy::new(
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Never,
+            SubmissionClass::Normal,
+        )
+    }
 
     fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> grafton_visca::Result<usize> {
         buffer[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
@@ -21,8 +26,8 @@ impl Request for DownstreamUrgent {
     fn admission_control_class(
         &self,
         _authority: grafton_visca::requests::RequestContractAuthority,
-    ) -> grafton_visca::Result<ControlClass> {
-        Ok(ControlClass::Urgent)
+    ) -> ControlClass {
+        ControlClass::Urgent
     }
 }
 

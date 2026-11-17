@@ -15,7 +15,7 @@ use crate::{
     runtime::owner::{decode_response_target, RoutingState, TargetRegistry},
     target::TargetSlot,
     transport::{AddressingMode, BufferConfig, Envelope, SonyEncapsulated},
-    CommandTimeoutClass, RetryClass, SubmissionClass,
+    CommandTimeoutClass, SubmissionClass,
 };
 
 /// Exercise raw admission and every generated built-in inquiry decoder.
@@ -23,7 +23,7 @@ pub fn response_parser(bytes: &[u8]) {
     let _ = PlainRequest::new(
         bytes,
         CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        crate::request::CommandRetryClass::Never,
         SubmissionClass::Normal,
     );
     let _ = Response::parse(bytes);

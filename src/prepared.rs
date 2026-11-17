@@ -34,7 +34,7 @@ use crate::runtime::owner::LaneRequest;
 
 /// How one submission's scheduling lane is chosen.
 ///
-/// Every request already classifies itself through [`crate::request::Request::control_class`].
+/// Every request selects its ordinary class through [`crate::request::Request::policy`].
 /// A camera view may carry ordinary submission QoS. It cannot represent or
 /// demote the safety lane.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -582,10 +582,9 @@ fn prepare_command_with_state<C>(
 where
     C: PlainCommand + ?Sized,
 {
-    validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_target(registration)?;
     let (mut context, reply_shape) =
-        lower_request_context(command, registration, tuning, class, false)?;
+        lower_request_context(command, registration, tuning, class, false);
     let wire = encode(command, registration)?;
     context.motion = command
         .motion_axes()
@@ -609,24 +608,6 @@ where
     Q: Inquiry + ?Sized,
 {
     let profile = registration.profile();
-    // An inquiry has exactly one protocol lifecycle: its reply is the
-    // terminal evidence. Do not merely ignore a downstream override here;
-    // doing so would let an erased/custom inquiry advertise a reply shape the
-    // engine never honors. This is deliberately shared by every preparation
-    // entry point, not just raw::InquiryRequest's constructor.
-    if !matches!(
-        inquiry.reply_shape(),
-        crate::raw::RawReplyShape::AckThenCompletion
-    ) {
-        return Err(Error::InvalidRequest { reason: "inquiry reply shape must be RawReplyShape::AckThenCompletion; an inquiry always awaits its reply"
-                .into() });
-    }
-    validate_timeout_class(inquiry.timeout_class(), true)?;
-    if crate::request::InquiryRetryClass::of(inquiry.retry_class()).is_none() {
-        return Err(Error::InvalidRequest {
-            reason: "inquiry retry class must be RetryClass::Never or RetryClass::Inquiry".into(),
-        });
-    }
     if matches!(
         profile.capabilities().inquiry_support,
         crate::capabilities::InquirySupport::None
@@ -636,7 +617,7 @@ where
         });
     }
     inquiry.validate_for_target(registration)?;
-    let (mut context, _) = lower_request_context(inquiry, registration, tuning, class, true)?;
+    let (mut context, _) = lower_request_context(inquiry, registration, tuning, class, true);
     let wire = encode(inquiry, registration)?;
     context.retry.builtin_inquiry_syntax = crate::requests::builtin_inquiry_syntax_retry(inquiry);
     Ok(PreparedInquiry {
@@ -693,15 +674,6 @@ where
     O: OperationCommand<K> + ?Sized,
 {
     let profile = registration.profile();
-    // An operation handle's `applied()` is a protocol-evidence promise. A
-    // no-reply command can prove only a successful local write, so keep that
-    // fire-and-forget shape on the plain-command path even for downstream or
-    // dynamically erased operation implementations that bypass raw wrappers.
-    if matches!(operation.reply_shape(), crate::raw::RawReplyShape::NoReply) {
-        return Err(Error::InvalidRequest { reason: "operations cannot use RawReplyShape::NoReply; operation application requires a terminal camera response"
-                .into() });
-    }
-    validate_timeout_class(operation.timeout_class(), false)?;
     // Domain/profile admission must complete before lowering settlement
     // inquiries or encoding the command.  In particular, an unsupported
     // targeted built-in must not even prepare an inquiry plan as a side
@@ -709,7 +681,7 @@ where
     operation.validate_for_target(registration)?;
     let affected_axes = operation.affected_axes();
     let (mut context, reply_shape) =
-        lower_request_context(operation, registration, tuning, class, false)?;
+        lower_request_context(operation, registration, tuning, class, false);
     let stop = matches!(reply_shape, CommandReply::Stop);
     context.motion = Some(crate::runtime::engine::MotionEffect {
         axes: affected_axes,
@@ -727,7 +699,7 @@ where
         affected_axes,
         observation_timeout(
             &context,
-            settlement_budget(operation.timeout_class(), profile, tuning),
+            settlement_budget(operation.policy().timeout_class().lower(), profile, tuning),
         ),
     )?;
     let wire = encode(operation, registration)?;
@@ -798,33 +770,23 @@ where
     Ok(PreparedWire::Owned(message))
 }
 
-fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
-    let valid = CommandTimeoutClass::of(class).is_none() == inquiry;
-    if valid {
-        Ok(())
-    } else {
-        Err(Error::InvalidRequest {
-            reason: "request timeout class does not match its lifecycle kind".into(),
-        })
-    }
-}
-
 fn lower_request_context<R>(
     request: &R,
     registration: &crate::TargetRegistration,
     tuning: ValidatedTuning,
     class: ClassSelection,
     inquiry: bool,
-) -> Result<(RequestContext, CommandReply)>
+) -> (RequestContext, CommandReply)
 where
     R: Request + ?Sized,
 {
+    let policy = crate::request::policy_parts(request);
     let target = registration.slot();
     let profile = registration.profile();
     let resolved = tuning.resolve(&profile.timing());
     let timeout = TimeoutPolicy::new(
         resolved.ack,
-        resolved.completion(request.timeout_class()),
+        resolved.completion(policy.timeout),
         resolved.inquiry,
         resolved.cancellation,
         resolved.ambiguity,
@@ -835,11 +797,10 @@ where
         resolved.command_spacing
     };
     let (control_class, reply_shape) = lower_command_policy(
-        class.resolve(crate::requests::admission_control_class(request)?),
-        request.reply_shape(),
-        inquiry,
-    )?;
-    Ok((
+        class.resolve(crate::requests::admission_control_class(request)),
+        policy.reply,
+    );
+    (
         RequestContext {
             requires_extended_pan_tilt_speed: profile
                 .capabilities()
@@ -855,8 +816,8 @@ where
             target,
             timeout,
             retry: retry_policy(
-                request.retry_class(),
-                request.timeout_class(),
+                policy.retry,
+                policy.timeout,
                 tuning.get(),
                 resolved,
                 !inquiry
@@ -876,11 +837,12 @@ where
             },
         },
         reply_shape,
-    ))
+    )
 }
 
 // Existing timing characterization observes the context projection alone.
 #[cfg(test)]
+#[allow(clippy::unnecessary_wraps)]
 fn request_context<R: Request + ?Sized>(
     request: &R,
     registration: &crate::TargetRegistration,
@@ -888,7 +850,7 @@ fn request_context<R: Request + ?Sized>(
     class: ClassSelection,
     inquiry: bool,
 ) -> Result<RequestContext> {
-    lower_request_context(request, registration, tuning, class, inquiry).map(|(context, _)| context)
+    Ok(lower_request_context(request, registration, tuning, class, inquiry).0)
 }
 
 fn settlement_budget(
@@ -906,18 +868,18 @@ fn settlement_budget(
 /// two attempts. Replay eligibility narrows these bounds: a command is never
 /// rewritten after its ACK, and an ambiguous successfully sent raw command is
 /// not replayed. Inquiries retain their own retry class and response deadline.
-const fn retry_budget(base: u32, class: TimeoutClass) -> u32 {
+const fn retry_budget(base: u32, class: CommandTimeoutClass) -> u32 {
     match class {
-        TimeoutClass::Quick | TimeoutClass::Inquiry => base.saturating_add(2),
-        TimeoutClass::Movement | TimeoutClass::Preset => base,
-        TimeoutClass::Network => {
+        CommandTimeoutClass::Quick => base.saturating_add(2),
+        CommandTimeoutClass::Movement | CommandTimeoutClass::Preset => base,
+        CommandTimeoutClass::Network => {
             if base > 1 {
                 base - 1
             } else {
                 1
             }
         }
-        TimeoutClass::LongRunning => 1,
+        CommandTimeoutClass::LongRunning => 1,
     }
 }
 
@@ -938,7 +900,10 @@ fn retry_policy(
     let max_retries = if matches!(retry_class, RetryClass::Never) {
         0
     } else {
-        retry_budget(base, timeout_class)
+        CommandTimeoutClass::of(timeout_class).map_or_else(
+            || base.saturating_add(2),
+            |category| retry_budget(base, category),
+        )
     };
     // `Never` is the sole policy opt-out from automatic replay. These flags
     // are only policy permissions: the engine narrows them further using
@@ -969,37 +934,23 @@ fn retry_policy(
 fn lower_command_policy(
     class: ControlClass,
     shape: crate::raw::RawReplyShape,
-    inquiry: bool,
-) -> Result<(crate::runtime::engine::ControlClass, CommandReply)> {
+) -> (crate::runtime::engine::ControlClass, CommandReply) {
     use crate::runtime::engine::ControlClass as EngineControlClass;
     let ordinary = match class {
         ControlClass::Background => EngineControlClass::Background,
         ControlClass::Normal => EngineControlClass::Normal,
         ControlClass::User => EngineControlClass::User,
-        ControlClass::Urgent => {
-            return if !inquiry && matches!(shape, crate::raw::RawReplyShape::AckThenCompletion) {
-                Ok((EngineControlClass::User, CommandReply::Stop))
-            } else {
-                Err(Error::InvalidRequest {
-                    reason: "a STOP requires an ACK-bearing command".into(),
-                })
-            };
-        }
+        // Only the private built-in hook can return Urgent. Its const-checked
+        // ledger rows are ACK-bearing STOPs; public policies carry an ordinary
+        // SubmissionClass, so no urgency/reply validation remains here.
+        ControlClass::Urgent => return (EngineControlClass::User, CommandReply::Stop),
     };
     let reply = match shape {
         crate::raw::RawReplyShape::AckThenCompletion => CommandReply::AckThenCompletion,
         crate::raw::RawReplyShape::CompletionOnly => CommandReply::CompletionOnly,
         crate::raw::RawReplyShape::NoReply => CommandReply::NoReply,
     };
-    Ok((ordinary, reply))
-}
-
-#[cfg(test)]
-#[allow(clippy::expect_used)]
-fn lower_reply_shape(shape: crate::raw::RawReplyShape) -> CommandReply {
-    lower_command_policy(ControlClass::Normal, shape, false)
-        .expect("ordinary policy")
-        .1
+    (ordinary, reply)
 }
 
 impl PreparedCommand {
@@ -1320,9 +1271,12 @@ mod tests {
         impl Request for ProfileSelectedInquiry {
             type Class = crate::request::InquiryClass;
             const MAX_SIZE: usize = 5;
-            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-            const RETRY_CLASS: RetryClass = RetryClass::Never;
-            const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+            fn policy(&self) -> crate::request::InquiryPolicy {
+                crate::request::InquiryPolicy::new(
+                    crate::request::InquiryRetryClass::Never,
+                    crate::request::SubmissionClass::Normal,
+                )
+            }
             fn write_into(&self, target: crate::CameraId, buffer: &mut [u8]) -> Result<usize> {
                 let available = buffer.len();
                 let frame = buffer
@@ -1598,9 +1552,12 @@ mod tests {
         type Class = crate::request::InquiryClass;
 
         const MAX_SIZE: usize = 2;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-        const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+        fn policy(&self) -> crate::request::InquiryPolicy {
+            crate::request::InquiryPolicy::new(
+                crate::request::InquiryRetryClass::Inquiry,
+                crate::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             increment_write_count();
@@ -1627,9 +1584,13 @@ mod tests {
         type Class = crate::request::OperationClass<completion::Targeted>;
 
         const MAX_SIZE: usize = 2;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;
-        const RETRY_CLASS: RetryClass = RetryClass::Movement;
-        const CONTROL_CLASS: ControlClass = ControlClass::User;
+        fn policy(&self) -> crate::request::OperationPolicy {
+            crate::request::OperationPolicy::new(
+                crate::profiles::CommandTimeoutClass::Movement,
+                crate::request::CommandRetryClass::Movement,
+                crate::request::SubmissionClass::User,
+            )
+        }
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             increment_write_count();
@@ -1652,9 +1613,13 @@ mod tests {
                 type Class = crate::request::PlainClass;
 
                 const MAX_SIZE: usize = 2;
-                const TIMEOUT_CLASS: TimeoutClass = $timeout;
-                const RETRY_CLASS: RetryClass = RetryClass::Never;
-                const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+                fn policy(&self) -> crate::request::CommandPolicy {
+                    crate::request::CommandPolicy::new(
+                        $timeout,
+                        crate::request::CommandRetryClass::Never,
+                        crate::request::SubmissionClass::Normal,
+                    )
+                }
 
                 fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
                     buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
@@ -1664,11 +1629,11 @@ mod tests {
         };
     }
 
-    plain_timeout_request!(QuickTimeoutCommand, TimeoutClass::Quick);
-    plain_timeout_request!(MovementTimeoutCommand, TimeoutClass::Movement);
-    plain_timeout_request!(PresetTimeoutCommand, TimeoutClass::Preset);
-    plain_timeout_request!(LongRunningTimeoutCommand, TimeoutClass::LongRunning);
-    plain_timeout_request!(NetworkTimeoutCommand, TimeoutClass::Network);
+    plain_timeout_request!(QuickTimeoutCommand, CommandTimeoutClass::Quick);
+    plain_timeout_request!(MovementTimeoutCommand, CommandTimeoutClass::Movement);
+    plain_timeout_request!(PresetTimeoutCommand, CommandTimeoutClass::Preset);
+    plain_timeout_request!(LongRunningTimeoutCommand, CommandTimeoutClass::LongRunning);
+    plain_timeout_request!(NetworkTimeoutCommand, CommandTimeoutClass::Network);
 
     /// A retrying command used to pin default observer lifetimes independently
     /// of the generated command inventory.
@@ -1678,9 +1643,13 @@ mod tests {
         type Class = crate::request::PlainClass;
 
         const MAX_SIZE: usize = 2;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-        const RETRY_CLASS: RetryClass = RetryClass::Standard;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+        fn policy(&self) -> crate::request::CommandPolicy {
+            crate::request::CommandPolicy::new(
+                crate::profiles::CommandTimeoutClass::Quick,
+                crate::request::CommandRetryClass::Standard,
+                crate::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
@@ -1695,69 +1664,17 @@ mod tests {
         type Class = crate::request::PlainClass;
 
         const MAX_SIZE: usize = 2;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;
-        const RETRY_CLASS: RetryClass = RetryClass::Movement;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
-            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-            Ok(2)
-        }
-    }
-
-    struct ClassifiedInquiry;
-
-    impl Request for ClassifiedInquiry {
-        type Class = crate::request::InquiryClass;
-
-        const MAX_SIZE: usize = 2;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-        const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
-            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-            Ok(2)
-        }
-    }
-
-    impl Inquiry for ClassifiedInquiry {
-        type Response = Vec<u8>;
-
-        fn decoder(&self) -> ResponseDecoder<Self::Response> {
-            ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
-        }
-    }
-
-    /// A downstream inquiry can override `Request::reply_shape` without
-    /// passing through `raw::InquiryRequest`; shared preparation must reject both
-    /// non-default command lifecycles rather than lower a declaration that an
-    /// inquiry cannot honor.
-    struct NonDefaultReplyShapeInquiry(crate::raw::RawReplyShape);
-
-    impl Request for NonDefaultReplyShapeInquiry {
-        type Class = crate::request::InquiryClass;
-
-        const MAX_SIZE: usize = 2;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-        const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-        fn reply_shape(&self) -> crate::raw::RawReplyShape {
-            self.0
+        fn policy(&self) -> crate::request::CommandPolicy {
+            crate::request::CommandPolicy::new(
+                crate::profiles::CommandTimeoutClass::Movement,
+                crate::request::CommandRetryClass::Movement,
+                crate::request::SubmissionClass::Normal,
+            )
         }
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
             Ok(2)
-        }
-    }
-
-    impl Inquiry for NonDefaultReplyShapeInquiry {
-        type Response = Vec<u8>;
-
-        fn decoder(&self) -> ResponseDecoder<Self::Response> {
-            ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
         }
     }
 
@@ -1767,9 +1684,13 @@ mod tests {
         type Class = crate::request::OperationClass<completion::AppliedOnly>;
 
         const MAX_SIZE: usize = 2;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;
-        const RETRY_CLASS: RetryClass = RetryClass::Movement;
-        const CONTROL_CLASS: ControlClass = ControlClass::User;
+        fn policy(&self) -> crate::request::OperationPolicy {
+            crate::request::OperationPolicy::new(
+                crate::profiles::CommandTimeoutClass::Movement,
+                crate::request::CommandRetryClass::Movement,
+                crate::request::SubmissionClass::User,
+            )
+        }
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             increment_write_count();
@@ -1784,45 +1705,19 @@ mod tests {
         }
     }
 
-    /// A downstream operation can override `Request::reply_shape` without
-    /// passing through `raw::AppliedOnlyRequest`; preparation must still refuse the
-    /// no-reply lifecycle because it would otherwise manufacture an
-    /// `applied()` handle without terminal camera evidence.
-    struct NoReplyAppliedOnly;
-
-    impl Request for NoReplyAppliedOnly {
-        type Class = crate::request::OperationClass<completion::AppliedOnly>;
-
-        const MAX_SIZE: usize = 2;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-        const RETRY_CLASS: RetryClass = RetryClass::Never;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-        fn reply_shape(&self) -> crate::raw::RawReplyShape {
-            crate::raw::RawReplyShape::NoReply
-        }
-
-        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
-            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-            Ok(2)
-        }
-    }
-
-    impl OperationCommand<completion::AppliedOnly> for NoReplyAppliedOnly {
-        fn affected_axes(&self) -> AffectedAxes {
-            AffectedAxes::ZOOM
-        }
-    }
-
     struct WrongAddress;
 
     impl Request for WrongAddress {
         type Class = crate::request::PlainClass;
 
         const MAX_SIZE: usize = 2;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-        const RETRY_CLASS: RetryClass = RetryClass::Never;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+        fn policy(&self) -> crate::request::CommandPolicy {
+            crate::request::CommandPolicy::new(
+                crate::profiles::CommandTimeoutClass::Quick,
+                crate::request::CommandRetryClass::Never,
+                crate::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(&self, _target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             buffer[..2].copy_from_slice(&[CameraId::CAMERA_1.to_address_byte(), VISCA_TERMINATOR]);
@@ -1841,9 +1736,13 @@ mod tests {
         type Class = crate::request::PlainClass;
 
         const MAX_SIZE: usize = 7;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-        const RETRY_CLASS: RetryClass = RetryClass::Never;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+        fn policy(&self) -> crate::request::CommandPolicy {
+            crate::request::CommandPolicy::new(
+                crate::profiles::CommandTimeoutClass::Quick,
+                crate::request::CommandRetryClass::Never,
+                crate::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             buffer[..self.frame.len()].copy_from_slice(self.frame);
@@ -1861,9 +1760,13 @@ mod tests {
         type Class = crate::request::PlainClass;
 
         const MAX_SIZE: usize = MAX_SIZE;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-        const RETRY_CLASS: RetryClass = RetryClass::Never;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+        fn policy(&self) -> crate::request::CommandPolicy {
+            crate::request::CommandPolicy::new(
+                crate::profiles::CommandTimeoutClass::Quick,
+                crate::request::CommandRetryClass::Never,
+                crate::request::SubmissionClass::Normal,
+            )
+        }
 
         fn write_into(&self, _: CameraId, buffer: &mut [u8]) -> Result<usize> {
             increment_write_count();
@@ -2261,7 +2164,7 @@ mod tests {
                 VISCA_TERMINATOR,
             ],
             crate::CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            crate::request::CommandRetryClass::Never,
             crate::SubmissionClass::Normal,
         )
         .expect("valid raw FR7 iris-step command");
@@ -3020,53 +2923,6 @@ mod tests {
 
     /// Downstream Request implementations cannot bypass raw policy's typed
     /// inquiry-only retry subset by declaring a command family (#970).
-    #[test]
-    fn inquiry_command_retry_families_fail_before_encoding() {
-        struct CommandRetryInquiry(RetryClass);
-        impl Request for CommandRetryInquiry {
-            type Class = crate::request::InquiryClass;
-            const MAX_SIZE: usize = 5;
-            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-            const RETRY_CLASS: RetryClass = RetryClass::Movement;
-            const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-            fn retry_class(&self) -> RetryClass {
-                self.0
-            }
-
-            fn write_into(&self, _target: CameraId, _buffer: &mut [u8]) -> Result<usize> {
-                panic!("invalid inquiry retry families must fail before encoding")
-            }
-        }
-        impl Inquiry for CommandRetryInquiry {
-            type Response = u8;
-            fn decoder(&self) -> ResponseDecoder<u8> {
-                ResponseDecoder::from_fn(|_: &[u8]| Ok(0))
-            }
-        }
-
-        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
-            .expect("built-in profile");
-        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
-        for retry in [
-            RetryClass::Standard,
-            RetryClass::Movement,
-            RetryClass::Preset,
-        ] {
-            let error = prepare_inquiry(
-                &CommandRetryInquiry(retry),
-                &target,
-                OperationalTuning::new(),
-                ClassSelection::Request,
-            )
-            .expect_err("command retry family is not an inquiry policy");
-            assert!(
-                matches!(error, Error::InvalidRequest { reason }
-                if reason.contains("inquiry retry class")),
-                "{retry:?}"
-            );
-        }
-    }
 
     #[test]
     fn inquiry_syntax_retry_is_reserved_for_builtin_inquiries() {
@@ -3533,44 +3389,6 @@ mod tests {
     }
 
     #[test]
-    fn preparation_rejects_timeout_classes_that_do_not_match_request_kind() {
-        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
-            .expect("built-in profile");
-        assert!(prepare_inquiry(
-            &ClassifiedInquiry,
-            &crate::TargetRegistration::new(
-                (TargetSlot::CAMERA_1).individual_camera(),
-                profile.clone()
-            ),
-            OperationalTuning::new(),
-            ClassSelection::Request,
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn generic_inquiry_preparation_rejects_non_default_reply_shapes() {
-        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
-            .expect("built-in profile");
-        for reply_shape in [
-            crate::raw::RawReplyShape::CompletionOnly,
-            crate::raw::RawReplyShape::NoReply,
-        ] {
-            let error = prepare_inquiry(
-                &NonDefaultReplyShapeInquiry(reply_shape),
-                &crate::TargetRegistration::new(
-                    (TargetSlot::CAMERA_1).individual_camera(),
-                    profile.clone(),
-                ),
-                OperationalTuning::new(),
-                ClassSelection::Request,
-            )
-            .expect_err("an inquiry cannot lower a command-only reply shape");
-            assert!(matches!(error, Error::InvalidRequest { .. }));
-        }
-    }
-
-    #[test]
     fn never_retry_class_ignores_retry_limit_tuning() {
         let tuning = OperationalTuning::new().with_retry_limit(2);
         let never = retry_policy_fixture(
@@ -3644,9 +3462,9 @@ mod tests {
                 ] {
                     let command = crate::raw::PlainRequest::with_policy(
                         [0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
-                        crate::raw::CommandPolicy::new(
+                        crate::request::CommandPolicy::new(
                             crate::CommandTimeoutClass::of(class).expect("command category"),
-                            RetryClass::Standard,
+                            crate::request::CommandRetryClass::Standard,
                             crate::SubmissionClass::Normal,
                         )
                         .with_reply_shape(shape),
@@ -3820,7 +3638,7 @@ mod tests {
                 .expect("built-in profile");
             let tuning = OperationalTuning::new().with_ack_timeout(Duration::from_millis(ack_ms)).with_quick_timeout(Duration::from_millis(quick_ms));
             let command = crate::raw::PlainRequest::new([0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
-                crate::CommandTimeoutClass::Quick, RetryClass::Standard, crate::SubmissionClass::Normal).expect("command");
+                crate::CommandTimeoutClass::Quick, crate::request::CommandRetryClass::Standard, crate::SubmissionClass::Normal).expect("command");
             let prepared = prepare_command(&command,
         &crate::TargetRegistration::new((TargetSlot::CAMERA_1).individual_camera(), profile.clone()),
                 tuning, ClassSelection::Request).expect("valid tuning");
@@ -4604,38 +4422,17 @@ mod tests {
             type Class = crate::request::PlainClass;
 
             const MAX_SIZE: usize = 2;
-            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-            const RETRY_CLASS: RetryClass = RetryClass::Standard;
-            const CONTROL_CLASS: ControlClass = ControlClass::Background;
+            fn policy(&self) -> crate::request::CommandPolicy {
+                crate::request::CommandPolicy::new(
+                    crate::profiles::CommandTimeoutClass::Quick,
+                    crate::request::CommandRetryClass::Standard,
+                    crate::request::SubmissionClass::Background,
+                )
+            }
 
             fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
                 buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
                 Ok(2)
-            }
-        }
-
-        /// A downstream applied-only operation attempting to claim the safety
-        /// lane. Public `Request` remains extensible, but owner admission must
-        /// refuse this unapproved `Urgent` declaration.
-        struct DownstreamUrgentStop;
-
-        impl Request for DownstreamUrgentStop {
-            type Class = crate::request::OperationClass<completion::AppliedOnly>;
-
-            const MAX_SIZE: usize = 2;
-            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-            const RETRY_CLASS: RetryClass = RetryClass::Movement;
-            const CONTROL_CLASS: ControlClass = ControlClass::Urgent;
-
-            fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
-                buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
-                Ok(2)
-            }
-        }
-
-        impl OperationCommand<completion::AppliedOnly> for DownstreamUrgentStop {
-            fn affected_axes(&self) -> AffectedAxes {
-                AffectedAxes::ZOOM
             }
         }
 
@@ -4674,20 +4471,6 @@ mod tests {
             .context
             .control
             .class
-        }
-
-        fn downstream_urgent_result(
-            class: ClassSelection,
-        ) -> Result<PreparedOperation<completion::AppliedOnly>> {
-            prepare_operation::<completion::AppliedOnly, _>(
-                &DownstreamUrgentStop,
-                &crate::TargetRegistration::new(
-                    (TargetSlot::CAMERA_1).individual_camera(),
-                    profile().clone(),
-                ),
-                OperationalTuning::new(),
-                class,
-            )
         }
 
         fn builtin_stop_class(class: ClassSelection) -> CommandReply {
@@ -4773,22 +4556,6 @@ mod tests {
             );
         }
 
-        /// A public downstream implementation cannot manufacture the urgent
-        /// safety lane simply by setting its associated constant.
-        #[test]
-        fn downstream_urgent_operation_is_rejected_before_lowering() {
-            for class in [
-                ClassSelection::Request,
-                ClassSelection::Handle(SubmissionClass::Background),
-                ClassSelection::Handle(SubmissionClass::Background),
-            ] {
-                assert!(matches!(
-                    downstream_urgent_result(class),
-                    Err(Error::InvalidRequest { .. })
-                ));
-            }
-        }
-
         /// The safety rule, on the lowered value rather than on `resolve`
         /// alone: neither public QoS route can demote a crate-owned urgent
         /// stop.
@@ -4809,6 +4576,29 @@ mod tests {
                 "issue #542: view QoS must never demote an urgent stop",
             );
         }
+
+        #[test]
+        fn fr7_high_resolution_stop_preserves_safety_under_every_submission_override() {
+            let profile =
+                ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7 profile");
+            let registration =
+                crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
+            for class in [
+                ClassSelection::Request,
+                ClassSelection::Handle(SubmissionClass::Background),
+                ClassSelection::Handle(SubmissionClass::Normal),
+                ClassSelection::Handle(SubmissionClass::User),
+            ] {
+                let prepared = prepare_operation::<completion::AppliedOnly, _>(
+                    &crate::command::zoom::StopHighResolution,
+                    &registration,
+                    OperationalTuning::new(),
+                    class,
+                )
+                .expect("high-resolution STOP prepares");
+                assert_eq!(prepared.reply_shape, CommandReply::Stop);
+            }
+        }
     }
 
     /// #700: a raw command's declared reply shape lowers into the engine request
@@ -4818,9 +4608,9 @@ mod tests {
     fn declared_raw_motion_lowers_axes_without_forging_stop_authority() {
         let profile =
             ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
-        let policy = crate::raw::CommandPolicy::new(
+        let policy = crate::request::CommandPolicy::new(
             crate::CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            crate::request::CommandRetryClass::Never,
             crate::SubmissionClass::Normal,
         );
         let command =
@@ -4863,46 +4653,26 @@ mod tests {
     /// class combination's complete owner policy, not just its public accessors.
     #[test]
     fn kind_specific_raw_policies_preserve_the_lowered_request_context() {
-        use crate::raw::{
-            CommandPolicy, InquiryPolicy, OperationPolicy, OperationReplyShape, RawReplyShape,
+        use crate::raw::{OperationReplyShape, RawReplyShape};
+        use crate::request::{
+            CommandPolicy, CommandRetryClass, InquiryPolicy, InquiryRetryClass, OperationPolicy,
         };
-
-        struct ReferencePolicy {
-            timeout: TimeoutClass,
-            retry: RetryClass,
-            control: ControlClass,
-            reply: RawReplyShape,
-        }
-        impl Request for ReferencePolicy {
+        struct FixedCommand(CommandPolicy);
+        impl Request for FixedCommand {
             type Class = crate::request::PlainClass;
             const MAX_SIZE: usize = 4;
-            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-            const RETRY_CLASS: RetryClass = RetryClass::Never;
-            const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-            fn timeout_class(&self) -> TimeoutClass {
-                self.timeout
-            }
-            fn retry_class(&self) -> RetryClass {
-                self.retry
-            }
-            fn control_class(&self) -> ControlClass {
-                self.control
-            }
-            fn reply_shape(&self) -> RawReplyShape {
-                self.reply
+            fn policy(&self) -> CommandPolicy {
+                self.0
             }
             fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
                 buffer[..4].copy_from_slice(&[target.to_address_byte(), 1, 2, VISCA_TERMINATOR]);
                 Ok(4)
             }
         }
-
         let profile =
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("profile");
         let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
         let tuning = OperationalTuning::new();
-        let validated = ValidatedTuning::validate(tuning, [target.profile()]).expect("tuning");
         let wire = [0x81, 1, 2, VISCA_TERMINATOR];
         for class in [
             SubmissionClass::Background,
@@ -4910,11 +4680,10 @@ mod tests {
             SubmissionClass::User,
         ] {
             for retry in [
-                RetryClass::Never,
-                RetryClass::Standard,
-                RetryClass::Inquiry,
-                RetryClass::Movement,
-                RetryClass::Preset,
+                CommandRetryClass::Never,
+                CommandRetryClass::Standard,
+                CommandRetryClass::Movement,
+                CommandRetryClass::Preset,
             ] {
                 for timeout in CommandTimeoutClass::ALL {
                     for shape in [
@@ -4922,50 +4691,38 @@ mod tests {
                         RawReplyShape::CompletionOnly,
                         RawReplyShape::NoReply,
                     ] {
-                        let reference = ReferencePolicy {
-                            timeout: timeout.into(),
-                            retry,
-                            control: class.into(),
-                            reply: shape,
-                        };
-                        let expected = request_context(
-                            &reference,
+                        let policy =
+                            CommandPolicy::new(timeout, retry, class).with_reply_shape(shape);
+                        let reference = prepare_command(
+                            &FixedCommand(policy),
                             &target,
-                            validated,
+                            tuning,
                             ClassSelection::Request,
-                            false,
                         )
-                        .expect("reference policy");
-                        let command = crate::raw::PlainRequest::with_policy(
-                            wire,
-                            CommandPolicy::new(timeout, retry, class).with_reply_shape(shape),
-                        )
-                        .expect("plain");
-                        let prepared =
-                            prepare_command(&command, &target, tuning, ClassSelection::Request)
-                                .expect("prepares");
-                        assert_eq!(prepared.context, expected);
-                        assert_eq!(prepared.reply_shape, lower_reply_shape(shape));
-                        assert_eq!(prepared.wire.as_bytes(), wire);
+                        .expect("fixed custom command");
+                        let raw = crate::raw::PlainRequest::with_policy(wire, policy)
+                            .expect("raw command");
+                        let actual =
+                            prepare_command(&raw, &target, tuning, ClassSelection::Request)
+                                .expect("raw prepares");
+                        assert_eq!(actual.context, reference.context);
+                        assert_eq!(actual.reply_shape, reference.reply_shape);
+                        assert_eq!(actual.wire.as_bytes(), reference.wire.as_bytes());
                     }
                     for shape in [
                         OperationReplyShape::AckThenCompletion,
                         OperationReplyShape::CompletionOnly,
                     ] {
-                        let reference = ReferencePolicy {
-                            timeout: timeout.into(),
-                            retry,
-                            control: class.into(),
-                            reply: shape.into(),
-                        };
-                        let mut expected = request_context(
-                            &reference,
+                        let command = CommandPolicy::new(timeout, retry, class)
+                            .with_reply_shape(shape.into());
+                        let mut expected = prepare_command(
+                            &FixedCommand(command),
                             &target,
-                            validated,
+                            tuning,
                             ClassSelection::Request,
-                            false,
                         )
-                        .expect("reference policy");
+                        .expect("reference")
+                        .context;
                         expected.motion = Some(crate::runtime::engine::MotionEffect {
                             axes: AffectedAxes::ZOOM,
                         });
@@ -5007,35 +4764,25 @@ mod tests {
                         );
                     }
                 }
-                let Some(inquiry_retry) = crate::request::InquiryRetryClass::of(retry) else {
-                    continue;
-                };
-                let reference = ReferencePolicy {
-                    timeout: TimeoutClass::Inquiry,
-                    retry,
-                    control: class.into(),
-                    reply: RawReplyShape::AckThenCompletion,
-                };
-                let expected = request_context(
-                    &reference,
-                    &target,
-                    validated,
-                    ClassSelection::Request,
-                    true,
-                )
-                .expect("reference inquiry policy");
+            }
+            for retry in [InquiryRetryClass::Never, InquiryRetryClass::Inquiry] {
                 let inquiry = crate::raw::InquiryRequest::with_policy(
                     wire,
-                    ResponseDecoder::from_fn(|_: &[u8]| Ok(0_u8)),
-                    InquiryPolicy::new(inquiry_retry, class),
+                    ResponseDecoder::from_fn(|bytes| Ok(bytes.to_vec())),
+                    InquiryPolicy::new(retry, class),
                 )
-                .expect("inquiry");
+                .expect("raw inquiry");
+                let actual = prepare_inquiry(&inquiry, &target, tuning, ClassSelection::Request)
+                    .expect("inquiry prepares");
                 assert_eq!(
-                    prepare_inquiry(&inquiry, &target, tuning, ClassSelection::Request)
-                        .expect("inquiry prepares")
-                        .context,
-                    expected
+                    actual.context.retry.inquiry_timeout,
+                    matches!(retry, InquiryRetryClass::Inquiry)
                 );
+                assert_eq!(
+                    actual.context.control.class,
+                    lower_command_policy(class.control_class(), RawReplyShape::AckThenCompletion).0
+                );
+                assert_eq!(actual.wire.as_bytes(), wire);
             }
         }
     }
@@ -5055,9 +4802,9 @@ mod tests {
             ),
             (crate::raw::RawReplyShape::NoReply, CommandReply::NoReply),
         ] {
-            let policy = crate::raw::CommandPolicy::new(
+            let policy = crate::request::CommandPolicy::new(
                 crate::CommandTimeoutClass::Quick,
-                RetryClass::Never,
+                crate::request::CommandRetryClass::Never,
                 crate::SubmissionClass::Normal,
             )
             .with_reply_shape(declared);
@@ -5081,7 +4828,7 @@ mod tests {
         let default_command = crate::raw::PlainRequest::new(
             [0x81, 0x01, 0x02, 0xff],
             crate::CommandTimeoutClass::Quick,
-            RetryClass::Never,
+            crate::request::CommandRetryClass::Never,
             crate::SubmissionClass::Normal,
         )
         .expect("plain");
@@ -5096,23 +4843,6 @@ mod tests {
         )
         .expect("prepares");
         assert_eq!(prepared.reply_shape, CommandReply::AckThenCompletion);
-    }
-
-    #[test]
-    fn no_reply_operation_is_rejected_during_generic_preparation() {
-        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
-            .expect("built-in profile");
-        let error = prepare_operation::<completion::AppliedOnly, _>(
-            &NoReplyAppliedOnly,
-            &crate::TargetRegistration::new(
-                (TargetSlot::CAMERA_1).individual_camera(),
-                profile.clone(),
-            ),
-            OperationalTuning::new(),
-            ClassSelection::Request,
-        )
-        .expect_err("a no-reply operation must not create an applied handle");
-        assert!(matches!(error, Error::InvalidRequest { .. }));
     }
 }
 
@@ -5186,69 +4916,3 @@ pub(crate) fn prepare_halt(
 #[cfg(test)]
 #[path = "prepared/timing_characterization.rs"]
 mod timing_characterization;
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
-mod stop_class_tests {
-    use super::test_support::prepare_command;
-    use super::*;
-
-    struct SyntheticStop(crate::raw::RawReplyShape);
-
-    impl Request for SyntheticStop {
-        type Class = crate::request::PlainClass;
-        const MAX_SIZE: usize = 5;
-        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-        const RETRY_CLASS: RetryClass = RetryClass::Movement;
-        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-        fn reply_shape(&self) -> crate::raw::RawReplyShape {
-            self.0
-        }
-
-        fn admission_control_class(
-            &self,
-            _: crate::requests::RequestContractAuthority,
-        ) -> Result<ControlClass> {
-            Ok(ControlClass::Urgent)
-        }
-
-        fn write_into(&self, _: CameraId, _: &mut [u8]) -> Result<usize> {
-            panic!("invalid STOP must fail before encoding")
-        }
-    }
-
-    #[test]
-    fn stop_authority_lowers_only_to_an_ack_bearing_command() {
-        use crate::raw::RawReplyShape;
-        let registration = crate::TargetRegistration::new(
-            crate::IndividualCameraId::CAMERA_1,
-            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap(),
-        );
-        for shape in [RawReplyShape::CompletionOnly, RawReplyShape::NoReply] {
-            assert!(matches!(
-                prepare_command(
-                    &SyntheticStop(shape),
-                    &registration,
-                    OperationalTuning::new(),
-                    ClassSelection::Request,
-                ),
-                Err(Error::InvalidRequest { .. })
-            ));
-        }
-        assert!(
-            lower_command_policy(ControlClass::Urgent, RawReplyShape::AckThenCompletion, true)
-                .is_err()
-        );
-        assert_eq!(
-            lower_command_policy(
-                ControlClass::Urgent,
-                RawReplyShape::AckThenCompletion,
-                false
-            )
-            .unwrap()
-            .1,
-            CommandReply::Stop,
-        );
-    }
-}

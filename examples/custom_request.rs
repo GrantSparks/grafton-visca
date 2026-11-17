@@ -2,7 +2,8 @@
 //!
 //! The typed extension surface classifies every request at the type level. This
 //! example implements a custom `PlainCommand` and a custom `OperationCommand`,
-//! encodes them with the same allocation-free `write_into` the built-ins use,
+//! returns the matching typed policy from `Request::policy`, encodes them with
+//! the same allocation-free `write_into` the built-ins use,
 //! submits them through the generic `execute` / `submit` entry points, and
 //! builds and drives a custom runtime `ProfileSpec` through blocking
 //! `Camera<AnyProfile>` without implementing `CompileTimeProfile`.
@@ -31,19 +32,21 @@ use grafton_visca::{
     config::{CameraConfig, TransportOptions},
     operation::AppliedOnly,
     profiles::AnyProfile,
+    profiles::CommandTimeoutClass,
     profiles::CommandTimeouts,
     profiles::ProfileEnvelope,
     profiles::ProfileSpec,
     profiles::ProfileTiming,
     profiles::TransportCompatibility,
-    request::ControlClass,
+    request::CommandPolicy,
+    request::CommandRetryClass,
     request::OperationClass,
     request::OperationCommand,
+    request::OperationPolicy,
     request::PlainClass,
     request::PlainCommand,
     request::Request,
-    request::RetryClass,
-    request::TimeoutClass,
+    request::SubmissionClass,
     types::AffectedAxes,
     types::CameraId,
     Error,
@@ -59,9 +62,14 @@ impl Request for SetVendorTone {
     type Class = PlainClass;
 
     const MAX_SIZE: usize = 7;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+    fn policy(&self) -> CommandPolicy {
+        CommandPolicy::new(
+            CommandTimeoutClass::Quick,
+            CommandRetryClass::Never,
+            SubmissionClass::Normal,
+        )
+    }
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         // Illustrative vendor payload: 8x 01 04 7E 01 0p FF.
@@ -90,9 +98,14 @@ impl Request for VendorNudge {
     type Class = OperationClass<AppliedOnly>;
 
     const MAX_SIZE: usize = 6;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;
-    const RETRY_CLASS: RetryClass = RetryClass::Movement;
-    const CONTROL_CLASS: ControlClass = ControlClass::User;
+
+    fn policy(&self) -> OperationPolicy {
+        OperationPolicy::new(
+            CommandTimeoutClass::Movement,
+            CommandRetryClass::Movement,
+            SubmissionClass::User,
+        )
+    }
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         let bytes = [0x80 | camera_id.value(), 0x01, 0x06, 0x7F, 0x03, 0xFF];

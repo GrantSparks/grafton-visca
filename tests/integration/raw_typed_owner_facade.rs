@@ -17,7 +17,7 @@ use grafton_visca_test_support::fake_camera;
 use grafton_visca::{
     profiles::ProfileSpec,
     raw,
-    request::{ResponseDecoder, RetryClass},
+    request::{CommandRetryClass, ResponseDecoder},
     types::AffectedAxes,
     Error,
 };
@@ -80,7 +80,7 @@ fn raw_values() -> (
     let plain = raw::PlainRequest::new(
         [0x81, 0x01, 0x01, 0xff],
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("plain frame");
@@ -95,7 +95,7 @@ fn raw_values() -> (
         [0x81, 0x01, 0x06, 0xff],
         AffectedAxes::PAN_TILT,
         grafton_visca::profiles::CommandTimeoutClass::Movement,
-        RetryClass::Movement,
+        CommandRetryClass::Movement,
         grafton_visca::request::SubmissionClass::User,
     )
     .expect("targeted frame");
@@ -105,7 +105,7 @@ fn raw_values() -> (
         [0x81, 0x01, 0x07, 0xff],
         AffectedAxes::ZOOM,
         grafton_visca::profiles::CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        CommandRetryClass::Never,
         grafton_visca::request::SubmissionClass::User,
     )
     .expect("applied-only frame");

@@ -1,11 +1,11 @@
 use grafton_visca::{
-    profiles::CommandTimeoutClass, raw::CommandPolicy, request::ControlClass, request::RetryClass,
+    profiles::CommandTimeoutClass, request::CommandPolicy, request::ControlClass, request::CommandRetryClass,
 };
 
 fn main() {
     let _ = CommandPolicy::new(
         CommandTimeoutClass::Quick,
-        RetryClass::Never,
+        CommandRetryClass::Never,
         ControlClass::Urgent,
     );
 }

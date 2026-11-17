@@ -6,9 +6,9 @@ fn completion_only_cancel_is_unsupported_without_ending_application() {
     let command = crate::raw::AppliedOnlyRequest::with_policy(
         [0x81, 0x01, 0x04, 0x07, 0x02, 0xff],
         crate::AffectedAxes::ZOOM,
-        crate::raw::OperationPolicy::new(
+        crate::request::OperationPolicy::new(
             crate::CommandTimeoutClass::Quick,
-            crate::RetryClass::Never,
+            crate::request::CommandRetryClass::Never,
             crate::SubmissionClass::Normal,
         )
         .with_reply_shape(crate::raw::OperationReplyShape::CompletionOnly),
@@ -60,7 +60,7 @@ fn prepared_retry_budget_covers_late_ack_and_completion_on_the_worker() {
             [0x81, 0x01, 0x04, 0x07, 0x02, 0xff],
             crate::AffectedAxes::ZOOM,
             crate::CommandTimeoutClass::Quick,
-            crate::RetryClass::Standard,
+            crate::request::CommandRetryClass::Standard,
             crate::SubmissionClass::Normal,
         )
         .unwrap();

@@ -26,7 +26,7 @@ FAMILY_ENUMS = frozenset("Zoom Focus PanTilt Gain Shutter Brightness ColorTemper
 VALUE_NAMES = frozenset("AffectedAxes AffectedAxis AffectedAxisIter CameraId IndividualCameraId CommandSocketCount ViscaSocket ExposureMode FocusMode WhiteBalanceMode AutoFocusSensitivity AutoWhiteBalanceSensitivity FocusZone AntiFlickerMode ImageFlipMode SharpnessMode NoiseReduction2DMode NoiseReduction2D NoiseReduction3D PictureEffectMode NdFilterMode PowerStatus PanTiltDirection PanTiltLimitCorner MenuDirection DirectMenuTarget MenuButton VersionInfo PresetNumber MotionQuery IdleWait MovementTolerance PanTiltPosition PanTiltUnits ZoomDomain".split())
 NAMED_HOMES = {
     **dict.fromkeys(VALUE_NAMES, "types"),
-    **dict.fromkeys("Request PlainCommand Inquiry OperationCommand ResponseDecoder PayloadShape ControlClass SubmissionClass RetryClass TimeoutClass Class PlainClass InquiryClass OperationClass".split(), "request"),
+    **dict.fromkeys("Request PlainCommand Inquiry OperationCommand ResponseDecoder PayloadShape ControlClass SubmissionClass CommandRetryClass InquiryRetryClass CommandPolicy OperationPolicy InquiryPolicy Class PlainClass InquiryClass OperationClass".split(), "request"),
     **dict.fromkeys("ProfileSpec ProfileSpecBuilder ProfileTiming ProfileTimingBuilder ProfileEnvelope TransportCompatibility PanTiltCoordinateConversion CompileTimeProfile CameraProfile AnyProfile ProfileSelection ProfileId ProfileGroup CommandTimeouts".split(), "profiles"),
     **dict.fromkeys("CameraConfig SessionConfig OperationalTuning TransportOptions TransportKind TargetRegistration MountPosition DEFAULT_ADMISSION_CAPACITY".split(), "config"),
     **dict.fromkeys("Targeted AppliedOnly Kind CancellationOutcome Settlement HaltOutcome HaltReport OperationId".split(), "operation"),
@@ -258,7 +258,7 @@ class Audit:
         legacy |= kind == "enum" and (name in FAMILY_ENUMS or path[:1] == ("command",))
         legacy |= origin[:2] == ("request", "builtin")
         legacy |= path[:1] == ("command",) and name.endswith("Command")
-        legacy |= name in ("InquiryData", "InquiryKind", "Connect", "NetTransportBuilder", "BlockingTransportHandle")
+        legacy |= name in ("InquiryData", "InquiryKind", "Connect", "NetTransportBuilder", "BlockingTransportHandle", "RetryClass", "TimeoutClass")
         if legacy:
             self.violations.append({"code": "removed_public_item", "id": description["id"], "path": self.render(path), "name": name})
 
