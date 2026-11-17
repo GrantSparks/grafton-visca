@@ -94,9 +94,8 @@ impl RowGate {
 
 /// The base-domain marker of a noun header's `[domain <Marker>]` gate.
 ///
-/// There is one variant per domain that some noun-table row inherits.  The
-/// `Image` noun is gated on `HasImage`, but every one of its rows
-/// narrows that with its own `where` marker, so it has no variant here. The exposure noun likewise refines every row.
+/// There is one variant per domain inherited by a noun-table row, including
+/// domains whose every row also refines its gate with typed support.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum DomainGate {
     /// `HasPower`.
@@ -643,6 +642,94 @@ pub(crate) const fn row_gate(command: BuiltinCommand) -> RowGate {
     }
 }
 
+/// The parent domains required by every row that consumes one typed surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SurfaceDomain {
+    /// Every consuming row is domain free.
+    None,
+    /// Every consuming row requires this one domain.
+    One(DomainGate),
+    /// Domains disagree, a domain-free row is mixed in, or no row consumes it.
+    /// Such a surface needs an explicit metadata rule.
+    Mixed,
+}
+
+impl SurfaceDomain {
+    /// The fallback's capability check. Const validation rejects `Mixed` for
+    /// every surface without an explicit discovery rule.
+    pub(crate) fn permits(self, capabilities: &crate::capabilities::Capabilities) -> bool {
+        match self {
+            Self::None => true,
+            Self::One(domain) => domain.permits_capabilities(capabilities),
+            Self::Mixed => false,
+        }
+    }
+}
+
+const fn fold_surface_domain(
+    current: Option<SurfaceDomain>,
+    gate: RowGate,
+    surface: crate::capabilities::TypedSupportSurface,
+) -> Option<SurfaceDomain> {
+    let next = match gate {
+        RowGate::Typed(surfaces) if surfaces.contains(surface) => SurfaceDomain::None,
+        RowGate::DomainAndTyped(domain, surfaces) if surfaces.contains(surface) => {
+            SurfaceDomain::One(domain)
+        }
+        RowGate::Always
+        | RowGate::Domain(_)
+        | RowGate::Typed(_)
+        | RowGate::DomainAndTyped(_, _) => {
+            return current;
+        }
+    };
+    Some(match (current, next) {
+        (None, next) => next,
+        (Some(SurfaceDomain::None), SurfaceDomain::None) => SurfaceDomain::None,
+        (Some(SurfaceDomain::One(left)), SurfaceDomain::One(right))
+            if left as u8 == right as u8 =>
+        {
+            SurfaceDomain::One(left)
+        }
+        _ => SurfaceDomain::Mixed,
+    })
+}
+
+/// Compile-time fold of command and inquiry gates generated from noun rows.
+/// Discovery performs one indexed lookup, with no runtime ledger traversal.
+pub(crate) const fn surface_domain(
+    surface: crate::capabilities::TypedSupportSurface,
+) -> SurfaceDomain {
+    use crate::capabilities::TypedSupportSurface;
+    const DOMAINS: [SurfaceDomain; TypedSupportSurface::ALL.len()] = {
+        let mut domains = [SurfaceDomain::Mixed; TypedSupportSurface::ALL.len()];
+        let mut surface_index = 0;
+        while surface_index < TypedSupportSurface::ALL.len() {
+            let surface = TypedSupportSurface::ALL[surface_index];
+            let mut domain = None;
+            let mut index = 0;
+            while index < BuiltinCommand::ALL.len() {
+                domain = fold_surface_domain(domain, row_gate(BuiltinCommand::ALL[index]), surface);
+                index += 1;
+            }
+            index = 0;
+            while index < QUERY_SURFACES.len() {
+                if let Some(query) = QUERY_SURFACES[index] {
+                    domain = fold_surface_domain(domain, query.gate, surface);
+                }
+                index += 1;
+            }
+            domains[surface_index] = match domain {
+                Some(domain) => domain,
+                None => SurfaceDomain::Mixed,
+            };
+            surface_index += 1;
+        }
+        domains
+    };
+    DOMAINS[surface as usize]
+}
+
 /// Whether a typed grant exclusively enables inquiries. Both sides come from
 /// canonical surfaces: a qualifier absent from command row gates is not itself
 /// an inquiry permission (for example, the shared digital-zoom range).
@@ -685,6 +772,76 @@ pub(crate) const fn is_inquiry_only_surface(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn surface_domains_are_derived_from_every_consuming_row() {
+        use crate::capabilities::TypedSupportSurface as S;
+        assert_eq!(
+            surface_domain(S::GainLimit),
+            SurfaceDomain::One(DomainGate::Exposure)
+        );
+        assert_eq!(surface_domain(S::Tally), SurfaceDomain::None);
+        let mixed = S::ALL
+            .into_iter()
+            .filter(|surface| surface_domain(*surface) == SurfaceDomain::Mixed)
+            .collect::<Vec<_>>();
+        // Its dedicated digital-range fact handles both domain-bearing zoom
+        // rows and the domain-free high-resolution zoom noun.
+        assert_eq!(mixed, [S::DigitalZoomRange]);
+    }
+
+    #[test]
+    fn surface_domain_fold_rejects_mixed_or_absent_parent_rules() {
+        use crate::capabilities::TypedSupportSurface as S;
+        let required = TypedSupportSet::from_surface(S::GainLimit);
+        let exposure = RowGate::DomainAndTyped(DomainGate::Exposure, required);
+        let zoom = RowGate::DomainAndTyped(DomainGate::Zoom, required);
+        let standalone = RowGate::Typed(required);
+        let first = fold_surface_domain(None, exposure, S::GainLimit);
+        assert_eq!(first, Some(SurfaceDomain::One(DomainGate::Exposure)));
+        assert_eq!(fold_surface_domain(first, exposure, S::GainLimit), first);
+        assert_eq!(
+            fold_surface_domain(first, zoom, S::GainLimit),
+            Some(SurfaceDomain::Mixed)
+        );
+        assert_eq!(
+            fold_surface_domain(first, standalone, S::GainLimit),
+            Some(SurfaceDomain::Mixed)
+        );
+        assert_eq!(
+            fold_surface_domain(Some(SurfaceDomain::None), exposure, S::GainLimit),
+            Some(SurfaceDomain::Mixed)
+        );
+        assert_eq!(
+            fold_surface_domain(Some(SurfaceDomain::Mixed), exposure, S::GainLimit),
+            Some(SurfaceDomain::Mixed)
+        );
+        assert_eq!(fold_surface_domain(None, exposure, S::Tally), None);
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn moving_a_noun_header_changes_admission_and_discovery_together() {
+        use crate::capabilities::TypedSupportSurface as S;
+        // The only changed input is the same noun header consumed by the
+        // production surface table. No discovery-side domain list is edited.
+        let before = noun_row_gate!([HasGainLimit], [domain HasExposure]);
+        let after = noun_row_gate!([HasGainLimit], [domain HasZoom]);
+        let mut caps =
+            crate::capabilities::Capabilities::runtime_baseline("moved noun", 1).expect("caps");
+        caps.typed_support = TypedSupportSet::from_surface(S::GainLimit);
+        caps.zoom = crate::profiles::ProfileId::PtzOpticsG2
+            .spec()
+            .expect("profile")
+            .capabilities()
+            .zoom;
+        for (gate, expected) in [(before, false), (after, true)] {
+            let discovered =
+                fold_surface_domain(None, gate, S::GainLimit).expect("row owns surface");
+            assert_eq!(gate.permits(&caps), expected);
+            assert_eq!(discovered.permits(&caps), expected);
+        }
+    }
 
     #[test]
     fn inquiry_only_permissions_exclude_command_and_shared_range_grants() {

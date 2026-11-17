@@ -6,8 +6,56 @@
 
 use std::borrow::Cow;
 
+use super::TypedSupportSurface as S;
 use super::{profile_metadata::InquirySupport, TypedSupportSet, TypedSupportSurface};
 use crate::WhiteBalanceMode;
+
+/// Keep the explicit-rule set and its executable rules in one declaration.
+/// The const gate below uses the same patterns as the runtime match.
+macro_rules! surface_metadata_rules {
+    ($this:ident, $surface:ident; locals { $($locals:tt)* }
+        rules { $($pattern:pat => $value:expr),+ $(,)? }) => {
+        /// Relates a typed permission to the facts required to prepare it.
+        pub(crate) fn surface_metadata(&$this, $surface: TypedSupportSurface) -> SurfaceMetadata {
+            if $this.inquiry_support == InquirySupport::None
+                && crate::command::surface::is_inquiry_only_surface($surface)
+            {
+                return SurfaceMetadata::ParentDomain(false);
+            }
+            $($locals)*
+            match $surface {
+                $($pattern => $value,)+
+                _ => SurfaceMetadata::ParentDomain(
+                    crate::command::surface::surface_domain($surface).permits($this),
+                ),
+            }
+        }
+
+        const fn has_explicit_surface_metadata($surface: TypedSupportSurface) -> bool {
+            matches!($surface, $($pattern)|+)
+        }
+    };
+}
+
+// A mixed or missing domain must acquire an explicit metadata rule. The rule
+// patterns above generate this predicate, so adding an arm cannot be forgotten
+// in a second manually maintained exception inventory.
+const _: () = {
+    let mut index = 0;
+    while index < TypedSupportSurface::ALL.len() {
+        let surface = TypedSupportSurface::ALL[index];
+        if !Capabilities::has_explicit_surface_metadata(surface) {
+            assert!(
+                !matches!(
+                    crate::command::surface::surface_domain(surface),
+                    crate::command::surface::SurfaceDomain::Mixed
+                ),
+                "a mixed or missing parent domain needs an explicit metadata rule",
+            );
+        }
+        index += 1;
+    }
+};
 
 /// Runtime discovery facts grouped by physical or control domain.
 ///
@@ -148,20 +196,16 @@ impl Capabilities {
         self.typed_support.contains(surface)
     }
 
-    /// Relates a typed permission to the domain facts required to prepare it.
-    pub(crate) fn surface_metadata(&self, surface: TypedSupportSurface) -> SurfaceMetadata {
-        use SurfaceMetadata::{Dedicated, ParentDomain};
-        use TypedSupportSurface as S;
-        if self.inquiry_support == InquirySupport::None
-            && crate::command::surface::is_inquiry_only_surface(surface)
-        {
-            return ParentDomain(false);
+    surface_metadata_rules! {
+        self, surface;
+        locals {
+            use SurfaceMetadata::{Dedicated, ParentDomain};
+            let exposure = self.exposure.as_ref();
+            let focus = self.focus.as_ref();
+            let white_balance = self.white_balance.as_ref();
+            let image = self.image.as_ref();
         }
-        let exposure = self.exposure.as_ref();
-        let focus = self.focus.as_ref();
-        let white_balance = self.white_balance.as_ref();
-        let image = self.image.as_ref();
-        match surface {
+        rules {
             S::DirectZoom => Dedicated(self.zoom.as_ref().is_some_and(|domain| domain.direct)),
             S::DigitalZoomToggle | S::DigitalZoomRange => Dedicated(
                 self.zoom
@@ -173,28 +217,28 @@ impl Capabilities {
             S::Gain => Dedicated(exposure.is_some_and(|domain| domain.gain_range.is_some())),
             S::BacklightCompensation => {
                 Dedicated(exposure.is_some_and(|domain| domain.backlight_compensation))
-            }
+            },
             S::WideDynamicRange => {
                 Dedicated(exposure.is_some_and(|domain| domain.wide_dynamic_range))
-            }
+            },
             S::ExposureCompensation => {
                 Dedicated(exposure.is_some_and(|domain| domain.compensation_range.is_some()))
-            }
+            },
             S::Brightness => {
                 Dedicated(exposure.is_some_and(|domain| domain.brightness_range.is_some()))
-            }
+            },
             S::OnePushFocus => Dedicated(focus.is_some_and(|domain| domain.one_push)),
             S::FocusZone => Dedicated(focus.is_some_and(|domain| !domain.zones.is_empty())),
             S::FocusZoneInquiry => Dedicated(focus.is_some_and(|domain| domain.zone_inquiry)),
             S::AutoFocusSensitivity => {
                 Dedicated(focus.is_some_and(|domain| domain.auto_focus && domain.af_sensitivity))
-            }
+            },
             S::FocusNearLimit => Dedicated(focus.is_some_and(|domain| domain.near_limit_inquiry)),
             // A one-shot action does not require the standard OnePush mode:
             // the documented FR7 action captures white in Memory A or ATW.
             S::OnePushWhiteBalance => {
                 Dedicated(white_balance.is_some_and(|domain| domain.one_push))
-            }
+            },
             S::ColorTemperature => Dedicated(white_balance.is_some_and(|domain| {
                 domain.color_temp_range.is_some()
                     && domain.modes.contains(&WhiteBalanceMode::ColorTemperature)
@@ -202,17 +246,17 @@ impl Capabilities {
             S::RgbGain => Dedicated(white_balance.is_some_and(|domain| domain.rgb_gain.is_some())),
             S::RgbTuning => {
                 Dedicated(white_balance.is_some_and(|domain| domain.rgb_tuning.is_some()))
-            }
+            },
             S::ImageFlip => Dedicated(image.is_some_and(|domain| domain.flip)),
             S::ImageMirror => Dedicated(image.is_some_and(|domain| domain.mirror)),
             S::CombinedImageFlip => {
                 ParentDomain(image.is_some_and(|domain| domain.flip && domain.mirror))
-            }
+            },
             S::Contrast => Dedicated(image.is_some_and(|domain| domain.contrast_range.is_some())),
             S::Sharpness => Dedicated(image.is_some_and(|domain| domain.sharpness_range.is_some())),
             S::Saturation => {
                 Dedicated(image.is_some_and(|domain| domain.saturation_range.is_some()))
-            }
+            },
             S::Hue => Dedicated(image.is_some_and(|domain| domain.hue_range.is_some())),
             S::Luminance => Dedicated(image.is_some_and(|domain| domain.luminance_range.is_some())),
             S::Gamma => Dedicated(image.is_some_and(|domain| domain.gamma_range.is_some())),
@@ -227,36 +271,6 @@ impl Capabilities {
                     .as_ref()
                     .is_some_and(|domain| domain.motion_sync_speed_range.is_some()),
             ),
-            S::NoiseReduction2D
-            | S::NoiseReduction3D
-            | S::SharpnessMode
-            | S::ImageFreeze
-            | S::BlackLevels
-            | S::Detail
-            | S::Knee => ParentDomain(image.is_some()),
-            S::FocusLock | S::SnapFocus | S::PushAutoFocus | S::FocusInfinity => {
-                ParentDomain(focus.is_some())
-            }
-            S::AntiFlicker
-            | S::Spotlight
-            | S::AutoSlowShutter
-            | S::AeLevel
-            | S::AutoGain
-            | S::AutoShutter
-            | S::IrisSteps
-            | S::AutoIris
-            | S::Shutter
-            | S::GainLimit => ParentDomain(exposure.is_some()),
-            S::AutoWhiteBalanceSensitivity
-            | S::PresetWhite
-            | S::MemoryColorTemperature
-            | S::MemoryGain
-            | S::MemoryTint
-            | S::AtwOffsets => ParentDomain(white_balance.is_some()),
-            S::HighResolutionZoom | S::ClearImageZoom => ParentDomain(self.zoom.is_some()),
-            S::PresetMemory | S::SeparatePresetSpeed | S::SeparatePresetDuration => {
-                ParentDomain(self.presets.is_some())
-            }
             S::PresetRecallSpeed => ParentDomain(
                 self.presets
                     .as_ref()
@@ -264,7 +278,7 @@ impl Capabilities {
             ),
             S::PresetRecallSpeedInquiry => {
                 ParentDomain(self.presets.is_some() && self.supports(S::PresetRecallSpeed))
-            }
+            },
             S::PowerStandby => Dedicated(
                 self.power
                     .as_ref()
@@ -272,24 +286,14 @@ impl Capabilities {
             ),
             S::DirectShutter => {
                 ParentDomain(exposure.is_some_and(|domain| !domain.shutter_speeds.is_empty()))
-            }
+            },
             S::NoiseReduction2DMode => {
                 ParentDomain(image.is_some() && self.supports(S::NoiseReduction2D))
-            }
+            },
             S::ColorTemperatureInquiry => {
                 ParentDomain(self.surface_metadata(S::ColorTemperature).permits())
-            }
+            },
             S::TallyBrightness | S::TallyMode => ParentDomain(self.supports(S::Tally)),
-            S::DirectMenu | S::MenuDisplay | S::MenuEnterReturn | S::MenuDisplayInquiry => {
-                ParentDomain(self.menu.is_some())
-            }
-            S::Tally
-            | S::NdFilter
-            | S::UsbAudio
-            | S::SettingsSave
-            | S::MulticastStreaming
-            | S::NdiQuality
-            | S::VersionInquiry => ParentDomain(true),
         }
     }
 
@@ -423,6 +427,104 @@ mod tests {
     use crate::WhiteBalanceMode;
 
     use super::*;
+
+    /// Characterized on 9eb89b62 before replacing the handwritten domains.
+    /// Hex bitsets follow TypedSupportSurface::ALL: permission first, then
+    /// whether the metadata has a dedicated fact. Domain-removal cases are
+    /// intentionally unvalidated capability records, as used by validation.
+    #[test]
+    fn surface_metadata_characterization() {
+        use crate::profiles::ProfileId;
+        use std::fmt::Write;
+        let mut actual = String::new();
+        let mut record = |label: &str, caps: &Capabilities| {
+            let mut permits = 0_u128;
+            let mut dedicated = 0_u128;
+            for surface in TypedSupportSurface::ALL {
+                let metadata = caps.surface_metadata(surface);
+                if metadata.permits() {
+                    permits |= 1_u128 << (surface as u8);
+                }
+                if matches!(metadata, SurfaceMetadata::Dedicated(_)) {
+                    dedicated |= 1_u128 << (surface as u8);
+                }
+            }
+            writeln!(actual, "{label} {permits:021x} {dedicated:021x}").expect("write snapshot");
+        };
+        for id in ProfileId::all() {
+            record(
+                &format!("{id:?}"),
+                id.spec().expect("profile").capabilities(),
+            );
+        }
+        let mut baseline = ProfileId::SonyFr7
+            .spec()
+            .expect("full domain fixture")
+            .capabilities()
+            .clone();
+        for id in ProfileId::all() {
+            let profile = id.spec().expect("profile");
+            let caps = profile.capabilities();
+            if baseline.pan_tilt.is_none() {
+                baseline.pan_tilt = caps.pan_tilt;
+            }
+            if baseline.zoom.is_none() {
+                baseline.zoom = caps.zoom;
+            }
+            if baseline.focus.is_none() {
+                baseline.focus = caps.focus.clone();
+            }
+            if baseline.exposure.is_none() {
+                baseline.exposure = caps.exposure.clone();
+            }
+            if baseline.white_balance.is_none() {
+                baseline.white_balance = caps.white_balance.clone();
+            }
+            if baseline.image.is_none() {
+                baseline.image = caps.image;
+            }
+            if baseline.presets.is_none() {
+                baseline.presets = caps.presets;
+            }
+            if baseline.power.is_none() {
+                baseline.power = caps.power;
+            }
+            if baseline.menu.is_none() {
+                baseline.menu = caps.menu;
+            }
+        }
+        record("all_domains", &baseline);
+        for absent in [
+            "pan_tilt",
+            "zoom",
+            "focus",
+            "exposure",
+            "white_balance",
+            "image",
+            "presets",
+            "power",
+            "menu",
+        ] {
+            let mut caps = baseline.clone();
+            match absent {
+                "pan_tilt" => caps.pan_tilt = None,
+                "zoom" => caps.zoom = None,
+                "focus" => caps.focus = None,
+                "exposure" => caps.exposure = None,
+                "white_balance" => caps.white_balance = None,
+                "image" => caps.image = None,
+                "presets" => caps.presets = None,
+                "power" => caps.power = None,
+                "menu" => caps.menu = None,
+                _ => {}
+            }
+            record(&format!("without_{absent}"), &caps);
+        }
+        assert_eq!(
+            actual,
+            include_str!("../../tests/fixtures/issue_1000_surface_metadata.txt")
+        );
+    }
 
     fn profile_capabilities<P: crate::CompileTimeProfile>() -> Capabilities {
         P::spec()
