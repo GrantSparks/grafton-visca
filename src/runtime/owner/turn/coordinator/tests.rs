@@ -1278,7 +1278,20 @@ mod model {
     /// old wake's allowance, even if the next hold uses the same instant.
     #[test]
     fn redelivery_between_same_instant_holds_resets_control_allowance() {
-        run([5, 4, 15, 2, 15, 10, 15, 15, 4, 5, 7, 15].map(|index| ALPHABET[index]));
+        run([
+            Step::HoldNow,
+            Step::Control,
+            Step::Turn,
+            Step::Cancellation,
+            Step::Turn,
+            Step::Receive(Recv::Frames),
+            Step::Turn,
+            Step::Turn,
+            Step::Control,
+            Step::HoldNow,
+            Step::Receive(Recv::Pending),
+            Step::Turn,
+        ]);
     }
 
     /// Two live admissions arrive at a due raw hold whose retained prefix
