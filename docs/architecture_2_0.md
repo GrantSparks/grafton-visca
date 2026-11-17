@@ -1492,10 +1492,12 @@ UDP, and serial transports install that bound at the OS/device layer, and
 construction rejects a zero advertised read or write timeout. A serial device
 receives a whole-millisecond timeout rounded up, with a one-millisecond floor,
 even when a derived owner budget is smaller: Windows treats a zero-millisecond
-serial timeout as no timeout. The shared blocking `read_before` helper rechecks
-its precise deadline after an idle I/O result and re-arms the remaining budget,
-so a truncating device or socket timer cannot make a built-in read return idle
-early and trigger receive pacing. Serial command and
+serial timeout as no timeout. The shared blocking `bounded_io` loop rechecks
+its precise deadline after an idle I/O result and re-arms the remaining budget
+for every read and write, including UDP. A truncating device or socket timer
+cannot make a built-in read return idle early and trigger receive pacing.
+Its direction-aware verdict retains a Unix TCP `TimedOut` as the original OS
+fault on writes as well as reads; an elapsed socket timer is `WouldBlock`. Serial command and
 startup writes deliberately do not drain the device (`flush`/`tcdrain`), since
 that kernel call is not bounded by the write timeout; a VISCA reply or the
 required startup settle interval confirms queued output instead. Finally, both

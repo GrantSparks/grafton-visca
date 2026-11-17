@@ -106,6 +106,7 @@ mod tests {
         config: TransportConfig,
         sent: Arc<Mutex<Vec<Vec<u8>>>>,
         write_timeouts: Arc<Mutex<Vec<Duration>>>,
+        write_error: Option<Error>,
         receives: VecDeque<Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
         addressing: AddressingMode,
@@ -124,6 +125,7 @@ mod tests {
                 config,
                 sent: Arc::new(Mutex::new(Vec::new())),
                 write_timeouts: Arc::new(Mutex::new(Vec::new())),
+                write_error: None,
                 receives: receives.into_iter().collect(),
                 semantics: SendSemantics::Datagram,
                 addressing: AddressingMode::Ip,
@@ -158,7 +160,7 @@ mod tests {
         fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
             self.sent.lock().unwrap().push(bytes.to_vec());
             self.write_timeouts.lock().unwrap().push(timeout);
-            Ok(())
+            self.write_error.take().map_or(Ok(()), Err)
         }
 
         fn recv_into_with_timeout(
@@ -313,6 +315,51 @@ mod tests {
             ),
             "only a zero-length read reports end of stream"
         );
+    }
+
+    #[test]
+    fn a_stream_write_timeout_poisons_the_session_with_its_original_io_source() {
+        use std::error::Error as _;
+
+        let io_cause = Arc::new(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "connection exhausted",
+        ));
+        let mut transport = ScriptedTransport::new([]).stream();
+        transport.write_error = Some(Error::Io {
+            source: Arc::clone(&io_cause),
+        });
+        let (adapter, policy) = adapter(transport);
+        let owner = BlockingOwnerHandle::spawn(policy, adapter, Clock::System).unwrap();
+        let prepared = prepare_command(
+            &crate::request::builtin::FocusModeCommand::Manual,
+            &crate::TargetRegistration::new(
+                crate::target::TargetSlot::CAMERA_1.individual_camera(),
+                ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+            ),
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .unwrap();
+        let receipt = owner.submit_command(prepared).unwrap();
+        let error = receipt.wait().unwrap_err();
+        assert!(matches!(error, Error::StreamPoisoned { .. }));
+        assert_eq!(error.recovery(), crate::Recovery::ReopenSession);
+        // #1009 preserves the concrete Arc layers in source(), including the
+        // original transport's shared io::Error, rather than flattening them.
+        let transport_cause = error
+            .source()
+            .unwrap()
+            .downcast_ref::<Arc<Error>>()
+            .unwrap();
+        let original = transport_cause
+            .source()
+            .unwrap()
+            .downcast_ref::<Arc<std::io::Error>>()
+            .unwrap();
+        assert!(Arc::ptr_eq(original, &io_cause));
+        assert_eq!(original.kind(), std::io::ErrorKind::TimedOut);
+        assert!(matches!(owner.close(), Err(Error::StreamPoisoned { .. })));
     }
 
     /// Issue #637/#719: raw `WouldBlock` and `Interrupted` mean an idle read;

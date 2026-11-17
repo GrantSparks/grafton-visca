@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Blocking TCP writes on Unix retain an OS `TimedOut` as the `StreamPoisoned`
+  source, matching Tokio and smol. Blocking UDP receives honour their full
+  precise read budget after an early idle result (#1014).
 - Generated integer scalar JSON Schemas describe their checked bounds and sparse
   membership while preserving scalar metadata and named references. Biased
   values retain their serialized semantic units (#1010).

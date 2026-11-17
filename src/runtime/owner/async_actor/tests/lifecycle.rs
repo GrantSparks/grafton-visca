@@ -207,6 +207,49 @@ async fn stream_poison_resolves_active_and_drains_unstaged_boundary() {
         "queued work is either drained before staging or rejected by the poisoned engine"
     );
 }
+#[tokio::test]
+async fn a_stream_write_timeout_retains_the_same_io_source_as_blocking() {
+    use std::error::Error as _;
+
+    let runtime = TokioRuntime::from_current().unwrap();
+    let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime).unwrap();
+    let harness = harness();
+    let started = harness.started.clone();
+    let gates = harness.gates.clone();
+    let actor_task = tokio::spawn(actor.run(harness.driver));
+    let receipt = handle.submit(command()).await.unwrap();
+    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+    let io_cause = Arc::new(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "connection exhausted",
+    ));
+    gates
+        .send_async(Err(Error::Io {
+            source: Arc::clone(&io_cause),
+        }))
+        .await
+        .unwrap();
+    let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = receipt.terminal().await.unwrap()
+    else {
+        panic!("stream write must fail");
+    };
+    assert!(matches!(error, Error::StreamPoisoned { .. }));
+    assert_eq!(error.recovery(), crate::Recovery::ReopenSession);
+    let transport_cause = error
+        .source()
+        .unwrap()
+        .downcast_ref::<Arc<Error>>()
+        .unwrap();
+    let original = transport_cause
+        .source()
+        .unwrap()
+        .downcast_ref::<Arc<std::io::Error>>()
+        .unwrap();
+    assert!(Arc::ptr_eq(original, &io_cause));
+    assert_eq!(original.kind(), std::io::ErrorKind::TimedOut);
+    assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
+}
+
 /// A task that disappears before `run` can publish its terminal result is
 /// not an orderly runtime shutdown. Every handle-facing wait must fail
 /// closed instead of manufacturing `RuntimeShutdown` or success.

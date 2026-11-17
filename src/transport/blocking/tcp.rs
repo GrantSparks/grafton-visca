@@ -120,7 +120,7 @@ impl BlockingTransport for Tcp {
             arm_write,
             data,
             deadline,
-            TimedIo::Bounded,
+            TimedIo::StreamSocketWrite,
         )
     }
 
