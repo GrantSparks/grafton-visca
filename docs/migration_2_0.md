@@ -1188,6 +1188,12 @@ validation and at runtime.
 | `connect_timeout` expires (DNS included) | blocking DNS was unbounded | `Timeout` (stage `Session`); blocking DNS is bounded by the budget |
 | Serial port cannot open | `TransportError` (blocking), `ConnectionFailed` (Tokio) | `ConnectionFailed { addr: "<port>", .. }` |
 
+For `ConnectionFailed`, `std::error::Error::source(&error)` downcasts
+directly to `std::io::Error`, preserving the resolver or connection error's
+kind and OS code. Its public `source` field remains `Arc<std::io::Error>`;
+cloned errors share the same I/O object, including through the standard
+error source.
+
 Each resolved TCP address now receives a share of the remaining connect
 budget, so an unroutable first address no longer starves the others.
 

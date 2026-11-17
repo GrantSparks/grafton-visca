@@ -98,10 +98,12 @@ verification.
   limit was never configurable through a session; raw payload-overlap exclusion
   remains authoritative (#997).
 
-- Name-resolution failures retain the resolver's I/O cause in `ConnectionFailed`
-  on blocking, Tokio and smol. Over-reported transport reads return
-  `BufferTooSmall` with reported and available byte counts and still terminate
-  stream sessions (#993).
+- **BREAKING** (#993): `ConnectionFailed` exposes the original `io::Error`
+  directly from `std::error::Error::source`, including name-resolution failures
+  on blocking, Tokio and smol. Its public `source: Arc<io::Error>` field remains
+  available; source-chain consumers downcast to `io::Error`. Over-reported
+  transport reads return `BufferTooSmall` with reported and available byte
+  counts and still terminate stream sessions.
 
 - Typed-support discovery and validation derive parent domains from the noun
   gates. Documentation derives each marker's area from its owning noun and
@@ -723,7 +725,9 @@ verification.
   replies from being assigned to unrelated requests. Completion learning keeps
   ambiguity counts within their learning state, so a socketless ACK has the
   same verdict whether preceding named completion evidence arrives in the same
-  read or an earlier one (#950, #998).
+  read or an earlier one. Newly attributed completion-only outcomes are delivered
+  in the teaching frame, keeping terminal and ACK diagnostic order stable across
+  receive splits (#950, #998).
 
 - Strict raw sessions poison on camera-proven stale socket ownership, including
   owed or disputed ACKs and late cancellation replies. Live operations receive

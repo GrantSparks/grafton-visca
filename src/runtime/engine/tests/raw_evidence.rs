@@ -2556,8 +2556,7 @@ fn a_learned_completion_decides_its_dispute_accepted() {
     assert!(terminal_id(&dropped).is_none());
     // The held command's late completion names its socket: the camera names
     // sockets, so the dropped completion was the command's.
-    engine.handle_turn(completion(1, ViscaSocket::S2), now, EngineTurn::InputOnly);
-    let learned = engine.advance(now);
+    let learned = engine.handle_turn(completion(1, ViscaSocket::S2), now, EngineTurn::InputOnly);
     assert!(matches!(
         terminal_outcome(&learned, completion_only),
         Some(RuntimeOutcome::Command(CommandOutcome::Applied))
@@ -2567,6 +2566,10 @@ fn a_learned_completion_decides_its_dispute_accepted() {
         Some(Error::CommandNotExecutable)
     ));
     assert!(engine.correlation.ledger().is_empty());
+    assert!(
+        engine.advance(now).is_empty(),
+        "learned payment must not repeat at the due pass"
+    );
     // A later STOP's ACK binds to it alone.
     let (effects, later) = admit(&mut engine, 4, stop_command(1), now);
     send_ok(&mut engine, &effects, None, now);

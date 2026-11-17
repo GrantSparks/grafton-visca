@@ -1191,7 +1191,19 @@ trait EngineMethods: EngineAccess {
                 transmission,
                 result,
             } => self.transmission_finished(request, transmission, result, now, effects),
-            Input::Frame(frame) => self.frame(frame, now, effects),
+            Input::Frame(frame) => {
+                let target = frame.target;
+                self.frame(frame, now, effects);
+                // A named completion attributes earlier ambiguous completions
+                // to this target's CompletionOnly debt. Pay after the named
+                // frame, before another frame or a read boundary can change
+                // the order of terminal delivery and ACK diagnostics (#998).
+                let (core, mode) = self.split();
+                if let CorrelationState::RawStream(stream) = mode {
+                    StreamContext { core, stream }
+                        .pay_learned_completions_for_target(target, now, effects);
+                }
+            }
             #[cfg(test)]
             Input::Cancel { id } => {
                 let _ = self.cancel(id, now, effects);

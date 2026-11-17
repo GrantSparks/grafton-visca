@@ -34,9 +34,10 @@
 //! - Name resolution, socket creation, binding, connection or socket-option
 //!   setup failed: [`Error::ConnectionFailed`] naming the endpoint and carrying
 //!   the I/O error (the last attempt's error for TCP). The standard error
-//!   source is the stored `Arc<std::io::Error>`; downcast to that type, then
-//!   use `as_ref()` to inspect the original error kind or OS code. Cloning a
-//!   public error retains the same I/O cause.
+//!   source downcasts directly to `std::io::Error`, preserving its kind and
+//!   OS code. The public `ConnectionFailed::source` field remains an
+//!   `Arc<std::io::Error>`; cloning the public error shares the same I/O
+//!   object, including through `std::error::Error::source`.
 
 use std::{
     net::SocketAddr,

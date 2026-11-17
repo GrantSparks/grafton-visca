@@ -537,7 +537,20 @@ impl StreamContext<'_> {
     /// its debt), and any left over are forgotten. Once the camera is known
     /// to omit them, they stay dropped.
     pub(super) fn pay_learned_completions(&mut self, now: Instant, effects: &mut Decision) {
-        while let Some((target, entry, answered)) = self.stream.next_learned_completion() {
+        for target in TargetSlot::ALL {
+            self.pay_learned_completions_for_target(target, now, effects);
+        }
+    }
+
+    /// Pay newly attributed evidence after its target's named frame, before
+    /// the next frame can emit an observer or diagnostic event.
+    pub(super) fn pay_learned_completions_for_target(
+        &mut self,
+        target: TargetSlot,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        while let Some((entry, answered)) = self.stream.next_learned_completion(target) {
             self.absorb_answered(target, answered, now, effects);
             let awaiting = self
                 .entries

@@ -80,8 +80,6 @@
 //! | `MotionSuperseded / earlier attempt uncertain` | `Cancelled` | Terminal / Unconfirmed | `Reconcile` |
 //! <!-- END GENERATED RECOVERY VERDICTS -->
 
-use thiserror::Error as ThisError;
-
 use std::{borrow::Cow, convert::Infallible, fmt, io, sync::Arc, time::Duration};
 
 use crate::OperationId;
@@ -239,23 +237,20 @@ pub enum ErrorKind {
 ///     "inspect camera state before deciding"
 /// );
 /// ```
-#[derive(ThisError, Debug, Clone)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Error {
     /// Failed to establish connection to the camera.
-    #[error("Connection failed to {addr}: {source}")]
     #[non_exhaustive]
     ConnectionFailed {
         /// The address that failed to connect.
         addr: Cow<'static, str>,
-        /// The underlying IO error.
+        /// The underlying IO error, shared across clones. The standard error
+        /// source exposes the original `io::Error` directly.
         source: Arc<io::Error>,
     },
 
     /// Address Set succeeded, but did not assign an address to a registered camera.
-    #[error(
-        "Camera {camera} was not addressed by Address Set on {port} (chain reported {addressed})"
-    )]
     #[non_exhaustive]
     CameraNotAddressed {
         /// Serial device whose chain answered Address Set.
@@ -267,7 +262,6 @@ pub enum Error {
     },
 
     /// Address Set reported more cameras than the seven individual VISCA addresses.
-    #[error("Serial chain on {port} reports {reported} devices; VISCA addresses at most 7")]
     #[non_exhaustive]
     SerialChainTooLong {
         /// Serial device whose chain answered Address Set.
@@ -282,22 +276,18 @@ pub enum Error {
     /// the underlying transport cause in its `source()`. A stream framing or write
     /// failure whose byte position is unknowable is reported as
     /// [`Self::StreamPoisoned`] instead.
-    #[error("Connection closed{}", source.as_ref().map(|cause| format!(": {cause}")).unwrap_or_default())]
     #[non_exhaustive]
     ConnectionClosed {
         /// Original typed cause of the connection closure, when one was reported.
-        #[source]
         source: Option<Arc<Error>>,
     },
 
     /// Command has been acknowledged but is still pending completion.
     /// This is returned when an ACK is received, indicating the command
     /// was queued but not yet executed.
-    #[error("Command acknowledged and pending completion")]
     CommandPending,
 
     /// Response from camera doesn't match the expected format.
-    #[error("Invalid response: expected {expected}, got {actual:?}")]
     #[non_exhaustive]
     InvalidResponse {
         /// Description of expected response.
@@ -307,7 +297,6 @@ pub enum Error {
     },
 
     /// Camera model doesn't support the requested feature.
-    #[error("Feature '{feature}' not supported by this camera model")]
     #[non_exhaustive]
     FeatureNotSupported {
         /// Name of the unsupported feature.
@@ -315,27 +304,21 @@ pub enum Error {
     },
 
     /// Underlying IO error from network operations.
-    #[error("IO error: {source}")]
     Io {
         /// The original operating-system error.
-        #[source]
         source: Arc<io::Error>,
     },
 
     /// VISCA protocol syntax error (0x02): Command format is incorrect or parameters are illegal.
-    #[error("Syntax error in VISCA command")]
     SyntaxError,
 
     /// VISCA protocol command buffer full error (0x03): Two sockets are already in use.
-    #[error("Command buffer is full")]
     CommandBufferFull,
 
     /// VISCA protocol command canceled (0x04): Command was canceled in the specified socket.
-    #[error("Command was canceled")]
     CommandCancelled,
 
     /// VISCA protocol no socket error (0x05): No command is executing in the specified socket.
-    #[error("No socket available")]
     NoSocket,
 
     /// VISCA protocol command not executable (0x41): Command cannot be executed due to current conditions.
@@ -346,11 +329,9 @@ pub enum Error {
     /// STOP while auto-focus owns the lens). After an acknowledgement it ends
     /// the command without any resend, and the command may have partly
     /// executed; reconcile before resubmitting a relative move or preset.
-    #[error("Command is not executable")]
     CommandNotExecutable,
 
     /// Response data doesn't conform to expected VISCA protocol format.
-    #[error("Invalid response format")]
     InvalidResponseFormat,
 
     /// Response has an unexpected number of bytes.
@@ -359,9 +340,6 @@ pub enum Error {
     /// - Expected byte count for this inquiry type
     /// - Actual byte count received
     /// - Hex dump of the payload (truncated if too long)
-    #[error(
-        "Invalid response length: expected {expected} bytes, got {actual} (payload: {payload_hex})"
-    )]
     #[non_exhaustive]
     InvalidResponseLength {
         /// Expected number of bytes for this response type.
@@ -373,25 +351,21 @@ pub enum Error {
     },
 
     /// Response type doesn't match what the command should return.
-    #[error("Unexpected response type")]
     UnexpectedResponseType,
 
     /// Received an unknown error code from the camera.
-    #[error("Unknown error code: {code:#04X}")]
     Unknown {
         /// The camera's unrecognized error code.
         code: u8,
     },
 
     /// Invalid request to socket manager.
-    #[error("Invalid request: {reason}")]
     InvalidRequest {
         /// Why the request cannot be admitted or encoded.
         reason: Cow<'static, str>,
     },
 
     /// Message length error (0x01): Message length is incorrect.
-    #[error("Message length error")]
     MessageLengthError,
 
     /// One transport operation failed while the session remains usable.
@@ -401,11 +375,9 @@ pub enum Error {
     /// session death; use [`Self::requires_new_session()`] rather than treating
     /// this error as a reconnect signal. The original cause is retained through
     /// [`std::error::Error::source`], including any OS error and request certainty.
-    #[error("Transport error: {source}")]
     #[non_exhaustive]
     TransportError {
         /// The original failure, including its OS cause and request certainty.
-        #[source]
         source: Arc<Error>,
     },
 
@@ -415,11 +387,9 @@ pub enum Error {
     /// `context` records the logical request's certainty across all attempts,
     /// so a prior possible effect remains `Unconfirmed`. This attempt does not
     /// end the session, and the original preparation failure remains its source.
-    #[error("Transmission was not sent: {source}")]
     #[non_exhaustive]
     TransmissionNotSent {
         /// The original framing or preparation failure.
-        #[source]
         source: Arc<Error>,
         /// Certainty of the logical request, including any earlier attempt.
         context: FailureContext,
@@ -431,16 +401,13 @@ pub enum Error {
     /// `Terminal` / `FailedConclusively` certainty even when a custom transport
     /// reports a command-scoped or still-live cause. Caller observation timeouts,
     /// preparation refusals and standalone decoder errors are not wrapped.
-    #[error("Inquiry failed: {source}")]
     #[non_exhaustive]
     InquiryFailed {
         /// The original terminal failure.
-        #[source]
         source: Arc<Error>,
     },
 
     /// Invalid parameter provided to a command.
-    #[error("Invalid parameter '{parameter}': {reason} (value: {value})")]
     #[non_exhaustive]
     InvalidParameter {
         /// The parameter name that was invalid.
@@ -452,7 +419,6 @@ pub enum Error {
     },
 
     /// Buffer provided is too small for encoding.
-    #[error("Buffer too small: required {required} bytes, but only {actual} available")]
     #[non_exhaustive]
     BufferTooSmall {
         /// Required buffer size.
@@ -462,7 +428,6 @@ pub enum Error {
     },
 
     /// Parameter value is out of the acceptable range.
-    #[error("Parameter out of range: {parameter} = {value} (valid range: {min}..={max})")]
     #[non_exhaustive]
     ParameterOutOfRange {
         /// Name of the parameter.
@@ -486,7 +451,6 @@ pub enum Error {
     ///
     /// A transport reports an idle read with this variant; owners treat that
     /// as "no data" rather than as a failure.
-    #[error("Operation timed out ({})", context.stage)]
     #[non_exhaustive]
     Timeout {
         /// Which deadline expired, and what is known about the request.
@@ -499,7 +463,6 @@ pub enum Error {
     /// inquiry — keeps running under its own deadlines and may still take
     /// effect. Never resubmit it: wait again on the operation handle, or
     /// observe the existing operation. [`Self::recovery`] returns [`crate::error::Recovery::WaitAgain`].
-    #[error("Wait for operation {operation} timed out; it is still running")]
     #[non_exhaustive]
     ObservationTimeout {
         /// The admitted request the wait observed.
@@ -518,7 +481,6 @@ pub enum Error {
     /// [`crate::error::FailureStage::PreAdmission`] when the fence rejected the submission
     /// itself and [`crate::error::FailureStage::Terminal`] when it ended an admitted
     /// request. Supersession is never proof of physical rest.
-    #[error("Motion on {axes:?} was superseded by an owner halt ({})", context.stage)]
     #[non_exhaustive]
     MotionSuperseded {
         /// Axes selected by the fence.
@@ -529,7 +491,6 @@ pub enum Error {
     },
 
     /// A later admitted operation prevents attribution of polled settlement.
-    #[error("Settlement of operation {operation} was superseded on {axes:?}")]
     #[non_exhaustive]
     SettlementSuperseded {
         /// The original operation.
@@ -540,13 +501,11 @@ pub enum Error {
 
     /// An applied operation's settlement could not be observed. The underlying
     /// inquiry failure never authorizes replay of the original movement.
-    #[error("Could not observe settlement of operation {operation}: {source}")]
     #[non_exhaustive]
     SettlementObservationFailed {
         /// The already-applied operation being observed.
         operation: OperationId,
         /// The exact polling failure, including its inquiry/transport context.
-        #[source]
         source: Box<Error>,
     },
 
@@ -555,43 +514,35 @@ pub enum Error {
     /// this cached answer and cannot send another cancellation for the intent.
     /// The underlying condition remains available as the error source; the
     /// operation's own outcome must still be observed separately.
-    #[error("Could not resolve the recorded cancellation intent: {source}")]
     #[non_exhaustive]
     CancellationObservationFailed {
         /// The exact cancellation write or observation failure.
-        #[source]
         source: Box<Error>,
     },
 
     /// Maximum retry attempts exceeded.
-    #[error("Maximum retries exceeded")]
     MaxRetriesExceeded,
 
     /// Operation is not supported by this implementation.
-    #[error("Operation not supported")]
     CancellationNotSupported,
 
     /// Operation cannot be performed in current state.
-    #[error("Invalid state: {reason}")]
     InvalidState {
         /// Why the operation cannot run in the current state.
         reason: Cow<'static, str>,
     },
 
     /// Runtime has been shutdown.
-    #[error("Runtime has been shutdown")]
     RuntimeShutdown,
 
     /// The owner stopped without publishing a terminal result, for example
     /// because its worker or task panicked. The session cannot make progress
     /// and must be replaced.
-    #[error("Session owner terminated without publishing a terminal result")]
     OwnerTerminated,
 
     /// The session already has its maximum number of diagnostic subscribers.
     /// Dropping a subscription makes room; request-admission capacity does not
     /// affect this limit.
-    #[error("Diagnostic subscriber limit reached ({capacity} subscribers)")]
     #[non_exhaustive]
     DiagnosticSubscriberLimit {
         /// Maximum simultaneous diagnostic subscriptions for this session.
@@ -601,7 +552,6 @@ pub enum Error {
     /// Cancellation intent was recorded after transmission, but the engine could
     /// not prove either original completion or protocol cancellation before the
     /// correlation quarantine expired.
-    #[error("Cancellation could not be confirmed")]
     CancellationUnconfirmed,
 
     /// An unsequenced command on a raw-VISCA envelope may have been sent,
@@ -623,7 +573,6 @@ pub enum Error {
     /// the whole session, which is surfaced as [`Self::StreamPoisoned`].
     ///
     /// [`crate::config::SessionConfig::with_strict_unconfirmed_poison`]: crate::config::SessionConfig::with_strict_unconfirmed_poison
-    #[error("Unsequenced command outcome could not be confirmed")]
     UnsequencedCommandUnconfirmed,
 
     /// Raw-VISCA inquiries to `camera` cannot be correlated on this session,
@@ -659,10 +608,6 @@ pub enum Error {
     /// [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly) command
     /// whose answer is still owed holds the camera's inquiries back the same
     /// way: it is exclusive on its camera until its completion arrives.
-    #[error(
-        "Raw inquiry correlation for {camera} is lost: an earlier inquiry's reply is still \
-         owed by the stream, so this request was not sent; reopen the session to recover"
-    )]
     #[non_exhaustive]
     InquiryCorrelationLost {
         /// The camera whose raw inquiry lane is latched.
@@ -702,10 +647,6 @@ pub enum Error {
     /// blocked, and the session stays
     /// live, so [`Self::requires_new_session`] is `false`. To recover this
     /// camera's commands without waiting, close and reopen the session.
-    #[error(
-        "Raw command correlation for {camera} is lost: an earlier command's answer is still \
-         owed by the stream, so this request was not sent; reopen the session to recover"
-    )]
     #[non_exhaustive]
     CommandCorrelationLost {
         /// The camera whose raw command lane is latched.
@@ -722,11 +663,9 @@ pub enum Error {
     /// reports `Terminal` / [`crate::error::Certainty::Unconfirmed`] whatever the camera's
     /// code would mean before an ACK. Reconcile the camera state before
     /// resubmitting.
-    #[error("Camera reported an error after acknowledging the command: {source}")]
     #[non_exhaustive]
     CommandFailedAfterAck {
         /// The camera's error, exactly as it would be reported before an ACK.
-        #[source]
         source: Box<Error>,
     },
 
@@ -735,16 +674,13 @@ pub enum Error {
     /// A later rejection or transport failure cannot erase that possibility.
     /// The exact terminal cause is retained as `source`, but recovery always
     /// requires reconciling camera state before resubmission (#962).
-    #[error("Request outcome could not be confirmed: {source}")]
     #[non_exhaustive]
     RequestUnconfirmed {
         /// The exact camera or transport error that ended the request.
-        #[source]
         source: Box<Error>,
     },
 
     /// A private runtime identity space was exhausted without a safe non-aliasing value.
-    #[error("Runtime identity space exhausted")]
     RuntimeIdentityExhausted,
 
     /// Runtime command queue is at capacity.
@@ -756,7 +692,6 @@ pub enum Error {
     /// The admission capacity is configurable via [`crate::config::SessionConfig::admission_capacity`].
     ///
     /// [`crate::config::SessionConfig::admission_capacity`]: crate::config::SessionConfig::admission_capacity
-    #[error("Runtime queue full: at capacity ({capacity} pending commands)")]
     #[non_exhaustive]
     RuntimeQueueFull {
         /// The maximum queue capacity that was reached.
@@ -771,7 +706,6 @@ pub enum Error {
     /// returned only when that reserve is already held by earlier stops and
     /// no ordinary slot is free either. Back off briefly; an earlier stop for
     /// the same camera is still pending.
-    #[error("Control reserve for camera {target} is full ({reserve} slots)")]
     #[non_exhaustive]
     ControlReserveExhausted {
         /// The camera whose reserve is full.
@@ -786,7 +720,6 @@ pub enum Error {
     /// work or retained correlation evidence. This request was not accepted
     /// and sent no bytes; the session remains usable. Recovery is
     /// [`crate::error::Recovery::Abandon`], rather than an automatic capacity retry.
-    #[error("Raw inquiry payload-shape capacity exhausted for camera {camera} (maximum {capacity} tracked declarations)")]
     #[non_exhaustive]
     InquiryShapeCapacityExhausted {
         /// The individual camera whose declaration set is full.
@@ -816,16 +749,13 @@ pub enum Error {
     /// an unsequenced command on a raw-VISCA envelope may already have reached
     /// the camera before its outcome was lost, and the replacement session
     /// cannot prove otherwise.
-    #[error("Stream transport poisoned: {source}")]
     #[non_exhaustive]
     StreamPoisoned {
         /// Original typed framing, write, or protocol cause.
-        #[source]
         source: Arc<Error>,
     },
 
     /// Invalid camera ID provided.
-    #[error("Invalid camera ID {id}: must be 1-7 for individual cameras or 8 for broadcast")]
     #[non_exhaustive]
     InvalidCameraId {
         /// The invalid camera ID that was provided.
@@ -833,7 +763,6 @@ pub enum Error {
     },
 
     /// Response exceeds maximum allowed size.
-    #[error("Response too large: exceeds maximum of {max_size} bytes")]
     #[non_exhaustive]
     ResponseTooLarge {
         /// Maximum allowed size.
@@ -845,11 +774,9 @@ pub enum Error {
     /// Only operations that occupy a VISCA socket can be canceled. An inquiry
     /// holds no socket and completes when its reply arrives, so canceling its
     /// handle fails with this error; wait for the reply or drop the handle.
-    #[error("Inquiries cannot be canceled: an inquiry holds no VISCA socket and completes with its reply")]
     InquiryNotCancellable,
 
     /// Invalid network address format.
-    #[error("Invalid address: {reason}")]
     #[non_exhaustive]
     InvalidAddress {
         /// Reason why the address is invalid.
@@ -857,7 +784,6 @@ pub enum Error {
     },
 
     /// Selected standard transport is unsupported for the selected built-in profile.
-    #[error("Profile {profile} does not support {transport} transport")]
     #[non_exhaustive]
     UnsupportedTransport {
         /// Built-in profile that rejected the transport.
@@ -867,12 +793,10 @@ pub enum Error {
     },
 
     /// Runtime is required for async operations but was not provided.
-    #[error("No runtime configured for async operations")]
     MissingRuntime,
 
     /// Error with additional context information.
     /// Wraps another error while preserving its typed recovery verdict and failure facts.
-    #[error("{context}: {source}")]
     #[non_exhaustive]
     WithContext {
         /// Human-readable context describing what operation failed.
@@ -880,6 +804,212 @@ pub enum Error {
         /// The underlying error that occurred.
         source: Box<Error>,
     },
+}
+
+// This enum owns its source projection: ConnectionFailed retains a shared
+// public field while exposing the original io::Error through the standard trait.
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ConnectionFailed { addr, source } => {
+                write!(f, "Connection failed to {addr}: {source}")
+            }
+            Self::CameraNotAddressed { port, camera, addressed } => {
+                write!(f, "Camera {camera} was not addressed by Address Set on {port} (chain reported {addressed})")
+            }
+            Self::SerialChainTooLong { port, reported } => {
+                write!(f, "Serial chain on {port} reports {reported} devices; VISCA addresses at most 7")
+            }
+            Self::ConnectionClosed { source, .. } => {
+                write!(f, "Connection closed{}", source.as_ref().map(|cause| format!(": {cause}")).unwrap_or_default())
+            }
+            Self::CommandPending => f.write_str("Command acknowledged and pending completion"),
+            Self::InvalidResponse { expected, actual } => {
+                write!(f, "Invalid response: expected {expected}, got {actual:?}")
+            }
+            Self::FeatureNotSupported { feature } => {
+                write!(f, "Feature '{feature}' not supported by this camera model")
+            }
+            Self::Io { source } => {
+                write!(f, "IO error: {source}")
+            }
+            Self::SyntaxError => f.write_str("Syntax error in VISCA command"),
+            Self::CommandBufferFull => f.write_str("Command buffer is full"),
+            Self::CommandCancelled => f.write_str("Command was canceled"),
+            Self::NoSocket => f.write_str("No socket available"),
+            Self::CommandNotExecutable => f.write_str("Command is not executable"),
+            Self::InvalidResponseFormat => f.write_str("Invalid response format"),
+            Self::InvalidResponseLength { expected, actual, payload_hex } => {
+                write!(f, "Invalid response length: expected {expected} bytes, got {actual} (payload: {payload_hex})")
+            }
+            Self::UnexpectedResponseType => f.write_str("Unexpected response type"),
+            Self::Unknown { code } => {
+                write!(f, "Unknown error code: {code:#04X}")
+            }
+            Self::InvalidRequest { reason } => {
+                write!(f, "Invalid request: {reason}")
+            }
+            Self::MessageLengthError => f.write_str("Message length error"),
+            Self::TransportError { source } => {
+                write!(f, "Transport error: {source}")
+            }
+            Self::TransmissionNotSent { source, .. } => {
+                write!(f, "Transmission was not sent: {source}")
+            }
+            Self::InquiryFailed { source } => {
+                write!(f, "Inquiry failed: {source}")
+            }
+            Self::InvalidParameter { parameter, value, reason } => {
+                write!(f, "Invalid parameter '{parameter}': {reason} (value: {value})")
+            }
+            Self::BufferTooSmall { required, actual } => {
+                write!(f, "Buffer too small: required {required} bytes, but only {actual} available")
+            }
+            Self::ParameterOutOfRange { parameter, value, min, max } => {
+                write!(f, "Parameter out of range: {parameter} = {value} (valid range: {min}..={max})")
+            }
+            Self::Timeout { context } => {
+                write!(f, "Operation timed out ({})", context.stage)
+            }
+            Self::ObservationTimeout { operation } => {
+                write!(f, "Wait for operation {operation} timed out; it is still running")
+            }
+            Self::MotionSuperseded { axes, context } => {
+                write!(f, "Motion on {axes:?} was superseded by an owner halt ({})", context.stage)
+            }
+            Self::SettlementSuperseded { operation, axes } => {
+                write!(f, "Settlement of operation {operation} was superseded on {axes:?}")
+            }
+            Self::SettlementObservationFailed { operation, source } => {
+                write!(f, "Could not observe settlement of operation {operation}: {source}")
+            }
+            Self::CancellationObservationFailed { source } => {
+                write!(f, "Could not resolve the recorded cancellation intent: {source}")
+            }
+            Self::MaxRetriesExceeded => f.write_str("Maximum retries exceeded"),
+            Self::CancellationNotSupported => f.write_str("Operation not supported"),
+            Self::InvalidState { reason } => {
+                write!(f, "Invalid state: {reason}")
+            }
+            Self::RuntimeShutdown => f.write_str("Runtime has been shutdown"),
+            Self::OwnerTerminated => f.write_str("Session owner terminated without publishing a terminal result"),
+            Self::DiagnosticSubscriberLimit { capacity } => {
+                write!(f, "Diagnostic subscriber limit reached ({capacity} subscribers)")
+            }
+            Self::CancellationUnconfirmed => f.write_str("Cancellation could not be confirmed"),
+            Self::UnsequencedCommandUnconfirmed => f.write_str("Unsequenced command outcome could not be confirmed"),
+            Self::InquiryCorrelationLost { camera } => {
+                write!(f, "Raw inquiry correlation for {camera} is lost: an earlier inquiry's reply is still \
+         owed by the stream, so this request was not sent; reopen the session to recover")
+            }
+            Self::CommandCorrelationLost { camera } => {
+                write!(f, "Raw command correlation for {camera} is lost: an earlier command's answer is still \
+         owed by the stream, so this request was not sent; reopen the session to recover")
+            }
+            Self::CommandFailedAfterAck { source } => {
+                write!(f, "Camera reported an error after acknowledging the command: {source}")
+            }
+            Self::RequestUnconfirmed { source } => {
+                write!(f, "Request outcome could not be confirmed: {source}")
+            }
+            Self::RuntimeIdentityExhausted => f.write_str("Runtime identity space exhausted"),
+            Self::RuntimeQueueFull { capacity } => {
+                write!(f, "Runtime queue full: at capacity ({capacity} pending commands)")
+            }
+            Self::ControlReserveExhausted { target, reserve } => {
+                write!(f, "Control reserve for camera {target} is full ({reserve} slots)")
+            }
+            Self::InquiryShapeCapacityExhausted { camera, capacity, .. } => {
+                write!(f, "Raw inquiry payload-shape capacity exhausted for camera {camera} (maximum {capacity} tracked declarations)")
+            }
+            Self::StreamPoisoned { source, .. } => {
+                write!(f, "Stream transport poisoned: {source}")
+            }
+            Self::InvalidCameraId { id } => {
+                write!(f, "Invalid camera ID {id}: must be 1-7 for individual cameras or 8 for broadcast")
+            }
+            Self::ResponseTooLarge { max_size, .. } => {
+                write!(f, "Response too large: exceeds maximum of {max_size} bytes")
+            }
+            Self::InquiryNotCancellable => f.write_str("Inquiries cannot be canceled: an inquiry holds no VISCA socket and completes with its reply"),
+            Self::InvalidAddress { reason } => {
+                write!(f, "Invalid address: {reason}")
+            }
+            Self::UnsupportedTransport { profile, transport } => {
+                write!(f, "Profile {profile} does not support {transport} transport")
+            }
+            Self::MissingRuntime => f.write_str("No runtime configured for async operations"),
+            Self::WithContext { context, source } => {
+                write!(f, "{context}: {source}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ConnectionFailed { source, .. } => Some(source.as_ref()),
+            // Preserve the other variants' established concrete source types;
+            // recursively unwrapping an Arc or Box would remove a chain layer.
+            Self::ConnectionClosed { source, .. } => source
+                .as_ref()
+                .map(|source| -> &(dyn std::error::Error + 'static) { source }),
+            Self::Io { source } => Some(source),
+            Self::TransportError { source }
+            | Self::TransmissionNotSent { source, .. }
+            | Self::InquiryFailed { source }
+            | Self::StreamPoisoned { source, .. } => Some(source),
+            Self::SettlementObservationFailed { source, .. }
+            | Self::CancellationObservationFailed { source }
+            | Self::CommandFailedAfterAck { source }
+            | Self::RequestUnconfirmed { source }
+            | Self::WithContext { source, .. } => Some(source),
+            Self::CameraNotAddressed { .. }
+            | Self::SerialChainTooLong { .. }
+            | Self::CommandPending
+            | Self::InvalidResponse { .. }
+            | Self::FeatureNotSupported { .. }
+            | Self::SyntaxError
+            | Self::CommandBufferFull
+            | Self::CommandCancelled
+            | Self::NoSocket
+            | Self::CommandNotExecutable
+            | Self::InvalidResponseFormat
+            | Self::InvalidResponseLength { .. }
+            | Self::UnexpectedResponseType
+            | Self::Unknown { .. }
+            | Self::InvalidRequest { .. }
+            | Self::MessageLengthError
+            | Self::InvalidParameter { .. }
+            | Self::BufferTooSmall { .. }
+            | Self::ParameterOutOfRange { .. }
+            | Self::Timeout { .. }
+            | Self::ObservationTimeout { .. }
+            | Self::MotionSuperseded { .. }
+            | Self::SettlementSuperseded { .. }
+            | Self::MaxRetriesExceeded
+            | Self::CancellationNotSupported
+            | Self::InvalidState { .. }
+            | Self::RuntimeShutdown
+            | Self::OwnerTerminated
+            | Self::DiagnosticSubscriberLimit { .. }
+            | Self::CancellationUnconfirmed
+            | Self::UnsequencedCommandUnconfirmed
+            | Self::InquiryCorrelationLost { .. }
+            | Self::CommandCorrelationLost { .. }
+            | Self::RuntimeIdentityExhausted
+            | Self::RuntimeQueueFull { .. }
+            | Self::ControlReserveExhausted { .. }
+            | Self::InquiryShapeCapacityExhausted { .. }
+            | Self::InvalidCameraId { .. }
+            | Self::ResponseTooLarge { .. }
+            | Self::InquiryNotCancellable
+            | Self::InvalidAddress { .. }
+            | Self::UnsupportedTransport { .. }
+            | Self::MissingRuntime => None,
+        }
+    }
 }
 
 /// The complete recovery decision for one failed request or observation.
@@ -2009,6 +2139,47 @@ impl From<Infallible> for Error {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+
+    #[test]
+    fn connection_failed_standard_source_is_the_original_io_error_across_clones() {
+        for cause in [
+            io::Error::new(io::ErrorKind::NotFound, "injected lookup failure"),
+            io::Error::other("injected resolver failure"),
+            io::Error::from_raw_os_error(5),
+        ] {
+            let original = Arc::new(cause);
+            let error = Error::connection_failed("camera.test:1259", Arc::clone(&original));
+            let cloned = error.clone();
+            let mut retained_io = None;
+            for error in [&error, &cloned] {
+                let Error::ConnectionFailed { source, .. } = error else {
+                    panic!("connection failure keeps its public shared field");
+                };
+                assert!(Arc::ptr_eq(source, &original));
+                let Some(exposed) = std::error::Error::source(error)
+                    .and_then(|source| source.downcast_ref::<io::Error>())
+                else {
+                    panic!("the standard trait exposes the original io::Error directly");
+                };
+                assert_eq!(exposed.kind(), original.kind());
+                assert_eq!(exposed.raw_os_error(), original.raw_os_error());
+                assert!(std::ptr::eq(exposed, original.as_ref()));
+                if let Some(previous) = retained_io {
+                    assert!(std::ptr::eq(exposed, previous));
+                }
+                retained_io = Some(exposed);
+
+                let erased: &(dyn std::error::Error + 'static) = error;
+                let Some(dynamic) = erased
+                    .source()
+                    .and_then(|source| source.downcast_ref::<io::Error>())
+                else {
+                    panic!("a trait object exposes the same io::Error");
+                };
+                assert!(std::ptr::eq(exposed, dynamic));
+            }
+        }
+    }
 
     #[test]
     fn session_death_preserves_typed_sources_and_normalizes_context_idempotently() {

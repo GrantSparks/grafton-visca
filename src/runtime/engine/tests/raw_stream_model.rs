@@ -30,8 +30,11 @@
 //! only some completions has its misbindings counted). The only other
 //! request a frame may touch is an executing one whose socket a camera ACK
 //! proves stale, or that a cancellation written for an ended command reached
-//! in its socket; either ends unconfirmed. When the link recovers, every debt
-//! settles except a `CompletionOnly` completion that never came — the
+//! in its socket; either ends unconfirmed. A naming completion may also pay a
+//! CompletionOnly request whose own earlier camera-tagged socketless completion
+//! was retained; the model requires that prior origin evidence. When the link
+//! recovers, every debt settles except a `CompletionOnly` completion that never
+//! came — the
 //! documented command-lane latch.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1227,6 +1230,17 @@ impl Session {
                 .learning(camera_id)
                 .pending_socketless_completions
                 .map(|pending| pending.candidates);
+            let completion_only_candidates: BTreeSet<_> = self
+                .engine
+                .entries
+                .iter()
+                .filter(|(_, entry)| {
+                    entry.request.context().target == camera_id
+                        && entry.reply_family() == SendingReply::CompletionOnly
+                        && entry.lifecycle().is_awaiting_completion()
+                })
+                .map(|(id, _)| *id)
+                .collect();
             let expired_candidates: BTreeSet<_> = self
                 .engine
                 .entries
@@ -1305,6 +1319,27 @@ impl Session {
                     }
                 ) && buffered_candidates.is_some_and(|candidates| candidates.contains(&Some(id)))
                     && self.delivered_socketless_completions.contains(&id)
+                {
+                    self.coverage.assigned += 1;
+                    continue;
+                }
+                // Learning that completions name sockets now pays earlier
+                // CompletionOnly evidence in the teaching frame itself. The
+                // current named frame still belongs to its own originator:
+                // allow this other terminal only when the independent camera
+                // tags prove that exact same-target CompletionOnly request's
+                // own socketless completion was already delivered/discarded.
+                if matches!(response, DecodedResponse::Completion { socket: Some(_) })
+                    && completion_only_candidates.contains(&id)
+                    && self.delivered_socketless_completions.contains(&id)
+                    && self.co_completion_discarded.contains(&id)
+                    && matches!(
+                        effect,
+                        Effect::Terminal {
+                            outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
+                            ..
+                        }
+                    )
                 {
                     self.coverage.assigned += 1;
                     continue;
@@ -1581,18 +1616,29 @@ fn next_random(state: &mut u64) -> u64 {
 /// The same camera frames must keep the same meaning across receive chunking.
 /// A CompletionOnly command is written before two urgent STOPs. Its ambiguous
 /// socketless completion is retained until the first STOP names its socket in
-/// completion; the second STOP's socketless ACK must then bind normally.
+/// completion. Payment belongs to that same frame, before the second STOP's
+/// socketless ACK can emit its transition, even without an intervening due pass.
 fn learned_completion_chunking(
     now: Instant,
     split_after: &[bool],
     named: bool,
 ) -> (Vec<String>, String) {
+    // Full Debug records retain every Effect variant and field, including
+    // transitions and diagnostics, in exactly the engine's emitted order.
+    // Both executions receive the same Instant and deterministic local ids.
+    let snapshot = |effects: Vec<Effect>| {
+        effects
+            .into_iter()
+            .map(|effect| format!("{effect:?}"))
+            .collect::<Vec<_>>()
+    };
+    let mut observed = Vec::new();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
     if !named {
-        engine.handle(
+        observed.extend(snapshot(engine.handle(
             frame(1, None, DecodedResponse::Completion { socket: None }),
             now,
-        );
+        )));
     }
     let (write, completion_only) = admit(
         &mut engine,
@@ -1600,15 +1646,17 @@ fn learned_completion_chunking(
         command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
         now,
     );
-    send_ok(&mut engine, &write, None, now);
+    observed.extend(write.iter().map(|effect| format!("{effect:?}")));
+    observed.extend(snapshot(send_ok(&mut engine, &write, None, now)));
     let (write, first) = admit(
         &mut engine,
         2,
         urgent_command(1, CancellationPolicy::Supported),
         now,
     );
-    send_ok(&mut engine, &write, None, now);
-    engine.handle(
+    observed.extend(write.iter().map(|effect| format!("{effect:?}")));
+    observed.extend(snapshot(send_ok(&mut engine, &write, None, now)));
+    observed.extend(snapshot(engine.handle(
         frame(
             1,
             None,
@@ -1617,17 +1665,19 @@ fn learned_completion_chunking(
             },
         ),
         now,
-    );
+    )));
     assert_eq!(socket_of(&engine, first), Some(ViscaSocket::S1));
     let mut stop = urgent_command(1, CancellationPolicy::Supported);
     stop.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
     let (mut write, second) = admit(&mut engine, 3, stop, now);
     let at = now + Duration::from_millis(10);
+    observed.extend(write.iter().map(|effect| format!("{effect:?}")));
     if request_transmit_optional(&write).is_none() {
         write = engine.advance(at);
+        observed.extend(write.iter().map(|effect| format!("{effect:?}")));
     }
     assert_eq!(request_transmit(&write).1, second);
-    send_ok(&mut engine, &write, None, at);
+    observed.extend(snapshot(send_ok(&mut engine, &write, None, at)));
     let responses = [
         DecodedResponse::Completion { socket: None },
         DecodedResponse::Completion {
@@ -1635,36 +1685,35 @@ fn learned_completion_chunking(
         },
         DecodedResponse::Ack { socket: None },
     ];
-    let mut observed = Vec::new();
     for (index, response) in responses.into_iter().enumerate() {
         let effects = engine.handle_turn(frame(1, None, response), at, EngineTurn::InputOnly);
-        observed.extend(effects.into_iter().filter_map(|effect| match effect {
-            Effect::Terminal { id, outcome } => Some(format!("{id:?}:{outcome:?}")),
-            _ => None,
-        }));
-        if split_after[index] {
-            observed.extend(
-                engine
-                    .advance(at)
-                    .into_iter()
-                    .filter_map(|effect| match effect {
-                        Effect::Terminal { id, outcome } => Some(format!("{id:?}:{outcome:?}")),
-                        _ => None,
-                    }),
+        if named && index == 1 {
+            assert!(matches!(
+                terminal_outcome(&effects, first),
+                Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+            ));
+            assert!(matches!(
+                terminal_outcome(&effects, completion_only),
+                Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+            ));
+            let named_terminal = effects
+                .iter()
+                .position(|effect| matches!(effect, Effect::Terminal { id, .. } if *id == first))
+                .unwrap();
+            let learned_terminal = effects.iter().position(|effect|
+                matches!(effect, Effect::Terminal { id, .. } if *id == completion_only)).unwrap();
+            assert!(
+                named_terminal < learned_terminal,
+                "the named frame is processed before its learned payment"
             );
+        }
+        observed.extend(snapshot(effects));
+        if split_after[index] {
+            observed.extend(snapshot(engine.advance(at)));
         }
         engine.assert_invariants().unwrap();
     }
-    observed.extend(
-        engine
-            .advance(at)
-            .into_iter()
-            .filter_map(|effect| match effect {
-                Effect::Terminal { id, outcome } => Some(format!("{id:?}:{outcome:?}")),
-                _ => None,
-            }),
-    );
-    observed.sort();
+    observed.extend(snapshot(engine.advance(at)));
     if named {
         assert!(engine.entry(completion_only).is_none());
         assert!(engine.entry(first).is_none());
