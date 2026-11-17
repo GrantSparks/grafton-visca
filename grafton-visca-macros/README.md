@@ -49,11 +49,19 @@ The generated API is the same for every bounded scalar:
 - `TryFrom<Inner>` validates construction; `From<Value> for Inner` reads it back.
 - `Display` follows the `display` format string.
 - With serde enabled, deserialization uses the checked constructor.
+- With schemars enabled, named integer schemas describe the same inclusive bounds
+  or exact `valid_values` membership as construction and deserialization. Float
+  range schemas retain their declared bounds. Integer values remain JSON integers
+  and floating-point values remain numbers; titles, descriptions, renames and
+  references retain their usual derive behavior.
 
 Integer bounds are integer expressions, and `min` must not exceed `max`.
 A sparse integer domain may instead use `valid_values = [ ... ]`. Out-of-range
 range values return `Error::ParameterOutOfRange`. The type validates its own domain;
 request preparation separately validates the selected camera profile's domain.
+Integer schemas likewise describe the value's complete domain, before the camera's
+narrower limits are checked. Centered and biased wire mappings do not change
+the serialized semantic values or their schema constraints.
 
 ### Centered and biased encodings
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated integer scalar JSON Schemas describe their checked bounds and sparse
+  membership while preserving scalar metadata and named references. Biased
+  values retain their serialized semantic units (#1010).
+- Integer capability-range denormalization stays within the declared inclusive
+  bounds, including large `i32` singleton ranges, and preserves exact endpoints
+  and nearest-integer rounding with halves away from zero (#1011).
+
 ## [2.0.0] - 2026-11-17
 
 2.0 is a breaking upgrade from 1.x, with owner-backed sessions, matching

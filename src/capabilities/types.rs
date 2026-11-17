@@ -285,22 +285,24 @@ macro_rules! impl_capability_range {
             }
 
             /// Maps a normalized value into this profile's inclusive domain.
-            /// Rounds to the nearest integer, with halves away from zero.
+            ///
+            /// A single-value domain always returns its sole value; normalized
+            /// zero and one return the exact endpoints. Interpolation uses
+            /// `f64`, which represents every supported integer endpoint and
+            /// span exactly, and rounds to the nearest integer with halves
+            /// away from zero. The result stays within the declared bounds.
             #[must_use]
-            #[allow(
-                clippy::cast_precision_loss,
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss
-            )]
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             pub fn denormalize(self, value: crate::types::UnitInterval) -> $ty {
-                if value == crate::types::UnitInterval::MIN {
+                if self.min == self.max || value == crate::types::UnitInterval::MIN {
                     return self.min;
                 }
                 if value == crate::types::UnitInterval::MAX {
                     return self.max;
                 }
-                let span = i64::from(self.max) - i64::from(self.min);
-                (self.min as f32 + value.value() * span as f32).round() as $ty
+                let min = f64::from(self.min);
+                let span = f64::from(self.max) - min;
+                (min + f64::from(value.value()) * span).round() as $ty
             }
 
             /// Creates an inclusive capability range.
@@ -405,7 +407,181 @@ impl CoordinateSystem {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
+    use crate::types::UnitInterval;
+
+    #[allow(clippy::expect_used)]
+    fn unit_interval(value: f32) -> UnitInterval {
+        UnitInterval::new(value).expect("test input is finite and within zero through one")
+    }
+
+    #[test]
+    fn denormalize_preserves_i32_values_beyond_f32_integer_precision() {
+        for (min, max, normalized, expected) in [
+            (16_777_217, 16_777_217, 0.5, 16_777_217),
+            (16_777_217, 16_777_220, 0.01, 16_777_217),
+            (-16_777_217, -16_777_217, 0.5, -16_777_217),
+            (-16_777_220, -16_777_217, 0.99, -16_777_217),
+            (i32::MIN, i32::MIN, 0.5, i32::MIN),
+            (i32::MAX, i32::MAX, 0.5, i32::MAX),
+            (i32::MIN, i32::MIN + 3, 0.5, i32::MIN + 1),
+            (i32::MAX - 3, i32::MAX, 0.5, i32::MAX - 1),
+        ] {
+            let range = CapabilityRange::<i32>::new(min, max);
+            let actual = range.denormalize(unit_interval(normalized));
+            assert!(
+                range.contains(actual),
+                "returned {actual} outside {range:?}"
+            );
+            assert_eq!(actual, expected, "{range:?} at {normalized}");
+        }
+    }
+
+    #[test]
+    fn denormalize_rounds_signed_halfway_coordinates_away_from_zero() {
+        for (min, max, expected) in [
+            (-2, -1, -2),
+            (-1, 0, -1),
+            (0, 1, 1),
+            (1, 2, 2),
+            (-2, 1, -1),
+            (-1, 2, 1),
+            (i32::MIN, i32::MAX, -1),
+            (i32::MIN + 1, i32::MAX, 0),
+        ] {
+            let range = CapabilityRange::<i32>::new(min, max);
+            assert_eq!(
+                range.denormalize(unit_interval(0.5)),
+                expected,
+                "{range:?} at 0.5"
+            );
+        }
+    }
+
+    // Eighths have exact binary representations. This integer oracle rounds
+    // the rational coordinate independently of floating-point interpolation.
+    macro_rules! assert_interpolation_at_eighths {
+        ($ty:ty, $endpoints:expr) => {
+            for min in $endpoints {
+                for max in $endpoints {
+                    if min > max {
+                        continue;
+                    }
+                    let range = CapabilityRange::<$ty>::new(min, max);
+                    for step in 0_u8..=8 {
+                        let normalized = unit_interval(f32::from(step) / 8.0);
+                        let numerator =
+                            i64::from(min) * i64::from(8 - step) + i64::from(max) * i64::from(step);
+                        let magnitude = (numerator.abs() + 4) / 8;
+                        let expected = if numerator < 0 { -magnitude } else { magnitude };
+                        assert_eq!(
+                            i64::from(range.denormalize(normalized)),
+                            expected,
+                            "{range:?} at {step}/8"
+                        );
+                    }
+                }
+            }
+        };
+    }
+
+    #[test]
+    fn denormalize_matches_rational_oracle_for_every_u8_range() {
+        assert_interpolation_at_eighths!(u8, u8::MIN..=u8::MAX);
+    }
+
+    #[test]
+    fn denormalize_matches_rational_oracle_for_every_i8_range() {
+        assert_interpolation_at_eighths!(i8, i8::MIN..=i8::MAX);
+    }
+
+    #[test]
+    fn denormalize_matches_rational_oracle_for_wider_integer_boundaries() {
+        assert_interpolation_at_eighths!(u16, [0, 1, 255, 256, 32_767, 32_768, u16::MAX]);
+        assert_interpolation_at_eighths!(
+            i16,
+            [
+                i16::MIN,
+                -16_385,
+                -129,
+                -128,
+                -1,
+                0,
+                1,
+                127,
+                128,
+                16_385,
+                i16::MAX
+            ]
+        );
+        assert_interpolation_at_eighths!(
+            i32,
+            [
+                i32::MIN,
+                i32::MIN + 1,
+                -16_777_217,
+                -16_777_216,
+                -1,
+                0,
+                1,
+                16_777_216,
+                16_777_217,
+                i32::MAX - 1,
+                i32::MAX,
+            ]
+        );
+    }
+
+    fn normalized_input() -> impl Strategy<Value = UnitInterval> {
+        prop_oneof![
+            Just(0.0),
+            Just(1.0),
+            0.0_f32..=1.0,
+            (0_u32..=1.0_f32.to_bits()).prop_map(f32::from_bits),
+        ]
+        .prop_map(unit_interval)
+    }
+
+    macro_rules! denormalization_properties {
+        ($name:ident, $ty:ty) => {
+            proptest! {
+                #[test]
+                fn $name(
+                    first in any::<$ty>(),
+                    second in any::<$ty>(),
+                    left in normalized_input(),
+                    right in normalized_input(),
+                ) {
+                    let min = first.min(second);
+                    let max = first.max(second);
+                    let range = CapabilityRange::<$ty>::new(min, max);
+                    let lower = left.min(right);
+                    let upper = left.max(right);
+                    let lower_result = range.denormalize(lower);
+                    let upper_result = range.denormalize(upper);
+                    prop_assert!(range.contains(lower_result));
+                    prop_assert!(range.contains(upper_result));
+                    prop_assert!(lower_result <= upper_result);
+                    prop_assert_eq!(range.denormalize(UnitInterval::MIN), min);
+                    prop_assert_eq!(range.denormalize(UnitInterval::MAX), max);
+
+                    let singleton = CapabilityRange::<$ty>::new(first, first);
+                    prop_assert_eq!(singleton.denormalize(left), first);
+                    prop_assert_eq!(singleton.denormalize(right), first);
+                    prop_assert_eq!(singleton.denormalize(UnitInterval::MIN), first);
+                    prop_assert_eq!(singleton.denormalize(UnitInterval::MAX), first);
+                }
+            }
+        };
+    }
+
+    denormalization_properties!(denormalize_u8_stays_within_bounds_and_monotone, u8);
+    denormalization_properties!(denormalize_u16_stays_within_bounds_and_monotone, u16);
+    denormalization_properties!(denormalize_i8_stays_within_bounds_and_monotone, i8);
+    denormalization_properties!(denormalize_i16_stays_within_bounds_and_monotone, i16);
+    denormalization_properties!(denormalize_i32_stays_within_bounds_and_monotone, i32);
 
     #[test]
     fn capability_range_constructs_valid_signed_and_unsigned_ranges() {

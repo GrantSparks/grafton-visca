@@ -14,13 +14,7 @@
 /// # Ok::<(), grafton_visca::Error>(())
 /// ```
 #[crate::value(min = 1, max = 2)]
-pub struct CommandSocketCount(
-    #[cfg_attr(
-        feature = "schemars",
-        schemars(range(min = CommandSocketCount::MIN.value(), max = CommandSocketCount::MAX.value()))
-    )]
-    u8,
-);
+pub struct CommandSocketCount(u8);
 
 impl CommandSocketCount {
     /// One physical command socket.

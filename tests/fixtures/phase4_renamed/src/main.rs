@@ -241,11 +241,21 @@ mod visca_range_type_helpers {
     )]
     pub struct InlineMetadataRange(u8);
 
+    #[value(valid_values = [7, -3, 2, 0x07, -0])]
+    /// Signed sparse values with repeated equivalent literals.
+    #[schemars(rename = "SignedSparseDomain")]
+    pub struct SignedSparseValue(i8);
+
+    #[value(min = 0.1, max = 0.9)]
+    pub struct FloatRangeValue(f32);
+
     #[derive(visca_renamed::__macro_support::schemars::JsonSchema)]
     #[schemars(crate = "visca_renamed::__macro_support::schemars")]
     struct RangeContainer {
         value: HygienicRange,
         inline_value: InlineMetadataRange,
+        sparse: SignedSparseValue,
+        float_value: FloatRangeValue,
     }
 
     fn assert_serde<T>()
@@ -280,10 +290,8 @@ mod visca_range_type_helpers {
             Some(&::serde_json::json!(true))
         );
         assert_eq!(root.pointer("/type"), Some(&::serde_json::json!("integer")));
-        assert_eq!(root.pointer("/minimum"), Some(&::serde_json::json!(0)));
-        assert_eq!(root.pointer("/maximum"), Some(&::serde_json::json!(255)));
-        assert_ne!(root.pointer("/minimum"), Some(&::serde_json::json!(2)));
-        assert_ne!(root.pointer("/maximum"), Some(&::serde_json::json!(4)));
+        assert_eq!(root.pointer("/minimum"), Some(&::serde_json::json!(2)));
+        assert_eq!(root.pointer("/maximum"), Some(&::serde_json::json!(4)));
 
         let nested = visca_renamed::__macro_support::schemars::schema_for!(RangeContainer);
         let nested = ::serde_json::to_value(nested).expect("serialize nested schema");
@@ -304,6 +312,14 @@ mod visca_range_type_helpers {
             nested.pointer("/$defs/SchemaRange/type"),
             Some(&::serde_json::json!("integer"))
         );
+        assert_eq!(
+            nested.pointer("/$defs/SchemaRange/minimum"),
+            Some(&::serde_json::json!(2))
+        );
+        assert_eq!(
+            nested.pointer("/$defs/SchemaRange/maximum"),
+            Some(&::serde_json::json!(4))
+        );
         assert!(<InlineMetadataRange as JsonSchema>::inline_schema());
         assert_eq!(
             <InlineMetadataRange as JsonSchema>::schema_name(),
@@ -321,7 +337,52 @@ mod visca_range_type_helpers {
             nested.pointer("/properties/inline_value/description"),
             Some(&::serde_json::json!("Explicit schema description"))
         );
+        assert_eq!(
+            nested.pointer("/properties/inline_value/minimum"),
+            Some(&::serde_json::json!(12))
+        );
+        assert_eq!(
+            nested.pointer("/properties/inline_value/maximum"),
+            Some(&::serde_json::json!(13))
+        );
         assert!(nested.pointer("/$defs/InlineSchemaRange").is_none());
+
+        let sparse = visca_renamed::__macro_support::schemars::schema_for!(SignedSparseValue);
+        let sparse = ::serde_json::to_value(sparse).expect("signed sparse schema");
+        assert_eq!(sparse["type"], "integer");
+        assert_eq!(sparse["minimum"], -3);
+        assert_eq!(sparse["maximum"], 7);
+        assert_eq!(sparse["enum"], ::serde_json::json!([7, -3, 2, 0]));
+        assert_eq!(
+            nested.pointer("/properties/sparse/$ref"),
+            Some(&::serde_json::json!("#/$defs/SignedSparseDomain"))
+        );
+        assert_eq!(
+            nested.pointer("/$defs/SignedSparseDomain/enum"),
+            sparse.get("enum")
+        );
+
+        let float = visca_renamed::__macro_support::schemars::schema_for!(FloatRangeValue);
+        let float = ::serde_json::to_value(float).expect("float range schema");
+        assert_eq!(float["type"], "number");
+        assert_eq!(float["minimum"], 0.1);
+        assert_eq!(float["maximum"], 0.9);
+        assert_eq!(
+            nested.pointer("/$defs/FloatRangeValue/minimum"),
+            float.get("minimum")
+        );
+        assert_eq!(
+            nested.pointer("/$defs/FloatRangeValue/maximum"),
+            float.get("maximum")
+        );
+        for endpoint in [0.1, 0.9] {
+            let checked = FloatRangeValue::new(endpoint).expect("float endpoint");
+            // Check the canonical serialized JSON number rather than a widened f32.
+            let json = ::serde_json::to_string(&checked).expect("serialize float endpoint");
+            let actual: f64 = ::serde_json::from_str(&json).expect("JSON number");
+            assert!(actual >= float["minimum"].as_f64().expect("float minimum"));
+            assert!(actual <= float["maximum"].as_f64().expect("float maximum"));
+        }
     }
 
     fn assert_ts_contract() {
