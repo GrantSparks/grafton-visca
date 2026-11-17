@@ -48,6 +48,7 @@ use crate::{
 mod cancellation_and_budget;
 mod position_sampling;
 mod reentry;
+mod waiter_rejection;
 
 const ACK: &[u8] = &[0x90, 0x41, 0xff];
 const COMPLETION: &[u8] = &[0x90, 0x51, 0xff];

@@ -765,3 +765,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
 
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 mod tests;
+
+#[cfg(all(test, feature = "test-utils"))]
+#[path = "async_actor/tests/waiter_rejection.rs"]
+mod waiter_rejection;

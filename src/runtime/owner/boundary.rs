@@ -1079,10 +1079,37 @@ impl OwnerHandleCore {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+
+    /// Choose the owner side of the real pre-admission deadline race, then
+    /// answer through the same consuming rejection production uses.
+    #[cfg(any(feature = "blocking", feature = "test-utils"))]
+    #[allow(clippy::panic)]
+    pub(in crate::runtime::owner) fn expire_waiter_from_owner(
+        admission: AdmissionBoundary,
+        state: &mut OwnerState,
+        selected_at: Instant,
+    ) {
+        let AdmissionBoundaryClaim::Pending(validity) = &admission.claim else {
+            panic!("waiter admission must still be pending");
+        };
+        assert_eq!(validity.deadline(), selected_at);
+        assert_eq!(
+            validity.claim_for_admission(selected_at),
+            AdmissionClaim::ExpiredHere,
+            "the caller must not have expired this admission"
+        );
+        let error = Error::admission_timeout();
+        state.record_admission_rejection(
+            admission.request().context().target,
+            admission.request().lane(),
+            &error,
+        );
+        admission.reject(error);
+    }
 
     fn lifecycle_handle() -> (OwnerHandleCore, OwnerEnds) {
         let policy = super::super::OwnerPolicy::single_target(
