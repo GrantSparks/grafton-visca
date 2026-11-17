@@ -24,8 +24,8 @@ mod coordinator;
 pub(super) use coordinator::SourcePhase;
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(super) use coordinator::{
-    Disposition, OwnerCoordinator, ReceiveArm, ReceiveClass, Selected, Selection, Source, TimerArm,
-    TurnOutcome, TurnPlan,
+    Disposition, OwnerCoordinator, PlannedTurn, ReceiveArm, ReceiveClass, Selected, Selection,
+    Source, TimerArm, TurnOutcome, TurnPlan, VacantSlot,
 };
 
 /// Pause applied after the first transient receive fault or immediately-idle

@@ -32,8 +32,8 @@ struct ClassifiedEvent {
 }
 
 enum TurnPlan {
-    Redeliver(OwnerEvent),
-    Select(OwnerEvent),
+    Redeliver { boundary: OwnerEvent, vacancy: () },
+    Select { selection: OwnerEvent, turn: () },
 }
 
 #[derive(Clone, Copy)]
@@ -111,23 +111,37 @@ impl Core {
         true
     }
 
-    fn plan<D>(&mut self, _now: Instant, _driver: &mut D) -> TurnPlan {
+    fn plan<D>(&mut self, _now: Instant, _driver: &mut D) -> (TurnPlan, &mut State, &()) {
         self.state.trace.borrow_mut().push("plan");
         let event = self.script.pop_front().expect("bounded test script");
-        if matches!(event, OwnerEvent::Completion) {
-            TurnPlan::Redeliver(event)
+        let plan = if matches!(event, OwnerEvent::Completion) {
+            TurnPlan::Redeliver {
+                boundary: event,
+                vacancy: (),
+            }
         } else {
-            TurnPlan::Select(event)
+            TurnPlan::Select {
+                selection: event,
+                turn: (),
+            }
+        };
+        (plan, &mut self.state, &())
+    }
+
+    fn redeliver(_receivers: &(), _vacancy: (), event: OwnerEvent) -> (OwnerEvent, ()) {
+        (event, ())
+    }
+
+    fn classify(
+        state: &mut State,
+        _turn: (),
+        event: OwnerEvent,
+        _at: Instant,
+    ) -> Option<ClassifiedEvent> {
+        if matches!(event, OwnerEvent::Completion) {
+            state.trace.borrow_mut().push("redeliver");
         }
-    }
-
-    fn redeliver(&mut self, event: OwnerEvent) -> OwnerEvent {
-        self.state.trace.borrow_mut().push("redeliver");
-        event
-    }
-
-    fn classify(&mut self, event: OwnerEvent, _at: Instant) -> Option<ClassifiedEvent> {
-        self.state.trace.borrow_mut().push("classify");
+        state.trace.borrow_mut().push("classify");
         Some(ClassifiedEvent {
             event,
             selected: event,
@@ -230,6 +244,8 @@ impl Drop for Core {
     }
 }
 
+type OwnerShellCore = Core;
+
 trait Driver {}
 
 struct ScriptedDriver(Trace);
@@ -273,7 +289,8 @@ macro_rules! test_shell {
 
             $($async)* fn select_event<D: Driver>(
                 &mut self,
-                _core: &mut Core,
+                _state: &mut State,
+                _receivers: &(),
                 selected: OwnerEvent,
                 _driver: &mut D,
             ) -> OwnerEvent {

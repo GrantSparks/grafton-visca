@@ -21,19 +21,22 @@ macro_rules! owner_turn_driver {
                 // A handoff may let time advance or boundaries arrive. Plan
                 // only after it, using this shell's selected clock.
                 let now = self.io.now();
-                let event = match self.core.plan(now, &mut driver) {
-                    TurnPlan::Redeliver(retained) => self.core.redeliver(retained),
-                    TurnPlan::Select(selection) => self
-                        .io
-                        .select_event(&mut self.core, selection, &mut driver)
-                        $($await)*,
+                let (plan, state, receivers) = self.core.plan(now, &mut driver);
+                let (event, turn) = match plan {
+                    TurnPlan::Redeliver { boundary, vacancy } => {
+                        OwnerShellCore::redeliver(receivers, vacancy, boundary)
+                    }
+                    TurnPlan::Select { selection, turn } => {
+                        let event = self.io.select_event(state, receivers, selection, &mut driver) $($await)*;
+                        (event, turn)
+                    }
                 };
                 let selected_at = self.io.now();
                 let Some(ClassifiedEvent {
                     event,
                     selected,
                     suppress_due,
-                }) = self.core.classify(event, selected_at)
+                }) = OwnerShellCore::classify(state, turn, event, selected_at)
                 else {
                     continue;
                 };

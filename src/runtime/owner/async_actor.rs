@@ -568,15 +568,16 @@ impl<R: Executor> AsyncOwnerIo<R> {
 
     async fn select_event<D: AsyncOwnerDriver>(
         &mut self,
-        core: &mut OwnerShellCore,
+        state: &mut OwnerState,
+        receivers: &BoundaryReceivers,
         selection: Selection,
         driver: &mut D,
     ) -> OwnerEvent {
         let runtime = &self.runtime;
         let now = Executor::now(runtime.as_ref());
-        let read_timeout = core.state.facts().read_timeout;
+        let read_timeout = state.facts().read_timeout;
 
-        let frame_limit = core.state.facts().limits.frames_per_receive;
+        let frame_limit = state.facts().limits.frames_per_receive;
         let receive = async {
             match selection.receive {
                 // The exact no-input probe for this release set is
@@ -593,7 +594,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
             }
             let result = Self::receive_within(
                 driver,
-                core.state.buffers(),
+                state.buffers(),
                 frame_limit,
                 runtime.as_ref(),
                 read_timeout,
@@ -633,7 +634,7 @@ impl<R: Executor> AsyncOwnerIo<R> {
                 }
             }
         };
-        select_actor_event(selection, receive, &core.receivers, wake).await
+        select_actor_event(selection, receive, receivers, wake).await
     }
 
     async fn write<D: AsyncOwnerDriver>(

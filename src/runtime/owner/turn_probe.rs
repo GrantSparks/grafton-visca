@@ -108,7 +108,8 @@ impl ProbeIo {
 
     fn select_event<D: ProbeDriver>(
         &mut self,
-        _core: &mut OwnerShellCore,
+        _state: &mut OwnerState,
+        _receivers: &super::boundary::BoundaryReceivers,
         _selection: Selection,
         _driver: &mut D,
     ) -> OwnerEvent {

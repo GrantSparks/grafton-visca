@@ -284,8 +284,8 @@ The construction and request path has a fixed order:
    values occupy one typed inline slot per declared `StateKey`.
 8. Record terminal outcome, release admission capacity, and retain only the
    bounded diagnostic/history state promised by the public API.
-   Release admission capacity before any admission answer becomes observable;
-   a consuming boundary rejection enforces the same order before admission.
+   For a rejected admission, release its capacity before the admission answer
+   becomes observable; a consuming boundary rejection enforces this order.
 
 ### Correlation state ownership
 
@@ -1442,7 +1442,11 @@ A raw release does not create an exception to that order; it adds two rules.
   The coordinator holds it in a single slot until the release resolves, and
   while the slot is occupied cancellation and admission are not eligible, so a
   second boundary stays in its bounded channel rather than being dequeued with
-  nowhere to keep it (#775).
+  nowhere to keep it (#775). A parked plan exclusively borrows its coordinator.
+  Its `VacantSlot` token is the proof required to retain a boundary or restore
+  a redelivery when shutdown wins; consuming the token fills its originating
+  slot directly. Tokens cannot be forged, reused, sent to another coordinator,
+  or kept across a newer plan (#1004).
 
 Thus an Urgent stop is selected within the fairness bound under raw input
 pressure, while no scope is released using evidence collected before its own

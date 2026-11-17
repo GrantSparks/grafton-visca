@@ -24,10 +24,13 @@ fn empty() -> RawCorrelationReleaseSet {
     RawCorrelationReleaseSet::default()
 }
 
-fn select(plan: TurnPlan<u32>) -> Selection {
+fn select(plan: TurnPlan<'_, u32>) -> Selection {
     match plan {
-        TurnPlan::Select(selection) => selection,
-        TurnPlan::Redeliver(boundary) => panic!("unexpected redelivery of {boundary}"),
+        TurnPlan::Select { selection, turn } => {
+            assert_eq!(selection.boundaries_eligible, turn.vacancy.is_some());
+            selection
+        }
+        TurnPlan::Redeliver { boundary, .. } => panic!("unexpected redelivery of {boundary}"),
     }
 }
 
@@ -194,7 +197,7 @@ fn a_pending_release_keeps_its_probe_paced_and_proof_complete_unpaced() {
             },
             set(&[1]),
         ),
-        Disposition::Apply {
+        Classification::Apply {
             suppress_due: false
         }
     );
@@ -240,7 +243,7 @@ fn a_pending_release_plans_each_proof_state() {
     };
     assert_eq!(
         coordinator.classify(no_input, s1),
-        Disposition::Apply {
+        Classification::Apply {
             suppress_due: false,
         }
     );
@@ -257,7 +260,7 @@ fn a_pending_release_plans_each_proof_state() {
     // The timer clears the fence; a retained prefix then waits for its grace.
     assert_eq!(
         coordinator.classify(Selected::Timer, s1),
-        Disposition::Apply {
+        Classification::Apply {
             suppress_due: false,
         }
     );
@@ -345,7 +348,7 @@ fn a_timer_selected_before_a_hold_matured_restarts() {
     let _ = select(coordinator.plan(now, Some(now + ms(5)), empty(), || false));
     assert_eq!(
         coordinator.classify(Selected::Timer, set(&[1])),
-        Disposition::Restart
+        Classification::Restart
     );
     coordinator.begin_turn();
     let probe = select(coordinator.plan(now + ms(5), Some(now + ms(5)), set(&[1]), || false));
@@ -366,7 +369,7 @@ fn a_transient_fault_probe_suppresses_due_without_fencing() {
     };
     assert_eq!(
         coordinator.classify(fault, s1),
-        Disposition::Apply { suppress_due: true }
+        Classification::Apply { suppress_due: true }
     );
     assert!(coordinator.finish(fault, None, TurnOutcome::YieldBoundaries));
     coordinator.begin_turn();
@@ -387,7 +390,7 @@ fn a_receive_that_crossed_a_hold_deadline_is_its_probe() {
     };
     assert_eq!(
         coordinator.classify(fault, s1),
-        Disposition::Apply { suppress_due: true },
+        Classification::Apply { suppress_due: true },
         "a fault stamped at or after H suppresses due work"
     );
     let stale = Selected::Receive {
@@ -396,7 +399,7 @@ fn a_receive_that_crossed_a_hold_deadline_is_its_probe() {
     };
     assert_eq!(
         coordinator.classify(stale, s1),
-        Disposition::Apply {
+        Classification::Apply {
             suppress_due: false,
         },
         "a read that completed before H is not a probe"
@@ -416,7 +419,7 @@ fn a_crossing_no_input_read_leaves_the_new_set_unproved() {
     };
     assert_eq!(
         coordinator.classify(idle, s1),
-        Disposition::Apply {
+        Classification::Apply {
             suppress_due: false,
         }
     );
@@ -438,11 +441,13 @@ fn a_retained_boundary_blocks_boundaries_until_the_release_resolves() {
     let mut coordinator = OwnerCoordinator::<u32>::default();
     coordinator.begin_turn();
     let _ = coordinator.plan(now, Some(now), s1, || false);
-    assert_eq!(
-        coordinator.classify(Selected::Boundary, s1),
-        Disposition::Retain
-    );
-    assert_eq!(coordinator.retain(7), Ok(()));
+    let TurnPlan::Select { turn, .. } = coordinator.plan(now, Some(now), s1, || false) else {
+        panic!("select");
+    };
+    let Disposition::Retain(vacancy) = turn.classify(Selected::Boundary, s1) else {
+        panic!("retain");
+    };
+    OwnerCoordinator::retain(vacancy, 7);
     coordinator.restart_after_retain();
     assert!(coordinator.has_retained());
 
@@ -464,11 +469,11 @@ fn a_retained_boundary_blocks_boundaries_until_the_release_resolves() {
     assert!(coordinator.finish(Selected::Timer, None, TurnOutcome::Continue));
     coordinator.begin_turn();
     match coordinator.plan(now, None, empty(), || false) {
-        TurnPlan::Redeliver(boundary) => {
+        TurnPlan::Redeliver { boundary, vacancy } => {
             // Shutdown was pending: hand it back for the terminal drain.
-            coordinator.restore(boundary);
+            OwnerCoordinator::restore(vacancy, boundary);
         }
-        TurnPlan::Select(selection) => panic!("expected redelivery, got {selection:?}"),
+        TurnPlan::Select { selection, .. } => panic!("expected redelivery, got {selection:?}"),
     }
     assert_eq!(coordinator.take_retained(), Some(7));
     assert_eq!(coordinator.take_retained(), None);
@@ -824,9 +829,12 @@ mod model {
                         self.control_wins_for_due_wake = None;
                     }
                     match self.coordinator.plan(now, wake, due, || false) {
-                        TurnPlan::Redeliver(token) => {
+                        TurnPlan::Redeliver {
+                            boundary: token,
+                            vacancy,
+                        } => {
                             let event = if self.shutdown {
-                                self.coordinator.restore(token);
+                                OwnerCoordinator::restore(vacancy, token);
                                 Event::Shutdown
                             } else {
                                 Event::Boundary(token)
@@ -837,7 +845,10 @@ mod model {
                             self.dispatch(event);
                             return;
                         }
-                        TurnPlan::Select(selection) => selection,
+                        TurnPlan::Select { selection, turn } => {
+                            assert_eq!(selection.boundaries_eligible, turn.vacancy.is_some());
+                            selection
+                        }
                     }
                 }
             };
@@ -950,25 +961,33 @@ mod model {
                 },
                 Event::Shutdown | Event::Control => Selected::Other,
             };
-            let suppress_due = match self.coordinator.classify(selected, self.due(selected_at)) {
-                Disposition::Restart => return,
-                Disposition::Retain => {
-                    let Event::Boundary(token) = event else {
-                        panic!("only a boundary is retained, not {event:?}");
+            if selected == Selected::Boundary && !self.due(selected_at).is_empty() {
+                let Event::Boundary(token) = event else {
+                    panic!("only a boundary is retained, not {event:?}");
+                };
+                if token.answer_early {
+                    self.answer(token, Answer::Early);
+                } else {
+                    let now = self.now;
+                    let wake = self.next_wake();
+                    let due = self.due(now);
+                    let TurnPlan::Select { turn, .. } =
+                        self.coordinator.plan(now, wake, due, || false)
+                    else {
+                        panic!("select for retention");
                     };
-                    if token.answer_early {
-                        self.answer(token, Answer::Early);
-                    } else {
-                        assert_eq!(
-                            self.coordinator.retain(token),
-                            Ok(()),
-                            "the retained slot was occupied"
-                        );
-                    }
-                    self.coordinator.restart_after_retain();
-                    return;
+                    let Disposition::Retain(vacancy) = turn.classify(Selected::Boundary, due)
+                    else {
+                        panic!("vacant retained slot");
+                    };
+                    OwnerCoordinator::retain(vacancy, token);
                 }
-                Disposition::Apply { suppress_due } => suppress_due,
+                self.coordinator.restart_after_retain();
+                return;
+            }
+            let suppress_due = match self.coordinator.classify(selected, self.due(selected_at)) {
+                Classification::Restart => return,
+                Classification::Apply { suppress_due } => suppress_due,
             };
             let consumed = if matches!(event, Event::Control) {
                 self.coordinator

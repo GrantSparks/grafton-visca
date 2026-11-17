@@ -1,32 +1,32 @@
-//! Executor-free owner source arbitration (#776, decision D25).
-//!
-//! [`OwnerCoordinator`] owns every *decision* an owner turn makes about which
-//! source it may select and what a selected event is allowed to do:
-//!
-//! - the receive-versus-boundary [`SourcePhase`], the receive fairness ceiling
-//!   and the forced boundary turn it implies;
-//! - the one-turn control allowance granted to an already-due timer;
-//! - the pause that paces the next read after an idle or faulted receive,
-//!   during which every other source stays selectable (#675, #780);
-//! - the receive-first raw-correlation release proof ([`RawReleaseTurn`]);
-//! - the single retained-boundary slot that holds an admission or cancellation
-//!   selected while a raw release was due (#775), and the eligibility rule
-//!   that follows from it.
-//!
-//! Both owners drive it: the async actor and the blocking worker thread
-//! (D24, #780). A shell supplies only I/O: it samples the clock, asks
-//! [`plan`] for a [`TurnPlan`], polls its sources in the order
-//! [`Selection::order`] gives, reports what was selected through [`classify`],
-//! and reports the turn's result through [`finish`]. Nothing here touches a
-//! channel, a transport, an executor or the wall clock, so every decision can
-//! be exercised by plain unit and generated-sequence tests.
-//!
-//! The boundary payload type `B` is opaque: the coordinator stores and returns
-//! it but never inspects it.
-//!
-//! [`plan`]: OwnerCoordinator::plan
-//! [`classify`]: OwnerCoordinator::classify
-//! [`finish`]: OwnerCoordinator::finish
+// Executor-free owner source arbitration (#776, decision D25).
+//
+// [`OwnerCoordinator`] owns every *decision* an owner turn makes about which
+// source it may select and what a selected event is allowed to do:
+//
+// - the receive-versus-boundary [`SourcePhase`], the receive fairness ceiling
+//   and the forced boundary turn it implies;
+// - the one-turn control allowance granted to an already-due timer;
+// - the pause that paces the next read after an idle or faulted receive,
+//   during which every other source stays selectable (#675, #780);
+// - the receive-first raw-correlation release proof ([`RawReleaseTurn`]);
+// - the single retained-boundary slot that holds an admission or cancellation
+//   selected while a raw release was due (#775), and the eligibility rule
+//   that follows from it.
+//
+// Both owners drive it: the async actor and the blocking worker thread
+// (D24, #780). A shell supplies only I/O: it samples the clock, asks
+// [`plan`] for a [`TurnPlan`], polls its sources in the order
+// [`Selection::order`] gives, reports what was selected through [`classify`],
+// and reports the turn's result through [`finish`]. Nothing here touches a
+// channel, a transport, an executor or the wall clock, so every decision can
+// be exercised by plain unit and generated-sequence tests.
+//
+// The boundary payload type `B` is opaque: the coordinator stores and returns
+// it but never inspects it.
+//
+// [`plan`]: OwnerCoordinator::plan
+// [`classify`]: OwnerCoordinator::classify
+// [`finish`]: OwnerCoordinator::finish
 
 use std::time::Instant;
 
@@ -163,14 +163,90 @@ impl Selection {
 
 /// The plan for one owner turn.
 #[derive(Debug)]
-pub(in crate::runtime::owner) enum TurnPlan<B> {
+pub(in crate::runtime::owner) enum TurnPlan<'a, B> {
     /// No raw release is due any more, so the retained boundary is delivered
     /// before any source is polled. The shell must still give an already
     /// pending shutdown precedence (and hand the boundary back with
     /// [`OwnerCoordinator::restore`] if it does).
-    Redeliver(B),
-    /// Select one source as described.
-    Select(Selection),
+    Redeliver {
+        boundary: B,
+        vacancy: VacantSlot<'a, B>,
+    },
+    /// Select one source as described, retaining the exclusive coordinator loan.
+    Select {
+        selection: Selection,
+        turn: PlannedTurn<'a, B>,
+    },
+}
+
+/// Exclusive proof that the retained slot is vacant. A token borrows its
+/// originating coordinator, so another plan or a different coordinator cannot
+/// consume it. It is deliberately neither `Clone` nor `Copy`.
+#[derive(Debug)]
+pub(in crate::runtime::owner) struct VacantSlot<'a, B> {
+    coordinator: &'a mut OwnerCoordinator<B>,
+}
+
+/// The coordinator loan for one parked source selection. Only the copyable
+/// source descriptor crosses into transport and channel polling.
+#[derive(Debug)]
+pub(in crate::runtime::owner) struct PlannedTurn<'a, B> {
+    coordinator: &'a mut OwnerCoordinator<B>,
+    vacancy: Option<Vacancy>,
+}
+
+#[derive(Debug)]
+struct Vacancy;
+
+impl<'a, B> VacantSlot<'a, B> {
+    fn fill(self, boundary: B) -> &'a mut OwnerCoordinator<B> {
+        self.coordinator.retained = Some(boundary);
+        self.coordinator
+    }
+
+    pub(in crate::runtime::owner) fn into_turn(self) -> PlannedTurn<'a, B> {
+        PlannedTurn {
+            coordinator: self.coordinator,
+            vacancy: Some(Vacancy),
+        }
+    }
+
+    pub(in crate::runtime::owner) fn restore_for_shutdown(self, boundary: B) -> PlannedTurn<'a, B> {
+        let coordinator = self.coordinator;
+        OwnerCoordinator::restore(
+            VacantSlot {
+                coordinator: &mut *coordinator,
+            },
+            boundary,
+        );
+        PlannedTurn {
+            coordinator,
+            vacancy: None,
+        }
+    }
+}
+
+impl<'a, B> PlannedTurn<'a, B> {
+    pub(in crate::runtime::owner) fn classify(
+        self,
+        selected: Selected,
+        due: RawCorrelationReleaseSet,
+    ) -> Disposition<'a, B> {
+        // The vacancy is the source of cancellation/admission eligibility.
+        // The exclusive loan prevents the slot changing while selection parks.
+        if selected == Selected::Boundary && !due.is_empty() {
+            if let Some(Vacancy) = self.vacancy {
+                self.coordinator.restart_after_retain();
+                return Disposition::Retain(VacantSlot {
+                    coordinator: self.coordinator,
+                });
+            }
+        }
+        match self.coordinator.classify(selected, due) {
+            Classification::Restart => Disposition::Restart,
+            Classification::Apply { suppress_due } => Disposition::Apply { suppress_due },
+        }
+    }
 }
 
 /// What kind of event a shell selected, as far as arbitration is concerned.
@@ -206,8 +282,8 @@ pub(in crate::runtime::owner) enum ReceiveClass {
 }
 
 /// What the shell must do with a selected event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::runtime::owner) enum Disposition {
+#[derive(Debug)]
+pub(in crate::runtime::owner) enum Disposition<'a, B> {
     /// A timer selected from a view that predates a raw hold expiry: it has not
     /// earned the receive-first release pass. Discard it and plan again.
     Restart,
@@ -215,9 +291,16 @@ pub(in crate::runtime::owner) enum Disposition {
     /// engine turn yet. The shell answers it if it can (a lost admission claim,
     /// a cancellation whose terminal result is already buffered) and otherwise
     /// hands it to [`OwnerCoordinator::retain`]; either way it then plans again.
-    Retain,
+    Retain(VacantSlot<'a, B>),
     /// Run the event's engine turn. `suppress_due` is set when a raw release
     /// probe hit a transient fault, so that turn must not run due work.
+    Apply { suppress_due: bool },
+}
+
+/// Pure classification result, before the planned vacancy is attached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Classification {
+    Restart,
     Apply { suppress_due: bool },
 }
 
@@ -298,7 +381,7 @@ impl<B> OwnerCoordinator<B> {
         next_wake: Option<Instant>,
         releases_due_now: RawCorrelationReleaseSet,
         complete_frame_buffered: impl FnOnce() -> bool,
-    ) -> TurnPlan<B> {
+    ) -> TurnPlan<'_, B> {
         let wake_due = next_wake.is_some_and(|wake| wake <= now);
         let _ = self.release.observe(releases_due_now);
         let releases = self.release.latched().unwrap_or_default();
@@ -334,7 +417,8 @@ impl<B> OwnerCoordinator<B> {
         } else {
             self.phase
         };
-        let boundaries_eligible = self.retained.is_none();
+        let vacancy = self.retained.is_none().then_some(Vacancy);
+        let boundaries_eligible = vacancy.is_some();
         self.receive_not_before = self.receive_not_before.filter(|until| *until > now);
         let poll = match self.receive_not_before {
             Some(until) => ReceiveArm::Paced { until },
@@ -350,9 +434,18 @@ impl<B> OwnerCoordinator<B> {
 
         if !release_pending {
             if let Some(retained) = self.retained.take() {
-                return TurnPlan::Redeliver(retained);
+                return TurnPlan::Redeliver {
+                    boundary: retained,
+                    vacancy: VacantSlot { coordinator: self },
+                };
             }
-            return TurnPlan::Select(selection(phase, poll, engine_timer));
+            return TurnPlan::Select {
+                selection: selection(phase, poll, engine_timer),
+                turn: PlannedTurn {
+                    coordinator: self,
+                    vacancy,
+                },
+            };
         }
 
         let complete_frame_buffered = self.forced && complete_frame_buffered();
@@ -387,7 +480,13 @@ impl<B> OwnerCoordinator<B> {
             // receive under the same boundary order as every other turn.
             (false, None) => selection(release_phase, poll, engine_timer),
         };
-        TurnPlan::Select(plan)
+        TurnPlan::Select {
+            selection: plan,
+            turn: PlannedTurn {
+                coordinator: self,
+                vacancy,
+            },
+        }
     }
 
     /// Defer the next receive until `until`, after an idle or transient-fault
@@ -411,9 +510,8 @@ impl<B> OwnerCoordinator<B> {
 
     /// Hand a boundary returned by [`TurnPlan::Redeliver`] back because an
     /// already pending shutdown takes precedence over it.
-    pub(in crate::runtime::owner) fn restore(&mut self, boundary: B) {
-        debug_assert!(self.retained.is_none());
-        self.retained = Some(boundary);
+    pub(in crate::runtime::owner) fn restore(vacancy: VacantSlot<'_, B>, boundary: B) {
+        Self::retain(vacancy, boundary);
     }
 
     /// Decide what the selected event may do.
@@ -421,11 +519,11 @@ impl<B> OwnerCoordinator<B> {
     /// `due_after_selection` is the raw release set due at the instant the
     /// selection completed; that one instant is carried through the event's
     /// engine turn.
-    pub(in crate::runtime::owner) fn classify(
+    fn classify(
         &mut self,
         selected: Selected,
         due_after_selection: RawCorrelationReleaseSet,
-    ) -> Disposition {
+    ) -> Classification {
         let planned = self.planned;
         if !due_after_selection.is_empty() {
             match selected {
@@ -434,12 +532,8 @@ impl<B> OwnerCoordinator<B> {
                 // has not earned the receive-first release pass.
                 Selected::Timer if !planned.release.is_pending() => {
                     self.phase = SourcePhase::ReceiveFirst;
-                    return Disposition::Restart;
+                    return Classification::Restart;
                 }
-                // A selected boundary has not touched engine state yet. Its
-                // ordinary input turn would advance due work behind unread or
-                // retained evidence, so it waits for the release.
-                Selected::Boundary => return Disposition::Retain,
                 _ => {}
             }
         }
@@ -470,25 +564,15 @@ impl<B> OwnerCoordinator<B> {
             // framing; either way the next turn needs a fresh probe.
             self.release.clear_fence();
         }
-        Disposition::Apply {
+        Classification::Apply {
             suppress_due: probe && class == Some(ReceiveClass::TransientFault),
         }
     }
 
-    /// Keep a boundary that [`classify`](Self::classify) returned
-    /// [`Disposition::Retain`] for, until the release resolves.
-    ///
-    /// The slot holds one boundary. Selection makes cancellation and admission
-    /// ineligible while it is occupied, so an occupied slot here is a broken
-    /// invariant; the boundary is then handed back rather than overwriting the
-    /// retained one, and the shell must answer it itself.
-    pub(in crate::runtime::owner) fn retain(&mut self, boundary: B) -> Result<(), B> {
-        if self.retained.is_some() {
-            debug_assert!(false, "a boundary was selected while the slot was occupied");
-            return Err(boundary);
-        }
-        self.retained = Some(boundary);
-        Ok(())
+    /// Fill the exact vacant slot loaned by the same turn's plan. There is no
+    /// coordinator receiver: a token cannot be directed at another owner.
+    pub(in crate::runtime::owner) fn retain(vacancy: VacantSlot<'_, B>, boundary: B) {
+        let _ = vacancy.fill(boundary);
     }
 
     /// Record that a [`Disposition::Retain`] boundary was retained or answered:
