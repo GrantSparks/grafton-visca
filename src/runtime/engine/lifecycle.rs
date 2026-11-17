@@ -55,7 +55,6 @@ pub(crate) enum DueAction {
         terminal_at: Instant,
     },
     RetryBudget {
-        retirement: BudgetRetirement,
         certainty: crate::Certainty,
     },
     RetryReady {
@@ -91,13 +90,6 @@ pub(crate) enum CompletionDeadline {
         attempt: AttemptFacts,
         cancellation: ResolvingCancellation,
     },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum BudgetRetirement {
-    Queued,
-    Command,
-    Inquiry,
 }
 
 /// One due raw cancellation release, with its correlation identity.
@@ -524,39 +516,10 @@ impl Lifecycle {
         };
         if let Some(budget) = budget_at {
             if due.is_none_or(|(at, _)| budget <= at) {
-                due = Some((
-                    budget,
-                    DueAction::RetryBudget {
-                        retirement: self.budget_retirement(),
-                        certainty,
-                    },
-                ));
+                due = Some((budget, DueAction::RetryBudget { certainty }));
             }
         }
         due
-    }
-
-    const fn budget_retirement(self) -> BudgetRetirement {
-        match self {
-            Self::Ready { .. } | Self::Backoff { .. } => BudgetRetirement::Queued,
-            Self::Sending {
-                reply: SendingReply::Inquiry,
-                ..
-            }
-            | Self::AwaitingReply { .. } => BudgetRetirement::Inquiry,
-            Self::Sending {
-                reply:
-                    SendingReply::AckThenCompletion
-                    | SendingReply::CompletionOnly
-                    | SendingReply::NoReply,
-                ..
-            }
-            | Self::AwaitingAck { .. }
-            | Self::AwaitingCompletion { .. }
-            | Self::Executing { .. }
-            | Self::ExecutingDisplaced { .. }
-            | Self::AwaitingCancellationResolution { .. } => BudgetRetirement::Command,
-        }
     }
 
     /// The old flattened view is useful to independent transition oracles.

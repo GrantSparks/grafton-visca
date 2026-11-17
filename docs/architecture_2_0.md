@@ -446,6 +446,14 @@ than the engine replaying it (#795).
 
 ### Raw unconfirmed outcomes and strict recovery
 
+`Entry::attempt_end` derives one closed `AttemptEnd` from the envelope, reply
+family, write evidence and the lifecycle's retry permission. `end_attempt`
+applies its correlation hold, retry or terminal consequence. Write refusal,
+failed or late successful writes, response deadlines and retry-budget expiry
+all use that decision; a raw datagram inquiry can retain its reply-skew hold
+while retrying, whereas a raw stream inquiry retains owed reply evidence and
+never retries a missing reply (#995).
+
 Retry follows the same evidence boundary. Sony timeout recovery resends the
 same logical request with the same sequence while it is unacknowledged. A
 conclusive camera rejection before ACK, such as buffer-full or no-socket,
