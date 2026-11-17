@@ -21,7 +21,7 @@ use crate::executor::{Executor, ResettableTimer};
 #[cfg(all(feature = "async", feature = "test-utils"))]
 use smallvec::SmallVec;
 
-#[cfg(all(feature = "test-utils", any(feature = "async", feature = "blocking")))]
+#[cfg(all(feature = "test-utils", feature = "blocking"))]
 use crate::Error;
 
 #[cfg(all(feature = "async", feature = "test-utils"))]

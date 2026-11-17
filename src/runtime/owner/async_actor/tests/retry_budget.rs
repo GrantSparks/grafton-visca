@@ -1,5 +1,6 @@
 //! #842: real preparation must permit a healthy late-ACK attempt to finish.
 use super::*;
+use crate::runtime::engine::CancellationPolicy;
 
 #[tokio::test]
 async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {

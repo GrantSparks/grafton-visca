@@ -727,6 +727,7 @@ mod tests {
 
     #[cfg(feature = "serde")]
     #[test]
+    #[allow(clippy::panic)]
     fn capability_constructor_and_serde_validate_identical_invariants() {
         for (min, max, gaps) in [
             (0_u16, 9, vec![]),

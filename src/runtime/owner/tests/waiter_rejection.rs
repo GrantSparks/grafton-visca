@@ -5,7 +5,7 @@
 //! the production paths; no caller timeout or queue failure is fabricated.
 
 use super::*;
-use crate::runtime::engine::{DecodedFrame, DecodedResponse, TransmissionMeta};
+use crate::runtime::engine::{CancellationPolicy, DecodedFrame, DecodedResponse, TransmissionMeta};
 
 pub(in crate::runtime::owner) const ITERATIONS: usize = 10_000;
 pub(in crate::runtime::owner) const BUDGET: Duration = Duration::from_secs(1);

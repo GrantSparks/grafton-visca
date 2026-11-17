@@ -15,9 +15,8 @@ use crate::runtime::engine::CommandOutcome;
 use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
-        CancellationPolicy, CommandReply, ControlPolicy, DecodedResponse, EncodedMessage,
-        ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeRequest, TargetPolicy,
-        TimeoutPolicy,
+        CommandReply, ControlPolicy, DecodedResponse, EncodedMessage, ProtocolPolicy,
+        RequestContext, RequestId, RetryPolicy, RuntimeRequest, TargetPolicy, TimeoutPolicy,
     },
     ViscaSocket,
 };

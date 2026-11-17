@@ -8,7 +8,7 @@ use super::*;
 
 #[cfg(any(feature = "blocking", feature = "test-utils"))]
 pub(super) mod waiter_rejection;
-use crate::{runtime::engine::CancellationPolicy, CameraId};
+use crate::CameraId;
 
 /// The outcome of a scripted physical send; preparation errors use NotSent.
 pub(super) fn write_outcome(result: Result<TransmissionMeta, Error>) -> WriteOutcome {
