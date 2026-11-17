@@ -81,8 +81,9 @@ pub(in crate::runtime::owner) enum ReceiveArm {
     /// Poll the transport, but not before `until`: the previous receive was
     /// idle or a transient fault, and its paced pause has not elapsed. Every
     /// other source stays selectable meanwhile, so a pause never delays a
-    /// boundary (#675). A pause is clamped to the next engine or grace
-    /// deadline, so it never defers a receive past a timer it must precede,
+    /// boundary (#675). A pause is clamped to the next ordinary or grace
+    /// deadline. An unfenced release timer waits beside a fault pause instead
+    /// of using its suppressed overdue hold, so it never skips the fresh probe,
     /// and a write ends it, so it never delays the reply the write invites.
     Paced { until: Instant },
     /// An exact no-input probe already completed for the latched release set:
@@ -94,7 +95,8 @@ pub(in crate::runtime::owner) enum ReceiveArm {
 /// What the timer source waits for in this selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::runtime::owner) enum TimerArm {
-    /// The engine's next wake. `due` records that it had already elapsed when
+    /// The engine's next wake, or the end of a failed raw-release probe's
+    /// pause while that wake is suppressed. `due` records that it elapsed when
     /// the turn was planned, so a shell must not rely on a zero-length sleep.
     Engine { at: Option<Instant>, due: bool },
     /// An engine-owned retained-prefix grace deadline (#713).
@@ -493,8 +495,11 @@ impl<B> OwnerCoordinator<B> {
     /// turn (forced or yielded) gets one.
     pub(in crate::runtime::owner) fn begin_turn(&mut self) -> bool {
         let yielded = self.phase == SourcePhase::BoundariesFirst;
-        self.forced = self.phase == SourcePhase::ReceiveFirst
-            && self.receive_first_streak >= self.fairness_ceiling;
+        // A pending release can restore receive-first selection after a
+        // malformed/discarded receive requested boundaries. That effective
+        // receive-first run must reach the same ceiling as ordinary input.
+        self.forced = self.receive_first_streak >= self.fairness_ceiling
+            && (self.phase == SourcePhase::ReceiveFirst || self.release.is_pending());
         if self.forced {
             self.receive_first_streak = 0;
         }
@@ -613,7 +618,20 @@ impl<B> OwnerCoordinator<B> {
             (_, Some(until)) => selection(release_phase, poll, TimerArm::Grace { until }),
             // Before due work can release correlation or dispatch, poll
             // receive under the same boundary order as every other turn.
-            (false, None) => selection(release_phase, poll, engine_timer),
+            (false, None) => {
+                // A transient fault suppresses the overdue release until a
+                // fresh probe. Keep its timer beside the paced receive so
+                // the failed probe cannot turn that pause into a zero-time
+                // wake, and give receive first refusal when it elapses.
+                let timer = match poll {
+                    ReceiveArm::Paced { until } => TimerArm::Engine {
+                        at: Some(until),
+                        due: false,
+                    },
+                    ReceiveArm::Poll | ReceiveArm::ProofComplete => engine_timer,
+                };
+                selection(release_phase, poll, timer)
+            }
         };
         TurnPlan::Select {
             selection: plan,
@@ -756,6 +774,13 @@ impl<B> OwnerCoordinator<B> {
         );
         self.receive_first_streak = match outcome {
             TurnOutcome::Continue | TurnOutcome::ContinueBuffered if receive => {
+                self.receive_first_streak.saturating_add(1)
+            }
+            TurnOutcome::YieldBoundaries if receive && self.release.is_pending() => {
+                // Malformed datagrams and discarded-only batches consumed
+                // input too. A pending release restores receive-first order,
+                // so they must spend its fairness budget just like a flood
+                // that retains an incomplete prefix.
                 self.receive_first_streak.saturating_add(1)
             }
             _ => 0,

@@ -1459,6 +1459,14 @@ A raw release does not create an exception to that order; it adds two rules.
   has elapsed it leads, so an eager receive cannot delay it further. If the due
   set grows before the timer turn, the latch is replaced and the new set needs
   its own proof (#746).
+
+  The failed probe's escalating pause is clamped to a pending grace, but not
+  to the suppressed, overdue hold. Without grace the release timer waits beside
+  that paced probe, which gets receive-first selection when the pause ends.
+  Malformed datagrams and discarded-only batches spend the pending release's
+  fairness budget too. Regressions: `a_latched_raw_release_paces_faults_until_the_session_ends`,
+  `a_latched_raw_release_paces_faults_on_manual_clock`, and
+  `raw_release_malformed_and_discarded_floods_serve_boundaries` (#1020).
 - **A boundary selected while a release is due is retained, not run.** Its
   ordinary input turn would run due work behind unread or retained evidence.
   The coordinator holds it in a single slot until the release resolves, and
@@ -1542,6 +1550,12 @@ a successful write resets idle escalation (#838).
 The coordinator paces only the receive
 source, so boundaries, timers, and control stay selectable during the pause in
 both shells, and an eager custom driver cannot hot-spin either owner (#723).
+The buffered-prefix cases are pinned by
+`tokio_buffered_no_progress_reaches_deadline_and_shutdown`,
+`smol_buffered_no_progress_reaches_deadline_and_shutdown`, and
+`buffered_no_progress_reaches_deadline_and_close_on_manual_clock` (#1020): an
+eager no-data or transient-fault read yields even when an incomplete frame is
+retained, so an already-due ACK deadline and shutdown remain selectable.
 
 <!-- BEGIN WRITE-ONLY STATE KEYS -->
 `PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`.

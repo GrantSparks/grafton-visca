@@ -110,6 +110,36 @@ fn a_boundary_turn_resets_the_receive_streak() {
 }
 
 #[test]
+fn one_non_progressing_receive_yields_an_ordinary_due_wake() {
+    for class in [ReceiveClass::NoInput, ReceiveClass::TransientFault] {
+        let now = Instant::now();
+        let mut coordinator = OwnerCoordinator::<u32>::default();
+        coordinator.begin_turn();
+        let _ = select(coordinator.plan(now, Some(now), empty(), || true));
+        assert!(coordinator.finish(
+            Selected::Receive {
+                due_at_receive: empty(),
+                class
+            },
+            None,
+            TurnOutcome::YieldBoundaries
+        ));
+        coordinator.begin_turn();
+        let next = select(coordinator.plan(now, Some(now), empty(), || true));
+        assert_eq!(next.phase, SourcePhase::BoundariesFirst);
+        assert!(
+            next.order()
+                .position(|source| source == Source::Timer)
+                .unwrap()
+                < next
+                    .order()
+                    .position(|source| source == Source::Receive)
+                    .unwrap()
+        );
+    }
+}
+
+#[test]
 fn an_ordinary_turn_selects_every_source_with_the_engine_timer() {
     let mut coordinator = OwnerCoordinator::<u32>::default();
     let now = Instant::now();
@@ -211,6 +241,14 @@ fn a_pending_release_keeps_its_probe_paced_and_proof_complete_unpaced() {
     coordinator.begin_turn();
     let probe = select(coordinator.plan(now, Some(now), set(&[1]), || false));
     assert_eq!(probe.receive, ReceiveArm::Paced { until });
+    assert_eq!(
+        probe.timer,
+        TimerArm::Engine {
+            at: Some(until),
+            due: false
+        }
+    );
+    assert_eq!(probe.phase, SourcePhase::ReceiveFirst);
 
     assert_eq!(
         coordinator.classify(
@@ -237,6 +275,40 @@ fn a_pending_release_keeps_its_probe_paced_and_proof_complete_unpaced() {
         select(coordinator.plan(now, Some(now), set(&[1]), || false)).receive,
         ReceiveArm::ProofComplete,
         "a completed no-input proof needs no read, so it is never paced"
+    );
+}
+
+#[test]
+fn discarded_input_spends_the_pending_release_fairness_budget() {
+    let now = Instant::now();
+    let due = set(&[1]);
+    let mut coordinator = OwnerCoordinator::<u32>::default();
+    coordinator.set_fairness_ceiling(std::num::NonZeroUsize::new(2).unwrap());
+    for _ in 0..2 {
+        coordinator.begin_turn();
+        let selection = select(coordinator.plan(now, Some(now), due, || false));
+        assert_eq!(selection.phase, SourcePhase::ReceiveFirst);
+        assert!(coordinator.finish(
+            Selected::Receive {
+                due_at_receive: due,
+                class: ReceiveClass::Other
+            },
+            None,
+            TurnOutcome::YieldBoundaries
+        ));
+    }
+    assert!(coordinator.begin_turn());
+    let forced = select(coordinator.plan(now, Some(now), due, || false));
+    assert_eq!(forced.phase, SourcePhase::BoundariesFirst);
+    assert!(
+        forced
+            .order()
+            .position(|source| source == Source::Timer)
+            .unwrap()
+            < forced
+                .order()
+                .position(|source| source == Source::Receive)
+                .unwrap()
     );
 }
 
@@ -593,7 +665,9 @@ mod model {
     pub(super) enum Recv {
         Pending,
         NoInput,
+        BufferedNoInput,
         Fault,
+        BufferedFault,
         Frames,
         /// Bytes arrive, but the framer still retains a partial prefix.
         Buffered,
@@ -614,7 +688,7 @@ mod model {
         Turn,
     }
 
-    pub(super) const ALPHABET: [Step; 16] = [
+    pub(super) const ALPHABET: [Step; 18] = [
         Step::Admission,
         Step::ExpiredAdmission,
         Step::Cancellation,
@@ -624,7 +698,9 @@ mod model {
         Step::HoldSoon,
         Step::Receive(Recv::Pending),
         Step::Receive(Recv::NoInput),
+        Step::Receive(Recv::BufferedNoInput),
         Step::Receive(Recv::Fault),
+        Step::Receive(Recv::BufferedFault),
         Step::Receive(Recv::Frames),
         Step::Prefix,
         Step::Tick(10),
@@ -682,6 +758,7 @@ mod model {
         parked: Option<Selection>,
         stopped: bool,
         faults: u32,
+        fault_started: Option<Instant>,
         receive_wins_with_boundary_ready: usize,
         receive_wins_with_release_timer_ready: usize,
         control_wins_for_due_wake: Option<(Option<Instant>, usize)>,
@@ -709,6 +786,7 @@ mod model {
                 parked: None,
                 stopped: false,
                 faults: 0,
+                fault_started: None,
                 receive_wins_with_boundary_ready: 0,
                 receive_wins_with_release_timer_ready: 0,
                 control_wins_for_due_wake: None,
@@ -918,7 +996,8 @@ mod model {
                     Source::Shutdown | Source::Cancellation | Source::Admission
                 ) && self.ready(selection, source)
             });
-            let fault = winner == Source::Receive && self.receive == Recv::Fault;
+            let fault = winner == Source::Receive
+                && matches!(self.receive, Recv::Fault | Recv::BufferedFault);
             if fault {
                 // Excluded; see `FAIRNESS_BOUND`.
             } else if winner == Source::Receive && boundary_ready {
@@ -976,8 +1055,8 @@ mod model {
                 Event::Receive(receive) => Selected::Receive {
                     due_at_receive: self.due(selected_at),
                     class: match receive {
-                        Recv::NoInput => ReceiveClass::NoInput,
-                        Recv::Fault => ReceiveClass::TransientFault,
+                        Recv::NoInput | Recv::BufferedNoInput => ReceiveClass::NoInput,
+                        Recv::Fault | Recv::BufferedFault => ReceiveClass::TransientFault,
                         Recv::Frames | Recv::Buffered | Recv::Pending => ReceiveClass::Other,
                     },
                 },
@@ -1051,16 +1130,27 @@ mod model {
                     TurnOutcome::Continue
                 }
                 Event::Timer => self.wake(),
-                Event::Receive(Recv::NoInput) => {
+                Event::Receive(receive @ (Recv::NoInput | Recv::BufferedNoInput)) => {
+                    self.prefix |= receive == Recv::BufferedNoInput;
                     self.idle_pause();
                     TurnOutcome::YieldBoundaries
                 }
-                Event::Receive(Recv::Fault) => {
+                Event::Receive(receive @ (Recv::Fault | Recv::BufferedFault)) => {
+                    self.prefix |= receive == Recv::BufferedFault;
+                    if self.faults == 0 {
+                        self.fault_started = Some(self.now);
+                    }
                     self.faults += 1;
-                    if self.faults >= FAULT_LIMIT {
+                    if super::super::super::TransientFaultRun::is_permanent(
+                        self.faults,
+                        self.now.duration_since(self.fault_started.unwrap()),
+                    ) {
                         return TurnOutcome::Stop;
                     }
-                    self.idle_pause();
+                    // A fault advances elapsed time even while the raw
+                    // hold is suppressed; its due deadline cannot zero-clamp
+                    // the probe pause.
+                    self.now += super::super::super::transient_receive_pause(self.faults);
                     TurnOutcome::YieldBoundaries
                 }
                 Event::Receive(Recv::Frames) => {

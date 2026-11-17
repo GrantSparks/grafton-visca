@@ -549,8 +549,9 @@ impl OwnerShellCore {
     /// The interval to pause the receive source for `pause`, sampled at
     /// `now`. A zero interval means no pause.
     ///
-    /// Both pauses escalate with their run and are clamped to the next
-    /// scheduler deadline. An idle pause records no fault, does not clear an
+    /// Both pauses escalate with their run. Ordinary deadlines clamp them;
+    /// a pending release clamps a fault pause only to its real grace deadline.
+    /// An idle pause records no fault, does not clear an
     /// existing fault run, and spends no retry budget: only a successful read
     /// or the five-second fault gap proves transient failures stopped
     /// accumulating. For an idle pause, a retained-prefix grace supersedes an
@@ -569,7 +570,16 @@ impl OwnerShellCore {
                 clamp_receive_pause(self.idle_receives.record(), deadline, now)
             }
             ReceivePause::Fault { run } => {
-                clamp_receive_pause(transient_receive_pause(run), self.state.next_wake(now), now)
+                // A failed release probe did not establish that the old
+                // correlation is clear. Its overdue hold is suppressed, so
+                // it cannot also clamp away the pause that paces that probe.
+                let release = self.coordinator.release_mut();
+                let deadline = if release.is_pending() {
+                    release.await_until()
+                } else {
+                    self.state.next_wake(now)
+                };
+                clamp_receive_pause(transient_receive_pause(run), deadline, now)
             }
         }
     }
@@ -745,13 +755,12 @@ impl OwnerShellCore {
     /// rate (#675). A read that waited its full timeout already yielded while
     /// blocked; keep receive first so its next reply can beat an equal timer.
     fn idle_receive(&mut self, driver: &mut impl RetainedStreamInput, eager: bool) -> TurnStep {
-        let buffered = driver.retained().is_some();
         if eager {
             TurnStep::Pace {
                 pause: ReceivePause::Idle,
-                outcome: Self::receive_outcome(buffered),
+                outcome: TurnOutcome::YieldBoundaries,
             }
-        } else if buffered {
+        } else if driver.retained().is_some() {
             TurnStep::Done(TurnOutcome::ContinueBuffered)
         } else {
             TurnStep::Done(TurnOutcome::Continue)
@@ -862,8 +871,7 @@ impl OwnerShellCore {
         // replayed. The pause guards against hot-looping on an immediately
         // failing transport; it grows with the run and is clamped
         // to the next scheduler deadline.
-        let buffered = driver.retained().is_some();
-        let effects = if buffered || suppress_due_for_raw_probe_fault {
+        let effects = if driver.retained().is_some() || suppress_due_for_raw_probe_fault {
             let turn = self.state.begin_input_turn(received_at);
             let mut effects = self
                 .state
@@ -879,17 +887,7 @@ impl OwnerShellCore {
         self.pace_receive(ReceivePause::Fault { run: length }, received_at);
         TurnStep::Drive {
             effects,
-            then: Resume::done(Self::receive_outcome(buffered)),
-        }
-    }
-
-    /// Keep protocol input first while the framer retains input; otherwise
-    /// give the boundaries the next selection.
-    const fn receive_outcome(buffered_stream_input: bool) -> TurnOutcome {
-        if buffered_stream_input {
-            TurnOutcome::ContinueBuffered
-        } else {
-            TurnOutcome::YieldBoundaries
+            then: Resume::done(TurnOutcome::YieldBoundaries),
         }
     }
 

@@ -535,10 +535,10 @@ const RAW_INQUIRY_REJECTION_BYTES: [u8; 4] = [0x90, 0x60, 0x41, 0xff];
 /// [`raw_inquiry_rejection`] through the actor's own receive turn, at the
 /// current virtual instant, for tests that drive `handle_event` directly.
 #[cfg(feature = "runtime-tokio")]
-async fn reject_raw_stream_predecessor<D: AsyncOwnerDriver>(
-    actor: &mut AsyncOwnerActor<ManualRuntime>,
+async fn reject_raw_stream_predecessor<R: Executor, D: AsyncOwnerDriver>(
+    actor: &mut AsyncOwnerActor<R>,
     driver: &mut D,
-    runtime: &ManualRuntime,
+    runtime: &R,
 ) {
     let now = Executor::now(runtime);
     actor
@@ -1752,6 +1752,13 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
             matches!(next, BoundaryOrder::Read),
             "{description} must be consumed before the due release can write B"
         );
+        if description == "the fault" {
+            // #1020: the overdue hold no longer zero-clamps this failed
+            // probe's pause. Stale A stays queued until the paced re-probe,
+            // and still wins over the release timer at that instant.
+            assert!(harness.reads_observed.try_recv().is_err());
+            runtime.advance(crate::runtime::owner::turn::transient_receive_pause(1));
+        }
     }
     assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
     handle.metrics().await.unwrap();
@@ -2399,6 +2406,116 @@ impl AsyncOwnerDriver for NoDataDriver {
 
 impl RetainedStreamInput for NoDataDriver {}
 
+/// #1020: retained bytes are an incomplete prefix, not receive progress.
+#[derive(Debug, Clone, Copy)]
+enum BufferedNoProgress {
+    EagerIdle,
+    Timeout,
+    Fault,
+}
+
+#[derive(Debug)]
+struct BufferedNoProgressDriver {
+    outcome: BufferedNoProgress,
+    reads: Arc<std::sync::atomic::AtomicU64>,
+    written: bool,
+    buffered: bool,
+}
+
+impl AsyncOwnerDriver for BufferedNoProgressDriver {
+    #[allow(clippy::manual_async_fn)]
+    fn write(&mut self, _write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
+        self.written = true;
+        self.buffered = true;
+        async { WriteOutcome::Sent(TransmissionMeta::Raw) }
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn receive(
+        &mut self,
+        _buffers: &mut super::super::OwnerBuffers,
+    ) -> impl Future<Output = OwnerReceive> + Send {
+        async move {
+            if !self.written {
+                return future::pending().await;
+            }
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            match self.outcome {
+                BufferedNoProgress::EagerIdle => {
+                    OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
+                }
+                BufferedNoProgress::Timeout => OwnerReceive::read_error(Error::io_timeout()),
+                BufferedNoProgress::Fault => OwnerReceive::read_error(Error::transport_error(
+                    std::io::Error::other("injected buffered receive fault"),
+                )),
+            }
+        }
+    }
+}
+
+impl RetainedStreamInput for BufferedNoProgressDriver {
+    fn retained(&self) -> Option<super::super::RetainedInput> {
+        self.buffered.then_some(super::super::RetainedInput {
+            len: std::num::NonZeroUsize::new(1).unwrap(),
+            evidence: super::super::RetainedEvidence::Incomplete {
+                target: TargetSlot::CAMERA_1,
+                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            },
+        })
+    }
+
+    fn discard_first(&mut self) -> Result<(), Error> {
+        self.buffered = false;
+        Ok(())
+    }
+}
+
+async fn assert_buffered_no_progress_is_bounded<R: Runtime>(
+    runtime: R,
+    handle: AsyncOwnerHandle,
+    terminated: flume::Receiver<OwnerSnapshot>,
+    reads: Arc<std::sync::atomic::AtomicU64>,
+) {
+    let mut request = command();
+    let RuntimeRequest::Command { context, .. } = &mut request else {
+        unreachable!("command fixture");
+    };
+    context.timeout.ack =
+        crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(50)).unwrap();
+    let receipt = crate::timeout::within(
+        handle.submit(request),
+        Executor::sleep(&runtime, Duration::from_secs(1)),
+    )
+    .await
+    .expect("a buffered receive must not starve admission")
+    .unwrap();
+    let terminal = crate::timeout::within(
+        receipt.terminal(),
+        Executor::sleep(&runtime, Duration::from_millis(300)),
+    )
+    .await
+    .expect("the 50 ms ACK deadline must run within one maximum pause")
+    .unwrap();
+    assert!(matches!(
+        terminal,
+        RuntimeOutcome::Command(CommandOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
+    ));
+    Executor::sleep(&runtime, Duration::from_millis(450)).await;
+    assert!(
+        reads.load(Ordering::Relaxed) < 20,
+        "buffered no-progress read hot-spun"
+    );
+    handle.shutdown().unwrap();
+    let snapshot = crate::timeout::within(
+        terminated.recv_async(),
+        Executor::sleep(&runtime, Duration::from_secs(1)),
+    )
+    .await
+    .expect("shutdown must not be starved by a retained prefix")
+    .unwrap();
+    assert_eq!(snapshot.state, SessionState::Shutdown);
+}
+
 // ---------------------------------------------------------------------
 // #746: raw-release selection must tolerate non-parking custom transports.
 // ---------------------------------------------------------------------
@@ -2433,8 +2550,17 @@ struct ImmediateRawGraceDriver {
 /// progress but keeps stream framing buffered, so only the ordinary fairness
 /// ceiling can force the boundary lane.
 #[cfg(feature = "runtime-tokio")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RawFloodShape {
+    Buffered,
+    MalformedDatagram,
+    DiscardedBatch,
+}
+
+#[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct RawBufferedFloodDriver {
+    shape: RawFloodShape,
     reads: Arc<std::sync::atomic::AtomicU64>,
     buffered: Arc<std::sync::atomic::AtomicBool>,
     writes: flume::Sender<RequestId>,
@@ -2458,9 +2584,19 @@ impl AsyncOwnerDriver for RawBufferedFloodDriver {
         _buffers: &mut super::super::OwnerBuffers,
     ) -> impl Future<Output = OwnerReceive> + Send {
         let reads = Arc::clone(&self.reads);
+        let shape = self.shape;
         async move {
             reads.fetch_add(1, Ordering::Relaxed);
-            OwnerReceive::Frames(crate::runtime::owner::FrameBatch::new())
+            if shape == RawFloodShape::MalformedDatagram {
+                return OwnerReceive::NoProgress(
+                    crate::runtime::owner::NoProgressReason::MalformedDatagram,
+                );
+            }
+            let mut frames = crate::runtime::owner::FrameBatch::new();
+            if shape == RawFloodShape::DiscardedBatch {
+                frames.discarded = 1;
+            }
+            OwnerReceive::Frames(frames)
         }
     }
 }
