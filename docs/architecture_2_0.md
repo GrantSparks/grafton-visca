@@ -928,9 +928,13 @@ retention bound `max_buffer_size + recv_buffer_size`, a Sony header with an unde
 a payload the framer cannot retain, is a genuine framing failure that still
 poisons a stream (#848). For the serial preset the bound is 8192 + 256 = 8448
 bytes, and overflow reports that configured bound. Raw and Sony framers are
-separate types with one strict, nonmutating overflow policy. The adapter pairs
-each framer with its matching envelope and visits frame bytes by reference;
-it does not copy them into a second framing scratch buffer.
+separate types with one strict, nonmutating overflow policy. Each producer has
+its own closed rejection type: pushing can only overflow, raw scanning can
+only reject an oversized delimited frame, and Sony scanning can only lose
+position to an invalid header or oversized declaration. A raw rejection carries
+the exact consumed boundary, so discarding never rescans for its terminator.
+The adapter pairs each framer with its matching envelope and visits frame bytes
+by reference; it does not copy them into a second framing scratch buffer.
 
 One immutable `WireProtocol` authority is created for the session and shared
 with the deterministic engine. Engine mode predicates derive from that authority;
@@ -943,7 +947,10 @@ plan does not allocate a Sony sequence. Execution validates the payload before
 allocating a fresh sequence, and replay leaves the allocator unchanged. The
 adapter's receive framer is constructed from that same authority, once.
 
-Receive batches reuse the owner's bounded storage after the shell consumes them. The read
+Receive batches reuse the owner's bounded storage after the shell consumes them.
+The stream decoder borrows a vacant batch slot before consuming a frame, so
+exceeding the frame count cannot become a malformed-datagram verdict on a stream.
+The read
 boundary produces one closed verdict (frames, no progress, transient failure,
 or fatal failure), retaining original fatal causes. The shell executes that
 verdict without classifying OS errors again. Retained stream inspection is an

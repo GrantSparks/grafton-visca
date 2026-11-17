@@ -24,7 +24,7 @@ use crate::{
         system_wire::{AddressSetCommand, InterfaceClearCommand},
     },
     error::{Error, Result},
-    protocol::framer::{Framer, FramingError, RawFramer},
+    protocol::framer::{BufferOverflow, Framer, OversizedRawFrame, RawFramer},
     timeout::Deadline,
     transport::{
         serial::{Config, SERIAL_PORT_CLOSED},
@@ -78,6 +78,14 @@ fn address_set_reply(frame: &[u8]) -> Option<u8> {
         }
         _ => None,
     }
+}
+
+/// The closed protocol verdict of one Address Set input chunk.
+enum AddressSetChunk {
+    Reply(u8),
+    ChainTooLong(u8),
+    Pending,
+    Overflow(BufferOverflow),
 }
 
 /// The I/O the startup asks its driver to perform next.
@@ -398,53 +406,54 @@ impl SerialStartup {
         };
         trace!("Address Set response: {chunk:02X?}");
         match self.process_chunk(chunk) {
-            Ok(Some(camera_count)) => {
+            AddressSetChunk::Reply(camera_count) => {
                 debug!("Address Set complete, {camera_count} cameras found");
                 self.addressed_cameras = Some(camera_count);
                 self.state = State::Next;
             }
-            Ok(None) => {
+            AddressSetChunk::Pending => {
                 self.state = State::AddressSet {
                     attempt,
                     deadline,
                     phase: AddressPhase::Pause,
                 }
             }
-            Err(error @ Error::ResponseTooLarge { .. }) => {
-                warn!(?error, "Address Set attempt discarded unframeable input");
+            AddressSetChunk::Overflow(BufferOverflow { max_size }) => {
+                warn!(max_size, "Address Set attempt discarded unframeable input");
                 self.expire_address_set(attempt);
             }
-            Err(error) => self.fail(error),
+            AddressSetChunk::ChainTooLong(camera_count) => self.fail(Error::SerialChainTooLong {
+                port: self.port.clone().into(),
+                reported: camera_count,
+            }),
         }
     }
 
     /// Feed one chunk through the bounded raw framer.
-    fn process_chunk(&mut self, chunk: &[u8]) -> Result<Option<u8>> {
-        self.framer.push_slice(chunk)?;
+    fn process_chunk(&mut self, chunk: &[u8]) -> AddressSetChunk {
+        if let Err(overflow) = self.framer.push_slice(chunk) {
+            return AddressSetChunk::Overflow(overflow);
+        }
         while let Some(frame) = self.framer.visit_next_frame(address_set_reply) {
             match frame {
                 Ok(Some(camera_count)) => {
                     if usize::from(camera_count) > crate::target::TargetSlot::COUNT {
-                        return Err(Error::SerialChainTooLong {
-                            port: self.port.clone().into(),
-                            reported: camera_count,
-                        });
+                        return AddressSetChunk::ChainTooLong(camera_count);
                     }
-                    return Ok(Some(camera_count));
+                    return AddressSetChunk::Reply(camera_count);
                 }
                 Ok(None) => {}
                 // Raw framing has already discarded through the terminator;
                 // treat the oversized frame as bus noise.
-                Err(FramingError::OversizedRawFrame { max_size }) => {
+                Err(OversizedRawFrame { max_size, .. }) => {
                     warn!(
                         max_size,
                         "Discarded oversized serial Address Set noise frame"
                     );
                 }
-                Err(error) => return Err(error.into()),
             }
         }
-        Ok(None)
+        AddressSetChunk::Pending
     }
 
     /// Retry only a fully written Address Set whose bounded reply was absent.

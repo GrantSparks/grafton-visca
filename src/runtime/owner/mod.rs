@@ -635,7 +635,13 @@ impl FrameBatch {
         }
     }
 
-    /// Refuse a frame beyond the batch's construction-time bound.
+    /// Borrow a vacant slot before decoding consumes any stream bytes.
+    fn vacancy(&mut self) -> Option<FrameVacancy<'_>> {
+        (self.frames.len() < self.limit).then_some(FrameVacancy(self))
+    }
+
+    /// Refuse a frame beyond the batch's construction-time bound in probes.
+    #[cfg(any(test, feature = "test-utils"))]
     fn try_push(&mut self, frame: DecodedFrame) -> Result<(), DecodedFrame> {
         if self.frames.len() >= self.limit {
             return Err(frame);
@@ -651,6 +657,15 @@ impl FrameBatch {
     fn clear(&mut self) {
         self.frames.clear();
         self.discarded = 0;
+    }
+}
+
+/// Exclusive loan proving the batch has space for one decoded frame.
+struct FrameVacancy<'a>(&'a mut FrameBatch);
+
+impl FrameVacancy<'_> {
+    fn fill(self, frame: DecodedFrame) {
+        self.0.frames.push_back(frame);
     }
 }
 

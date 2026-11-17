@@ -7,6 +7,7 @@
 #[cfg(test)]
 use bytes::Bytes;
 use bytes::{Buf, BytesMut};
+use std::num::NonZeroUsize;
 
 use crate::protocol::sony::PayloadType;
 use crate::{
@@ -17,31 +18,47 @@ use crate::{
     Error, ViscaSocket,
 };
 
-/// A framing verdict distinguishes a discarded raw frame from lost position.
-///
-/// Only [`Self::OversizedRawFrame`] preserves the next frame's boundary. An
-/// owner may count and discard that frame on a stream; the other variants are
-/// terminal framing failures. Oversize transport errors retain the configured
-/// byte limit through the conversion to [`Error`].
+/// Accumulated input exceeded the retention bound plus one full read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FramingError {
-    /// A raw frame was discarded through its terminating `0xFF`.
-    OversizedRawFrame { max_size: usize },
-    /// Accumulated input exceeded the retention bound plus one full read.
-    BufferOverflow { max_size: usize },
-    /// A Sony header declares a frame larger than the configured frame limit.
-    OversizedSonyFrame { max_size: usize },
-    /// The payload-type prefix cannot begin a Sony header.
-    InvalidSonyHeader,
+pub(crate) struct BufferOverflow {
+    pub(crate) max_size: usize,
 }
 
-impl From<FramingError> for Error {
-    fn from(error: FramingError) -> Self {
+impl From<BufferOverflow> for Error {
+    fn from(error: BufferOverflow) -> Self {
+        Self::ResponseTooLarge {
+            max_size: error.max_size,
+        }
+    }
+}
+
+/// A raw frame was discarded through this exact terminating boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OversizedRawFrame {
+    pub(crate) max_size: usize,
+    pub(crate) through: NonZeroUsize,
+}
+
+impl From<OversizedRawFrame> for Error {
+    fn from(error: OversizedRawFrame) -> Self {
+        Self::ResponseTooLarge {
+            max_size: error.max_size,
+        }
+    }
+}
+
+/// Sony framing cannot recover the next boundary after either rejection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SonyPositionLost {
+    Oversized { max_size: usize },
+    InvalidHeader,
+}
+
+impl From<SonyPositionLost> for Error {
+    fn from(error: SonyPositionLost) -> Self {
         match error {
-            FramingError::OversizedRawFrame { max_size }
-            | FramingError::BufferOverflow { max_size }
-            | FramingError::OversizedSonyFrame { max_size } => Self::ResponseTooLarge { max_size },
-            FramingError::InvalidSonyHeader => Self::invalid_response(
+            SonyPositionLost::Oversized { max_size } => Self::ResponseTooLarge { max_size },
+            SonyPositionLost::InvalidHeader => Self::invalid_response(
                 "valid Sony header payload type; stream frame boundary is unknown",
                 Vec::new(),
             ),
@@ -49,12 +66,12 @@ impl From<FramingError> for Error {
     }
 }
 
-/// The complete decision of a bounded frame scan.
+/// The complete decision of one bounded frame grammar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FrameScan {
+pub(crate) enum FrameScan<R> {
     Complete(usize),
     NeedMore,
-    Rejected(FramingError),
+    Rejected(R),
 }
 
 /// The protocol identity visible in an incomplete raw response prefix.
@@ -125,36 +142,25 @@ mod private {
 
 /// One bounded frame grammar with allocation-free borrowed visitation.
 pub(crate) trait Framer: private::Sealed {
+    type Rejection: std::fmt::Debug + Copy;
     fn buffer(&self) -> &FrameBuffer;
     fn buffer_mut(&mut self) -> &mut FrameBuffer;
     fn from_buffer(buffer: FrameBuffer) -> Self;
-    fn frame_len(&self, input: &[u8]) -> FrameScan;
-    fn next_frame_len(&mut self) -> FrameScan {
+    fn frame_len(&self, input: &[u8]) -> FrameScan<Self::Rejection>;
+    fn discard_rejected(&mut self, rejection: Self::Rejection);
+    fn next_frame_len(&mut self) -> FrameScan<Self::Rejection> {
         let next = self.frame_len(&self.buffer().buf);
-        match next {
-            FrameScan::Rejected(FramingError::OversizedRawFrame { .. }) => {
-                // The raw scanner rejects only a delimited frame, whose exact
-                // boundary remains known despite exceeding the configured size.
-                if let Some(position) = self
-                    .buffer()
-                    .buf
-                    .iter()
-                    .position(|byte| *byte == VISCA_TERMINATOR)
-                {
-                    self.buffer_mut().buf.advance(position + 1);
-                }
-            }
-            FrameScan::Rejected(_) => self.buffer_mut().buf.clear(),
-            FrameScan::Complete(_) | FrameScan::NeedMore => {}
+        if let FrameScan::Rejected(rejection) = next {
+            self.discard_rejected(rejection);
         }
         next
     }
 
     /// Push bytes without changing retained input if the hard bound is exceeded.
-    fn push_slice(&mut self, chunk: &[u8]) -> Result<(), FramingError> {
+    fn push_slice(&mut self, chunk: &[u8]) -> Result<(), BufferOverflow> {
         let buffer = self.buffer_mut();
         if buffer.buf.len().saturating_add(chunk.len()) > buffer.max_buffer_size {
-            return Err(FramingError::BufferOverflow {
+            return Err(BufferOverflow {
                 max_size: buffer.max_buffer_size,
             });
         }
@@ -167,7 +173,7 @@ pub(crate) trait Framer: private::Sealed {
     fn visit_next_frame<T>(
         &mut self,
         visit: impl FnOnce(&[u8]) -> T,
-    ) -> Option<Result<T, FramingError>> {
+    ) -> Option<Result<T, Self::Rejection>> {
         let length = match self.next_frame_len() {
             FrameScan::Complete(length) => length,
             FrameScan::NeedMore => return None,
@@ -206,7 +212,7 @@ pub(crate) trait Framer: private::Sealed {
         })
     }
     #[cfg(test)]
-    fn push(&mut self, bytes: Bytes) -> Result<(), FramingError> {
+    fn push(&mut self, bytes: Bytes) -> Result<(), BufferOverflow> {
         self.push_slice(&bytes)
     }
     #[cfg(test)]
@@ -215,11 +221,11 @@ pub(crate) trait Framer: private::Sealed {
     }
     /// Owned output is only a test convenience; production uses borrowed visits.
     #[cfg(test)]
-    fn drain_frames(&mut self) -> impl Iterator<Item = Result<Bytes, FramingError>> + '_ {
+    fn drain_frames(&mut self) -> impl Iterator<Item = Result<Bytes, Self::Rejection>> + '_ {
         std::iter::from_fn(move || self.visit_next_frame(Bytes::copy_from_slice))
     }
     #[cfg(all(test, feature = "blocking"))]
-    fn drain_on_eof(&mut self) -> Option<Result<Bytes, FramingError>> {
+    fn drain_on_eof(&mut self) -> Option<Result<Bytes, Self::Rejection>> {
         self.visit_next_frame(Bytes::copy_from_slice)
     }
 }
@@ -288,6 +294,11 @@ impl RawFramer {
 }
 
 impl Framer for RawFramer {
+    type Rejection = OversizedRawFrame;
+
+    fn discard_rejected(&mut self, rejection: Self::Rejection) {
+        self.buffer.buf.advance(rejection.through.get());
+    }
     fn buffer(&self) -> &FrameBuffer {
         &self.buffer
     }
@@ -297,14 +308,16 @@ impl Framer for RawFramer {
     fn from_buffer(buffer: FrameBuffer) -> Self {
         Self { buffer }
     }
-    fn frame_len(&self, input: &[u8]) -> FrameScan {
+    fn frame_len(&self, input: &[u8]) -> FrameScan<Self::Rejection> {
         let Some(position) = input.iter().position(|byte| *byte == VISCA_TERMINATOR) else {
             return FrameScan::NeedMore;
         };
-        let length = position + 1;
+        let through = NonZeroUsize::MIN.saturating_add(position);
+        let length = through.get();
         if length > self.buffer.max_frame_size {
-            FrameScan::Rejected(FramingError::OversizedRawFrame {
+            FrameScan::Rejected(OversizedRawFrame {
                 max_size: self.buffer.max_frame_size,
+                through,
             })
         } else {
             FrameScan::Complete(length)
@@ -325,6 +338,11 @@ impl SonyFramer {
 }
 
 impl Framer for SonyFramer {
+    type Rejection = SonyPositionLost;
+
+    fn discard_rejected(&mut self, _rejection: Self::Rejection) {
+        self.buffer.buf.clear();
+    }
     fn buffer(&self) -> &FrameBuffer {
         &self.buffer
     }
@@ -334,19 +352,19 @@ impl Framer for SonyFramer {
     fn from_buffer(buffer: FrameBuffer) -> Self {
         Self { buffer }
     }
-    fn frame_len(&self, input: &[u8]) -> FrameScan {
+    fn frame_len(&self, input: &[u8]) -> FrameScan<Self::Rejection> {
         if input.len() >= 2 && PayloadType::from_bytes([input[0], input[1]]).is_none() {
-            return FrameScan::Rejected(FramingError::InvalidSonyHeader);
+            return FrameScan::Rejected(SonyPositionLost::InvalidHeader);
         }
         let Some(header_bytes) = input.get(..SonyHeader::SIZE) else {
             return FrameScan::NeedMore;
         };
-        let Some(header) = SonyHeader::decode(header_bytes) else {
-            return FrameScan::Rejected(FramingError::InvalidSonyHeader);
-        };
-        let length = SonyHeader::SIZE + usize::from(header.payload_length);
+        // The payload type was checked above. Framing needs only the total
+        // length field, so no second fallible header decode is necessary.
+        let payload_length = u16::from_be_bytes([header_bytes[2], header_bytes[3]]);
+        let length = SonyHeader::SIZE + usize::from(payload_length);
         if length > self.buffer.max_frame_size {
-            FrameScan::Rejected(FramingError::OversizedSonyFrame {
+            FrameScan::Rejected(SonyPositionLost::Oversized {
                 max_size: self.buffer.max_frame_size,
             })
         } else if input.len() >= length {
@@ -674,7 +692,7 @@ mod tests {
         let verdicts: Vec<_> = framer.drain_frames().collect();
         assert_eq!(
             verdicts,
-            [Err(FramingError::OversizedSonyFrame { max_size: 32 })]
+            [Err(SonyPositionLost::Oversized { max_size: 32 })]
         );
         assert!(framer.drain_frames().next().is_none());
         assert!(framer.is_empty());
@@ -694,7 +712,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             framer.drain_frames().next(),
-            Some(Err(FramingError::OversizedSonyFrame { max_size: 20 }))
+            Some(Err(SonyPositionLost::Oversized { max_size: 20 }))
         ));
         assert!(framer.is_empty());
     }
@@ -838,7 +856,7 @@ mod tests {
         // Sony header may be guessed as the next boundary.
         assert_eq!(
             frames,
-            vec![Ok(Bytes::from(sony1)), Err(FramingError::InvalidSonyHeader)]
+            vec![Ok(Bytes::from(sony1)), Err(SonyPositionLost::InvalidHeader)]
         );
         assert!(framer.is_empty());
     }
@@ -1024,7 +1042,7 @@ mod tests {
         let results: Vec<_> = framer.drain_frames().collect();
         assert_eq!(results.len(), 1);
         match &results[0] {
-            Err(FramingError::OversizedSonyFrame { max_size }) => {
+            Err(SonyPositionLost::Oversized { max_size }) => {
                 assert_eq!(*max_size, 20);
             }
             _ => panic!("Expected ResponseTooLarge error"),
@@ -1058,7 +1076,7 @@ mod tests {
         let results: Vec<_> = framer.drain_frames().collect();
         assert_eq!(results.len(), 1);
         match &results[0] {
-            Err(FramingError::OversizedRawFrame { max_size }) => {
+            Err(OversizedRawFrame { max_size, .. }) => {
                 assert_eq!(*max_size, 10);
             }
             _ => panic!("Expected ResponseTooLarge error"),
@@ -1066,6 +1084,34 @@ mod tests {
 
         // Buffer should be cleared after error
         assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn closed_rejections_preserve_public_error_details() {
+        for (error, expected_limit) in [
+            (Error::from(BufferOverflow { max_size: 72 }), 72),
+            (
+                Error::from(OversizedRawFrame {
+                    max_size: 3,
+                    through: NonZeroUsize::new(4).unwrap(),
+                }),
+                3,
+            ),
+            (
+                Error::from(SonyPositionLost::Oversized { max_size: 20 }),
+                20,
+            ),
+        ] {
+            assert!(
+                matches!(error, Error::ResponseTooLarge { max_size } if max_size == expected_limit)
+            );
+        }
+        assert!(matches!(
+            Error::from(SonyPositionLost::InvalidHeader),
+            Error::InvalidResponse { expected, actual }
+                if expected == "valid Sony header payload type; stream frame boundary is unknown"
+                    && actual.is_empty()
+        ));
     }
 
     #[test]
@@ -1079,7 +1125,10 @@ mod tests {
         assert_eq!(
             results,
             [
-                Err(FramingError::OversizedRawFrame { max_size: 3 }),
+                Err(OversizedRawFrame {
+                    max_size: 3,
+                    through: NonZeroUsize::new(4).unwrap()
+                }),
                 Ok(Bytes::from_static(&[0x90, 0x41, 0xFF])),
             ]
         );
@@ -1092,7 +1141,7 @@ mod tests {
             framer.push_slice(&packet[..2]).unwrap();
             assert_eq!(
                 framer.push_slice(&[0; 65]),
-                Err(FramingError::BufferOverflow { max_size: 64 })
+                Err(BufferOverflow { max_size: 64 })
             );
             assert_eq!(framer.buffered_len(), 2);
             framer.push_slice(&packet[2..]).unwrap();
@@ -1120,9 +1169,9 @@ mod tests {
         framer.push_slice(&[0x55; 72]).unwrap();
         assert_eq!(
             framer.push_slice(&[0x55]),
-            Err(FramingError::BufferOverflow { max_size: 72 })
+            Err(BufferOverflow { max_size: 72 })
         );
-        let public_error = Error::from(FramingError::BufferOverflow { max_size: 72 });
+        let public_error = Error::from(BufferOverflow { max_size: 72 });
         assert!(matches!(
             public_error,
             Error::ResponseTooLarge { max_size: 72 }
@@ -1139,7 +1188,7 @@ mod tests {
 
         let result = framer.push(Bytes::from(data));
         match result {
-            Err(FramingError::BufferOverflow { max_size }) => {
+            Err(BufferOverflow { max_size }) => {
                 assert_eq!(max_size, 50);
             }
             _ => panic!("Expected ResponseTooLarge error"),
@@ -1191,7 +1240,7 @@ mod tests {
 
         assert_eq!(
             framer.drain_frames().next(),
-            Some(Err(FramingError::InvalidSonyHeader))
+            Some(Err(SonyPositionLost::InvalidHeader))
         );
         assert!(framer.is_empty());
 
@@ -1202,10 +1251,10 @@ mod tests {
         framer.push_slice(&[0x41]).unwrap();
         assert_eq!(
             framer.drain_frames().next(),
-            Some(Err(FramingError::InvalidSonyHeader))
+            Some(Err(SonyPositionLost::InvalidHeader))
         );
         assert!(
-            matches!(Error::from(FramingError::InvalidSonyHeader), Error::InvalidResponse { expected, .. } if expected.contains("Sony header"))
+            matches!(Error::from(SonyPositionLost::InvalidHeader), Error::InvalidResponse { expected, .. } if expected.contains("Sony header"))
         );
     }
 
@@ -1275,7 +1324,7 @@ mod tests {
         let results: Vec<_> = framer.drain_frames().collect();
         assert_eq!(results.len(), 1);
         match &results[0] {
-            Err(FramingError::OversizedSonyFrame { max_size }) => {
+            Err(SonyPositionLost::Oversized { max_size }) => {
                 assert_eq!(*max_size, config.recv_buffer_size);
             }
             _ => panic!("Expected ResponseTooLarge error with max_size = recv_buffer_size"),
@@ -1328,7 +1377,7 @@ mod tests {
         let results: Vec<_> = framer.drain_frames().collect();
         assert_eq!(results.len(), 1);
         match &results[0] {
-            Err(FramingError::OversizedRawFrame { max_size }) => {
+            Err(OversizedRawFrame { max_size, .. }) => {
                 assert_eq!(*max_size, config.recv_buffer_size);
             }
             _ => panic!("Expected ResponseTooLarge error"),
