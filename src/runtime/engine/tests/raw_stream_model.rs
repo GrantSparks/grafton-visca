@@ -947,11 +947,8 @@ impl Session {
                                 result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                             },
                             self.now,
-                            EngineTurn::InputOnly,
+                            EngineTurn::Complete,
                         ));
-                        if self.engine.assert_input_boundary().is_ok() {
-                            next.extend(self.engine.advance(self.now));
-                        }
                     }
                     Effect::Transition {
                         id,

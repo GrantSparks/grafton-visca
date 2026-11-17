@@ -2644,6 +2644,14 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
     let (cancel_tx, cancel_id, socket) = cancel_transmit(&ack);
     assert_eq!(cancel_id, id);
     assert_eq!(socket, ViscaSocket::S1);
+    engine.handle(
+        Input::TransmissionFinished {
+            request: cancel_id,
+            transmission: cancel_tx,
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x2001))),
+        },
+        start + Duration::from_millis(2),
+    );
     let duplicate = engine.handle(
         frame(
             1,
@@ -2661,14 +2669,6 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
             ..
         }
     )));
-    engine.handle(
-        Input::TransmissionFinished {
-            request: cancel_id,
-            transmission: cancel_tx,
-            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x2001))),
-        },
-        start + Duration::from_millis(2),
-    );
     let cancelled = engine.handle(
         frame(
             1,
@@ -2803,6 +2803,16 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
         Some(start + Duration::from_millis(20))
     );
 
+    let (transmission, request, _) = cancel_transmit(&cancellation);
+    engine.handle(
+        Input::TransmissionFinished {
+            request,
+            transmission,
+            result: WriteOutcome::Sent(TransmissionMeta::Known),
+        },
+        first_eligible,
+    );
+
     let ordinary = engine.advance(start + Duration::from_millis(20));
     assert_eq!(request_transmit(&ordinary).1, queued_id);
     assert!(!ordinary.iter().any(|effect| matches!(
@@ -2898,34 +2908,159 @@ fn zero_spacing_drains_pending_cancellations_in_request_order() {
         })
         .collect();
     assert_eq!(cancellation_ids, vec![first_id, second_id]);
-    assert_eq!(request_transmit(&drained).1, ordinary_id);
-    let ordinary_index = drained
-        .iter()
-        .position(|effect| {
-            matches!(
-                effect,
-                Effect::Transmit {
-                    request,
-                    kind: Transmission::Request { .. },
-                    ..
-                } if *request == ordinary_id
-            )
-        })
-        .expect("ordinary transmission");
-    let last_cancel_index = drained
-        .iter()
-        .rposition(|effect| {
-            matches!(
-                effect,
-                Effect::Transmit {
-                    kind: Transmission::Cancel { .. },
-                    ..
-                }
-            )
-        })
-        .expect("cancellation transmission");
-    assert!(last_cancel_index < ordinary_index);
+    assert!(request_transmit_optional(&drained).is_none());
+    assert!(engine.assert_input_boundary().is_err());
+    let mut ordinary = None;
+    for (index, effect) in drained
+        .into_iter()
+        .filter(|effect| matches!(effect, Effect::Transmit { .. }))
+        .enumerate()
+    {
+        let Effect::Transmit {
+            transmission,
+            request,
+            ..
+        } = effect
+        else {
+            unreachable!("filtered transmission")
+        };
+        let finished = engine.handle(
+            Input::TransmissionFinished {
+                request,
+                transmission,
+                result: WriteOutcome::Sent(TransmissionMeta::Known),
+            },
+            start + Duration::from_millis(1),
+        );
+        if index == 0 {
+            assert!(finished
+                .iter()
+                .all(|effect| !matches!(effect, Effect::Transmit { .. })));
+            assert!(
+                engine.assert_input_boundary().is_err(),
+                "second cancellation still awaits its receipt"
+            );
+        } else {
+            assert_eq!(request_transmit(&finished).1, ordinary_id);
+            ordinary = Some(finished);
+        }
+    }
+    send_ok(
+        &mut engine,
+        &ordinary.expect("dispatch after the final cancellation receipt"),
+        None,
+        start + Duration::from_millis(1),
+    );
+    assert!(engine.assert_input_boundary().is_ok());
     engine.assert_invariants().unwrap();
+}
+
+/// #1021: an immediate cancel may arrive before the matured retry's timer.
+/// Its write receipt is the next legal input, and only that receipt may resume
+/// due work and ordinary dispatch.
+#[test]
+fn zero_spacing_cancel_with_a_matured_retry_preserves_the_write_boundary() {
+    for (transport, finish_turn) in [TransportKind::Stream, TransportKind::Datagram]
+        .into_iter()
+        .flat_map(|transport| {
+            [EngineTurn::Complete, EngineTurn::InputOnly].map(|turn| (transport, turn))
+        })
+    {
+        let start = Instant::now();
+        let mut engine = engine(EnvelopeKind::Raw, transport);
+        let (first, executing) = admit(
+            &mut engine,
+            1,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        send_ok(&mut engine, &first, None, start);
+        engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start,
+        );
+        let (second, retry) = admit(
+            &mut engine,
+            2,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        send_ok(&mut engine, &second, None, start);
+        let rejected = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x03.into(),
+                },
+            ),
+            start,
+        );
+        let ready_at = rejected
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::RetryScheduled { id, ready_at, .. } if *id == retry => Some(*ready_at),
+                _ => None,
+            })
+            .expect("buffer-full retry");
+        let cancelled = engine.handle(Input::Cancel { id: executing }, ready_at);
+        let (transmission, request, _) = cancel_transmit(&cancelled);
+        assert_eq!(request, executing);
+        assert_eq!(
+            cancelled
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Transmit { .. }))
+                .count(),
+            1
+        );
+        assert!(
+            engine.assert_input_boundary().is_err(),
+            "a cancellation write is a staged write"
+        );
+        assert!(
+            engine.advance(ready_at).is_empty(),
+            "a wake cannot run due work across the write boundary"
+        );
+        assert!(matches!(
+            engine.entry(retry).unwrap().lifecycle(),
+            Lifecycle::Backoff { .. }
+        ));
+        let mut finished = engine.handle_turn(
+            Input::TransmissionFinished {
+                request,
+                transmission,
+                result: WriteOutcome::Sent(TransmissionMeta::Known),
+            },
+            ready_at,
+            finish_turn,
+        );
+        if matches!(finish_turn, EngineTurn::InputOnly) {
+            assert!(finished
+                .iter()
+                .all(|effect| !matches!(effect, Effect::Transmit { .. })));
+            assert!(engine.assert_input_boundary().is_ok());
+            assert!(engine.next_wake(ready_at).is_some_and(|at| at <= ready_at));
+            finished.extend(engine.advance(ready_at));
+        }
+        assert_eq!(request_transmit(&finished).1, retry);
+        assert_eq!(
+            finished
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Transmit { .. }))
+                .count(),
+            1
+        );
+        send_ok(&mut engine, &finished, None, ready_at);
+        assert!(engine.assert_input_boundary().is_ok());
+        engine.assert_invariants().unwrap();
+    }
 }
 
 #[test]
@@ -6751,6 +6886,16 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
         "cancellation must name the camera-assigned socket"
     );
 
+    let (transmission, request, _) = cancel_transmit(&cancellation);
+    engine.handle(
+        Input::TransmissionFinished {
+            request,
+            transmission,
+            result: WriteOutcome::NotSent(Error::io_timeout()),
+        },
+        start,
+    );
+
     // A completion on S1 now belongs to the new owner, never the displaced
     // predecessor.
     let done = engine.handle(
@@ -8616,6 +8761,16 @@ fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
     let completion_deadline = start + Duration::from_secs(1);
     assert_eq!(engine.next_wake(start), Some(completion_deadline));
 
+    let (transmission, request, _) = cancel_transmit(&cancellation);
+    engine.handle(
+        Input::TransmissionFinished {
+            request,
+            transmission,
+            result: WriteOutcome::NotSent(Error::io_timeout()),
+        },
+        start,
+    );
+
     let at_budget = engine.advance(budget_deadline);
     assert!(terminal_outcome(&at_budget, id).is_none());
     assert!(engine.entry(id).is_some());
@@ -9188,6 +9343,15 @@ fn strict_raw_receive_fault_after_cancel_uses_cancellation_resolution() {
         }) => ambiguity_deadline,
         cancellation => panic!("expected in-flight cancellation, got {cancellation:?}"),
     };
+    let (transmission, request, _) = cancel_transmit(&acknowledged);
+    engine.handle(
+        Input::TransmissionFinished {
+            request,
+            transmission,
+            result: WriteOutcome::Sent(TransmissionMeta::Known),
+        },
+        cancel_at + Duration::from_millis(1),
+    );
     let expired = engine.advance(ambiguity_deadline);
     assert_eq!(engine.state(), SessionState::Poisoned);
     assert_eq!(

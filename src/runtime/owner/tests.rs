@@ -1293,6 +1293,121 @@ mod metrics {
         ));
     }
 
+    /// #1021: the owner completes a cancel outside its input turn. Its
+    /// recursive drain must write the matured retry only after that receipt.
+    #[test]
+    fn zero_spacing_cancellation_drains_before_a_matured_retry() {
+        let start = Instant::now();
+        let mut policy = owner_policy(EnvelopeKind::Raw);
+        policy.protocol.transport = TransportKind::Stream;
+        let mut state = OwnerState::new(policy, start).unwrap();
+        let first_observer = sent(&mut state, command(RetryPolicy::NEVER), None, start);
+        let executing = *state.active.keys().next().unwrap();
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start,
+        );
+        let retry_observer = sent(&mut state, command(retrying()), None, start);
+        let retry = *state.active.keys().find(|id| **id != executing).unwrap();
+        let rejected = state.input(
+            frame(
+                None,
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x03.into(),
+                },
+            ),
+            start,
+        );
+        let ready_at = rejected
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::RetryScheduled { id, ready_at, .. } if *id == retry => Some(*ready_at),
+                _ => None,
+            })
+            .expect("buffer-full retry");
+        drain(&mut state, rejected, None, start);
+        let (_observation, observer) = CancellationObserver::pair();
+        let (mut effects, answer) = state.begin_cancellation(
+            CancellationRequest {
+                id: executing,
+                observer,
+            },
+            ready_at,
+        );
+        answer.unwrap();
+        assert_eq!(
+            effects
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Transmit { .. }))
+                .count(),
+            1
+        );
+        let mut writes = Vec::new();
+        while let Some(effect) = effects.pop_front() {
+            if let AppliedEffect::Transmit(staged) = state.apply_effect(effect, ready_at) {
+                writes.push(staged.request);
+                let produced = state.finish_write(
+                    &staged,
+                    WriteOutcome::Sent(TransmissionMeta::Known),
+                    ready_at,
+                );
+                prepend_effects(&mut effects, produced);
+            }
+        }
+        assert_eq!(
+            writes,
+            [executing, retry],
+            "ledger answers follow the actual write order"
+        );
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Error {
+                    socket: Some(ViscaSocket::S1),
+                    code: 0x04.into(),
+                },
+            ),
+            ready_at,
+        );
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S2),
+                },
+            ),
+            ready_at,
+        );
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S2),
+                },
+            ),
+            ready_at,
+        );
+        assert!(matches!(
+            first_observer.try_recv(),
+            Some(RuntimeOutcome::Command(CommandOutcome::Cancelled))
+        ));
+        assert!(matches!(
+            retry_observer.try_recv(),
+            Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+        ));
+        assert!(matches!(state.state(), SessionState::Running));
+    }
+
     /// #986: the owner's intent exists only after the engine accepts it,
     /// before the returned diagnostic and lifecycle effects are driven.
     #[test]

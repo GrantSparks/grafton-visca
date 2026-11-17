@@ -142,7 +142,7 @@ fn raw_release_gate_runs_the_hook_even_when_no_input_is_retained() {
 
 #[test]
 #[cfg(debug_assertions)]
-#[should_panic(expected = "no entry may be Sending at an input boundary")]
+#[should_panic(expected = "no write may be staged at an input boundary")]
 fn unrelated_input_cannot_cross_an_unfinished_write() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);

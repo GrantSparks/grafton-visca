@@ -13,7 +13,6 @@ pub(super) struct TargetOccupancy {
     pub(super) commands: usize,
     pub(super) inquiries: usize,
     pub(super) unacknowledged: usize,
-    pub(super) uncorrelated_write: bool,
     pub(super) uncorrelated_command: bool,
     positional: Option<PositionalCommand>,
     shapes: InquiryShapes,
@@ -55,7 +54,6 @@ impl Occupancy {
                     target.shapes_overflow |= !target.shapes.try_insert(shape);
                 }
             }
-            target.uncorrelated_write |= lifecycle.is_uncorrelated_write();
             target.uncorrelated_command |= lifecycle.is_uncorrelated_command();
             if raw_unacknowledged_command_candidate(entry) {
                 target.unacknowledged += 1;

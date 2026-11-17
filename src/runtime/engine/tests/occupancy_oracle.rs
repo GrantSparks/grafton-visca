@@ -39,15 +39,6 @@ fn unacknowledged(lifecycle: Lifecycle) -> bool {
             | Lifecycle::AwaitingCompletion { .. }
     )
 }
-fn uncorrelated_write(lifecycle: Lifecycle) -> bool {
-    matches!(
-        lifecycle,
-        Lifecycle::Sending {
-            reply: SendingReply::CompletionOnly | SendingReply::NoReply,
-            ..
-        }
-    )
-}
 fn uncorrelated_command(lifecycle: Lifecycle) -> bool {
     matches!(
         lifecycle,
@@ -97,11 +88,6 @@ pub(super) fn assert_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant)
                 .filter(|entry| unacknowledged(entry.lifecycle()))
                 .count(),
             "unacknowledged on {target:?}"
-        );
-        assert_eq!(
-            actual.uncorrelated_write,
-            entries().any(|entry| uncorrelated_write(entry.lifecycle())),
-            "uncorrelated write on {target:?}"
         );
         assert_eq!(
             actual.uncorrelated_command,

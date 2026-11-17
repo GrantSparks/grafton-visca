@@ -303,20 +303,21 @@ impl Lifecycle {
             ),
         }
     }
-    pub(crate) const fn is_uncorrelated_write(self) -> bool {
-        match self {
-            Self::Sending { reply, .. } => match reply {
-                SendingReply::Stop | SendingReply::AckThenCompletion | SendingReply::Inquiry => {
-                    false
-                }
-                SendingReply::CompletionOnly | SendingReply::NoReply => true,
-            },
-            _ => false,
-        }
-    }
     pub(crate) const fn is_uncorrelated_command(self) -> bool {
-        self.is_uncorrelated_write() || self.is_awaiting_completion()
+        matches!(
+            self,
+            Self::Sending {
+                reply: SendingReply::CompletionOnly | SendingReply::NoReply,
+                ..
+            } | Self::AwaitingCompletion { .. }
+        )
     }
+
+    /// An immediate request or cancellation write still awaits its receipt.
+    pub(crate) const fn staged_write(self) -> bool {
+        self.is_sending() || self.cancellation_write().is_some()
+    }
+
     /// End of the ACK response window. Cancellation intent may extend the
     /// original deadline, but must never shorten it.
     pub(crate) fn awaiting_ack_end(self) -> Option<Instant> {

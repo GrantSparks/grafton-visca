@@ -10,8 +10,7 @@ const COMPLETION: u16 = 1 << 5;
 const INQUIRY: u16 = 1 << 6;
 const COMMAND: u16 = 1 << 7;
 const UNACKNOWLEDGED: u16 = 1 << 8;
-const UNCORRELATED_WRITE: u16 = 1 << 9;
-const UNCORRELATED_COMMAND: u16 = 1 << 10;
+const UNCORRELATED_COMMAND: u16 = 1 << 9;
 
 fn mask(lifecycle: Lifecycle) -> u16 {
     [
@@ -24,7 +23,6 @@ fn mask(lifecycle: Lifecycle) -> u16 {
         lifecycle.is_live_inquiry(),
         lifecycle.is_command_on_wire(),
         lifecycle.is_unacknowledged_command(),
-        lifecycle.is_uncorrelated_write(),
         lifecycle.is_uncorrelated_command(),
     ]
     .into_iter()
@@ -406,11 +404,11 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
         (SendingReply::Inquiry, SENDING | INQUIRY),
         (
             SendingReply::CompletionOnly,
-            SENDING | COMMAND | UNACKNOWLEDGED | UNCORRELATED_WRITE | UNCORRELATED_COMMAND,
+            SENDING | COMMAND | UNACKNOWLEDGED | UNCORRELATED_COMMAND,
         ),
         (
             SendingReply::NoReply,
-            SENDING | COMMAND | UNACKNOWLEDGED | UNCORRELATED_WRITE | UNCORRELATED_COMMAND,
+            SENDING | COMMAND | UNACKNOWLEDGED | UNCORRELATED_COMMAND,
         ),
     ] {
         let lifecycle = Lifecycle::Sending {

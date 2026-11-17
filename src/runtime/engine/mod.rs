@@ -859,12 +859,10 @@ impl ProtocolEngine {
 
 /// Shared operations are reusable by a processor borrowing an exact mode.
 trait EngineMethods: EngineAccess {
-    fn stop_wait_bound_in(&self, entry: &Entry, occupancy: &Occupancy) -> Option<Instant> {
-        self.mode().stream().and_then(|stream| {
-            stream.stop_wait_bound(entry, || {
-                occupancy.targets[entry.request.context().target].uncorrelated_write
-            })
-        })
+    fn stop_wait_bound_in(&self, entry: &Entry) -> Option<Instant> {
+        self.mode()
+            .stream()
+            .and_then(|stream| stream.stop_wait_bound(entry))
     }
     fn pre_ack_bypass_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
         entry.request.is_stop()
@@ -954,7 +952,7 @@ trait EngineMethods: EngineAccess {
                     return true;
                 };
                 !self
-                    .stop_wait_bound_in(entry, occupancy)
+                    .stop_wait_bound_in(entry)
                     .is_some_and(|bound| now >= bound)
                     && (self.hold_blocks_in(entry, target, occupancy)
                         || self.command_gate_in(entry, target, occupancy)
@@ -1048,13 +1046,15 @@ trait EngineMethods: EngineAccess {
 
     /// A returned transmit is performed immediately. Its identified result is
     /// the only permitted input until that write has finished.
-    fn assert_input_boundary(&self) -> Result<(), Box<str>> {
-        if self
-            .entries
+    fn staged_write(&self) -> bool {
+        self.entries
             .values()
-            .any(|entry| matches!(entry.lifecycle(), Lifecycle::Sending { .. }))
-        {
-            return Err("no entry may be Sending at an input boundary".into());
+            .any(|entry| entry.lifecycle().staged_write())
+    }
+
+    fn assert_input_boundary(&self) -> Result<(), Box<str>> {
+        if self.staged_write() {
+            return Err("no write may be staged at an input boundary".into());
         }
         Ok(())
     }
@@ -1062,7 +1062,7 @@ trait EngineMethods: EngineAccess {
     fn debug_assert_input_boundary(&self) {
         debug_assert!(
             self.assert_input_boundary().is_ok(),
-            "no entry may be Sending at an input boundary"
+            "no write may be staged at an input boundary"
         );
     }
 
@@ -1159,9 +1159,7 @@ trait EngineMethods: EngineAccess {
     ) {
         let mut effects = Decision::new(sink);
         if engine_turn.runs_due() {
-            self.run_due(input_turn.now, &mut effects);
-            self.drain_pending_cancellations(input_turn.now, &mut effects);
-            self.dispatch_one(input_turn.now, &mut effects);
+            self.scheduler_tail(input_turn.now, &mut effects);
         }
         self.finish_decision(input_turn.now, effects)
     }
@@ -1246,11 +1244,26 @@ trait EngineMethods: EngineAccess {
     fn advance_turn_into(&mut self, now: Instant, turn: EngineTurn, sink: &mut Vec<Effect>) {
         let mut effects = Decision::new(sink);
         if turn.runs_due() {
-            self.run_due(now, &mut effects);
-            self.drain_pending_cancellations(now, &mut effects);
-            self.dispatch_one(now, &mut effects);
+            self.scheduler_tail(now, &mut effects);
         }
         self.finish_decision(now, effects)
+    }
+
+    /// Due work and ordinary dispatch require every immediate write to have
+    /// finished. A cancellation drain may stage several ordered writes; its
+    /// last receipt resumes the tail before any ordinary request can send.
+    fn scheduler_tail(&mut self, now: Instant, effects: &mut Decision) {
+        if self.staged_write() {
+            return;
+        }
+        self.run_due(now, effects);
+        if self.staged_write() {
+            return;
+        }
+        self.drain_pending_cancellations(now, effects);
+        if !self.staged_write() {
+            self.dispatch_one(now, effects);
+        }
     }
 
     /// Entries holding `slot`, for `target` when the slot is a control
@@ -1776,32 +1789,13 @@ trait EngineMethods: EngineAccess {
     /// half way to its dispatch deadline. The stream ledger still binds
     /// every frame by write order, so the cost is only decisiveness: a frame
     /// it makes ambiguous binds to neither request, and the STOP may end
-    /// unconfirmed (#795). Only the local write of a `NoReply` or
-    /// `CompletionOnly` command, which has no write order yet, still holds
-    /// it back (`None` until that write has left).
+    /// unconfirmed (#795). The scheduler reaches dispatch only after every
+    /// local write has finished.
     #[cfg(test)]
     fn stop_wait_bound(&self, entry: &Entry) -> Option<Instant> {
-        self.mode().stream().and_then(|stream| {
-            stream.stop_wait_bound(entry, || {
-                self.uncorrelated_write_in_flight(entry.request.context().target)
-            })
-        })
-    }
-
-    /// Whether a `NoReply` or `CompletionOnly` command's local write to
-    /// `target` is in flight.
-    #[cfg(test)]
-    fn uncorrelated_write_in_flight(&self, target: TargetSlot) -> bool {
-        self.entries.values().any(|entry| {
-            entry.request.context().target == target
-                && matches!(
-                    entry.lifecycle(),
-                    Lifecycle::Sending {
-                        reply: SendingReply::CompletionOnly | SendingReply::NoReply,
-                        ..
-                    }
-                )
-        })
+        self.mode()
+            .stream()
+            .and_then(|stream| stream.stop_wait_bound(entry))
     }
 
     /// Whether `entry`, a STOP on a raw byte stream, has waited out
@@ -4504,7 +4498,7 @@ trait EngineMethods: EngineAccess {
                 Some(self.cancellation_send_at(entry))
             } else if entry.lifecycle().is_ready() {
                 // A blocked STOP on a byte stream is written at its bound.
-                self.stop_wait_bound_in(entry, &occupancy)
+                self.stop_wait_bound_in(entry)
                     .map(|bound| bound.max(self.candidate_send_at(entry)))
             } else {
                 None
