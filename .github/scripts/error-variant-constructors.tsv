@@ -18,7 +18,6 @@ UnexpectedResponseType	src/command/inquiry_structs.rs	Response::Error(e) => Err(
 Unknown	src/error.rs	_ => Self::Unknown { code },
 InvalidRequest	src/raw.rs	if bytes.len() < 2 { return Err(Error::InvalidRequest { reason:
 MessageLengthError	src/error.rs	0x01 => Self::MessageLengthError,
-ParseError	src/error.rs	Self::ParseError { reason: Cow::Owned(err.to_string()), }
 TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
 InvalidParameter	src/macros/public.rs	crate::Error::InvalidParameter { parameter, value: ::std::borrow::Cow::Borrowed(
 BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))

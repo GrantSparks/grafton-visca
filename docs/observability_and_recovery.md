@@ -325,7 +325,6 @@ exhausts all Address Set attempts remains `MaxRetriesExceeded` (`Timeout` /
 | `Unknown` | `Protocol` | — | `Abandon` |
 | `InvalidRequest` | `InvalidParameter` | — | `Abandon` |
 | `MessageLengthError` | `Protocol` | — | `Abandon` |
-| `ParseError` | `Protocol` | — | `Abandon` |
 | `TransportError / no uncertain effect` | `Transport` | — | `Resubmit after 50ms` |
 | `TransmissionNotSent / first attempt, invalid request` | `InvalidParameter` | Terminal / NotAccepted | `Abandon` |
 | `TransmissionNotSent / earlier attempt uncertain` | `InvalidParameter` | Terminal / Unconfirmed | `Reconcile` |

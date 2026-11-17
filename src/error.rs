@@ -32,7 +32,6 @@
 //! | `Unknown` | `Protocol` | — | `Abandon` |
 //! | `InvalidRequest` | `InvalidParameter` | — | `Abandon` |
 //! | `MessageLengthError` | `Protocol` | — | `Abandon` |
-//! | `ParseError` | `Protocol` | — | `Abandon` |
 //! | `TransportError / no uncertain effect` | `Transport` | — | `Resubmit after 50ms` |
 //! | `TransmissionNotSent / first attempt, invalid request` | `InvalidParameter` | Terminal / NotAccepted | `Abandon` |
 //! | `TransmissionNotSent / earlier attempt uncertain` | `InvalidParameter` | Terminal / Unconfirmed | `Reconcile` |
@@ -394,13 +393,6 @@ pub enum Error {
     /// Message length error (0x01): Message length is incorrect.
     #[error("Message length error")]
     MessageLengthError,
-
-    /// Failed to parse response data.
-    #[error("Parse error: {reason}")]
-    ParseError {
-        /// Why the response could not be parsed.
-        reason: Cow<'static, str>,
-    },
 
     /// One transport operation failed while the session remains usable.
     ///
@@ -1346,7 +1338,6 @@ impl Error {
             Self::InvalidResponseFormat
             | Self::InvalidResponseLength { .. }
             | Self::UnexpectedResponseType
-            | Self::ParseError { .. }
             | Self::MessageLengthError
             | Self::InvalidResponse { .. }
             | Self::Unknown { .. }
@@ -1508,7 +1499,6 @@ impl Error {
             | Self::Unknown { .. }
             | Self::InvalidRequest { .. }
             | Self::MessageLengthError
-            | Self::ParseError { .. }
             | Self::TransportError { .. }
             | Self::TransmissionNotSent { .. }
             | Self::InvalidParameter { .. }
@@ -1663,7 +1653,6 @@ impl Error {
             | Self::Unknown { .. }
             | Self::InvalidRequest { .. }
             | Self::MessageLengthError
-            | Self::ParseError { .. }
             | Self::InvalidParameter { .. }
             | Self::BufferTooSmall { .. }
             | Self::ParameterOutOfRange { .. }
@@ -1767,7 +1756,6 @@ impl Error {
             | Self::Unknown { .. }
             | Self::InvalidRequest { .. }
             | Self::MessageLengthError
-            | Self::ParseError { .. }
             | Self::InvalidParameter { .. }
             | Self::BufferTooSmall { .. }
             | Self::ParameterOutOfRange { .. }
@@ -2010,17 +1998,9 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
-    fn from(err: nom::Err<nom::error::Error<&[u8]>>) -> Self {
-        Self::ParseError {
-            reason: Cow::Owned(err.to_string()),
-        }
-    }
-}
-
 impl From<Infallible> for Error {
-    fn from(_: Infallible) -> Self {
-        unreachable!("Infallible error should never occur")
+    fn from(error: Infallible) -> Self {
+        match error {}
     }
 }
 
@@ -2234,15 +2214,6 @@ mod tests {
         let io_err = io::Error::other("test error");
         let visca_err = Error::from(io_err);
         assert!(matches!(visca_err, Error::Io { .. }));
-    }
-
-    #[test]
-    fn test_visca_error_from_nom_error() {
-        use nom::error::{Error as NomError, ErrorKind};
-
-        let nom_err = nom::Err::Error(NomError::new(&b"test"[..], ErrorKind::Tag));
-        let visca_err = Error::from(nom_err);
-        assert!(matches!(visca_err, Error::ParseError { .. }));
     }
 
     #[test]

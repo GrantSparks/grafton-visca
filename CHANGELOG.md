@@ -603,6 +603,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING** (#992): Remove the unreachable `Error::ParseError` variant and
+  `From<nom::Err<nom::error::Error<&[u8]>>>` conversion, and drop the unused
+  `nom` dependency. Reply failures retain their specific format, length and
+  value error variants.
+
 - **BREAKING** (#932): Removed metadata traits, their `Profile` supertrait,
   public `*Ext` validation traits and `ValidationError`, blanket domain-marker
   implementations, duplicate capability predicates/grant booleans, and repeated
