@@ -1140,6 +1140,14 @@ inquiry failures keep their `InquiryFailed` source chain. Owner observer slots
 use the same lane, and operation application and cancellation read one shared
 terminal verdict. Delivery moves the result into that slot (#903).
 
+The profile's `stop_paths()` derives one fully validated STOP per axis from
+ledger STOP rows. Request preparation shares its row gate and source checks;
+profile construction verifies every granted STOP's source and value checks.
+Both halt preparation and control-reserve sizing consume this same table, so
+an alternative encoding shares its axis's slot and an unsupported axis has no
+halt request. The ledger generates the closed STOP enum: adding a STOP requires
+an exhaustive halt preparation arm before the crate compiles (#999).
+
 ### Transition table
 
 | Input / state | Transition or result |

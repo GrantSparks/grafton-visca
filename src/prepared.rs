@@ -5098,43 +5098,39 @@ pub(crate) fn prepare_halt(
             })
         })
     };
-    let pan_tilt = profile.supports_axes(AffectedAxes::PAN_TILT).then(|| {
-        lower(
-            crate::stop_request::pan_tilt_stop_request(profile).and_then(|stop| {
-                prepare_operation(&stop, registration, tuning, ClassSelection::Request)
-            }),
-        )
-    });
-    let zoom = profile.supports_axes(AffectedAxes::ZOOM).then(|| {
-        lower(prepare_operation(
-            &ZoomStop,
-            registration,
-            tuning,
-            ClassSelection::Request,
-        ))
-    });
-    let focus = profile.supports_axes(AffectedAxes::FOCUS).then(|| {
-        lower(prepare_operation(
-            &FocusStop,
-            registration,
-            tuning,
-            ClassSelection::Request,
-        ))
-    });
+    let paths = profile.stop_paths();
     let mut axes: Option<AffectedAxes> = None;
-    for (supported, axis) in [
-        (pan_tilt.is_some(), AffectedAxes::PAN_TILT),
-        (zoom.is_some(), AffectedAxes::ZOOM),
-        (focus.is_some(), AffectedAxes::FOCUS),
-    ] {
-        if supported {
+    let requests = paths.rows().map(|path| {
+        path.map(|stop| {
+            use crate::command::semantics::StopCommand;
+            let axis = stop.axes();
             axes = Some(axes.map_or(axis, |old| old.union(axis)));
-        }
-    }
+            // StopCommand is generated from every stop:true ledger row. A new
+            // STOP cannot compile until its concrete halt request is handled.
+            lower(match stop {
+                StopCommand::PanTiltStop => crate::stop_request::pan_tilt_stop_request(profile)
+                    .and_then(|request| {
+                        prepare_operation(&request, registration, tuning, ClassSelection::Request)
+                    }),
+                StopCommand::ZoomStop => {
+                    prepare_operation(&ZoomStop, registration, tuning, ClassSelection::Request)
+                }
+                StopCommand::FocusStop => {
+                    prepare_operation(&FocusStop, registration, tuning, ClassSelection::Request)
+                }
+                StopCommand::Fr7ZoomHighResolutionStop => prepare_operation(
+                    &crate::command::Fr7ZoomHighResolutionStop,
+                    registration,
+                    tuning,
+                    ClassSelection::Request,
+                ),
+            })
+        })
+    });
     PreparedHalt {
         target,
         axes,
-        requests: [pan_tilt, zoom, focus],
+        requests,
         budget,
     }
 }

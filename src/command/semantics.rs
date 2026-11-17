@@ -326,6 +326,44 @@ pub(crate) trait LedgerState {
 /// classification, listed twice, or left out of the inventory.
 /// Each sourced row also owns one catalogue-derived `packet` pattern; its
 /// `source` references carry provenance keys and model coverage only.
+macro_rules! stop_command_ledger {
+    (@scan [$(($stop:ident, $axes:ident)),*] ) => {
+        /// Only STOP rows, selected from the authoritative command ledger.
+        /// Exhaustive matches force every STOP to support halt preparation.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[allow(clippy::enum_variant_names)] // Preserve the source ledger row names.
+        pub(crate) enum StopCommand { $($stop),* }
+
+        $(const _: () = assert!(
+            AffectedAxes::$axes.bits() == AffectedAxes::PAN_TILT.bits()
+                || AffectedAxes::$axes.bits() == AffectedAxes::ZOOM.bits()
+                || AffectedAxes::$axes.bits() == AffectedAxes::FOCUS.bits(),
+            "a new STOP axis requires extending the per-axis halt table",
+        );)*
+
+        impl StopCommand {
+            pub(crate) const ALL: &'static [Self] = &[$(Self::$stop),*];
+
+            pub(crate) const fn row(self) -> BuiltinCommand {
+                match self { $(Self::$stop => BuiltinCommand::$stop),* }
+            }
+
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            pub(crate) const fn axes(self) -> AffectedAxes {
+                match self { $(Self::$stop => AffectedAxes::$axes),* }
+            }
+        }
+    };
+    (@scan [$(($stop:ident, $axes:ident)),*]
+        $command:ident => applied_stop($next_axes:ident), $($rest:tt)*) => {
+        stop_command_ledger!(@scan [$(($stop, $axes),)* ($command, $next_axes)] $($rest)*);
+    };
+    (@scan [$($stops:tt)*]
+        $command:ident => $class:ident $(($($effect:tt)*))?, $($rest:tt)*) => {
+        stop_command_ledger!(@scan [$($stops)*] $($rest)*);
+    };
+}
+
 macro_rules! builtin_command_ledger {
     ($( $(#[$meta:meta])* $command:ident => { class: $class:ident $(($($effect:tt)*))?, packet: $packet:expr, source: $source:expr } ),+ $(,)?) => {
         /// Every built-in command request that must be audited before typed
@@ -334,6 +372,8 @@ macro_rules! builtin_command_ledger {
         pub(crate) enum BuiltinCommand {
             $( $(#[$meta])* $command, )+
         }
+
+        stop_command_ledger!(@scan [] $($command => $class $(($($effect)*))?,)+);
 
         $(
             impl LedgerState for LedgerRow<{ BuiltinCommand::$command as usize }> {
