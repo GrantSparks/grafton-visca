@@ -910,3 +910,213 @@ fn smol_actor_has_the_same_admit_write_terminal_order() {
         assert_eq!(snapshot.active, 0);
     });
 }
+
+/// Keep the actor alive between conclusion and Drop: post-terminal handle
+/// calls must answer immediately, and sends that raced publication must not
+/// revise metrics when the final drain answers them.
+async fn terminal_handle_work_and_metrics_are_stable<R: Executor>(runtime: R) {
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    let harness = harness();
+    let mut driver = harness.driver;
+    let submitting = handle.submit_operation(prepared_zoom(&profile));
+    let mut submitting = std::pin::pin!(submitting);
+    assert!(future::poll_once(submitting.as_mut()).await.is_none());
+    let admission = actor.core.receivers.admissions.try_recv().unwrap();
+    harness.gates.try_send(Ok(TransmissionMeta::Raw)).unwrap();
+    actor
+        .handle_event(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut driver,
+            Executor::now(&runtime),
+            false,
+        )
+        .await;
+    let mut operation = submitting.await.unwrap();
+    actor
+        .handle_event(
+            OwnerEvent::Receive {
+                result: batch(vec![ack(ViscaSocket::S1), completion(ViscaSocket::S1)]),
+                received_at: Executor::now(&runtime),
+            },
+            &mut driver,
+            Executor::now(&runtime),
+            false,
+        )
+        .await;
+    handle.shutdown().unwrap();
+    actor
+        .handle_event(
+            OwnerEvent::Shutdown,
+            &mut driver,
+            Executor::now(&runtime),
+            false,
+        )
+        .await;
+    actor.core.conclude();
+    let published = handle.metrics().await.unwrap();
+    assert_eq!(published.session, crate::SessionStatus::Shutdown);
+
+    // A buffered successful terminal still wins over the session error (#777).
+    assert_eq!(
+        operation.cancel(None).await.unwrap(),
+        CancellationOutcome::Completed
+    );
+    for _ in 0..8 {
+        let (_observer, cell) = CancellationObserver::pair();
+        let request = CancellationRequest {
+            id: operation.observation.id(),
+            observer: cell,
+        };
+        let deadline = handle.deadline_after(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            future::poll_once(handle.request_cancellation(request, deadline)).await,
+            Some(Err(Error::RuntimeShutdown))
+        ));
+        assert!(actor.core.receivers.cancellations.is_empty());
+        let halt = crate::prepared::PreparedHalt {
+            target: TargetSlot::CAMERA_1,
+            axes: None,
+            requests: [None, None, None],
+            budget: Duration::from_secs(1),
+        };
+        assert!(matches!(
+            future::poll_once(handle.halt(halt, Executor::now(&runtime))).await,
+            Some(Err(Error::RuntimeShutdown))
+        ));
+        assert!(actor.core.receivers.cancellations.is_empty());
+        assert!(matches!(
+            future::poll_once(handle.subscribe_diagnostics(1)).await,
+            Some(Err(Error::RuntimeShutdown))
+        ));
+        assert!(actor.core.receivers.control.is_empty());
+        assert_eq!(handle.metrics().await.unwrap(), published);
+        assert_eq!(handle.core.terminal_metrics().unwrap().unwrap(), published);
+    }
+
+    // Model one cancellation and control send that passed their lifecycle
+    // check before the first publication but reached the queues after it.
+    let (_observer, cell) = CancellationObserver::pair();
+    let (reply, cancelled) = flume::bounded(1);
+    handle
+        .core
+        .cancellations
+        .try_send(
+            super::super::super::boundary::CancellationBoundary::Cancel {
+                request: CancellationRequest {
+                    id: operation.observation.id(),
+                    observer: cell,
+                },
+                reply,
+            },
+        )
+        .unwrap();
+    let (reply, controlled) = flume::bounded(1);
+    handle
+        .core
+        .control
+        .try_send(
+            super::super::super::boundary::ControlBoundary::SubscribeDiagnostics {
+                capacity: 1,
+                reply,
+            },
+        )
+        .unwrap();
+    assert_eq!(handle.metrics().await.unwrap(), published);
+    drop(actor);
+    assert!(matches!(
+        cancelled.try_recv().unwrap(),
+        Err(Error::RuntimeShutdown)
+    ));
+    assert!(matches!(
+        controlled.try_recv().unwrap(),
+        Err(Error::RuntimeShutdown)
+    ));
+    for _ in 0..8 {
+        assert_eq!(handle.metrics().await.unwrap(), published);
+    }
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn tokio_terminal_handle_work_is_refused_and_metrics_stay_published_once() {
+    terminal_handle_work_and_metrics_are_stable(TokioRuntime::from_current().unwrap()).await;
+}
+
+#[cfg(feature = "runtime-smol")]
+#[test]
+fn smol_terminal_handle_work_is_refused_and_metrics_stay_published_once() {
+    smol::block_on(terminal_handle_work_and_metrics_are_stable(
+        SmolRuntime::new(),
+    ));
+}
+
+#[cfg(feature = "test-utils")]
+#[test]
+fn manual_clock_terminal_handle_work_is_refused_and_metrics_stay_published_once() {
+    let clock = crate::testing::testkit::ManualClock::new();
+    let runtime = crate::testing::testkit::ManualClockExecutor::local(&clock);
+    runtime.run_until(terminal_handle_work_and_metrics_are_stable(runtime.clone()));
+}
+
+#[cfg(feature = "test-utils")]
+#[test]
+fn manual_clock_terminal_metrics_stay_identical_during_concurrent_cancellation_and_shutdown() {
+    use crate::testing::testkit::{ManualClock, ManualClockExecutor};
+
+    let clock = ManualClock::new();
+    let runtime = ManualClockExecutor::local(&clock);
+    runtime.run_until(async {
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+        let harness = harness();
+        harness.gates.try_send(Ok(TransmissionMeta::Raw)).unwrap();
+        harness.gates.try_send(Ok(TransmissionMeta::Raw)).unwrap();
+        let client = async {
+            let operation = handle.submit(command()).await.unwrap();
+            harness
+                .frames
+                .send_async(batch(vec![ack(ViscaSocket::S1)]))
+                .await
+                .unwrap();
+            let (started, ready) = flume::bounded(1);
+            let cancelling = async {
+                let mut snapshots = Vec::new();
+                for index in 0..128 {
+                    let (_observer, cell) = CancellationObserver::pair();
+                    let request = CancellationRequest {
+                        id: operation.id,
+                        observer: cell,
+                    };
+                    let deadline = handle.deadline_after(Duration::from_secs(1)).unwrap();
+                    assert!(matches!(
+                        handle.request_cancellation(request, deadline).await,
+                        Ok(()) | Err(Error::RuntimeShutdown)
+                    ));
+                    if index == 0 {
+                        started.send_async(()).await.unwrap();
+                    }
+                    if let Some(snapshot) = handle.core.terminal_metrics() {
+                        snapshots.push(snapshot.unwrap());
+                    }
+                    future::yield_now().await;
+                }
+                snapshots
+            };
+            let shutdown = async {
+                ready.recv_async().await.unwrap();
+                handle.shutdown().unwrap();
+            };
+            let (snapshots, ()) = future::zip(cancelling, shutdown).await;
+            handle.wait_closed().await.unwrap();
+            let published = handle.metrics().await.unwrap();
+            assert_eq!(published.session, crate::SessionStatus::Shutdown);
+            for snapshot in snapshots {
+                assert_eq!(snapshot, published);
+            }
+            for _ in 0..8 {
+                assert_eq!(handle.metrics().await.unwrap(), published);
+            }
+        };
+        let ((), _) = future::zip(client, actor.run(harness.driver)).await;
+    });
+}

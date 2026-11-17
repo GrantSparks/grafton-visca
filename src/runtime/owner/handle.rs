@@ -90,6 +90,9 @@ macro_rules! owner_handle_methods {
                 T: Send,
             {
                 self.off_worker("control_request")?;
+                if let Some(error) = self.core.terminal_error() {
+                    return Err(error);
+                }
                 let (reply, receiver) = flume::bounded(1);
                 self.send_lane(&self.core.control, request(reply)) $($await)* ?;
                 self.boundary_reply(&receiver) $($await)*
@@ -216,6 +219,9 @@ macro_rules! owner_handle_methods {
                 started: std::time::Instant,
             ) -> Result<crate::HaltReport, crate::Error> {
                 self.off_worker("halt")?;
+                if let Some(error) = self.core.terminal_error() {
+                    return Err(error);
+                }
                 let deadline = super::receipt::observer_deadline(started, prepared.budget)?;
                 let validity = super::boundary::AdmissionValidity::until(deadline);
                 let rejected_target = prepared.target;
@@ -279,6 +285,9 @@ macro_rules! owner_handle_methods {
                 deadline: std::time::Instant,
             ) -> Result<(), crate::Error> {
                 self.off_worker("request_cancellation")?;
+                if let Some(error) = self.core.terminal_error() {
+                    return Err(error);
+                }
                 let id = request.id;
                 let (reply, receiver) = flume::bounded(1);
                 let boundary = super::boundary::CancellationBoundary::Cancel { request, reply };

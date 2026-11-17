@@ -495,6 +495,69 @@ fn a_detached_operation_progresses_without_a_caller() {
     owner.close().unwrap();
 }
 
+#[test]
+fn terminal_metrics_stay_identical_while_a_blocking_caller_races_cancellations_with_close() {
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let (owner, peer) = Setup::datagram().on(&clock).spawn();
+    let operation = owner.submit_operation(zoom_stop()).unwrap();
+    peer.next_write();
+    peer.reply(ACK);
+    let id = operation.observation.id();
+    let cancelling = owner.clone();
+    let (started, ready) = flume::bounded(1);
+    let registration = clock.register();
+    let caller = thread::spawn(move || {
+        let _participant = registration.enter();
+        let mut snapshots = Vec::new();
+        for index in 0..128 {
+            let (_observer, cell) = CancellationObserver::pair();
+            let request = super::super::CancellationRequest { id, observer: cell };
+            let deadline = cancelling.deadline_after(Duration::from_secs(1)).unwrap();
+            assert!(matches!(
+                cancelling.request_cancellation(request, deadline),
+                Ok(()) | Err(Error::CancellationNotSupported | Error::RuntimeShutdown)
+            ));
+            if index == 0 {
+                started.send(()).unwrap();
+            }
+            if let Some(snapshot) = cancelling.core.terminal_metrics() {
+                snapshots.push(snapshot.unwrap());
+            }
+        }
+        snapshots
+    });
+    owner
+        .clock
+        .select()
+        .recv(&ready, |value| value.unwrap())
+        .wait();
+    owner.close().unwrap();
+    let published = owner.metrics().unwrap();
+    assert_eq!(published.session, crate::SessionStatus::Shutdown);
+    for snapshot in caller.join().unwrap() {
+        assert_eq!(snapshot, published);
+    }
+    for _ in 0..8 {
+        let (_observer, cell) = CancellationObserver::pair();
+        let request = super::super::CancellationRequest { id, observer: cell };
+        assert!(matches!(
+            owner.request_cancellation(
+                request,
+                owner.deadline_after(Duration::from_secs(1)).unwrap()
+            ),
+            Err(Error::RuntimeShutdown)
+        ));
+        assert!(matches!(
+            owner.subscribe_diagnostics(1),
+            Err(Error::RuntimeShutdown)
+        ));
+        assert!(owner.core.cancellations.is_empty());
+        assert!(owner.core.control.is_empty());
+        assert_eq!(owner.metrics().unwrap(), published);
+    }
+}
+
 /// D25 lifecycle order: the worker emits the same canonical owner trace as
 /// the async actor for an applied raw command.
 #[test]

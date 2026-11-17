@@ -1120,9 +1120,9 @@ impl OwnerShellCore {
         self.state.fail_unstaged_boundary(dropped);
     }
 
-    /// Publish only after counting every drained boundary and diagnostic.
+    /// Publish once after counting the normal conclusion's drained work.
     /// Queued metrics wait at the teardown barrier and never count as dropped
-    /// work; no per-observation state survives the drain.
+    /// work; teardown can answer later raced work without changing this copy.
     fn publish_metrics(&self) {
         let _ = self
             .lifecycle
@@ -1504,6 +1504,57 @@ mod tests {
         drop(core);
         for _ in 0..8 {
             assert_eq!(handle.terminal_metrics().unwrap().unwrap(), snapshot);
+        }
+    }
+
+    #[test]
+    fn terminal_metrics_remain_identical_when_raced_work_reaches_the_final_drain() {
+        use super::super::{boundary::AdmissionValidity, halt::HaltBoundary};
+
+        let (handle, mut core) = owner();
+        handle.shutdown().unwrap();
+        let step = core.handle(OwnerEvent::Shutdown, &mut Datagrams, Instant::now(), false);
+        run_turn(&mut core, step);
+        core.conclude();
+        let published = handle.terminal_metrics().unwrap().unwrap();
+        assert_eq!(published.session, crate::SessionStatus::Shutdown);
+        assert_eq!(published.dropped_boundary_work, 0);
+
+        // Model sends that passed their handle-side check before publication
+        // but only reached the lanes after the first drain completed.
+        let (reply, halted) = flume::bounded(1);
+        handle
+            .cancellations
+            .try_send(CancellationBoundary::Halt(HaltBoundary {
+                prepared: crate::prepared::PreparedHalt {
+                    target: TargetSlot::CAMERA_1,
+                    axes: None,
+                    requests: [None, None, None],
+                    budget: Duration::from_secs(1),
+                },
+                validity: AdmissionValidity::until(Instant::now() + Duration::from_secs(1)),
+                reply,
+            }))
+            .unwrap();
+        let (reply, controlled) = flume::bounded(1);
+        handle
+            .control
+            .try_send(ControlBoundary::SubscribeDiagnostics { capacity: 1, reply })
+            .unwrap();
+        for _ in 0..8 {
+            assert_eq!(handle.terminal_metrics().unwrap().unwrap(), published);
+        }
+        drop(core);
+        assert!(matches!(
+            halted.recv().unwrap(),
+            Err(Error::RuntimeShutdown)
+        ));
+        assert!(matches!(
+            controlled.recv().unwrap(),
+            Err(Error::RuntimeShutdown)
+        ));
+        for _ in 0..8 {
+            assert_eq!(handle.terminal_metrics().unwrap().unwrap(), published);
         }
     }
 

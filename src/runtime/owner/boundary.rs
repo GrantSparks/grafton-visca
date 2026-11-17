@@ -570,12 +570,14 @@ impl LifecycleState {
         snapshot: crate::observability::MetricsSnapshot,
     ) -> Result<crate::observability::MetricsSnapshot, Error> {
         match self {
-            Self::ShutDown { metrics } | Self::Terminated { metrics, .. }
-                if !matches!(metrics, TerminalMetrics::Unavailable) =>
-            {
-                *metrics = TerminalMetrics::Published(snapshot);
-                Ok(snapshot)
-            }
+            Self::ShutDown { metrics } | Self::Terminated { metrics, .. } => match metrics {
+                TerminalMetrics::Pending => {
+                    *metrics = TerminalMetrics::Published(snapshot);
+                    Ok(snapshot)
+                }
+                TerminalMetrics::Published(published) => Ok(*published),
+                TerminalMetrics::Unavailable => Err(missing_terminal_error()),
+            },
             _ => Err(missing_terminal_error()),
         }
     }
@@ -1063,6 +1065,11 @@ impl OwnerHandleCore {
 
     fn admission_rejection(&self) -> Option<Error> {
         self.lifecycle.lock_open().err()
+    }
+
+    /// Refuse new handle work once the owner has published its terminal verdict.
+    pub(super) fn terminal_error(&self) -> Option<Error> {
+        self.lifecycle.terminal()
     }
 
     /// The session's terminal error, for a boundary whose owner is gone.
