@@ -24,7 +24,7 @@ pub(crate) fn lift_inquiry(
     match basic.kind {
         BasicKind::Ack { socket } => Ok(Response::CmdAck { socket }),
         BasicKind::Completion { socket } => Ok(Response::Completion { socket }),
-        BasicKind::Error { code, .. } => Ok(Response::Error(Error::from_code(code))),
+        BasicKind::Error { code, .. } => Ok(Response::Error(code.into())),
         BasicKind::NetworkChange => Ok(Response::NetworkChange),
         BasicKind::DataReply(payload) => match expected {
             Some(kind) => dispatch_with_framing(*kind, payload, framing),

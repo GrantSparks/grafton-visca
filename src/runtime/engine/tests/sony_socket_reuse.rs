@@ -172,7 +172,7 @@ fn sony_displaced_camera_errors_keep_acceptance_instead_of_retrying() {
             FIRST,
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(11),
@@ -266,7 +266,7 @@ fn sony_socket_reuse_resolves_an_open_cancellation_without_losing_the_request_se
             0x2001,
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x04,
+                code: 0x04.into(),
             },
         ),
         start,

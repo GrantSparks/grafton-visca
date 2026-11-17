@@ -153,7 +153,7 @@ fn conclusive_pre_ack_rejection_keeps_previously_known_projection() {
             Some((0x1001, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         now,
@@ -198,7 +198,7 @@ fn every_uncertain_terminal_invalidates_from_attempt_facts() {
                             sequence,
                             DecodedResponse::Error {
                                 socket: Some(ViscaSocket::S1),
-                                code: 0x41,
+                                code: 0x41.into(),
                             },
                         ),
                         now,
@@ -275,7 +275,7 @@ fn refusing_a_retry_after_conclusive_rejection_preserves_known_state() {
             Some((0x1001, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         now,

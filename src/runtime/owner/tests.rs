@@ -1069,7 +1069,13 @@ mod metrics {
             let _observer = sent(&mut state, command(retrying()), None, start);
             apply(
                 &mut state,
-                frame(None, DecodedResponse::Error { socket: None, code }),
+                frame(
+                    None,
+                    DecodedResponse::Error {
+                        socket: None,
+                        code: code.into(),
+                    },
+                ),
                 start,
             );
             let metrics = state.metrics();
@@ -1090,7 +1096,7 @@ mod metrics {
                 None,
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x02,
+                    code: 0x02.into(),
                 },
             ),
             start,
@@ -1114,7 +1120,7 @@ mod metrics {
                 None,
                 DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
-                    code: 0x04,
+                    code: 0x04.into(),
                 },
             ),
             start,
@@ -2538,7 +2544,7 @@ mod lifecycle_trace {
             if let Some(code) = field(input, "code") {
                 assert!(
                     matches!(decoded.kind, BasicKind::Error { code: actual, .. }
-                        if actual == u8::from_str_radix(code, 16).unwrap()),
+                        if actual == crate::protocol::response::CameraErrorCode::from(u8::from_str_radix(code, 16).unwrap())),
                     "fixture error code disagrees with its own bytes"
                 );
             }
@@ -3292,4 +3298,18 @@ fn effect_storage_retains_warm_capacity_and_prepends_recursive_results_in_order(
     assert_eq!(buffers.take_effects().capacity(), queue_capacity);
     assert_eq!(buffers.effect_scratch.capacity(), scratch_capacity);
     assert!(buffers.effect_scratch.is_empty());
+}
+
+#[test]
+fn every_camera_code_preserves_the_owner_metric_bucket() {
+    for code in 0..=u8::MAX {
+        assert_eq!(
+            crate::protocol::response::CameraErrorCode::from(code).is_busy(),
+            matches!(code, 3 | 5 | 0x41)
+        );
+        assert_eq!(
+            crate::protocol::response::CameraErrorCode::from(code).confirms_cancellation(),
+            code == 4
+        );
+    }
 }

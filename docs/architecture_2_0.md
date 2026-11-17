@@ -415,8 +415,13 @@ its next free rotation socket, which it then skips. On the PTZOptics G2 bench
 (three firmware builds, 2026-10-04) that socket is free in the engine's index,
 including while another command executes on the other socket: a rejection
 never names a socket the camera is executing on. `0x04` (cancelled) and `0x05`
-(no socket) naming a socket answer only a cancellation packet for it. On a
-datagram transport therefore:
+(no socket) naming a socket answer only a cancellation packet for it. A
+datagram transport follows the decoded `CameraErrorCode` rules.
+`answers_named_cancellation()` is checked before `refuses_before_start()`, so
+`NoSocket` has its cancellation role when named and its rejection role when
+socketless. The decoder carries this closed code through the ledger and owner;
+`confirms_cancellation()`, `retry_permission()` and `is_busy()` are the shared
+cancellation, retry and metric classifications:
 
 - `0x04`/`0x05` naming a socket route only to the request whose emitted
   cancellation targets it, and are otherwise ignored.
@@ -1194,7 +1199,7 @@ an exhaustive halt preparation arm before the crate compiles (#999).
 | Uncertain Raw inquiry response-correlation release | A terminal error/timeout or retry release/requeue retains the profile's short `raw_inquiry_reply_skew` before another overlapping same-target inquiry may send. ACK-bearing commands, including `Urgent`, are never gated by this inquiry-only hold. It filters stale unkeyed inquiry data/reply and socketless-error evidence, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible (#712). |
 | Raw inquiry reply deadline or total budget in `AwaitingReply`, or a successful write sampled after the budget; stream transport | Never resend. Fail the inquiry with `Timeout` (`Terminal`, `FailedConclusively`) retain the declaration's inquiry hold, and record that its overlap class owes one reply (its window: the request's ambiguity window, at least the reply skew). Overlapping same-target inquiries wait; disjoint inquiries and ACK-bearing commands are not gated beyond the ordinary inquiry hold. Datagram keeps the skew hold and the inquiry retry policy (#795). |
 | Raw inquiry frame at exact reply-skew expiry | Complete input wins over the due pass. Stale unkeyed inquiry data/reply and socketless-error evidence remain filtered, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible. Retained partial-byte ambiguity follows the engine-owned time grace before an orphan is discarded (#713). |
-| Retryable conclusive rejection before ACK (buffer-full `0x03`/`0x05`, movement `0x41` for a non-STOP movement request), no cancel intent | Increment the bounded attempt and enter `Backoff`. A typed STOP refused with `0x41` is terminal with `Error::CommandNotExecutable`: the refusal has a standing cause (a focus STOP under auto-focus) and the caller needs the verdict at once. |
+| Retryable conclusive rejection before ACK (`CameraErrorCode::retry_permission`: buffer-full `0x03`/`0x05`, movement `0x41` for a non-STOP movement request), no cancel intent | Increment the bounded attempt and enter `Backoff`. A typed STOP refused with `0x41` is terminal with `Error::CommandNotExecutable`: the refusal has a standing cause (a focus STOP under auto-focus) and the caller needs the verdict at once. |
 | Camera error after ACK (`Executing` or `AwaitingCancellationResolution`), either envelope | Never retried: `finish` with `Error::CommandFailedAfterAck` wrapping the camera's exact error (`Terminal`/`Unconfirmed`, not retryable). The acknowledged command may already have moved (#795). |
 | Completion deadline in `Executing`, Sony envelope, no cancel intent | `finish` with `Timeout` (`Terminal`/`Unconfirmed`); never resend. The same-sequence retransmission in docs/visca_reference.md §5.3 recovers a lost message, and an ACK already proved acceptance (#795). |
 | Retryable rejection with cancel intent | Suppress retry. Finish `Cancelled` only when no earlier attempt may have applied; otherwise finish `CancellationUnconfirmed` (#962). |

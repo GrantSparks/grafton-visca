@@ -1196,7 +1196,7 @@ mod tests {
             error.response,
             DecodedResponse::Error {
                 socket: Some(crate::ViscaSocket::S1),
-                code: 0x04
+                code: crate::protocol::response::CameraErrorCode::Cancelled
             }
         ));
     }

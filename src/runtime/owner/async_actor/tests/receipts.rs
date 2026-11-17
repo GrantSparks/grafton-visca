@@ -858,7 +858,7 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
             sequence: None,
             response: DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x04,
+                code: 0x04.into(),
             },
         }]))
         .await

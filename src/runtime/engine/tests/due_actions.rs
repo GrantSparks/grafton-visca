@@ -234,7 +234,7 @@ fn a_disputed_ack_at_equality_gets_a_strictly_later_minimum_ambiguity_deadline()
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         now,
@@ -325,7 +325,7 @@ fn preexisting_requests_make_progress_when_the_clock_reaches_its_last_instant() 
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         now,

@@ -37,6 +37,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
+use crate::protocol::response::CameraErrorCode;
 use crate::target::{PerTarget, TargetSlot};
 use crate::{
     Certainty, CommandSocketCount, Error, FailureContext, FailureStage, PayloadShape, ViscaSocket,
@@ -2844,11 +2845,11 @@ trait EngineMethods: EngineAccess {
         &self,
         target: TargetSlot,
         socket: ViscaSocket,
-        code: u8,
+        code: CameraErrorCode,
     ) -> Option<RequestId> {
         // A `0x04`/`0x05` naming a socket answers only the cancellation
         // packet emitted for it (H1, #795).
-        if is_cancel_reply(code) {
+        if code.answers_named_cancellation() {
             return self.socket_owner(target, socket).filter(|owner| {
                 self.entries
                     .get(owner)
@@ -2858,7 +2859,7 @@ trait EngineMethods: EngineAccess {
         if let Some(owner) = self.socket_owner(target, socket) {
             return (!self.raw_command_unacknowledged(target)).then_some(owner);
         }
-        if !is_rejection(code)
+        if !code.refuses_before_start()
             || self
                 .raw_hold(target, RawHoldScope::Socket(socket))
                 .is_some()
@@ -3570,7 +3571,7 @@ trait EngineMethods: EngineAccess {
         id: RequestId,
         correlation_kind: CorrelationKind,
         socket: Option<ViscaSocket>,
-        code: u8,
+        code: CameraErrorCode,
         now: Instant,
         effects: &mut Decision,
     ) {
@@ -3601,7 +3602,7 @@ trait EngineMethods: EngineAccess {
             return;
         }
         let cancellation_active = entry.lifecycle().cancellation_ambiguity().is_some();
-        if code == 0x04
+        if code.confirms_cancellation()
             && (cancellation_active || correlation_kind == CorrelationKind::Cancellation)
         {
             self.confirm_cancelled(id, now, effects);
@@ -3619,23 +3620,18 @@ trait EngineMethods: EngineAccess {
         // request's retryable rejection below.
         let acknowledged = entry.lifecycle().is_accepted();
         if acknowledged {
-            let cancellation_answered =
-                self.mode().is_raw() && code == 0x05 && raw_cancellation_no_socket_response(entry);
-            self.finish_after_ack(
-                id,
-                Error::from_code(code),
-                cancellation_answered,
-                now,
-                effects,
-            );
+            let cancellation_answered = self.mode().is_raw()
+                && code == CameraErrorCode::NoSocket
+                && raw_cancellation_no_socket_response(entry);
+            self.finish_after_ack(id, code.into_error(), cancellation_answered, now, effects);
             return;
         }
         let retry = (correlation_kind == CorrelationKind::Request
-            && self.camera_error_retryable(entry, code))
+            && code.retry_permission(&entry.request.context().retry, entry.reply_family()))
         .then(|| entry.lifecycle().retry_eligibility(true))
         .flatten();
-        let error = Error::from_code(code);
-        let evidence = if is_rejection(code) || code == 0x05 {
+        let error = code.into_error();
+        let evidence = if code.refuses_before_start() {
             AttemptEvidence::Rejected
         } else {
             AttemptEvidence::Lifecycle
@@ -3700,16 +3696,6 @@ trait EngineMethods: EngineAccess {
             now,
             effects,
         );
-    }
-
-    fn camera_error_retryable(&self, entry: &Entry, code: u8) -> bool {
-        let retry = entry.request.context().retry;
-        match code {
-            0x03 | 0x05 => retry.buffer_full,
-            0x41 => retry.movement_not_executable,
-            0x02 => entry.reply_family() == SendingReply::Inquiry && retry.builtin_inquiry_syntax,
-            _ => false,
-        }
     }
 
     fn confirm_cancelled(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
@@ -5025,18 +5011,6 @@ fn terminal_timeout(entry: &Entry, evidence: AttemptEvidence) -> Error {
     Error::timeout(FailureStage::Terminal, entry.certainty(evidence))
 }
 
-/// Whether a VISCA error code answers a socket cancellation packet (`0x04`
-/// cancelled, `0x05` no socket). Named, it never rejects a new command.
-const fn is_cancel_reply(code: u8) -> bool {
-    matches!(code, 0x04 | 0x05)
-}
-
-/// Whether a VISCA error code is an immediate rejection of a request the
-/// camera read: message length, syntax, buffer full, or not executable.
-const fn is_rejection(code: u8) -> bool {
-    matches!(code, 0x01 | 0x02 | 0x03 | 0x41)
-}
-
 /// The failure context of an admitted request a halt superseded (D21, #795).
 ///
 /// Supersession happens only while the request is off the wire (queued, in
@@ -5568,7 +5542,7 @@ mod cancellation_regression_tests {
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: None,
-                    code: 0x05,
+                    code: 0x05.into(),
                 },
             }),
             now,
@@ -5641,7 +5615,7 @@ mod cancellation_regression_tests {
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: None,
-                    code: 0x05,
+                    code: 0x05.into(),
                 },
             }),
             now,
@@ -5683,7 +5657,7 @@ mod cancellation_regression_tests {
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: None,
-                    code: 0x05,
+                    code: 0x05.into(),
                 },
             }),
             now,
@@ -5734,7 +5708,7 @@ mod cancellation_regression_tests {
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
-                    code: 0x05,
+                    code: 0x05.into(),
                 },
             }),
             now,

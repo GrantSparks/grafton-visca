@@ -248,7 +248,7 @@ fn pre_ack_cancel_never_shortens_a_long_ack_window() {
                 cancel_sequence.map(|value| (value, SequenceWidth::Full32)),
                 DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
-                    code: 0x04,
+                    code: 0x04.into(),
                 },
             ),
             ack_at + Duration::from_millis(1),

@@ -534,7 +534,7 @@ fn raw_inquiry_rejection() -> DecodedFrame {
         sequence: None,
         response: DecodedResponse::Error {
             socket: None,
-            code: 0x41,
+            code: 0x41.into(),
         },
     }
 }
@@ -881,7 +881,7 @@ where
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
-                    code: 0x02,
+                    code: 0x02.into(),
                 },
             }]))
             .await

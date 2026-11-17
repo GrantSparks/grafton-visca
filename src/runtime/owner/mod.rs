@@ -422,23 +422,6 @@ pub(crate) struct OwnerMetrics {
     pub(crate) dropped_boundary_work: u64,
 }
 
-/// The camera reported that it cannot accept this request right now.
-///
-/// These are the codes the engine's own retry classification treats as
-/// transient camera-side backpressure: command buffer full (`0x03`), no socket
-/// available (`0x05`), and not executable in the current state (`0x41`).
-///
-/// `0x04` is deliberately not in this set: it is the cancellation reply,
-/// which this engine consumes as the confirmation of a cancel rather than as a
-/// failure, so counting it as a busy error would make every successful
-/// cancellation look like camera backpressure.
-const fn error_code_is_busy(code: u8) -> bool {
-    matches!(code, 0x03 | 0x05 | 0x41)
-}
-
-/// The cancellation reply code, which is an answer rather than a fault.
-const CANCELLATION_REPLY_CODE: u8 = 0x04;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RequestSummary {
     target: TargetSlot,
@@ -1949,9 +1932,9 @@ impl OwnerState {
             // answering requests the engine can no longer correlate — the exact
             // case a field debugging session is trying to see — still shows up.
             if let DecodedResponse::Error { code, .. } = frame.response {
-                if error_code_is_busy(code) {
+                if code.is_busy() {
                     self.metrics.busy_errors = self.metrics.busy_errors.saturating_add(1);
-                } else if code != CANCELLATION_REPLY_CODE {
+                } else if !code.confirms_cancellation() {
                     self.metrics.protocol_errors = self.metrics.protocol_errors.saturating_add(1);
                 }
             }

@@ -7,17 +7,17 @@ CommandPending	src/command/response/types.rs	Response::CmdAck { .. } => Err(Erro
 InvalidResponse	src/command/response/types.rs	Response::Unknown { data, .. } => Err(Error::InvalidResponse {
 FeatureNotSupported	src/prepared.rs	crate::capabilities::InquirySupport::None ) { return Err(Error::FeatureNotSupported {
 Io	src/error.rs	Self::Io { source: Arc::new(err), }
-SyntaxError	src/error.rs	0x02 => Self::SyntaxError,
-CommandBufferFull	src/error.rs	0x03 => Self::CommandBufferFull,
-CommandCancelled	src/error.rs	0x04 => Self::CommandCancelled,
-NoSocket	src/error.rs	0x05 => Self::NoSocket,
-CommandNotExecutable	src/error.rs	0x41 => Self::CommandNotExecutable,
+SyntaxError	src/protocol/response.rs	Self::Syntax => crate::Error::SyntaxError,
+CommandBufferFull	src/protocol/response.rs	Self::BufferFull => crate::Error::CommandBufferFull,
+CommandCancelled	src/protocol/response.rs	Self::Cancelled => crate::Error::CommandCancelled,
+NoSocket	src/protocol/response.rs	Self::NoSocket => crate::Error::NoSocket,
+CommandNotExecutable	src/protocol/response.rs	Self::NotExecutable => crate::Error::CommandNotExecutable,
 InvalidResponseFormat	src/command/response/payload.rs	if padding.iter().any(|&nibble| nibble != 0) { return Err(Error::InvalidResponseFormat);
 InvalidResponseLength	src/error.rs	Self::InvalidResponseLength { expected, actual: payload.len(),
 UnexpectedResponseType	src/command/inquiry_structs.rs	Response::Error(e) => Err(e), _ => Err(Error::UnexpectedResponseType),
-Unknown	src/error.rs	_ => Self::Unknown { code },
+Unknown	src/protocol/response.rs	Self::Other(code) => crate::Error::Unknown { code },
 InvalidRequest	src/raw.rs	if bytes.len() < 2 { return Err(Error::InvalidRequest { reason:
-MessageLengthError	src/error.rs	0x01 => Self::MessageLengthError,
+MessageLengthError	src/protocol/response.rs	Self::MessageLength => crate::Error::MessageLengthError,
 TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
 InvalidParameter	src/macros/public.rs	crate::Error::InvalidParameter { parameter, value: ::std::borrow::Cow::Borrowed(
 BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))

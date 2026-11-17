@@ -89,7 +89,7 @@ mod tests {
                 request: RequestId::from_nonzero(
                     std::num::NonZeroU64::new(index as u64).expect("bounded nonzero index"),
                 ),
-                evidence: Evidence::Error(0x41),
+                evidence: Evidence::Error(0x41.into()),
             });
         }
         let deferred = decision.take_deferred();

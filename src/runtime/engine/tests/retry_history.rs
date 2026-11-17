@@ -59,9 +59,9 @@ fn fixture_with_retry(
                         DecodedResponse::Error {
                             socket: None,
                             code: if matches!(history, History::NotExecutable) {
-                                0x41
+                                0x41.into()
                             } else {
-                                0x03
+                                0x03.into()
                             },
                         },
                     ),
@@ -86,7 +86,7 @@ fn fixture_with_retry(
                 Some((0x1001, SequenceWidth::Full32)),
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x03,
+                    code: 0x03.into(),
                 },
             ),
             at,
@@ -201,7 +201,7 @@ fn terminal_paths_and_cache_agree_for_every_reachable_prior_history() {
                                 Some((0x1001, SequenceWidth::Full32)),
                                 DecodedResponse::Error {
                                     socket: None,
-                                    code: 0x03,
+                                    code: 0x03.into(),
                                 },
                             ),
                             at,
@@ -367,7 +367,7 @@ fn halt_racing_a_conclusive_rejection_keeps_terminal_and_cache_certainty_equal()
                 sequence.map(|value| (value, SequenceWidth::Full32)),
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x03,
+                    code: 0x03.into(),
                 },
             ),
             now,
@@ -437,7 +437,10 @@ fn a_later_camera_rejection_cannot_erase_an_earlier_possible_effect() {
             frame(
                 1,
                 Some((0x1001, SequenceWidth::Full32)),
-                DecodedResponse::Error { socket: None, code },
+                DecodedResponse::Error {
+                    socket: None,
+                    code: code.into(),
+                },
             ),
             at,
         );
@@ -487,7 +490,7 @@ fn sequence_slots_keep_the_request_sequence_across_retries_and_cancellation() {
                 Some((sequence, SequenceWidth::Full32)),
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x03,
+                    code: 0x03.into(),
                 },
             ),
             now,
@@ -553,7 +556,7 @@ fn rejection_during_cancellation_cannot_erase_the_prior_lost_ack() {
             Some((0x1001, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         at,

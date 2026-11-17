@@ -1,4 +1,5 @@
 //! Inert values crossing the deterministic protocol-engine boundary.
+use crate::protocol::response::CameraErrorCode;
 use crate::target::{PerTarget, TargetSlot};
 
 use std::{
@@ -608,7 +609,7 @@ pub(crate) enum DecodedResponse {
     },
     Error {
         socket: Option<ViscaSocket>,
-        code: u8,
+        code: CameraErrorCode,
     },
     SonyControl {
         code: u16,
@@ -1197,6 +1198,27 @@ pub(crate) struct AppliedStateEffect {
 /// Returns the stream ledger's fixed memory bound, or refuses arithmetic overflow.
 pub(crate) const fn checked_stream_ledger_bound(admissible: usize) -> Option<usize> {
     super::stream_ledger::checked_max_entries_per_target(admissible)
+}
+
+impl CameraErrorCode {
+    /// Applies the prepared request's permissions to the decoded camera error.
+    pub(crate) const fn retry_permission(
+        self,
+        retry: &RetryPolicy,
+        family: super::SendingReply,
+    ) -> bool {
+        match self {
+            Self::BufferFull | Self::NoSocket => retry.buffer_full,
+            Self::NotExecutable => retry.movement_not_executable,
+            Self::Syntax => match family {
+                super::SendingReply::Inquiry => retry.builtin_inquiry_syntax,
+                super::SendingReply::AckThenCompletion
+                | super::SendingReply::CompletionOnly
+                | super::SendingReply::NoReply => false,
+            },
+            Self::MessageLength | Self::Cancelled | Self::Other(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]

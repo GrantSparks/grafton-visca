@@ -185,7 +185,7 @@ fn sony_late_camera_error_does_not_spend_another_retry() {
             EnvelopeKind::Sony,
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         start + Duration::from_millis(21),

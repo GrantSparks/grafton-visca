@@ -1035,7 +1035,10 @@ impl Session {
                 let response = if self.roll(10) == 0 {
                     self.coverage.inquiry_rejections += 1;
                     let code = [0x02, 0x41][usize::try_from(self.roll(2)).unwrap()];
-                    DecodedResponse::Error { socket: None, code }
+                    DecodedResponse::Error {
+                        socket: None,
+                        code: code.into(),
+                    }
                 } else {
                     DecodedResponse::InquiryReply {
                         payload: SmallVec::from_slice(&id.get().to_le_bytes()),
@@ -1054,7 +1057,7 @@ impl Session {
                         target,
                         DecodedResponse::Error {
                             socket: None,
-                            code: 0x41,
+                            code: 0x41.into(),
                         },
                         id,
                     ));
@@ -1072,7 +1075,7 @@ impl Session {
                         target,
                         DecodedResponse::Error {
                             socket: None,
-                            code: 0x02,
+                            code: 0x02.into(),
                         },
                         id,
                     ));
@@ -1109,7 +1112,7 @@ impl Session {
                         self.coverage.socketless_rejections += 1;
                         DecodedResponse::Error {
                             socket: None,
-                            code: 0x03,
+                            code: 0x03.into(),
                         }
                     }
                     Some(index) if roll < 8 => {
@@ -1119,12 +1122,15 @@ impl Session {
                         self.coverage.named_rejections += 1;
                         DecodedResponse::Error {
                             socket: Some(socket_at(index)),
-                            code: 0x41,
+                            code: 0x41.into(),
                         }
                     }
                     Some(_) if roll < 14 => {
                         self.coverage.socketless_rejections += 1;
-                        DecodedResponse::Error { socket: None, code }
+                        DecodedResponse::Error {
+                            socket: None,
+                            code: code.into(),
+                        }
                     }
                     Some(index) => {
                         camera.rotation = (index + 1) % 2;
@@ -1159,7 +1165,7 @@ impl Session {
                     target,
                     DecodedResponse::Error {
                         socket: Some(socket),
-                        code,
+                        code: code.into(),
                     },
                     id,
                 ));
@@ -1193,7 +1199,7 @@ impl Session {
                         self.coverage.execution_errors += 1;
                         DecodedResponse::Error {
                             socket: Some(socket_at(socket)),
-                            code: 0x41,
+                            code: 0x41.into(),
                         }
                     } else {
                         DecodedResponse::Completion {

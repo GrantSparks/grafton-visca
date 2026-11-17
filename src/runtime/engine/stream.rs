@@ -169,7 +169,9 @@ impl StreamContext<'_> {
             DecodedResponse::Error {
                 socket: Some(socket),
                 code,
-            } if is_cancel_reply(*code) => (Some(Answer::CancelReply(*socket)), Some(*socket)),
+            } if code.answers_named_cancellation() => {
+                (Some(Answer::CancelReply(*socket)), Some(*socket))
+            }
             DecodedResponse::Error { socket, .. } => (
                 Some(if socket.is_some() {
                     Answer::NamedRejection
@@ -391,7 +393,7 @@ impl StreamContext<'_> {
                 socket: Some(socket),
                 code,
             } => {
-                if is_cancel_reply(*code) {
+                if code.answers_named_cancellation() {
                     return match self.take_stream_answer(
                         target,
                         Answer::CancelReply(*socket),
@@ -427,7 +429,7 @@ impl StreamContext<'_> {
                     let unseen_completions =
                         !self.stream.learning[target].completion_sockets.is_named();
                     if unseen_completions
-                        && is_rejection(*code)
+                        && code.refuses_before_start()
                         && self.stream.ledger.dispute(target, Answer::NamedRejection)
                     {
                         return None;
@@ -453,12 +455,12 @@ impl StreamContext<'_> {
                 // so the waiting command is disputed rather than left owing an
                 // answer that may have come.
                 if self.stream.holds.release_socket(target, *socket).is_some() {
-                    if is_rejection(*code) {
+                    if code.refuses_before_start() {
                         let _ = self.stream.ledger.dispute(target, Answer::NamedRejection);
                     }
                     return None;
                 }
-                if !is_rejection(*code) {
+                if !code.refuses_before_start() {
                     return None;
                 }
                 self.take_stream_answer(target, Answer::NamedRejection, evidence, now, effects)?
@@ -595,11 +597,11 @@ impl StreamContext<'_> {
         &mut self,
         target: TargetSlot,
         socket: ViscaSocket,
-        code: u8,
+        code: CameraErrorCode,
         cancel_order: u64,
         effects: &mut Decision,
     ) {
-        if code != 0x04 {
+        if !code.confirms_cancellation() {
             return;
         }
         let Some(owner) = self.socket_owner(target, socket) else {

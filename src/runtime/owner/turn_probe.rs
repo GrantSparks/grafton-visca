@@ -274,7 +274,7 @@ impl TurnProbe {
         self.receive(
             &[DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             }],
             self.sequence(),
         );

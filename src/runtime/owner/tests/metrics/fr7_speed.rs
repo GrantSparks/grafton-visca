@@ -120,7 +120,7 @@ fn queued_mode_refusal(invalidate: bool) {
     let response = if invalidate {
         DecodedResponse::Error {
             socket: Some(ViscaSocket::S1),
-            code: 0x41,
+            code: 0x41.into(),
         }
     } else {
         DecodedResponse::Completion {
@@ -326,7 +326,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
             Some(3),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S2),
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         mode_at,

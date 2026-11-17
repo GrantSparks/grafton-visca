@@ -1756,7 +1756,8 @@ impl Error {
     /// - `0x02`: Syntax Error - command format invalid
     /// - `0x03`: Command Buffer Full - camera busy, always retry later
     /// - `0x04`: Command Canceled - command was canceled
-    /// - `0x05`: No Socket - no socket available
+    /// - `0x05`: No Socket - a named socket has no command to cancel; a
+    ///   socketless reply can reject a request before it starts
     /// - `0x41`: Command Not Executable - command invalid in current state
     ///
     /// Note: 0x41 is context-dependent. Some cameras (e.g., FR7) use it to indicate
@@ -1764,15 +1765,7 @@ impl Error {
     /// The runtime determines retry policy based on camera profile and command context.
     #[must_use]
     pub const fn from_code(code: u8) -> Self {
-        match code {
-            0x01 => Self::MessageLengthError,
-            0x02 => Self::SyntaxError,
-            0x03 => Self::CommandBufferFull, // Always retryable
-            0x04 => Self::CommandCancelled,
-            0x05 => Self::NoSocket,
-            0x41 => Self::CommandNotExecutable, // Context-dependent retryability
-            _ => Self::Unknown { code },
-        }
+        crate::protocol::response::CameraErrorCode::from_byte(code).into_error()
     }
 
     /// Returns the complete recovery verdict for this failure.

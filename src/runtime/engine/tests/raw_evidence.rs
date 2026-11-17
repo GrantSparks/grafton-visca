@@ -15,7 +15,7 @@ fn named_error(target: u8, socket: ViscaSocket, code: u8) -> Input {
         None,
         DecodedResponse::Error {
             socket: Some(socket),
-            code,
+            code: code.into(),
         },
     )
 }
@@ -312,7 +312,7 @@ fn acknowledged_commands_are_never_rewritten_after_a_rejection() {
             Some((sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         now,
@@ -677,7 +677,7 @@ fn halt_after_conclusive_rejections_reports_not_accepted() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         now,
@@ -718,7 +718,7 @@ fn halt_after_conclusive_rejections_reports_not_accepted() {
             None,
             DecodedResponse::Error {
                 socket: None,
-                code: 0x41,
+                code: 0x41.into(),
             },
         ),
         now,
@@ -761,7 +761,7 @@ fn halt_after_a_possibly_applied_attempt_reports_unconfirmed() {
             Some((sony_sequence(id), SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: None,
-                code: 0x03,
+                code: 0x03.into(),
             },
         ),
         retry_at,
@@ -790,7 +790,14 @@ fn socketless_completion(target: u8) -> Input {
 }
 
 fn socketless_error(target: u8, code: u8) -> Input {
-    frame(target, None, DecodedResponse::Error { socket: None, code })
+    frame(
+        target,
+        None,
+        DecodedResponse::Error {
+            socket: None,
+            code: code.into(),
+        },
+    )
 }
 
 fn stop_command(target: u8) -> RuntimeRequest {
@@ -1559,7 +1566,7 @@ fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
             Some((cancel_sequence, SequenceWidth::Full32)),
             DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),
-                code: 0x05,
+                code: 0x05.into(),
             },
         ),
         now,
@@ -2756,7 +2763,7 @@ fn late_first_answers_are_order_independent() {
                 None,
                 DecodedResponse::Error {
                     socket: None,
-                    code: 0x41,
+                    code: 0x41.into(),
                 },
             ),
             _ => named_error(1, ViscaSocket::S1, 0x04),

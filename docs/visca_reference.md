@@ -314,7 +314,7 @@ Inquiries do not receive an ACK before the data reply.
 | Syntax Error | `90 60 02 FF` or `90 6y 02 FF` | Bad command format, unsupported command, or illegal parameter. |
 | Command Buffer Full | `90 60 03 FF` or `90 6y 03 FF` | Two command sockets are already in use. |
 | Command Canceled | `90 6y 04 FF` | Command in socket `y` was canceled; no normal completion follows. |
-| No Socket | `90 6y 05 FF` | Cancel requested for an empty or invalid socket. |
+| No Socket | `90 6y 05 FF` | Naming a socket, a cancel requested for an empty or invalid socket; socketless, a request rejection before it starts. |
 | Command Not Executable | `90 6y 41 FF` | Camera state prevents execution, such as manual focus movement while autofocus is active. |
 
 ## 7. PTZOptics validated baseline command reference
