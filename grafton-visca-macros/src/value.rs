@@ -710,14 +710,34 @@ fn expand_scalar(mut expansion: Expansion) -> Result<TokenStream> {
         .iter()
         .filter_map(|attr| strip_generated_derives(attr).transpose())
         .collect::<Result<_>>()?;
-    if kind == ScalarKind::Float && expansion.features.contains("schemars") {
-        if let (Some(min), Some(max)) = (&args.min, &args.max) {
-            let Data::Struct(data) = &mut expansion.input.data else {
-                unreachable!()
-            };
-            let Fields::Unnamed(fields) = &mut data.fields else {
-                unreachable!()
-            };
+    if expansion.features.contains("schemars") {
+        let Data::Struct(data) = &mut expansion.input.data else {
+            unreachable!()
+        };
+        let Fields::Unnamed(fields) = &mut data.fields else {
+            unreachable!()
+        };
+        if kind == ScalarKind::Integer {
+            fields.unnamed[0].attrs.push(parse_quote!(
+                #[schemars(range(min = #name::MIN.value(), max = #name::MAX.value()))]
+            ));
+            if let Some(values) = &args.values {
+                // Equivalent integer literals may repeat an accepted value;
+                // JSON Schema enum members must be unique.
+                fields.unnamed[0]
+                    .attrs
+                    .push(parse_quote!(#[schemars(extend("enum" = ({
+                        const VALUES: &[#inner] = &#values;
+                        let mut values = ::std::vec::Vec::<#inner>::new();
+                        for &value in VALUES {
+                            if !values.contains(&value) { values.push(value); }
+                        }
+                        values
+                    })))]));
+            }
+        } else if let (Some(min), Some(max)) = (&args.min, &args.max) {
+            // Preserve decimal float bounds rather than widening their stored
+            // f32 representations, which can exclude canonical serialized JSON.
             fields.unnamed[0]
                 .attrs
                 .push(parse_quote!(#[schemars(range(min = #min, max = #max))]));

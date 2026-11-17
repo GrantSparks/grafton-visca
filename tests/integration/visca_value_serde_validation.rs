@@ -30,6 +30,15 @@ mod serde_validation {
         focus: FocusSpeed,
     }
 
+    #[cfg(feature = "schemars")]
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    struct ScalarDomainSchemaContainer {
+        gain: GainLevel,
+        compensation: ExposureCompensationLevel,
+        kelvin: grafton_visca::types::Kelvin,
+        unknown_effect: grafton_visca::types::UnknownPictureEffect,
+    }
+
     #[test]
     fn deserialization_preserves_range_bounds_and_scalar_representation() {
         let minimum: RangeValue = serde_json::from_str("1").expect("minimum is valid");
@@ -253,15 +262,129 @@ mod serde_validation {
             ))
         );
 
-        // These are the u8 schema's bounds, not the macro's validation bounds.
+        // Named references retain the declared domain rather than u8 storage bounds.
         assert_eq!(
             json.pointer("/$defs/PresetSpeed/minimum"),
-            Some(&serde_json::json!(0))
+            Some(&serde_json::json!(1))
         );
         assert_eq!(
             json.pointer("/$defs/PresetSpeed/maximum"),
-            Some(&serde_json::json!(255))
+            Some(&serde_json::json!(50))
         );
+    }
+
+    #[cfg(feature = "schemars")]
+    fn assert_schema_integer_domain<T: serde::de::DeserializeOwned>(
+        schema: &serde_json::Value,
+        inputs: impl IntoIterator<Item = i64>,
+        constructor_accepts: impl Fn(i64) -> bool,
+    ) {
+        assert_eq!(schema["type"], "integer");
+        let minimum = schema["minimum"].as_i64().expect("integer minimum");
+        let maximum = schema["maximum"].as_i64().expect("integer maximum");
+        let members = schema.get("enum").map(|values| {
+            values
+                .as_array()
+                .expect("sparse schema membership is an array")
+        });
+
+        for input in inputs {
+            let json = serde_json::json!(input);
+            let admitted = input >= minimum
+                && input <= maximum
+                && members.is_none_or(|values| values.contains(&json));
+            let expected = constructor_accepts(input);
+            assert_eq!(admitted, expected, "schema disagrees at {input}: {schema}");
+            assert_eq!(
+                serde_json::from_value::<T>(json).is_ok(),
+                expected,
+                "checked serde disagrees at {input}"
+            );
+        }
+    }
+
+    #[cfg(feature = "schemars")]
+    #[test]
+    fn scalar_root_and_nested_schema_domains_agree_with_checked_input() {
+        use grafton_visca::types::{Kelvin, UnknownPictureEffect};
+
+        let nested = serde_json::to_value(schemars::schema_for!(ScalarDomainSchemaContainer))
+            .expect("nested scalar schemas");
+        let instance = serde_json::to_value(ScalarDomainSchemaContainer {
+            gain: GainLevel::new(25).expect("maximum gain"),
+            compensation: ExposureCompensationLevel::new(-7).expect("minimum compensation"),
+            kelvin: Kelvin::new(2000).expect("minimum Kelvin"),
+            unknown_effect: UnknownPictureEffect::new(255).expect("extension effect"),
+        })
+        .expect("scalar container JSON");
+        assert_eq!(
+            instance,
+            serde_json::json!({
+                "gain": 25, "compensation": -7, "kelvin": 2000, "unknown_effect": 255
+            })
+        );
+        for (field, definition) in [
+            ("gain", "GainLevel"),
+            ("compensation", "ExposureCompensationLevel"),
+            ("kelvin", "Kelvin"),
+            ("unknown_effect", "UnknownPictureEffect"),
+        ] {
+            assert_eq!(
+                nested.pointer(&format!("/properties/{field}/$ref")),
+                Some(&serde_json::json!(format!("#/$defs/{definition}")))
+            );
+        }
+
+        for schema in [
+            serde_json::to_value(schemars::schema_for!(GainLevel)).expect("gain schema"),
+            nested["$defs"]["GainLevel"].clone(),
+        ] {
+            assert_eq!(schema["minimum"], 0);
+            assert_eq!(schema["maximum"], 25);
+            assert_schema_integer_domain::<GainLevel>(&schema, -1..=256, |input| {
+                u8::try_from(input).is_ok_and(|value| GainLevel::new(value).is_ok())
+            });
+        }
+        for schema in [
+            serde_json::to_value(schemars::schema_for!(ExposureCompensationLevel))
+                .expect("compensation schema"),
+            nested["$defs"]["ExposureCompensationLevel"].clone(),
+        ] {
+            assert_eq!(schema["minimum"], -7);
+            assert_eq!(schema["maximum"], 7);
+            assert_schema_integer_domain::<ExposureCompensationLevel>(
+                &schema,
+                -129..=128,
+                |input| {
+                    i8::try_from(input)
+                        .is_ok_and(|value| ExposureCompensationLevel::new(value).is_ok())
+                },
+            );
+        }
+        for schema in [
+            serde_json::to_value(schemars::schema_for!(Kelvin)).expect("Kelvin schema"),
+            nested["$defs"]["Kelvin"].clone(),
+        ] {
+            assert_eq!(schema["minimum"], 2000);
+            assert_eq!(schema["maximum"], 15000);
+            assert_schema_integer_domain::<Kelvin>(&schema, -1..=65536, |input| {
+                u16::try_from(input).is_ok_and(|value| Kelvin::new(value).is_ok())
+            });
+        }
+        for schema in [
+            serde_json::to_value(schemars::schema_for!(UnknownPictureEffect))
+                .expect("picture effect schema"),
+            nested["$defs"]["UnknownPictureEffect"].clone(),
+        ] {
+            let members = schema["enum"].as_array().expect("exact sparse membership");
+            assert_eq!(members.len(), 253);
+            for excluded in [0, 2, 4] {
+                assert!(!members.contains(&serde_json::json!(excluded)));
+            }
+            assert_schema_integer_domain::<UnknownPictureEffect>(&schema, -1..=256, |input| {
+                u8::try_from(input).is_ok_and(|value| UnknownPictureEffect::new(value).is_ok())
+            });
+        }
     }
 
     #[cfg(feature = "ts-rs")]

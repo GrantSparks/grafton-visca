@@ -113,3 +113,41 @@ fn merged_values_and_speed_inputs_round_trip_with_validated_domains() {
         "\"flash\""
     );
 }
+
+#[cfg(feature = "schemars")]
+#[test]
+fn scalar_schemas_use_the_checked_semantic_domain() {
+    fn assert_bounds<T: schemars::JsonSchema>(minimum: i64, maximum: i64) {
+        let schema = schemars::schema_for!(T);
+        assert_eq!(schema.get("type").expect("scalar type"), "integer");
+        assert_eq!(
+            schema.get("minimum").and_then(serde_json::Value::as_i64),
+            Some(minimum)
+        );
+        assert_eq!(
+            schema.get("maximum").and_then(serde_json::Value::as_i64),
+            Some(maximum)
+        );
+    }
+
+    assert_bounds::<GainLevel>(0, 25);
+    assert_bounds::<ExposureCompensationLevel>(-7, 7);
+    assert_bounds::<Kelvin>(2000, 15000);
+    assert_bounds::<UnknownPictureEffect>(1, 255);
+
+    let schema = schemars::schema_for!(UnknownPictureEffect);
+    let values = schema
+        .get("enum")
+        .and_then(serde_json::Value::as_array)
+        .expect("sparse values have exact schema membership");
+    let expected: Vec<_> = (1_u8..=255)
+        .filter(|value| ![2, 4].contains(value))
+        .map(serde_json::Value::from)
+        .collect();
+    assert_eq!(values, &expected);
+
+    // JSON and its schema retain semantic compensation, before wire bias.
+    let neutral = ExposureCompensationLevel::new(0).expect("neutral compensation");
+    assert_eq!(serde_json::to_value(neutral).expect("scalar JSON"), 0);
+    assert_eq!(neutral.to_wire(), 7);
+}

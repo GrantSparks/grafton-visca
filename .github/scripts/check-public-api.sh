@@ -21,6 +21,7 @@ git -C "${repo_root}" archive "${base_commit}" | tar -x -C "${base_source}"
 generate() {
     local source="$1"
     local destination="$2"
+    local build_name="$3"
     local -a cargo_args
     case "${surface}" in
         blocking) cargo_args=(--no-default-features --features blocking) ;;
@@ -48,19 +49,22 @@ PYFEATURES
     esac
     (
         cd "${source}"
-        CARGO_TARGET_DIR="${output}/build" \
+        # Archived source timestamps may predate cached path-dependency
+        # artifacts. Isolate the working tree and each immutable baseline so
+        # Cargo cannot reuse a macro built from a different source revision.
+        CARGO_TARGET_DIR="${output}/build/${build_name}" \
             cargo +nightly-2026-08-26 public-api --color never --simplified \
             "${cargo_args[@]}" >"${destination}"
     )
     test -s "${destination}"
 }
 
-generate "${repo_root}" "${output}/head.txt"
+generate "${repo_root}" "${output}/head.txt" head
 # Resolve the same dependency versions where the base manifest permits them.
 if [[ -f "${repo_root}/Cargo.lock" ]]; then
     cp "${repo_root}/Cargo.lock" "${base_source}/Cargo.lock"
 fi
-generate "${base_source}" "${output}/base.txt"
+generate "${base_source}" "${output}/base.txt" "base-${base_commit}"
 
 if diff -u --label "${base_commit}/${surface}" --label "working-tree/${surface}" \
     "${output}/base.txt" "${output}/head.txt" >"${output}/changes.diff"; then

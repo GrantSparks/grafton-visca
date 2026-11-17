@@ -31,6 +31,10 @@ mod value;
 /// `value`, `MIN`, `MAX`, scalar conversions, `Display`, and `WireValue`.
 /// The defining library's enabled serde, schemars and ts-rs features control
 /// their helper derives, including when the caller uses different features.
+/// JSON Schemas retain the newtype's metadata and references. Integer schemas
+/// describe checked bounds or exact finite sets in serialized semantic units;
+/// float range schemas retain their declared bounds. Profile limits and biased
+/// wire codes do not change the integer schema domain.
 /// A re-export-only facade can be selected with `crate = facade::visca`.
 #[proc_macro_attribute]
 pub fn value(args: TokenStream, item: TokenStream) -> TokenStream {

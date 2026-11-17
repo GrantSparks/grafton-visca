@@ -36,6 +36,18 @@ if [[ "$PWD" == */base-source.* ]]; then
     side=base
 fi
 printf '%s\n' "$@" >"${API_FIXTURE_ARGS_DIR}/${side}.args"
+printf '%s\n' "${CARGO_TARGET_DIR:?}" >"${API_FIXTURE_ARGS_DIR}/${side}.target"
+# Simulate a path-dependency artifact left by the first source revision. The
+# archived base must never see an artifact produced by the working tree.
+mkdir -p "${CARGO_TARGET_DIR}"
+if [[ -f "${CARGO_TARGET_DIR}/fixture-owner" ]]; then
+    read -r owner <"${CARGO_TARGET_DIR}/fixture-owner"
+    if [[ "${owner}" != "${side}" ]]; then
+        echo 'head and base reused the same compiler artifact directory' >&2
+        exit 43
+    fi
+fi
+printf '%s\n' "${side}" >"${CARGO_TARGET_DIR}/fixture-owner"
 if [[ -n "${API_FIXTURE_FAIL_BASE:-}" && "$PWD" == */base-source.* ]]; then
     exit 42
 fi
@@ -68,6 +80,16 @@ assert_cargo_args() {
     diff -u "${fixture}/expected.args" "${API_FIXTURE_ARGS_DIR}/${side}.args"
 }
 
+assert_cargo_build_dirs() {
+    local base_commit="$1" surface="$2"
+    printf '%s\n' "${fixture}/target/public-api/${surface}/build/head" \
+        >"${fixture}/expected.target"
+    diff -u "${fixture}/expected.target" "${API_FIXTURE_ARGS_DIR}/head.target"
+    printf '%s\n' "${fixture}/target/public-api/${surface}/build/base-${base_commit}" \
+        >"${fixture}/expected.target"
+    diff -u "${fixture}/expected.target" "${API_FIXTURE_ARGS_DIR}/base.target"
+}
+
 # Each surface retains its complete argument vector, including the legacy
 # async surface when both source revisions still declare dyn-api.
 for surface in blocking async all-features; do
@@ -81,6 +103,7 @@ for surface in blocking async all-features; do
     esac
     assert_cargo_args head "${args[@]}"
     assert_cargo_args base "${args[@]}"
+    assert_cargo_build_dirs "${base}" "${surface}"
 done
 
 # HEAD has removed the feature, while its archived base still needs it to
@@ -103,6 +126,7 @@ rm -f "${API_FIXTURE_ARGS_DIR}/"*.args
 bash "${checker}" "${base}" async
 assert_cargo_args head --no-default-features --features runtime-tokio
 assert_cargo_args base --no-default-features --features runtime-tokio,dyn-api
+assert_cargo_build_dirs "${base}" async
 git add Cargo.toml
 git commit -qm 'test: remove obsolete API feature'
 modern_base="$(git rev-parse HEAD)"
@@ -112,6 +136,7 @@ rm -f "${API_FIXTURE_ARGS_DIR}/"*.args
 bash "${checker}" "${modern_base}" async
 assert_cargo_args head --no-default-features --features runtime-tokio
 assert_cargo_args base --no-default-features --features runtime-tokio
+assert_cargo_build_dirs "${modern_base}" async
 
 # Reverse the feature declarations to prove neither side borrows the other's
 # selection. This also covers comparisons of older working trees.
@@ -120,6 +145,7 @@ rm -f "${API_FIXTURE_ARGS_DIR}/"*.args
 bash "${checker}" "${modern_base}" async
 assert_cargo_args head --no-default-features --features runtime-tokio,dyn-api
 assert_cargo_args base --no-default-features --features runtime-tokio
+assert_cargo_build_dirs "${modern_base}" async
 git show "${modern_base}:Cargo.toml" >Cargo.toml
 
 # A malformed source manifest must fail rather than silently dropping the
