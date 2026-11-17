@@ -186,6 +186,23 @@ mod tests {
         }
     }
 
+    async fn wait_for_task_cleanup(handle: &tokio::runtime::Handle, baseline: usize) {
+        // A completed task may publish its result before scheduler cleanup
+        // updates this metric. Observe cleanup without spawning a barrier task
+        // that would itself race the same instantaneous sample.
+        let cleaned_up = tokio::time::timeout(Duration::from_secs(1), async {
+            while handle.metrics().num_alive_tasks() != baseline {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        assert!(
+            cleaned_up.is_ok(),
+            "connector task cleanup exceeded its bound: {} alive, expected {baseline}",
+            handle.metrics().num_alive_tasks(),
+        );
+    }
+
     #[tokio::test]
     async fn dropping_connector_future_aborts_its_selected_runtime_task() {
         let dropped = Arc::new(AtomicBool::new(false));
@@ -202,9 +219,8 @@ mod tests {
         tokio::task::yield_now().await;
         assert_eq!(handle.metrics().num_alive_tasks(), baseline + 1);
         drop(connector);
-        tokio::task::yield_now().await;
+        wait_for_task_cleanup(&handle, baseline).await;
         assert!(dropped.load(Ordering::SeqCst));
-        assert_eq!(handle.metrics().num_alive_tasks(), baseline);
     }
     #[cfg(target_os = "linux")]
     fn full_accept_queue() -> (std::net::TcpListener, std::net::TcpStream) {
@@ -243,10 +259,7 @@ mod tests {
             "the full queue keeps the connector pending"
         );
         if let Some((handle, baseline)) = selected {
-            connect_on(handle, "test barrier", async { Ok(()) })
-                .await
-                .unwrap();
-            assert_eq!(handle.metrics().num_alive_tasks(), baseline);
+            wait_for_task_cleanup(handle, baseline).await;
         }
         let (_accepted_filler, _) = listener.accept().unwrap();
         // An abandoned live socket retransmits its SYN after about one second.
@@ -269,10 +282,7 @@ mod tests {
         let baseline = handle.metrics().num_alive_tasks();
         let runtime = crate::runtime::TokioRuntime::from_handle(handle.clone());
         assert_no_abandoned_connection(&runtime, Some((&handle, baseline))).await;
-        connect_on(&handle, "test barrier", async { Ok(()) })
-            .await
-            .unwrap();
-        assert_eq!(handle.metrics().num_alive_tasks(), baseline);
+        wait_for_task_cleanup(&handle, baseline).await;
         selected.shutdown_background();
     }
 
