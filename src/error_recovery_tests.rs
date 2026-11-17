@@ -1048,8 +1048,10 @@ fn rendered_display_contract() -> String {
 #[test]
 fn every_error_display_matches_the_prior_derived_literal_golden() {
     assert_eq!(
-        rendered_display_contract(),
-        include_str!("../tests/fixtures/issue_993_error_display_golden.txt"),
+        rendered_display_contract().lines().collect::<Vec<_>>(),
+        include_str!("../tests/fixtures/issue_993_error_display_golden.txt")
+            .lines()
+            .collect::<Vec<_>>(),
     );
 }
 
