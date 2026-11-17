@@ -202,23 +202,25 @@ pub(crate) fn canonical_owner_trace(
 /// Bounds for every owner-side collection and reusable byte store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct OwnerLimits {
-    pub(crate) staged_diagnostics: usize,
-    pub(crate) control_requests: usize,
-    pub(crate) diagnostic_subscribers: usize,
-    pub(crate) diagnostic_events_per_subscription: usize,
-    pub(crate) frames_per_receive: usize,
-    pub(crate) receive_bytes: usize,
+    pub(crate) staged_diagnostics: std::num::NonZeroUsize,
+    pub(crate) control_requests: std::num::NonZeroUsize,
+    pub(crate) diagnostic_subscribers: std::num::NonZeroUsize,
+    pub(crate) diagnostic_events_per_subscription: std::num::NonZeroUsize,
+    pub(crate) frames_per_receive: std::num::NonZeroUsize,
+    pub(crate) receive_bytes: std::num::NonZeroUsize,
 }
 
 impl Default for OwnerLimits {
+    // Each literal is a compile-time positive collection bound.
+    #[allow(clippy::unwrap_used)]
     fn default() -> Self {
         Self {
-            staged_diagnostics: 128,
-            control_requests: 16,
-            diagnostic_subscribers: 4,
-            diagnostic_events_per_subscription: 128,
-            frames_per_receive: 64,
-            receive_bytes: 4_096,
+            staged_diagnostics: const { std::num::NonZeroUsize::new(128).unwrap() },
+            control_requests: const { std::num::NonZeroUsize::new(16).unwrap() },
+            diagnostic_subscribers: const { std::num::NonZeroUsize::new(4).unwrap() },
+            diagnostic_events_per_subscription: const { std::num::NonZeroUsize::new(128).unwrap() },
+            frames_per_receive: const { std::num::NonZeroUsize::new(64).unwrap() },
+            receive_bytes: const { std::num::NonZeroUsize::new(4_096).unwrap() },
         }
     }
 }
@@ -324,13 +326,13 @@ pub(crate) struct OwnerPolicy {
     /// from the transport [`TransportConfig`](crate::transport::TransportConfig)
     /// by the production policy builder; [`Self::with_targets`] starts it at
     /// the `TransportConfig` default.
-    pub(crate) read_timeout: Duration,
+    pub(crate) read_timeout: crate::timeout::NonZeroDuration,
     /// Maximum time one transport write may take before the owner
     /// abandons it as a stalled write (#675). A byte-stream write that cannot
     /// be confirmed poisons the session; a datagram write fails only its own
     /// request. Without this bound a stalled peer parks the actor and
     /// `close()` never returns.
-    pub(crate) write_timeout: Duration,
+    pub(crate) write_timeout: crate::timeout::NonZeroDuration,
 }
 
 /// Immutable owner facts retained after construction policy is distributed.
@@ -338,14 +340,16 @@ pub(crate) struct OwnerPolicy {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct OwnerFacts {
     pub(crate) limits: OwnerLimits,
-    pub(crate) read_timeout: Duration,
-    pub(crate) write_timeout: Duration,
+    pub(crate) read_timeout: crate::timeout::NonZeroDuration,
+    pub(crate) write_timeout: crate::timeout::NonZeroDuration,
     pub(crate) baseline: TuningBaseline,
+    #[cfg(test)]
     pub(crate) transport: TransportKind,
 }
 
 impl OwnerPolicy {
     /// Creates one immutable policy from target-local protocol facts.
+    #[allow(clippy::expect_used)] // Shared transport defaults are fixed positive intervals.
     pub(crate) fn with_targets(
         protocol: ProtocolPolicy,
         targets: PerTarget<Option<TargetPolicy>>,
@@ -362,8 +366,10 @@ impl OwnerPolicy {
             limits: OwnerLimits::default(),
             tuning,
             baseline,
-            read_timeout: transport.read_timeout,
-            write_timeout: transport.write_timeout,
+            read_timeout: crate::timeout::NonZeroDuration::new(transport.read_timeout)
+                .expect("default transport read timeout is positive"),
+            write_timeout: crate::timeout::NonZeroDuration::new(transport.write_timeout)
+                .expect("default transport write timeout is positive"),
         }
     }
 
@@ -613,6 +619,7 @@ impl Drop for AdmissionPermit {
 #[derive(Debug, Default)]
 pub(crate) struct FrameBatch {
     frames: VecDeque<DecodedFrame>,
+    limit: usize,
     pub(crate) discarded: usize,
 }
 
@@ -621,11 +628,25 @@ impl FrameBatch {
         Self::default()
     }
 
-    fn with_capacity(capacity: usize) -> Self {
+    fn with_capacity(capacity: std::num::NonZeroUsize) -> Self {
         Self {
-            frames: VecDeque::with_capacity(capacity),
+            frames: VecDeque::with_capacity(capacity.get()),
+            limit: capacity.get(),
             discarded: 0,
         }
+    }
+
+    /// Refuse a frame beyond the batch's construction-time bound.
+    fn try_push(&mut self, frame: DecodedFrame) -> Result<(), DecodedFrame> {
+        if self.frames.len() >= self.limit {
+            return Err(frame);
+        }
+        self.frames.push_back(frame);
+        Ok(())
+    }
+
+    pub(crate) fn pop_front(&mut self) -> Option<DecodedFrame> {
+        self.frames.pop_front()
     }
 
     fn clear(&mut self) {
@@ -640,15 +661,11 @@ impl std::ops::Deref for FrameBatch {
         &self.frames
     }
 }
-impl std::ops::DerefMut for FrameBatch {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.frames
-    }
-}
 #[cfg(test)]
 impl From<Vec<DecodedFrame>> for FrameBatch {
     fn from(frames: Vec<DecodedFrame>) -> Self {
         Self {
+            limit: frames.len(),
             frames: frames.into(),
             discarded: 0,
         }
@@ -658,6 +675,7 @@ impl From<Vec<DecodedFrame>> for FrameBatch {
 impl From<VecDeque<DecodedFrame>> for FrameBatch {
     fn from(frames: VecDeque<DecodedFrame>) -> Self {
         Self {
+            limit: frames.len(),
             frames,
             discarded: 0,
         }
@@ -1331,11 +1349,17 @@ struct DiagnosticSubscriber {
     sender: flume::Sender<DiagnosticEvent>,
 }
 
-/// Reused for every write/read/framing operation. Wire and receive capacities
-/// are bounded at construction; over-size input is rejected before mutation.
-/// Effect storage retains its warmed capacity across complete drive turns.
+/// Bounds proven once when the transport policy is constructed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReceiveBounds {
+    pub(crate) frames: std::num::NonZeroUsize,
+    pub(crate) bytes: std::num::NonZeroUsize,
+}
+
+/// Reusable wire, receive and effect storage, sized from checked bounds.
 #[derive(Debug)]
 pub(crate) struct OwnerBuffers {
+    bounds: ReceiveBounds,
     send: Vec<u8>,
     transmit: BytesMut,
     receive: Box<[u8]>,
@@ -1347,20 +1371,24 @@ pub(crate) struct OwnerBuffers {
 }
 
 impl OwnerBuffers {
-    pub(crate) fn new(limits: OwnerLimits) -> Result<Self, Error> {
-        if limits.receive_bytes == 0 {
-            return Err(Error::InvalidRequest {
-                reason: "owner receive buffer must be non-zero".into(),
-            });
-        }
-        Ok(Self {
+    pub(crate) fn new(limits: OwnerLimits) -> Self {
+        let bounds = ReceiveBounds {
+            frames: limits.frames_per_receive,
+            bytes: limits.receive_bytes,
+        };
+        Self {
+            bounds,
             send: Vec::with_capacity(MAX_BYTES),
             transmit: BytesMut::with_capacity(MAX_BYTES.saturating_add(8)),
-            receive: vec![0; limits.receive_bytes].into_boxed_slice(),
-            frames: FrameBatch::with_capacity(limits.frames_per_receive),
+            receive: vec![0; bounds.bytes.get()].into_boxed_slice(),
+            frames: FrameBatch::with_capacity(bounds.frames),
             effect_scratch: Vec::new(),
             effects: VecDeque::new(),
-        })
+        }
+    }
+
+    pub(crate) fn receive_bounds(&self) -> ReceiveBounds {
+        self.bounds
     }
 
     /// Lend the warmed drive queue after appending this decision's effects.
@@ -1421,6 +1449,7 @@ impl OwnerBuffers {
     pub(crate) fn take_frames(&mut self) -> FrameBatch {
         let mut frames = std::mem::take(&mut self.frames);
         frames.clear();
+        frames.limit = self.bounds.frames.get();
         frames
     }
 
@@ -1616,16 +1645,6 @@ pub(crate) struct OwnerState {
 
 impl OwnerState {
     pub(crate) fn new(policy: OwnerPolicy, now: Instant) -> Result<Self, Error> {
-        if policy.limits.staged_diagnostics == 0
-            || policy.limits.diagnostic_subscribers == 0
-            || policy.limits.diagnostic_events_per_subscription == 0
-            || policy.limits.control_requests == 0
-            || policy.limits.frames_per_receive == 0
-        {
-            return Err(Error::InvalidRequest {
-                reason: "owner collection bounds must be non-zero".into(),
-            });
-        }
         let OwnerPolicy {
             protocol,
             targets,
@@ -1640,6 +1659,7 @@ impl OwnerState {
             read_timeout,
             write_timeout,
             baseline,
+            #[cfg(test)]
             transport: protocol.transport,
         };
         let permits = AdmissionPermitPool::new(
@@ -1652,7 +1672,7 @@ impl OwnerState {
                 engine.register_target(target, *target_policy)?;
             }
         }
-        let buffers = OwnerBuffers::new(limits)?;
+        let buffers = OwnerBuffers::new(limits);
         let tuning = LiveTuning::new(tuning);
         Ok(Self {
             engine,
@@ -2152,7 +2172,7 @@ impl OwnerState {
         lifecycle: Arc<boundary::OwnerLifecycle>,
     ) -> Result<DiagnosticSubscription, Error> {
         if event_capacity == 0
-            || event_capacity > self.facts.limits.diagnostic_events_per_subscription
+            || event_capacity > self.facts.limits.diagnostic_events_per_subscription.get()
         {
             return Err(Error::InvalidRequest {
                 reason: "diagnostic subscription capacity is outside owner bounds".into(),
@@ -2160,9 +2180,9 @@ impl OwnerState {
         }
         self.diagnostic_subscribers
             .retain(|_, value| !value.sender.is_disconnected());
-        if self.diagnostic_subscribers.len() >= self.facts.limits.diagnostic_subscribers {
+        if self.diagnostic_subscribers.len() >= self.facts.limits.diagnostic_subscribers.get() {
             return Err(Error::DiagnosticSubscriberLimit {
-                capacity: self.facts.limits.diagnostic_subscribers,
+                capacity: self.facts.limits.diagnostic_subscribers.get(),
             });
         }
         let id = allocate_subscription_id(
@@ -2180,35 +2200,6 @@ impl OwnerState {
             #[cfg(feature = "blocking")]
             worker_id: None,
         })
-    }
-
-    pub(crate) fn validate_frame_batch(&self, frames: &FrameBatch) -> Result<(), Error> {
-        if frames.len() > self.facts.limits.frames_per_receive {
-            // A frame-count limit, not a byte-size limit: name frames rather than
-            // reusing the "N bytes" `ResponseTooLarge` message. Since the shared
-            // decode now stops draining at this same limit (#674), this is a
-            // defense-in-depth guard on the batch the owner receives.
-            return Err(Error::InvalidResponse {
-                expected: format!(
-                    "a receive within the per-receive limit of {} frames",
-                    self.facts.limits.frames_per_receive
-                )
-                .into(),
-                actual: Vec::new(),
-            });
-        }
-        if frames.iter().any(|frame| {
-            matches!(
-                &frame.response,
-                DecodedResponse::InquiryReply { payload, .. }
-                    if payload.len() > self.facts.limits.receive_bytes
-            )
-        }) {
-            return Err(Error::ResponseTooLarge {
-                max_size: self.facts.limits.receive_bytes,
-            });
-        }
-        Ok(())
     }
 
     #[cfg(test)]

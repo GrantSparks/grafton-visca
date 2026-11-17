@@ -12,7 +12,8 @@ async fn full_idle_read_timeouts_do_not_delay_the_next_reply() {
             let runtime = ManualRuntime::with_polling_sleeps(initial);
             let mut owner_policy = policy(1);
             owner_policy.protocol.transport = transport;
-            owner_policy.read_timeout = Duration::from_millis(200);
+            owner_policy.read_timeout =
+                crate::timeout::NonZeroDuration::new(Duration::from_millis(200)).unwrap();
             let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
             let (frames, receives) = flume::bounded(1);
             let mut driver = UngatedDriver { receives };
@@ -158,11 +159,7 @@ impl AsyncOwnerDriver for TimedIdle {
         unreachable!("the idle-read fixture never writes")
     }
 
-    async fn receive(
-        &mut self,
-        _buffers: &mut super::super::super::OwnerBuffers,
-        _frame_limit: usize,
-    ) -> OwnerReceive {
+    async fn receive(&mut self, _buffers: &mut super::super::super::OwnerBuffers) -> OwnerReceive {
         Executor::sleep(&self.runtime, self.wait).await;
         if self.fault {
             OwnerReceive::read_error(Error::io_timeout())
@@ -188,7 +185,6 @@ async fn a_transports_own_full_timeout_is_not_eager_idle() {
             let mut receive = Box::pin(AsyncOwnerIo::<ManualRuntime>::receive_within(
                 &mut driver,
                 actor.core.state.buffers(),
-                1,
                 &runtime,
                 timeout,
                 actor.io.timers.read.as_mut(),
@@ -207,5 +203,68 @@ async fn a_transports_own_full_timeout_is_not_eager_idle() {
                 wait == timeout
             );
         }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn accepted_io_timeouts_saturate_after_the_owner_clock_advances() {
+    let initial = Instant::now();
+    let latest = crate::timeout::saturating_deadline(initial, Duration::MAX);
+    let timeout = latest.duration_since(initial) / 2;
+    let config = crate::transport::TransportConfig {
+        read_timeout: timeout,
+        write_timeout: timeout,
+        ..crate::transport::TransportConfig::default()
+    };
+    config.validate().unwrap();
+    let runtime = ManualRuntime::with_polling_sleeps(initial);
+    let mut owner_policy = policy(1);
+    owner_policy.read_timeout = crate::timeout::NonZeroDuration::new(config.read_timeout).unwrap();
+    owner_policy.write_timeout =
+        crate::timeout::NonZeroDuration::new(config.write_timeout).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+    runtime.advance(timeout + Duration::from_secs(1));
+    let now = Executor::now(&runtime);
+    assert!(now.checked_add(timeout).is_none());
+    let (_frames, receives) = flume::bounded(1);
+    let mut driver = UngatedDriver { receives };
+    let (completion, admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(command(), None)
+        .unwrap();
+    let admission = actor.core.receivers.admissions.try_recv().unwrap();
+    actor
+        .handle_event(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut driver,
+            now,
+            false,
+        )
+        .await;
+    admitted.recv_async().await.unwrap().unwrap();
+    assert!(
+        completion.try_recv().is_none(),
+        "a successful write awaits its protocol reply"
+    );
+    assert_eq!(actor.core.state.state(), SessionState::Running);
+    {
+        let mut receive = Box::pin(AsyncOwnerIo::<ManualRuntime>::receive_within(
+            &mut driver,
+            actor.core.state.buffers(),
+            &runtime,
+            timeout,
+            actor.io.timers.read.as_mut(),
+        ));
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(receive.as_mut().poll(&mut cx).is_pending());
+        // An overflowing accepted interval stays live until its saturated deadline.
+        let remaining = latest.duration_since(now);
+        runtime.advance(remaining);
+        assert!(matches!(
+            receive.as_mut().poll(&mut cx),
+            Poll::Ready(OwnerReceive::NoProgress(
+                crate::runtime::owner::NoProgressReason::IdleTimeout
+            ))
+        ));
     }
 }

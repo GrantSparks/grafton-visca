@@ -626,7 +626,7 @@ async fn raw_stream_more_than_sixty_four_retained_turns_release_by_progress() {
     // Keep the receive-first run longer than this regression so its old
     // count-based cap would have been the only forced boundary.
     const RETAINED_TURNS: usize = 65;
-    policy.limits.frames_per_receive = RETAINED_TURNS + 1;
+    policy.limits.frames_per_receive = std::num::NonZeroUsize::new(RETAINED_TURNS + 1).unwrap();
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = boundary_stream_harness(false);
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
@@ -1088,7 +1088,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     )
     .unwrap();
     let mut actor_policy = adapter_policy.clone();
-    actor_policy.limits.frames_per_receive = 1;
+    actor_policy.limits.frames_per_receive = std::num::NonZeroUsize::new(1).unwrap();
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
     let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
     let diagnostics = observe_diagnostics(&mut actor);
@@ -1165,7 +1165,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
         )
         .unwrap();
         let mut actor_policy = adapter_policy.clone();
-        actor_policy.limits.frames_per_receive = 1;
+        actor_policy.limits.frames_per_receive = std::num::NonZeroUsize::new(1).unwrap();
         actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
         let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
         let diagnostics = observe_diagnostics(&mut actor);
@@ -1532,7 +1532,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         false,
     )
     .unwrap();
-    let frame_limit = adapter_policy.limits.frames_per_receive;
+    let frame_limit = adapter_policy.limits.frames_per_receive.get();
     let (handle, actor) = AsyncOwnerActor::new(adapter_policy.clone(), runtime.clone()).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
@@ -1631,7 +1631,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     )
     .unwrap();
     let mut actor_policy = adapter_policy.clone();
-    actor_policy.limits.frames_per_receive = 1;
+    actor_policy.limits.frames_per_receive = std::num::NonZeroUsize::new(1).unwrap();
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
     let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
     let diagnostics = observe_diagnostics(&mut actor);
@@ -2093,7 +2093,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     )
     .unwrap();
     let mut actor_policy = adapter_policy.clone();
-    actor_policy.limits.frames_per_receive = 1;
+    actor_policy.limits.frames_per_receive = std::num::NonZeroUsize::new(1).unwrap();
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
     let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
     let diagnostics = observe_diagnostics(&mut actor);

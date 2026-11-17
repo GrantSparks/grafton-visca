@@ -382,11 +382,16 @@ impl TurnProbe {
     fn receive(&mut self, responses: &[DecodedResponse], sequence: Option<EnvelopeSequence>) {
         let mut frames = self.shell.core.state.buffers().take_frames();
         for response in responses {
-            frames.push_back(DecodedFrame {
-                target: TargetSlot::ALL[0],
-                sequence,
-                response: response.clone(),
-            });
+            assert!(
+                frames
+                    .try_push(DecodedFrame {
+                        target: TargetSlot::ALL[0],
+                        sequence,
+                        response: response.clone(),
+                    })
+                    .is_ok(),
+                "probe frames fit the receive bound"
+            );
         }
         self.shell.handle_event(
             OwnerEvent::Receive {

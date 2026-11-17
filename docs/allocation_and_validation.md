@@ -113,6 +113,11 @@ clock. Preparation reads no clock and does not repeat full tuning validation.
 The admission check includes composed ACK/completion, cancellation/ambiguity,
 and queued-attempt windows. Overflow during defensive deadline construction
 saturates toward the latest representable instant, preserving monotonic order.
+Owner policy construction also proves collection and receive bounds positive
+once, and retains checked positive read/write timeouts. Receive storage owns
+the decoder's frame and byte bounds; bounded batch insertion makes a second
+shell validation unnecessary. Per-operation async owner I/O deadlines use the
+same saturation rule when the clock advances beyond the construction sample.
 
 The one-hour bound applies to explicit retry-timing overrides. It does not cap
 profile deadlines or their derived budgets and backoff: a valid two-hour

@@ -479,9 +479,12 @@ impl<B> Default for OwnerCoordinator<B> {
 
 impl<B> OwnerCoordinator<B> {
     /// Set the number of consecutive receive-first wins after which one
-    /// boundary-first turn is forced (#675). Zero is treated as one.
-    pub(in crate::runtime::owner) fn set_fairness_ceiling(&mut self, ceiling: usize) {
-        self.fairness_ceiling = ceiling.max(1);
+    /// boundary-first turn is forced (#675). The policy proves it positive.
+    pub(in crate::runtime::owner) fn set_fairness_ceiling(
+        &mut self,
+        ceiling: std::num::NonZeroUsize,
+    ) {
+        self.fairness_ceiling = ceiling.get();
     }
 
     /// Start a turn. Returns whether the shell must make one cooperative

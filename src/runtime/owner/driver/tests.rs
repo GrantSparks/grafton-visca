@@ -68,7 +68,7 @@ enum WriteOutcome {
 }
 
 struct Policy {
-    write_timeout: Duration,
+    write_timeout: crate::timeout::NonZeroDuration,
 }
 
 struct State {
@@ -316,7 +316,7 @@ fn core(trace: Trace, refuse_write: bool) -> Core {
         state: State {
             trace,
             policy: Policy {
-                write_timeout: Duration::from_secs(1),
+                write_timeout: crate::timeout::NonZeroDuration::from_secs::<1>(),
             },
             refuse_write,
         },

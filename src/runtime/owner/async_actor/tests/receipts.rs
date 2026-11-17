@@ -758,7 +758,7 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
 async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
     let runtime = TokioRuntime::from_current().unwrap();
     let mut owner_policy = policy(1);
-    owner_policy.limits.staged_diagnostics = 1;
+    owner_policy.limits.staged_diagnostics = std::num::NonZeroUsize::new(1).unwrap();
     let (_handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime).unwrap();
     let diagnostics = observe_diagnostics(&mut actor);
     let first = PreAdmissionRejection {

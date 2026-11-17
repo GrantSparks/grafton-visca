@@ -56,19 +56,14 @@ where
         }
     }
 
-    fn receive(
-        &mut self,
-        buffers: &mut OwnerBuffers,
-        frame_limit: usize,
-        timeout: Duration,
-    ) -> OwnerReceive {
-        if let Some(buffered) = self.buffered(buffers, frame_limit) {
+    fn receive(&mut self, buffers: &mut OwnerBuffers, timeout: Duration) -> OwnerReceive {
+        if let Some(buffered) = self.buffered(buffers) {
             return buffered;
         }
         let read = self
             .transport
             .recv_into_with_timeout(buffers.receive_mut(), timeout);
-        self.classify_read(buffers, frame_limit, read)
+        self.classify_read(buffers, read)
     }
 }
 
@@ -205,7 +200,13 @@ mod tests {
     }
 
     fn buffers(adapter: &BlockingTransportAdapter<ScriptedTransport>) -> OwnerBuffers {
-        OwnerBuffers::new(adapter.receive_limits).unwrap()
+        OwnerBuffers::new(super::super::OwnerLimits {
+            receive_bytes: std::num::NonZeroUsize::new(
+                adapter.transport.config.buffer_config.recv_buffer_size,
+            )
+            .unwrap(),
+            ..super::super::OwnerLimits::default()
+        })
     }
 
     /// One receive with a short timeout and the default frame limit.
@@ -213,7 +214,7 @@ mod tests {
         adapter: &mut BlockingTransportAdapter<ScriptedTransport>,
         buffers: &mut OwnerBuffers,
     ) -> OwnerReceive {
-        adapter.receive(buffers, 4, Duration::from_millis(1))
+        adapter.receive(buffers, Duration::from_millis(1))
     }
 
     fn frames(result: OwnerReceive) -> crate::runtime::owner::FrameBatch {
@@ -281,7 +282,7 @@ mod tests {
         let (mut adapter, policy) = sony_adapter(transport);
 
         adapter
-            .send_sony_sequence_reset(policy.write_timeout)
+            .send_sony_sequence_reset(policy.write_timeout.get())
             .unwrap();
 
         assert_eq!(
@@ -488,10 +489,16 @@ mod tests {
             crate::target::TargetSlot::CAMERA_1,
         )
         .unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.receive_limits).unwrap();
+        let mut buffers = OwnerBuffers::new(super::super::OwnerLimits {
+            receive_bytes: std::num::NonZeroUsize::new(
+                adapter.transport.config.buffer_config.recv_buffer_size,
+            )
+            .unwrap(),
+            ..super::super::OwnerLimits::default()
+        });
         let receive = |adapter: &mut BlockingTransportAdapter<UnobservedTruncation>,
                        buffers: &mut OwnerBuffers| {
-            adapter.receive(buffers, 4, Duration::from_millis(1))
+            adapter.receive(buffers, Duration::from_millis(1))
         };
         assert!(matches!(
             receive(&mut adapter, &mut buffers),
@@ -556,8 +563,11 @@ mod tests {
         let (mut adapter, _) = adapter(
             ScriptedTransport::new([Ok(vec![0x90, 0x41, 0xff, 0x90, 0x51, 0xff])]).stream(),
         );
-        let mut buffers = buffers(&adapter);
-        let first = match adapter.receive(&mut buffers, 1, Duration::from_millis(1)) {
+        let mut buffers = OwnerBuffers::new(super::super::OwnerLimits {
+            frames_per_receive: std::num::NonZeroUsize::new(1).unwrap(),
+            ..super::super::OwnerLimits::default()
+        });
+        let first = match adapter.receive(&mut buffers, Duration::from_millis(1)) {
             OwnerReceive::Frames(frames) => frames,
             other => panic!("expected one frame, got {other:?}"),
         };
@@ -565,7 +575,7 @@ mod tests {
             matches!(first.iter().collect::<Vec<_>>().as_slice(), [ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
         );
         assert!(adapter.retained().is_some());
-        let second = match adapter.receive(&mut buffers, 1, Duration::from_millis(1)) {
+        let second = match adapter.receive(&mut buffers, Duration::from_millis(1)) {
             OwnerReceive::Frames(frames) => frames,
             other => panic!("expected the buffered frame, got {other:?}"),
         };

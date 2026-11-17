@@ -1479,6 +1479,13 @@ pending when the turn was planned.
 
 ### Transport I/O deadlines and idle pacing
 
+Owner policy construction proves every collection and receive bound positive,
+and carries read/write timeouts as checked positive intervals. Receive storage
+owns its byte and frame bounds; decoding cannot fill a batch beyond that
+frame bound. Each async owner I/O deadline saturates toward the latest
+representable instant if an accepted timeout overflows as the clock advances,
+matching the engine deadline rule without revalidating the interval per I/O.
+
 The actor also bounds each transport operation itself, because the
 runtime-agnostic async transports hold no timer of their own. Every read is
 raced against the session's `read_timeout`; if it elapses the read is treated as

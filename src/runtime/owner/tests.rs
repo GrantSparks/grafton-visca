@@ -27,7 +27,11 @@ pub(super) struct DiagnosticRecorder {
 impl DiagnosticRecorder {
     pub(super) fn new(state: &mut OwnerState) -> Self {
         let (_, ends) = boundary::OwnerHandleCore::new(state);
-        let capacity = state.facts().limits.diagnostic_events_per_subscription;
+        let capacity = state
+            .facts()
+            .limits
+            .diagnostic_events_per_subscription
+            .get();
         Self {
             subscription: state
                 .subscribe_diagnostics(capacity, ends.lifecycle)
@@ -121,16 +125,12 @@ fn control_lane_uses_its_own_named_nonzero_bound() {
         TargetPolicy::test_default(),
     )
     .unwrap();
-    policy.limits.control_requests = 3;
-    policy.limits.staged_diagnostics = 7;
+    policy.limits.control_requests = std::num::NonZeroUsize::new(3).unwrap();
+    policy.limits.staged_diagnostics = std::num::NonZeroUsize::new(7).unwrap();
     let state = OwnerState::new(policy.clone(), Instant::now()).unwrap();
     let (handle, _) = boundary::OwnerHandleCore::new(&state);
     assert_eq!(handle.control.capacity(), Some(3));
-    policy.limits.control_requests = 0;
-    assert!(matches!(
-        OwnerState::new(policy, Instant::now()),
-        Err(Error::InvalidRequest { .. })
-    ));
+    let _: std::num::NonZeroUsize = policy.limits.control_requests;
 }
 
 /// Issue #631: the owner state used by the reconfiguration tests below.
@@ -1239,7 +1239,7 @@ mod metrics {
     }
 
     #[test]
-    fn halt_supersession_uses_its_delivery_instant_after_an_earlier_turn() {
+    fn halt_supersession_uses_its_delivery_time_after_an_earlier_turn() {
         use crate::AffectedAxes;
         let earlier = Instant::now();
         let deadline = earlier + Duration::from_millis(1);
@@ -3264,7 +3264,7 @@ fn consumed_input_verdict_preserves_stream_cause_and_discards_one_datagram() {
 
 #[test]
 fn effect_storage_retains_warm_capacity_and_prepends_recursive_results_in_order() {
-    let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+    let mut buffers = OwnerBuffers::new(OwnerLimits::default());
     buffers.effect_scratch.extend([
         Effect::Ignored(IgnoreReason::UnknownRequest),
         Effect::Ignored(IgnoreReason::MalformedFrame),
@@ -3312,4 +3312,27 @@ fn every_camera_code_preserves_the_owner_metric_bucket() {
             code == 4
         );
     }
+}
+
+#[test]
+fn frame_batch_refuses_the_first_frame_beyond_its_logical_bound() {
+    let mut buffers = OwnerBuffers::new(OwnerLimits {
+        frames_per_receive: std::num::NonZeroUsize::new(3).unwrap(),
+        ..OwnerLimits::default()
+    });
+    let mut frames = buffers.take_frames();
+    let frame = DecodedFrame {
+        target: TargetSlot::CAMERA_1,
+        sequence: None,
+        response: DecodedResponse::NetworkChange,
+    };
+    for _ in 0..3 {
+        frames.try_push(frame.clone()).unwrap();
+    }
+    assert!(frames.try_push(frame).is_err());
+    assert_eq!(frames.len(), 3);
+    buffers.recycle_frames(frames);
+    let recycled = buffers.take_frames();
+    assert!(recycled.is_empty());
+    assert_eq!(recycled.limit, 3);
 }

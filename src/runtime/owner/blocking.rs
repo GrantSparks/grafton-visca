@@ -67,12 +67,7 @@ pub(crate) trait BlockingOwnerDriver: Send + RetainedStreamInput {
 
     /// Return complete frames the framer still holds, or read once for at
     /// most `timeout`. A read that times out reports [`OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)`].
-    fn receive(
-        &mut self,
-        buffers: &mut OwnerBuffers,
-        frame_limit: usize,
-        timeout: Duration,
-    ) -> OwnerReceive;
+    fn receive(&mut self, buffers: &mut OwnerBuffers, timeout: Duration) -> OwnerReceive;
 }
 
 /// The worker thread's state. The driver lives on the thread's stack, so the
@@ -128,8 +123,7 @@ impl BlockingOwnerIo {
     {
         use std::task::{Context, Poll, Waker};
         let mut context = Context::from_waker(Waker::noop());
-        let read_timeout = state.facts().read_timeout;
-        let frame_limit = state.facts().limits.frames_per_receive;
+        let read_timeout = state.facts().read_timeout.get();
         // Time this selection has spent reading without data. Like the async
         // read under its timeout, it restarts with every selection.
         let mut idle = Duration::ZERO;
@@ -169,7 +163,6 @@ impl BlockingOwnerIo {
                                     driver,
                                     &self.clock,
                                     ReadBudget {
-                                        frame_limit,
                                         timeout,
                                         read_timeout,
                                     },
@@ -292,7 +285,6 @@ impl BlockingOwnerIo {
 /// The bounds of one transport read.
 #[derive(Debug, Clone, Copy)]
 struct ReadBudget {
-    frame_limit: usize,
     /// How long this read may wait.
     timeout: Duration,
     /// The caller's read timeout, after which a selection's reads without
@@ -325,12 +317,11 @@ where
     D: BlockingOwnerDriver,
 {
     let ReadBudget {
-        frame_limit,
         timeout,
         read_timeout,
     } = budget;
     let started = clock.now();
-    let result = driver.receive(state.buffers(), frame_limit, timeout);
+    let result = driver.receive(state.buffers(), timeout);
     // Sampled after the read returns: only this instant proves that input was
     // sampled at or after a raw hold deadline.
     let received_at = clock.now();

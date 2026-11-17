@@ -108,7 +108,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let mut owner_policy = stream_policy(1);
-    owner_policy.limits.frames_per_receive = FAIRNESS_CEILING;
+    owner_policy.limits.frames_per_receive = std::num::NonZeroUsize::new(FAIRNESS_CEILING).unwrap();
     owner_policy.protocol.raw_inquiry_release_hold = HOLD;
     owner_policy.protocol.raw_release_grace = GRACE;
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -224,7 +224,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
 
     let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
     let mut owner_policy = stream_policy(1);
-    owner_policy.limits.frames_per_receive = FAIRNESS_CEILING;
+    owner_policy.limits.frames_per_receive = std::num::NonZeroUsize::new(FAIRNESS_CEILING).unwrap();
     owner_policy.protocol.raw_inquiry_release_hold = HOLD;
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
@@ -328,7 +328,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     // The actor's bounded control lane is intentionally full before it
     // starts, making this a deterministic chain rather than a scheduler
     // race between the caller and the ready timer.
-    owner_policy.limits.control_requests = CONTROL_CHAIN;
+    owner_policy.limits.control_requests = std::num::NonZeroUsize::new(CONTROL_CHAIN).unwrap();
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
     let (_frames, receives) = flume::bounded(1);
     let mut driver = UngatedDriver { receives };
@@ -421,10 +421,11 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
 async fn parked_future_wake_charges_the_first_ready_control() {
     let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
     let mut owner_policy = policy(1);
-    owner_policy.limits.control_requests = 2;
+    owner_policy.limits.control_requests = std::num::NonZeroUsize::new(2).unwrap();
     // Keep the receive timeout after the inquiry deadline so the parked
     // receive arm cannot become the source that wakes this test.
-    owner_policy.read_timeout = Duration::from_secs(10);
+    owner_policy.read_timeout =
+        crate::timeout::NonZeroDuration::new(Duration::from_secs(10)).unwrap();
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
     let (_frames, receives) = flume::bounded(1);
     let mut driver = UngatedDriver { receives };
@@ -689,7 +690,7 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
 
     let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
     let mut owner_policy = stream_policy(1);
-    owner_policy.limits.frames_per_receive = FAIRNESS_CEILING;
+    owner_policy.limits.frames_per_receive = std::num::NonZeroUsize::new(FAIRNESS_CEILING).unwrap();
     owner_policy.protocol.raw_inquiry_release_hold = HOLD;
     owner_policy.protocol.raw_release_grace = GRACE;
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
