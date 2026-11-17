@@ -512,8 +512,6 @@ mod tests {
     ))]
     #[test]
     fn resolution_errors_retain_the_endpoint_and_io_source() {
-        use std::error::Error as _;
-
         for kind in [std::io::ErrorKind::NotFound, std::io::ErrorKind::Other] {
             let error = resolved::<Vec<SocketAddr>>(
                 "camera.invalid:5678",
@@ -525,14 +523,24 @@ mod tests {
                 Error::ConnectionFailed { ref addr, .. } if addr == "camera.invalid:5678"
             ));
             assert_eq!(
-                error
-                    .source()
+                std::error::Error::source(&error)
                     .unwrap()
-                    .downcast_ref::<std::sync::Arc<std::io::Error>>()
+                    .downcast_ref::<std::io::Error>()
                     .unwrap()
                     .kind(),
                 kind
             );
+            let dynamic: &(dyn std::error::Error + 'static) = &error;
+            let source = dynamic
+                .source()
+                .unwrap()
+                .downcast_ref::<std::io::Error>()
+                .unwrap();
+            assert_eq!(source.kind(), kind);
+            assert_eq!(source.raw_os_error(), None);
+            if let Error::ConnectionFailed { source: stored, .. } = &error {
+                assert!(std::ptr::eq(source, stored.as_ref()));
+            }
             assert_eq!(error.kind(), crate::error::ErrorKind::IoRefused);
             assert_eq!(error.recovery(), crate::error::Recovery::Abandon);
         }
@@ -552,25 +560,46 @@ mod tests {
     ))]
     #[test]
     fn cloned_resolution_errors_keep_the_original_os_error_source() {
-        use std::{error::Error as _, sync::Arc};
+        use std::sync::Arc;
         let cause = std::io::Error::from_raw_os_error(5);
         let kind = cause.kind();
         let error = resolution_failed("camera.test:5678", cause);
         let cloned = error.clone();
-        let original_source = error
+        let original_source = std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref::<std::io::Error>()
+            .unwrap();
+        let dynamic: &(dyn std::error::Error + 'static) = &cloned;
+        let cloned_source = dynamic
             .source()
             .unwrap()
-            .downcast_ref::<Arc<std::io::Error>>()
+            .downcast_ref::<std::io::Error>()
             .unwrap();
-        let cloned_source = cloned
-            .source()
-            .unwrap()
-            .downcast_ref::<Arc<std::io::Error>>()
-            .unwrap();
-        assert!(Arc::ptr_eq(original_source, cloned_source));
+        assert!(std::ptr::eq(original_source, cloned_source));
+        assert!(matches!(
+            (&error, &cloned),
+            (
+                Error::ConnectionFailed { .. },
+                Error::ConnectionFailed { .. }
+            )
+        ));
+        if let (
+            Error::ConnectionFailed {
+                source: original_arc,
+                ..
+            },
+            Error::ConnectionFailed {
+                source: cloned_arc, ..
+            },
+        ) = (&error, &cloned)
+        {
+            assert!(Arc::ptr_eq(original_arc, cloned_arc));
+            assert!(std::ptr::eq(original_source, original_arc.as_ref()));
+            assert!(std::ptr::eq(cloned_source, cloned_arc.as_ref()));
+        }
         for source in [original_source, cloned_source] {
-            assert_eq!(source.as_ref().kind(), kind);
-            assert_eq!(source.as_ref().raw_os_error(), Some(5));
+            assert_eq!(source.kind(), kind);
+            assert_eq!(source.raw_os_error(), Some(5));
         }
     }
 
@@ -689,6 +718,9 @@ mod tests {
         #[test]
         fn a_failed_lookup_preserves_its_io_cause() {
             fn failing(endpoint: String) -> std::io::Result<Vec<SocketAddr>> {
+                if endpoint.starts_with("raw_os.") {
+                    return Err(std::io::Error::from_raw_os_error(5));
+                }
                 let kind = if endpoint.starts_with("missing.") {
                     std::io::ErrorKind::NotFound
                 } else {
@@ -698,30 +730,39 @@ mod tests {
             }
             static RESOLVER: BlockingResolver = BlockingResolver::new(1, failing);
 
-            use std::error::Error as _;
-            for (endpoint, kind) in [
-                ("missing.camera:1259", std::io::ErrorKind::NotFound),
-                ("failed.camera:1259", std::io::ErrorKind::Other),
+            for (endpoint, kind, raw_os_error) in [
+                ("missing.camera:1259", std::io::ErrorKind::NotFound, None),
+                ("failed.camera:1259", std::io::ErrorKind::Other, None),
+                (
+                    "raw_os.camera:1259",
+                    std::io::Error::from_raw_os_error(5).kind(),
+                    Some(5),
+                ),
             ] {
                 let error = RESOLVER
                     .resolve(endpoint, budget(Duration::from_secs(5)))
                     .unwrap_err();
                 assert!(matches!(error, Error::ConnectionFailed { .. }));
-                assert_eq!(
-                    error
+                let source = std::error::Error::source(&error)
+                    .unwrap()
+                    .downcast_ref::<std::io::Error>()
+                    .unwrap();
+                assert_eq!(source.kind(), kind);
+                assert_eq!(source.raw_os_error(), raw_os_error);
+                let dynamic: &(dyn std::error::Error + 'static) = &error;
+                assert!(std::ptr::eq(
+                    source,
+                    dynamic
                         .source()
                         .unwrap()
-                        .downcast_ref::<std::sync::Arc<std::io::Error>>()
+                        .downcast_ref::<std::io::Error>()
                         .unwrap()
-                        .kind(),
-                    kind
-                );
+                ));
             }
         }
 
         #[test]
         fn a_panicking_lookup_preserves_a_typed_helper_failure() {
-            use std::error::Error as _;
             #[allow(clippy::panic)]
             fn panicking(_: String) -> std::io::Result<Vec<SocketAddr>> {
                 panic!("injected resolver panic")
@@ -732,10 +773,9 @@ mod tests {
                 .unwrap_err();
             assert!(matches!(error, Error::ConnectionFailed { .. }));
             assert_eq!(
-                error
-                    .source()
+                std::error::Error::source(&error)
                     .unwrap()
-                    .downcast_ref::<std::sync::Arc<std::io::Error>>()
+                    .downcast_ref::<std::io::Error>()
                     .unwrap()
                     .kind(),
                 std::io::ErrorKind::Other

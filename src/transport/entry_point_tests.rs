@@ -579,29 +579,34 @@ mod facades {
             ),
         ];
 
-        use std::error::Error as _;
         let (_, first) = &errors[0];
-        let source_kind = first
-            .source()
+        let first_source = std::error::Error::source(first)
             .expect("resolver source")
-            .downcast_ref::<std::sync::Arc<std::io::Error>>()
-            .expect("I/O source")
-            .kind();
+            .downcast_ref::<std::io::Error>()
+            .expect("direct I/O source");
+        let source_kind = first_source.kind();
+        let source_os_error = first_source.raw_os_error();
         for (facade, error) in &errors {
             assert!(
                 matches!(error, Error::ConnectionFailed { addr, .. } if addr == HOST),
                 "{facade}: {error:?}"
             );
-            assert_eq!(
-                error
-                    .source()
-                    .expect("resolver source")
-                    .downcast_ref::<std::sync::Arc<std::io::Error>>()
-                    .expect("I/O source")
-                    .kind(),
-                source_kind,
-                "{facade}"
-            );
+            let source = std::error::Error::source(error)
+                .expect("resolver source")
+                .downcast_ref::<std::io::Error>()
+                .expect("direct I/O source");
+            assert_eq!(source.kind(), source_kind, "{facade}");
+            assert_eq!(source.raw_os_error(), source_os_error, "{facade}");
+            let dynamic: &(dyn std::error::Error + 'static) = error;
+            let dynamic_source = dynamic
+                .source()
+                .expect("dynamic resolver source")
+                .downcast_ref::<std::io::Error>()
+                .expect("dynamic direct I/O source");
+            assert!(std::ptr::eq(source, dynamic_source), "{facade}");
+            if let Error::ConnectionFailed { source: stored, .. } = error {
+                assert!(std::ptr::eq(source, stored.as_ref()), "{facade}");
+            }
         }
     }
 }

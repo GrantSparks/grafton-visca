@@ -202,6 +202,9 @@ mod tests {
         type UdpSocket = N::UdpSocket;
 
         async fn lookup(endpoint: String) -> io::Result<Vec<SocketAddr>> {
+            if endpoint.starts_with("raw_os.") {
+                return Err(io::Error::from_raw_os_error(5));
+            }
             let kind = if endpoint.starts_with("missing.") {
                 io::ErrorKind::NotFound
             } else {
@@ -233,10 +236,14 @@ mod tests {
     }
 
     async fn check_resolver_source<N: AsyncNet + 'static>() {
-        use std::error::Error as _;
-        for (endpoint, kind) in [
-            ("missing.camera:1259", io::ErrorKind::NotFound),
-            ("failed.camera:1259", io::ErrorKind::Other),
+        for (endpoint, kind, raw_os_error) in [
+            ("missing.camera:1259", io::ErrorKind::NotFound, None),
+            ("failed.camera:1259", io::ErrorKind::Other, None),
+            (
+                "raw_os.camera:1259",
+                io::Error::from_raw_os_error(5).kind(),
+                Some(5),
+            ),
         ] {
             for error in [
                 connect_tcp::<ResolverFailureNet<N>>(endpoint, TransportConfig::for_tcp().into())
@@ -251,15 +258,25 @@ mod tests {
                 assert!(
                     matches!(error, Error::ConnectionFailed { ref addr, .. } if addr == endpoint)
                 );
-                assert_eq!(
-                    error
-                        .source()
-                        .expect("source")
-                        .downcast_ref::<std::sync::Arc<io::Error>>()
-                        .expect("I/O cause")
-                        .kind(),
-                    kind
-                );
+                let source = std::error::Error::source(&error)
+                    .expect("source")
+                    .downcast_ref::<io::Error>()
+                    .expect("direct I/O cause");
+                assert_eq!(source.kind(), kind);
+                assert_eq!(source.raw_os_error(), raw_os_error);
+                if let Error::ConnectionFailed { source: stored, .. } = &error {
+                    assert!(std::ptr::eq(source, stored.as_ref()));
+                }
+                let cloned = error.clone();
+                let dynamic: &(dyn std::error::Error + 'static) = &cloned;
+                let cloned_source = dynamic
+                    .source()
+                    .expect("dynamic source")
+                    .downcast_ref::<io::Error>()
+                    .expect("dynamic direct I/O cause");
+                assert!(std::ptr::eq(source, cloned_source));
+                assert_eq!(cloned_source.kind(), kind);
+                assert_eq!(cloned_source.raw_os_error(), raw_os_error);
             }
         }
     }
