@@ -950,3 +950,147 @@ fn inquiry_terminal_context_overrides_arbitrary_nested_source_certainty() {
         assert_ne!(error.recovery(), Recovery::WaitAgain);
     }
 }
+
+fn display_characterization_cases() -> Vec<(&'static str, &'static str, Error)> {
+    let mut all: Vec<_> = cases()
+        .into_iter()
+        .map(|case| (case.variant, case.condition, case.error))
+        .collect();
+    all.extend([
+        (
+            "ConnectionClosed",
+            "typed source",
+            Error::connection_closed(Some(Arc::new(Error::InvalidRequest {
+                reason: "connection source".into(),
+            }))),
+        ),
+        (
+            "InvalidResponse",
+            "nonempty bytes and escaped text",
+            Error::InvalidResponse {
+                expected: "reply {with braces}\n\"quoted\"".into(),
+                actual: vec![0x90, 0, 0xff],
+            },
+        ),
+        (
+            "InvalidResponseLength",
+            "nonempty payload",
+            Error::invalid_response_length(7, &[0, 0x52, 0xff]),
+        ),
+        (
+            "InvalidResponseLength",
+            "truncated payload hex",
+            Error::invalid_response_length(7, &[0xab; 40]),
+        ),
+        (
+            "ParameterOutOfRange",
+            "signed bounds",
+            Error::parameter_out_of_range("offset", i32::MIN, i32::MIN, i32::MAX),
+        ),
+        (
+            "WithContext",
+            "nested contextual source",
+            Error::InvalidAddress {
+                reason: "host {name}\n\"quoted\"".into(),
+            }
+            .with_context("first context")
+            .with_context("outer {context}"),
+        ),
+    ]);
+    for code in [0, 1, 15, 255] {
+        all.push(("Unknown", "hex padding", Error::Unknown { code }));
+    }
+    for stage in [
+        FailureStage::PreAdmission,
+        FailureStage::Observation,
+        FailureStage::Terminal,
+        FailureStage::CancellationAttempt,
+        FailureStage::Session,
+    ] {
+        all.push((
+            "Timeout",
+            "stage formatting",
+            Error::timeout(stage, Certainty::Unconfirmed),
+        ));
+        all.push((
+            "MotionSuperseded",
+            "stage and axis formatting",
+            Error::motion_superseded(
+                crate::AffectedAxes::PAN_TILT
+                    | crate::AffectedAxes::ZOOM
+                    | crate::AffectedAxes::FOCUS,
+                FailureContext::new(stage, Certainty::NotAccepted),
+            ),
+        ));
+    }
+    all
+}
+
+fn rendered_display_contract() -> String {
+    use std::fmt::Write as _;
+
+    let mut rendered = String::new();
+    for (variant, condition, error) in display_characterization_cases() {
+        let text = error.to_string();
+        // The derived messages do not apply the caller's formatting flags to
+        // their complete outer message, including when individual fields use
+        // explicit debug/hex formatting.
+        assert_eq!(format!("{error:>80}"), text, "{variant}: width");
+        assert_eq!(format!("{error:#.8}"), text, "{variant}: precision");
+        writeln!(rendered, "{variant}/{condition}\t{text:?}").expect("string write");
+    }
+    rendered
+}
+
+/// Captured from thiserror 2.0.21's derived Display at 1eedf4e0, using
+/// Rust 1.98.0 before replacing the derive. The literal golden is independent
+/// of the manual formatter and has no regeneration path through it.
+#[test]
+fn every_error_display_matches_the_prior_derived_literal_golden() {
+    assert_eq!(
+        rendered_display_contract(),
+        include_str!("../tests/fixtures/issue_993_error_display_golden.txt"),
+    );
+}
+
+/// The old-derived capture established these concrete source types. Keep
+/// each shared or boxed source at exactly the same layer and address; only
+/// ConnectionFailed intentionally projects through its Arc (#993).
+#[test]
+fn other_error_sources_keep_the_prior_derived_wrapper_identity() {
+    for (variant, condition, error) in display_characterization_cases() {
+        let exposed = std::error::Error::source(&error);
+        match &error {
+            Error::ConnectionFailed { .. } => continue,
+            Error::Io { source } => {
+                let retained = exposed
+                    .and_then(|source| source.downcast_ref::<Arc<io::Error>>())
+                    .expect("Io keeps its shared io::Error source");
+                assert!(std::ptr::eq(retained, source), "{variant}/{condition}");
+            }
+            Error::ConnectionClosed {
+                source: Some(source),
+            }
+            | Error::TransportError { source }
+            | Error::TransmissionNotSent { source, .. }
+            | Error::InquiryFailed { source }
+            | Error::StreamPoisoned { source } => {
+                let retained = exposed
+                    .and_then(|source| source.downcast_ref::<Arc<Error>>())
+                    .expect("wrapper keeps its shared Error source");
+                assert!(std::ptr::eq(retained, source), "{variant}/{condition}");
+            }
+            Error::SettlementObservationFailed { source, .. }
+            | Error::CancellationObservationFailed { source }
+            | Error::CommandFailedAfterAck { source }
+            | Error::RequestUnconfirmed { source }
+            | Error::WithContext { source, .. } => {
+                let retained = exposed
+                    .and_then(|source| source.downcast_ref::<Box<Error>>())
+                    .expect("wrapper keeps its boxed Error source");
+                assert!(std::ptr::eq(retained, source), "{variant}/{condition}");
+            }
+            _ => assert!(exposed.is_none(), "{variant}/{condition}"),
+        }
+    }
+}
