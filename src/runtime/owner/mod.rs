@@ -2143,28 +2143,6 @@ impl OwnerState {
         self.buffers.prepend_effects(effects);
     }
 
-    /// Records and applies an identified write result in the same decoded-input
-    /// turn that produced it, without allowing deadlines between source frames.
-    pub(super) fn finish_write_in_turn_into(
-        &mut self,
-        turn: &OwnerInputTurn,
-        staged: &StagedWrite,
-        result: WriteOutcome,
-        effects: &mut VecDeque<Effect>,
-    ) {
-        self.observe_write(staged, &result);
-        self.engine.handle_in_turn_into(
-            &turn.0,
-            Input::TransmissionFinished {
-                request: staged.request,
-                transmission: staged.transmission,
-                result,
-            },
-            &mut self.buffers.effect_scratch,
-        );
-        self.buffers.prepend_effects(effects);
-    }
-
     pub(super) fn expire_unwritten_halt_into(
         &mut self,
         staged: &StagedWrite,

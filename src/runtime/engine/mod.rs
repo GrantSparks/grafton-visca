@@ -1119,20 +1119,18 @@ trait EngineMethods: EngineAccess {
     /// Starts an ordered external-input turn at one owner-sampled instant.
     ///
     /// The owner must fully drain the effects returned for one input before it
-    /// applies the next input in the turn. Any identified transmission result
-    /// produced by that draining is applied with [`Self::handle_in_turn_into`] and
-    /// the same token. Once every frame in wire order is applied, the owner
-    /// calls [`Self::finish_input_turn_into`] exactly once with the selected
-    /// [`EngineTurn`] boundary.
+    /// applies the next input in the turn. Once every frame in wire order is
+    /// applied, the owner calls [`Self::finish_input_turn_into`] with the
+    /// selected [`EngineTurn`] boundary. A write staged by the scheduler is
+    /// completed in its own turn at the sampled write-return instant.
     fn begin_input_turn(&self, now: Instant) -> InputTurn {
         InputTurn { now }
     }
 
     /// Applies one input without running due deadlines or ordinary dispatch.
     ///
-    /// This is the recursive input seam for an active [`InputTurn`]. Effects
-    /// remain in the exact order produced by this input; the owner drains them
-    /// before passing the next wire frame.
+    /// The owner drains the effects of each input in order before passing the
+    /// next wire frame in an active [`InputTurn`].
     fn handle_in_turn_into(&mut self, turn: &InputTurn, input: Input, sink: &mut Vec<Effect>) {
         if !matches!(input, Input::TransmissionFinished { .. }) {
             self.debug_assert_input_boundary();

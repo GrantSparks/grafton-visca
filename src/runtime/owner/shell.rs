@@ -198,16 +198,6 @@ impl Resume {
     const fn done(outcome: TurnOutcome) -> Self {
         Self(Continuation::Done(outcome))
     }
-
-    /// The input turn the effects being driven belong to. A transmit driven
-    /// inside an input turn finishes in that turn, and needs no clock sample.
-    pub(super) const fn input_turn(&self) -> Option<&OwnerInputTurn> {
-        match &self.0 {
-            Continuation::NextFrame(frames) => Some(&frames.turn),
-            Continuation::AdmitHalt { turn, .. } => Some(turn),
-            _ => None,
-        }
-    }
 }
 
 /// The executor-free state and turn logic of one serialized owner. See the
@@ -641,13 +631,10 @@ impl OwnerShellCore {
         self.state.buffers().recycle_effects(effects);
     }
 
-    /// Report a transmit the shell just wrote. Inside an input `turn` it
-    /// finishes in that turn; otherwise it finishes at `finished_at`, the
-    /// instant the write returned. Its exact completion is processed before
-    /// the next effect or any channel input.
+    /// Apply the write result at `finished_at`, the instant the write
+    /// returned, before the next effect or any other input.
     pub(super) fn finish_transmit(
         &mut self,
-        turn: Option<&OwnerInputTurn>,
         staged: &StagedWrite,
         result: WriteOutcome,
         finished_at: Instant,
@@ -657,27 +644,10 @@ impl OwnerShellCore {
             self.idle_receives.reset();
             self.coordinator.end_receive_pause();
         }
-        let Some(turn) = turn else {
-            return self.finish_transmit_outside_turn(staged, result, finished_at, effects);
-        };
-        self.state
-            .finish_write_in_turn_into(turn, staged, result, effects);
-    }
-
-    fn finish_transmit_outside_turn(
-        &mut self,
-        staged: &StagedWrite,
-        result: WriteOutcome,
-        finished_at: Instant,
-        effects: &mut VecDeque<Effect>,
-    ) {
         // A write can complete while the shell is waiting on the transport
         // and cross a raw correlation deadline. Its transmission-result input
         // is real ordered protocol input, but it must not run the due/dispatch
         // tail before the coordinator has taken its mandatory receive probe.
-        // A transmit inside an input turn already has this property by using
-        // the active input turn; this is the equivalent seam for a standalone
-        // effect chain.
         let turn = if self
             .state
             .raw_correlation_releases_due(finished_at)
@@ -1836,7 +1806,6 @@ mod tests {
         };
         let staged = core.next_transmit(&mut effects, at).unwrap();
         core.finish_transmit(
-            None,
             &staged,
             WriteOutcome::Sent(TransmissionMeta::Allocated { sequence }),
             at,
@@ -2170,7 +2139,6 @@ mod tests {
         while let TurnStep::Drive { mut effects, then } = step {
             while let Some(staged) = core.next_transmit(&mut effects, now) {
                 core.finish_transmit(
-                    None,
                     &staged,
                     WriteOutcome::Sent(TransmissionMeta::Known),
                     now,
@@ -2361,7 +2329,6 @@ mod tests {
         let staged = core.next_transmit(&mut effects, now).unwrap();
         assert!(core.coordinator.receive_not_before().is_some());
         core.finish_transmit(
-            None,
             &staged,
             WriteOutcome::Sent(TransmissionMeta::Known),
             now,

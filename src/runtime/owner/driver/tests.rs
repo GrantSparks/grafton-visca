@@ -13,7 +13,6 @@ use std::{
 
 type Trace = Rc<RefCell<Vec<&'static str>>>;
 type OwnerSnapshot = Trace;
-type OwnerInputTurn = ();
 type Effect = ();
 
 #[derive(Clone, Copy)]
@@ -43,12 +42,6 @@ enum TurnOutcome {
 }
 
 struct Resume(TurnOutcome);
-
-impl Resume {
-    fn input_turn(&self) -> Option<&OwnerInputTurn> {
-        None
-    }
-}
 
 enum TurnStep {
     Drive {
@@ -186,7 +179,6 @@ impl Core {
 
     fn finish_transmit(
         &mut self,
-        _turn: Option<&OwnerInputTurn>,
         _staged: &(),
         result: WriteOutcome,
         _at: Instant,
