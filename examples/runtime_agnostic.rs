@@ -7,7 +7,7 @@
 //!
 //! A real camera integration would pass `CustomExecutor` to the async
 //! `Session::open` constructor together with a caller-owned async transport,
-//! then drive application futures with `CustomExecutor::block_on`. Production
+//! then drive application futures with `pollster::block_on`. Production
 //! integrations should adapt their existing runtime instead of creating a thread
 //! for every spawned task.
 //!
@@ -22,7 +22,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use grafton_visca::{runtime::ExecError, runtime::Executor, runtime::ResettableTimer, Error};
+use grafton_visca::{runtime::Executor, runtime::ResettableTimer, Error};
 
 /// Minimal executor adapter built from runtime-neutral async crates.
 #[derive(Debug, Clone, Copy)]
@@ -53,52 +53,17 @@ impl ResettableTimer for CustomTimer {
 }
 
 impl Executor for CustomExecutor {
-    type Join<T>
-        = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
-    where
-        T: Send + 'static;
-
-    // The spawned task is explicitly detached below, so no extra token is needed.
-    type Detach = ();
-
     type Timer = CustomTimer;
 
     fn timer(&self, deadline: Instant) -> Self::Timer {
         CustomTimer(async_io::Timer::at(deadline))
     }
 
-    fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
+    fn spawn_detached<F>(&self, future: F)
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        let (result_tx, result_rx) = flume::bounded(1);
-        let spawn_error_tx = result_tx.clone();
-        let spawn_result = std::thread::Builder::new()
-            .name("grafton-visca-custom-executor".to_string())
-            .spawn(move || {
-                let result = pollster::block_on(future);
-                let _ = result_tx.send(Ok(result));
-            });
-        if let Err(error) = spawn_result {
-            let _ = spawn_error_tx.send(Err(ExecError::TaskFailed(error.to_string())));
-        }
-
-        let join = async move {
-            result_rx
-                .recv_async()
-                .await
-                .map_err(|error| ExecError::JoinFailed(error.to_string()))?
-        };
-
-        (Box::pin(join), ())
-    }
-
-    fn block_on<F>(&self, future: F) -> F::Output
-    where
-        F: Future,
-    {
-        pollster::block_on(future)
+        std::thread::spawn(move || pollster::block_on(future));
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -112,28 +77,34 @@ impl Executor for CustomExecutor {
 fn main() -> Result<(), Error> {
     let executor = CustomExecutor::new();
 
-    let task = executor.spawn(async { 6_u8 * 7 });
-    let answer = executor.block_on(task).map_err(Error::from)?;
+    let (sender, receiver) = flume::bounded(1);
+    executor.spawn_detached(async move {
+        let _ = sender.send(6_u8 * 7);
+    });
+    let answer =
+        pollster::block_on(receiver.recv_async()).map_err(|error| Error::InvalidState {
+            reason: error.to_string().into(),
+        })?;
     println!("spawn/join result: {answer}");
 
-    executor.block_on(executor.sleep(Duration::from_millis(5)));
+    pollster::block_on(executor.sleep(Duration::from_millis(5)));
     println!("sleep completed");
 
     let mut timer = Box::pin(executor.timer(executor.now()));
-    executor.block_on(timer.as_mut());
+    pollster::block_on(timer.as_mut());
     timer
         .as_mut()
         .reset(executor.now() + Duration::from_millis(5));
-    executor.block_on(timer.as_mut());
+    pollster::block_on(timer.as_mut());
     println!("reusable timer reset completed");
 
-    let quick = executor.block_on(futures_lite::future::or(async { Ok("ready") }, async {
+    let quick = pollster::block_on(futures_lite::future::or(async { Ok("ready") }, async {
         executor.sleep(Duration::from_millis(50)).await;
         Err(grafton_visca::Error::io_timeout())
     }))?;
     println!("quick timeout-wrapped future: {quick}");
 
-    let timed_out = executor.block_on(futures_lite::future::or(
+    let timed_out = pollster::block_on(futures_lite::future::or(
         async {
             async_io::Timer::after(Duration::from_millis(50)).await;
             Ok(())

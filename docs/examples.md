@@ -21,7 +21,7 @@ The maintained examples in `examples/` fall into these categories:
 | Runtime profile | `dyn_quickstart` | Runtime-selected `Camera<AnyProfile>` with `Operation<Targeted>` (has `settled`) and `Operation<AppliedOnly>` (no `settled`), using `Capabilities::supports` for discovery. Uses the same facade features as compile-time profiles. |
 | Multi-camera and recovery | `multi_camera`, `recovery` | A multi-target session addressed by `camera::<P>(target)` with explicit `applied_with_timeout` waits, and fresh-session recovery after transport death or an application-owned silent-peer threshold using `received_frames`, a re-callable transport factory, a reused `SessionConfig`, end-to-end state re-query, and deliberate desired-state restoration. |
 | Profile contributions | `profile_spec` | Hardware-free `export <id>` and `check <file>` for complete runtime specs; see the [profile promotion guide](camera_profile_support.md#worked-example-acme_camjson-to-a-registry-row) for the separate read-only ignored probe. |
-| Protocol and lab validation | `sony_encapsulation`, `validate_ae_commands` | Profile-selected Sony encapsulation (the application never constructs the eight-byte header) and advanced lab material that should stay consistent with `docs/visca_reference.md`; not the recommended first path. |
+| Sony UDP | `sony_encapsulation` | Connect over UDP using the Sony profile, which supplies the eight-byte encapsulation header. |
 
 ## Rules
 
@@ -69,7 +69,7 @@ The maintained examples in `examples/` fall into these categories:
 Before a 2.0 release candidate, run:
 
 ```sh
-cargo +nightly fmt --all -- --check
+cargo +nightly-2026-08-26 fmt --all -- --check
 cargo check --examples --no-default-features
 cargo check --examples --no-default-features --features async
 cargo check --examples --no-default-features --features runtime-tokio
@@ -89,13 +89,13 @@ bash .github/scripts/test-all-features.sh
 Hardware smoke checks are optional and private for stable releases and
 prereleases (#1008). See the [optional guidance](hardware_release_checklist.md).
 
-The ignored profile probe reads queries on a known camera bench. Its candidate
-results require evidence review; they do not install grants. AE validation is a
-separate tool whose `--apply` flag explicitly permits control commands:
+Use the [gated hardware wire tests](../tests/integration/hardware_wire_rows_test.rs)
+for settings such as auto-exposure. The
+[read-only profile probe](camera_profile_support.md#3-collect-read-only-evidence)
+collects query and decoder candidates for evidence review.
 
 ```sh
 VISCA_CAMERA_IP=10.0.0.30 VISCA_PROFILE=generic_visca \
   cargo +1.98.0 test --features serde --lib profile_probe::profile_probe -- \
   --ignored --exact --nocapture
-cargo run --example validate_ae_commands -- --apply
 ```

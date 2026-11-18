@@ -109,6 +109,17 @@ fn static_request_identity<C: BuiltinRequestContract + 'static>() -> GoldenCaseI
     }
 }
 
+fn owner_only_identity(row: BuiltinCommand) -> GoldenCaseIdentity {
+    assert!(matches!(
+        row.classification(),
+        semantics::BuiltinRequestClass::OwnerOnly
+    ));
+    GoldenCaseIdentity::Command {
+        row,
+        request_type: None,
+    }
+}
+
 // Inquiry identity and bytes come from the generated inquiry table, never
 // from matching a frame against a collection of candidate patterns.
 macro_rules! inquiry_cases {
@@ -209,6 +220,9 @@ macro_rules! wire_cases {
     )+ };
 }
 wire_cases! {
+    AddressSetCommand => |_command| owner_only_identity(BuiltinCommand::AddressSet);
+    InterfaceClearCommand => |_command| owner_only_identity(BuiltinCommand::InterfaceClear);
+    CommandCancelCommand => |_command| owner_only_identity(BuiltinCommand::CommandCancel);
     PanTilt => |value| match value {
         PanTilt::Home => static_request_identity::<builtin::PanTiltHome>(),
         PanTilt::Reset => static_request_identity::<builtin::PanTiltReset>(),

@@ -32,9 +32,8 @@ use std::{
 use super::frames;
 use crate::{
     command::bytes::VISCA_TERMINATOR,
-    transport::{
-        builder::ValidatedTransportConfig, AsyncTransport, HasTransportConfig, ReceiveOutcome,
-    },
+    transport::{AsyncTransport, HasTransportConfig, IoBounds, ReceiveOutcome},
+    types::{CommandSocketCount, UnitInterval},
     Error,
 };
 
@@ -78,6 +77,8 @@ pub enum CommandType {
 /// codec selector and does not model Sony BRC-300's profile-owned 5+4 position
 /// codec.
 ///
+/// Pass a checked [`SimulatorConfig`] to [`Self::new`] or use [`Self::default`]
+/// for the standard timing and two sockets per camera.
 /// Construction does not require a runtime. Sending and receiving require a
 /// Tokio runtime with its time driver enabled. Replies use datagram semantics
 /// and retain their camera source, so one simulator may serve an addressed
@@ -90,7 +91,7 @@ pub struct ViscaCameraSimulator {
     inner: Arc<SimulatorInner>,
     // Each clone gets its own receiver to avoid missing broadcasts
     receiver: Option<Arc<Mutex<broadcast::Receiver<Vec<u8>>>>>,
-    transport_config: ValidatedTransportConfig,
+    io_bounds: IoBounds,
 }
 
 impl Clone for ViscaCameraSimulator {
@@ -100,7 +101,7 @@ impl Clone for ViscaCameraSimulator {
         Self {
             inner: self.inner.clone(),
             receiver: Some(Arc::new(Mutex::new(rx))),
-            transport_config: self.transport_config,
+            io_bounds: self.io_bounds,
         }
     }
 }
@@ -264,11 +265,12 @@ impl Adjustment {
     }
 
     fn apply(self, value: i32, reset: i32, lower: i32, upper: i32) -> i32 {
-        match self {
-            Self::Reset => reset,
-            Self::Up => (value + 1).clamp(lower, upper),
-            Self::Down => (value - 1).clamp(lower, upper),
-        }
+        let step = match self {
+            Self::Reset => return reset,
+            Self::Up => 1,
+            Self::Down => -1,
+        };
+        i32::clamp(value + step, lower, upper)
     }
 }
 
@@ -482,17 +484,12 @@ impl Drop for SimulatorInner {
 /// Configuration for [`ViscaCameraSimulator`]'s Standard VISCA behavior.
 #[derive(Debug, Clone)]
 pub struct SimulatorConfig {
-    // Timing configuration
     ack_delay: Duration,
-    command_execution_times: HashMap<CommandType, Duration>,
-
-    // Behavior configuration
-    packet_loss_rate: f32,
-    busy_probability: f32,
+    execution_time_overrides: HashMap<CommandType, Duration>,
+    packet_loss: UnitInterval,
+    busy_probability: UnitInterval,
     network_jitter_ms: u32,
-
-    // Protocol configuration
-    max_sockets: usize,
+    socket_count: CommandSocketCount,
 }
 
 #[derive(Debug, Default)]
@@ -505,49 +502,141 @@ struct SimulatorStats {
 
 impl Default for SimulatorConfig {
     fn default() -> Self {
-        let mut execution_times = HashMap::new();
-        execution_times.insert(CommandType::Preset, Duration::from_millis(500));
-        execution_times.insert(CommandType::PanTilt, Duration::from_millis(200));
-        execution_times.insert(CommandType::Zoom, Duration::from_millis(100));
-        execution_times.insert(CommandType::Focus, Duration::from_millis(100));
-        execution_times.insert(CommandType::Inquiry, Duration::from_millis(10));
-        execution_times.insert(CommandType::Power, Duration::from_millis(1000));
-        execution_times.insert(CommandType::Other, Duration::from_millis(50));
-
         Self {
             ack_delay: Duration::from_millis(5),
-            command_execution_times: execution_times,
-            packet_loss_rate: 0.0,
-            busy_probability: 0.0,
+            execution_time_overrides: HashMap::new(),
+            packet_loss: UnitInterval::MIN,
+            busy_probability: UnitInterval::MIN,
             network_jitter_ms: 0,
-            max_sockets: 2,
+            socket_count: CommandSocketCount::TWO,
         }
+    }
+}
+
+impl SimulatorConfig {
+    /// Returns the number of command sockets per camera.
+    #[must_use]
+    pub const fn socket_count(&self) -> CommandSocketCount {
+        self.socket_count
+    }
+
+    /// Sets the number of command sockets per camera (default: two).
+    #[must_use]
+    pub fn with_socket_count(mut self, count: CommandSocketCount) -> Self {
+        self.socket_count = count;
+        self
+    }
+
+    /// Returns the delay before an ACK becomes available.
+    #[must_use]
+    pub const fn ack_delay(&self) -> Duration {
+        self.ack_delay
+    }
+
+    /// Sets the delay before an ACK becomes available (default: 5 ms).
+    ///
+    /// Command execution starts after this delay, so completion never overtakes ACK.
+    #[must_use]
+    pub fn with_ack_delay(mut self, delay: Duration) -> Self {
+        self.ack_delay = delay;
+        self
+    }
+
+    /// Returns the time from ACK to completion, or the delay before an inquiry reply.
+    #[must_use]
+    pub fn command_execution_time(&self, command: CommandType) -> Duration {
+        self.execution_time_overrides
+            .get(&command)
+            .copied()
+            .unwrap_or_else(|| {
+                Duration::from_millis(match command {
+                    CommandType::Preset => 500,
+                    CommandType::PanTilt => 200,
+                    CommandType::Zoom | CommandType::Focus => 100,
+                    CommandType::Inquiry => 10,
+                    CommandType::Power => 1000,
+                    CommandType::Other => 50,
+                })
+            })
+    }
+
+    /// Sets the time from ACK to completion for a command type.
+    ///
+    /// For inquiries this is the delay before their single data or error reply.
+    #[must_use]
+    pub fn with_command_execution_time(mut self, command: CommandType, duration: Duration) -> Self {
+        self.execution_time_overrides.insert(command, duration);
+        self
+    }
+
+    /// Returns the probability that a reply will be omitted.
+    #[must_use]
+    pub const fn packet_loss(&self) -> UnitInterval {
+        self.packet_loss
+    }
+
+    /// Sets the probability that a reply will be omitted (default: zero).
+    ///
+    /// A lost reply does not fail `send` or prevent command execution.
+    /// The fixed-seed decision sequence is reproducible.
+    #[must_use]
+    pub fn with_packet_loss(mut self, probability: UnitInterval) -> Self {
+        self.packet_loss = probability;
+        self
+    }
+
+    /// Returns the probability that a command is refused as Buffer Full.
+    #[must_use]
+    pub const fn busy_probability(&self) -> UnitInterval {
+        self.busy_probability
+    }
+
+    /// Sets the probability that a command is refused as Buffer Full (default: zero).
+    ///
+    /// Inquiries and socket cancellation remain available while busy.
+    #[must_use]
+    pub fn with_busy_probability(mut self, probability: UnitInterval) -> Self {
+        self.busy_probability = probability;
+        self
+    }
+
+    /// Returns the inclusive bound on added reply latency in milliseconds.
+    #[must_use]
+    pub const fn network_jitter(&self) -> u32 {
+        self.network_jitter_ms
+    }
+
+    /// Sets the inclusive bound on added reply latency in milliseconds (default: zero).
+    ///
+    /// Each scheduled reply receives deterministic jitter once. Cancelling and
+    /// resuming a receive does not restart its delay.
+    #[must_use]
+    pub fn with_network_jitter(mut self, jitter_ms: u32) -> Self {
+        self.network_jitter_ms = jitter_ms;
+        self
     }
 }
 
 impl Default for ViscaCameraSimulator {
     fn default() -> Self {
-        Self::new()
+        Self::new(SimulatorConfig::default())
     }
 }
 
 impl ViscaCameraSimulator {
-    /// Create a new simulator with default configuration
-    pub fn new() -> Self {
-        Self::with_config(SimulatorConfig::default())
-    }
-
-    /// Create a simulator with custom configuration.
+    /// Creates a simulator with the specified configuration.
     ///
     /// This creates no tasks and may be called outside a Tokio runtime.
-    pub fn with_config(mut config: SimulatorConfig) -> Self {
-        config.max_sockets = config.max_sockets.clamp(1, 2);
+    #[must_use]
+    pub fn new(config: SimulatorConfig) -> Self {
         let (tx, rx) = broadcast::channel(RESPONSE_CAPACITY);
 
         let inner = Arc::new(SimulatorInner {
             state: Mutex::new(SimulatorState {
                 cameras: std::array::from_fn(|_| CameraState::default()),
-                socket_states: std::array::from_fn(|_| vec![SocketState::Free; config.max_sockets]),
+                socket_states: std::array::from_fn(|_| {
+                    vec![SocketState::Free; config.socket_count().get()]
+                }),
                 replies: VecDeque::new(),
             }),
             processing: Mutex::new(()),
@@ -562,13 +651,8 @@ impl ViscaCameraSimulator {
         Self {
             inner,
             receiver: Some(Arc::new(Mutex::new(rx))),
-            transport_config: ValidatedTransportConfig::default(),
+            io_bounds: IoBounds::default(),
         }
-    }
-
-    /// Create a builder for configuring the simulator
-    pub fn builder() -> SimulatorBuilder {
-        SimulatorBuilder::default()
     }
 
     /// Starts one processor lazily. Its weak reference never owns the simulator
@@ -663,7 +747,7 @@ impl ViscaCameraSimulator {
         inner.stats.write().await.commands_executed += completed;
         due.sort_by_key(|(at, _)| *at);
         for (_, response) in due {
-            if inner.chance(inner.config.packet_loss_rate) {
+            if inner.chance(inner.config.packet_loss()) {
                 inner.stats.write().await.packets_dropped += 1;
             } else {
                 let _ = inner.response_broadcaster.send(response);
@@ -707,20 +791,12 @@ impl ViscaCameraSimulator {
     async fn generate_inquiry_response(&self, data: &[u8]) -> Option<Vec<u8>> {
         let usb_audio_inquiry = Self::is_usb_audio_inquiry(data);
         if data.len() < 4 || (data[1] != 0x09 && !usb_audio_inquiry) {
-            tracing::debug!("Not an inquiry command: {:02X?}", data);
             return None;
         }
 
         let camera_index = usize::from(data.first()?.checked_sub(0x81)?);
         let state = self.inner.state.lock().await;
         let state = state.cameras.get(camera_index)?;
-
-        tracing::debug!(
-            "Processing inquiry: cmd[2]={:02X?}, cmd[3]={:02X?}, full command: {:02X?}",
-            data.get(2),
-            data.get(3),
-            data
-        );
 
         if usb_audio_inquiry {
             let status = if state.usb_audio_enabled { 0x02 } else { 0x03 };
@@ -794,9 +870,12 @@ impl ViscaCameraSimulator {
                 let adjusted_value = (state.exposure_compensation + 7) as u8;
                 let nibble_high = (adjusted_value >> 4) & 0x0F;
                 let nibble_low = adjusted_value & 0x0F;
-                let response = frames::inquiry_reply(&[0x00, 0x00, nibble_high, nibble_low]);
-                tracing::debug!("Exposure compensation inquiry response: {:02X?}", response);
-                Some(response)
+                Some(frames::inquiry_reply(&[
+                    0x00,
+                    0x00,
+                    nibble_high,
+                    nibble_low,
+                ]))
             }
 
             // Exposure compensation mode inquiry: 0x81 0x09 0x04 0x3E 0xFF
@@ -965,15 +1044,7 @@ impl ViscaCameraSimulator {
             // Picture effect inquiry: 0x81 0x09 0x04 0x63 0xFF
             (Some(0x04), Some(0x63)) => Some(frames::inquiry_reply(&[state.picture_effect])),
 
-            _ => {
-                tracing::warn!(
-                    "Unhandled inquiry command: cmd[2]={:02X?}, cmd[3]={:02X?}, full: {:02X?}",
-                    data.get(2),
-                    data.get(3),
-                    data
-                );
-                None
-            }
+            _ => None,
         }
     }
 
@@ -1005,19 +1076,19 @@ impl SimulatorInner {
         value ^ (value >> 31)
     }
 
-    fn chance(&self, probability: f32) -> bool {
-        if probability <= 0.0 || probability.is_nan() {
+    fn chance(&self, probability: UnitInterval) -> bool {
+        if probability == UnitInterval::MIN {
             return false;
         }
-        if probability >= 1.0 {
+        if probability == UnitInterval::MAX {
             return true;
         }
         let sample = (self.random() >> 40) as f32 / 16_777_216.0;
-        sample < probability
+        sample < probability.value()
     }
 
     fn jitter(&self) -> Duration {
-        let limit = u64::from(self.config.network_jitter_ms);
+        let limit = u64::from(self.config.network_jitter());
         if limit == 0 {
             Duration::ZERO
         } else {
@@ -1080,13 +1151,7 @@ impl AsyncTransport for ViscaCameraSimulator {
         }
 
         let command_type = Self::parse_command_type(data);
-        let duration = self
-            .inner
-            .config
-            .command_execution_times
-            .get(&command_type)
-            .copied()
-            .unwrap_or(Duration::from_millis(50));
+        let duration = self.inner.config.command_execution_time(command_type);
         if command_type == CommandType::Inquiry {
             let reply = self
                 .generate_inquiry_response(data)
@@ -1100,7 +1165,7 @@ impl AsyncTransport for ViscaCameraSimulator {
             now,
             self.inner
                 .config
-                .ack_delay
+                .ack_delay()
                 .saturating_add(self.inner.jitter()),
         )?;
         let completion_at =
@@ -1111,7 +1176,7 @@ impl AsyncTransport for ViscaCameraSimulator {
             .iter_mut()
             .find(|socket| matches!(socket, SocketState::Free));
         match (
-            self.inner.chance(self.inner.config.busy_probability),
+            self.inner.chance(self.inner.config.busy_probability()),
             available,
         ) {
             (false, Some(socket)) => {
@@ -1161,76 +1226,8 @@ impl HasTransportConfig for ViscaCameraSimulator {
         }
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
-        &self.transport_config
-    }
-}
-
-/// Builder for configuring [`ViscaCameraSimulator`]'s Standard VISCA behavior.
-#[derive(Default, Debug)]
-pub struct SimulatorBuilder {
-    config: SimulatorConfig,
-}
-
-impl SimulatorBuilder {
-    /// Set the number of sockets per camera (default: 2), clamped to `1..=2`.
-    pub fn with_socket_count(mut self, count: usize) -> Self {
-        self.config.max_sockets = count.clamp(1, 2);
-        self
-    }
-
-    /// Set the delay before an ACK becomes available (default: 5 ms).
-    ///
-    /// Command execution starts after this delay, so completion never overtakes ACK.
-    pub fn with_ack_delay(mut self, delay: Duration) -> Self {
-        self.config.ack_delay = delay;
-        self
-    }
-
-    /// Set the time from ACK to completion for a command type.
-    ///
-    /// For inquiries this is the delay before their single data/error reply.
-    pub fn with_command_execution_time(
-        mut self,
-        cmd_type: CommandType,
-        duration: Duration,
-    ) -> Self {
-        self.config
-            .command_execution_times
-            .insert(cmd_type, duration);
-        self
-    }
-
-    /// Set the fraction of reply frames omitted, clamped to `0.0..=1.0`.
-    ///
-    /// A lost reply does not fail `send` or prevent command execution.
-    /// The fixed-seed decision sequence is reproducible; NaN disables loss.
-    pub fn with_packet_loss(mut self, rate: f32) -> Self {
-        self.config.packet_loss_rate = rate.clamp(0.0, 1.0);
-        self
-    }
-
-    /// Set the probability a command is refused as Buffer Full.
-    ///
-    /// Values are clamped to `0.0..=1.0`; NaN disables random refusals.
-    /// Inquiries and socket cancellation remain available while busy.
-    pub fn with_busy_probability(mut self, prob: f32) -> Self {
-        self.config.busy_probability = prob.clamp(0.0, 1.0);
-        self
-    }
-
-    /// Set maximum added reply latency in milliseconds (inclusive).
-    ///
-    /// Each scheduled reply receives deterministic jitter once. Cancelling and
-    /// resuming a receive does not restart its delay.
-    pub fn with_network_jitter(mut self, jitter_ms: u32) -> Self {
-        self.config.network_jitter_ms = jitter_ms;
-        self
-    }
-
-    /// Build the simulator
-    pub fn build(self) -> ViscaCameraSimulator {
-        ViscaCameraSimulator::with_config(self.config)
+    fn io_bounds(&self) -> &IoBounds {
+        &self.io_bounds
     }
 }
 
@@ -1300,7 +1297,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn power_inquiries_follow_completed_commands() {
-        let mut simulator = ViscaCameraSimulator::new();
+        let mut simulator = ViscaCameraSimulator::default();
         for power in [0x03, 0x02] {
             complete(
                 &mut simulator,
@@ -1315,7 +1312,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn absolute_and_home_positions_follow_completion_but_cancelled_moves_do_not() {
-        let mut simulator = ViscaCameraSimulator::new();
+        let mut simulator = ViscaCameraSimulator::default();
         // Standard two's-complement targets: pan -1000, tilt -200.
         let absolute = [
             0x81,
@@ -1372,7 +1369,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn addressed_cameras_keep_independent_power_and_positions() {
-        let mut simulator = ViscaCameraSimulator::new();
+        let mut simulator = ViscaCameraSimulator::default();
         complete(
             &mut simulator,
             &[0x82, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
@@ -1423,9 +1420,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn dropped_completion_replies_still_apply_commands() {
-        let mut simulator = ViscaCameraSimulator::builder()
-            .with_packet_loss(1.0)
-            .build();
+        let mut simulator = ViscaCameraSimulator::new(
+            SimulatorConfig::default().with_packet_loss(UnitInterval::MAX),
+        );
         simulator
             .send(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR])
             .await
@@ -1444,10 +1441,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     #[allow(clippy::panic)]
     async fn simultaneous_due_effects_follow_completion_order_across_sockets() {
-        let mut simulator = ViscaCameraSimulator::builder()
-            .with_command_execution_time(CommandType::Power, Duration::from_secs(1))
-            .with_command_execution_time(CommandType::Other, Duration::from_millis(50))
-            .build();
+        let mut simulator = ViscaCameraSimulator::new(
+            SimulatorConfig::default()
+                .with_command_execution_time(CommandType::Power, Duration::from_secs(1))
+                .with_command_execution_time(CommandType::Other, Duration::from_millis(50)),
+        );
         // Socket 1 completes after socket 2: its late off must win.
         simulator
             .send(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR])
@@ -1471,7 +1469,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn modeled_register_setters_are_reported_by_their_inquiries() {
-        let mut simulator = ViscaCameraSimulator::new();
+        let mut simulator = ViscaCameraSimulator::default();
         let cases: &[(u8, &[u8], &[u8])] = &[
             (0x47, &[1, 2, 3, 4], &[1, 2, 3, 4]),
             (0x48, &[2, 3, 4, 5], &[2, 3, 4, 5]),
@@ -1532,10 +1530,15 @@ mod tests {
 
     #[test]
     fn construction_needs_no_runtime_and_socket_counts_are_bounded() {
-        for (requested, expected) in [(0, 1), (1, 1), (2, 2), (256, 2), (usize::MAX, 2)] {
-            let simulator = ViscaCameraSimulator::builder()
-                .with_socket_count(requested)
-                .build();
+        assert!(CommandSocketCount::new(0).is_err());
+        assert!(CommandSocketCount::new(3).is_err());
+        for probability in [f32::NAN, -0.1, 1.1] {
+            assert!(UnitInterval::new(probability).is_err());
+        }
+        for count in [CommandSocketCount::ONE, CommandSocketCount::TWO] {
+            let config = SimulatorConfig::default().with_socket_count(count);
+            assert_eq!(config.socket_count(), count);
+            let simulator = ViscaCameraSimulator::new(config);
             assert!(simulator
                 .inner
                 .processor
@@ -1548,13 +1551,13 @@ mod tests {
                 .blocking_lock()
                 .socket_states
                 .iter()
-                .all(|sockets| sockets.len() == expected));
+                .all(|sockets| sockets.len() == usize::from(count.value())));
         }
     }
 
     #[tokio::test(start_paused = true)]
     async fn final_clone_drop_stops_the_response_processor() {
-        let mut simulator = ViscaCameraSimulator::new();
+        let mut simulator = ViscaCameraSimulator::default();
         let clone = simulator.clone();
         let weak = Arc::downgrade(&simulator.inner);
         simulator
@@ -1586,7 +1589,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn idle_cancel_names_its_socket_and_camera_without_allocating_one() {
-        let mut simulator = ViscaCameraSimulator::new();
+        let mut simulator = ViscaCameraSimulator::default();
         simulator
             .send(&[0x83, 0x22, VISCA_TERMINATOR])
             .await
@@ -1657,7 +1660,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_simulator_basic_operation() {
-        let mut simulator = ViscaCameraSimulator::new();
+        let mut simulator = ViscaCameraSimulator::default();
 
         // Subscribe to responses before sending command
         let mut rx = simulator.inner.response_broadcaster.subscribe();
@@ -1682,10 +1685,11 @@ mod tests {
 
     #[tokio::test]
     async fn busy_simulator_refuses_with_the_one_buffer_full_frame() {
-        let mut simulator = ViscaCameraSimulator::builder()
-            .with_socket_count(1)
-            .with_command_execution_time(CommandType::Zoom, Duration::from_secs(60))
-            .build();
+        let mut simulator = ViscaCameraSimulator::new(
+            SimulatorConfig::default()
+                .with_socket_count(CommandSocketCount::ONE)
+                .with_command_execution_time(CommandType::Zoom, Duration::from_secs(60)),
+        );
         let mut rx = simulator.inner.response_broadcaster.subscribe();
         let zoom = [0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR];
 
@@ -1701,7 +1705,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_simulator_inquiry_responses() {
-        let mut simulator = ViscaCameraSimulator::new();
+        let mut simulator = ViscaCameraSimulator::default();
 
         // Subscribe to responses before sending command
         let mut rx = simulator.inner.response_broadcaster.subscribe();
@@ -1747,7 +1751,7 @@ mod tests {
 
     #[tokio::test]
     async fn picture_effect_inquiry_uses_04_63_and_returns_its_own_value() {
-        let simulator = ViscaCameraSimulator::new();
+        let simulator = ViscaCameraSimulator::default();
 
         let response = simulator
             .generate_inquiry_response(&[0x81, 0x09, 0x04, 0x63, VISCA_TERMINATOR])
@@ -1758,7 +1762,7 @@ mod tests {
 
     #[tokio::test]
     async fn focus_zone_and_usb_audio_inquiries_use_documented_wire_forms() {
-        let simulator = ViscaCameraSimulator::new();
+        let simulator = ViscaCameraSimulator::default();
 
         assert_eq!(
             simulator

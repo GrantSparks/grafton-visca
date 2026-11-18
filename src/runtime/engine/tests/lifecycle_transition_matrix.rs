@@ -280,7 +280,6 @@ impl Fixture {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request,
-                slot: AdmissionSlot::Ordinary,
             },
             now,
         );

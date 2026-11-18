@@ -54,7 +54,7 @@ fn documented_downstream_pantilt_derive_compiles() {
 fn derived_pantilt_inquiry_requires_profile_framing_before_io() {
     use grafton_visca::{
         blocking::Session,
-        capabilities::{Capabilities, InquirySupport},
+        capabilities::Capabilities,
         config::SessionConfig,
         profiles::{AnyProfile, ProfileEnvelope, ProfileSpec, PtzOpticsG2},
         types::{AffectedAxes, IndividualCameraId},
@@ -73,7 +73,7 @@ fn derived_pantilt_inquiry_requires_profile_framing_before_io() {
         .supports_operation_complete(false)
         .supports_command_cancel(false)
         .position_inquiries(AffectedAxes::ZOOM)
-        .inquiry_support(InquirySupport::Partial)
+        .inquiries(true)
         .build()
         .expect("zoom-only profile");
 

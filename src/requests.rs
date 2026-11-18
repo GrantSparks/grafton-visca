@@ -43,7 +43,6 @@ impl AppliedStateAuthority {
     }
 }
 
-#[cfg(any(test, feature = "blocking", feature = "async"))]
 impl RequestContractAuthority {
     pub(crate) const fn new() -> Self {
         Self(private::SealedToken)
@@ -93,74 +92,11 @@ pub enum InquiryRetryClass {
     Inquiry,
 }
 
-/// Intrinsic scheduling class of one request.
-///
-/// Every request selects an ordinary class through its typed policy. The
-/// urgent class is reserved for safety and protocol-control work and cannot be
-/// selected or demoted by a submission override. Request implementations and
-/// raw policies classify their own semantics; caller QoS uses
-/// [`crate::request::SubmissionClass`].
-///
-/// # Lane semantics
-///
-/// The owner keeps one ready queue per class per lane (commands and inquiries
-/// are separate lanes). Dispatch scans the classes from [`Urgent`](Self::Urgent)
-/// down to [`Background`](Self::Background) and chooses the oldest eligible
-/// request across both lanes in the first class with eligible work. Within one
-/// class, eligibility may bypass a blocked older request, but eligible work
-/// retains admission order.
-///
-/// Three consequences follow, and they are the whole contract:
-///
-/// - The class decides only which **queued** request is written next. Once a
-///   request has been written to the transport nothing reorders, interrupts, or
-///   cancels it, so raising a class cannot preempt work already in flight; use
-///   a typed stop or a cancellation for that.
-/// - Classes are strictly ordered rather than weighted: while urgent work is
-///   ready and eligible, nothing below it is dispatched.
-///
-/// The owner retains sole authority over the queues themselves: a class selects
-/// an eligible queued request, never a deadline, a retry budget, or a socket.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[non_exhaustive]
-pub enum ControlClass {
-    /// Opportunistic background work: telemetry polling, warm-up reads, and
-    /// anything that should yield the transport to everything else.
-    ///
-    /// It is the lowest class: it is scheduled only when nothing more urgent is
-    /// ready.
-    Background,
-    /// Ordinary camera control traffic, and the class of every built-in
-    /// inquiry.
-    ///
-    /// This is the class a request gets when it says nothing else.
-    Normal,
-    /// Direct user interaction: drives, absolute moves, preset recalls, and the
-    /// other commands a person is waiting on.
-    ///
-    /// It is scheduled ahead of [`crate::request::ControlClass::Normal`] and
-    /// [`crate::request::ControlClass::Background`] work, so a person's input is not queued
-    /// behind polling.
-    User,
-    /// Time-sensitive control work that must reach the camera ahead of queued
-    /// traffic: the typed stops and socket cancellation.
-    ///
-    /// It is an immutable safety floor:
-    /// caller-selected submission QoS can neither create nor demote it.
-    Urgent,
-}
-
 /// Caller-selected quality-of-service class for ordinary submissions.
 ///
-/// This exposes background, normal and interactive scheduling to callers
-/// without exposing the owner's safety lane. When a request's
-/// intrinsic [`crate::request::ControlClass`] is [`crate::request::ControlClass::Urgent`], this value is
-/// ignored and the request remains urgent. For every other request it selects
-/// the ready lane used at admission.
+/// The owner dispatches eligible queued work from the highest occupied class
+/// first and in admission order within that class. Typed STOPs and owner-issued
+/// cancellation use the urgent safety lane independently of this setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
@@ -174,24 +110,6 @@ pub enum SubmissionClass {
     Normal,
     /// Direct user interaction.
     User,
-}
-
-impl SubmissionClass {
-    /// Returns the corresponding ordinary intrinsic class.
-    #[must_use]
-    pub const fn control_class(self) -> ControlClass {
-        match self {
-            Self::Background => ControlClass::Background,
-            Self::Normal => ControlClass::Normal,
-            Self::User => ControlClass::User,
-        }
-    }
-}
-
-impl From<SubmissionClass> for ControlClass {
-    fn from(class: SubmissionClass) -> Self {
-        class.control_class()
-    }
 }
 
 /// A set of physical camera axes affected by an operation.
@@ -491,9 +409,9 @@ type SharedDecoder<R> = dyn Fn(&[u8]) -> Result<R> + Send + Sync + 'static;
 
 enum DecoderInner<R> {
     Function(fn(&[u8]) -> Result<R>),
-    Inline {
-        context: [u64; 2],
-        decode: fn([u64; 2], &[u8]) -> Result<R>,
+    NormalizedZoom {
+        range: crate::capabilities::CapabilityRange<u16>,
+        lift: fn(crate::types::UnitInterval) -> Result<R>,
     },
     Builtin {
         kind: crate::command::InquiryKind,
@@ -527,16 +445,6 @@ impl<R> ResponseDecoder<R> {
     pub const fn from_fn(decode: fn(&[u8]) -> Result<R>) -> Self {
         Self {
             inner: DecoderInner::Function(decode),
-        }
-    }
-
-    /// Stores small immutable decoding facts without a shared allocation.
-    pub(crate) const fn with_inline_context(
-        context: [u64; 2],
-        decode: fn([u64; 2], &[u8]) -> Result<R>,
-    ) -> Self {
-        Self {
-            inner: DecoderInner::Inline { context, decode },
         }
     }
 
@@ -596,7 +504,16 @@ impl<R> ResponseDecoder<R> {
     pub fn decode(&self, payload: &[u8]) -> Result<R> {
         match &self.inner {
             DecoderInner::Function(decode) => decode(payload),
-            DecoderInner::Inline { context, decode } => decode(*context, payload),
+            DecoderInner::NormalizedZoom { range, lift } => {
+                let position =
+                    Inquiry::decoder(&crate::command::ZoomPositionInquiry).decode(payload)?;
+                range
+                    .normalize(position.value())
+                    .and_then(lift)
+                    .map_err(|error| {
+                        crate::command::inquiry_structs::reply_value_error(error, payload)
+                    })
+            }
             DecoderInner::Builtin {
                 kind,
                 framing,
@@ -655,6 +572,14 @@ impl<R> ResponseDecoder<R> {
     }
 }
 
+impl ResponseDecoder<crate::types::UnitInterval> {
+    pub(crate) const fn normalized_zoom(range: crate::capabilities::CapabilityRange<u16>) -> Self {
+        Self {
+            inner: DecoderInner::NormalizedZoom { range, lift: Ok },
+        }
+    }
+}
+
 fn require_pan_tilt_coordinates(
     profile: &crate::ProfileSpec,
 ) -> Result<crate::profiles::PanTiltCoordinateConversion> {
@@ -681,9 +606,9 @@ impl<R> Clone for ResponseDecoder<R> {
     fn clone(&self) -> Self {
         let inner = match &self.inner {
             DecoderInner::Function(decode) => DecoderInner::Function(*decode),
-            DecoderInner::Inline { context, decode } => DecoderInner::Inline {
-                context: *context,
-                decode: *decode,
+            DecoderInner::NormalizedZoom { range, lift } => DecoderInner::NormalizedZoom {
+                range: *range,
+                lift: *lift,
             },
             DecoderInner::Builtin {
                 kind,
@@ -713,10 +638,9 @@ impl<R> fmt::Debug for ResponseDecoder<R> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let storage = match self.inner {
             DecoderInner::Function(_) => "function",
-            DecoderInner::Inline { .. } => "inline-context",
-            DecoderInner::Builtin { .. } | DecoderInner::ColorTemperature { .. } => {
-                "inline-builtin"
-            }
+            DecoderInner::Builtin { .. }
+            | DecoderInner::NormalizedZoom { .. }
+            | DecoderInner::ColorTemperature { .. } => "inline-builtin",
             #[cfg(any(feature = "blocking", feature = "async"))]
             DecoderInner::PanTiltPosition { .. } => "inline-builtin",
             DecoderInner::Shared(_) => "shared-context",
@@ -732,7 +656,6 @@ impl<R> fmt::Debug for ResponseDecoder<R> {
 mod bound_temperature_decoder_tests {
     use super::{DecoderInner, Inquiry, ResponseDecoder};
     use crate::{
-        capabilities::CapabilityRange,
         command::{ColorTemperatureInquiry, InquiryData, InquiryKind, Payload, Response},
         profiles::{GenericVisca, PtzOpticsG2},
         types::Kelvin,
@@ -755,7 +678,6 @@ mod bound_temperature_decoder_tests {
                 .ok_or(Error::FeatureNotSupported {
                     feature: "test white balance",
                 })?;
-        white_balance.color_temp_range = Some(CapabilityRange::<u16>::new(3100, 6300)?);
         white_balance.color_temperature_steps = steps;
         let mut builder = ProfileSpec::builder(capabilities)
             .transports(baseline.transports())
@@ -864,6 +786,108 @@ mod bound_temperature_decoder_tests {
     }
 }
 
+/// The frame length and owner facts produced by one target-specific lowering.
+pub(crate) struct LoweredRequest {
+    pub written: usize,
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub requires_extended_pan_tilt_speed: bool,
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub applied_state: Option<crate::runtime::engine::AppliedStateProjection>,
+}
+
+pub(crate) fn write_lowered<R: Request + ?Sized>(
+    request: &R,
+    target: &crate::TargetRegistration,
+    buffer: &mut [u8],
+) -> Result<LoweredRequest> {
+    let written = request.write_for_target(target, buffer, RequestContractAuthority::new())?;
+    Ok(LoweredRequest {
+        written,
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        requires_extended_pan_tilt_speed: target
+            .profile()
+            .capabilities()
+            .pan_tilt
+            .as_ref()
+            .is_some_and(|pan_tilt| pan_tilt.variable_speed)
+            && request
+                .pan_tilt_max_speed(RequestContractAuthority::new())
+                .is_some_and(|speed| speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM),
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        applied_state: request.applied_state_projection(AppliedStateAuthority::new()),
+    })
+}
+
+pub(crate) fn encode_for_target<R: Request + ?Sized, T>(
+    request: &R,
+    target: &crate::TargetRegistration,
+    buffer: &mut [u8],
+    before_write: impl FnOnce() -> Result<T>,
+) -> Result<(LoweredRequest, T)> {
+    let declared_max = declared_max_size(request);
+    let maximum = declared_max.min(crate::raw::MAX_BYTES);
+    let available = maximum.min(buffer.len());
+    let (lowered, result) = match request.lower_for_target(
+        target,
+        &mut buffer[..available],
+        before_write,
+        RequestContractAuthority::new(),
+    ) {
+        Err(Error::BufferTooSmall { required, .. }) if required > maximum => {
+            return Err(Error::InvalidRequest {
+                reason: format!(
+                    "encoded request needs {required} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({})",
+                    crate::raw::MAX_BYTES
+                ).into(),
+            });
+        }
+        other => other?,
+    };
+    let written = lowered.written;
+    if written > maximum {
+        return Err(Error::InvalidRequest {
+            reason: format!(
+                "write_into reported {written} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({})",
+                crate::raw::MAX_BYTES
+            ).into(),
+        });
+    }
+    if written > available {
+        return Err(Error::InvalidRequest {
+            reason: "encoder returned a length beyond its supplied buffer".into(),
+        });
+    }
+    let bytes = &buffer[..written];
+    crate::raw::validate_wire(bytes)?;
+    let camera = CameraId::from(target.target());
+    let address = camera.to_address_byte();
+    if bytes[0] != address {
+        return Err(Error::InvalidRequest {
+            reason: format!(
+                "request targets VISCA address 0x{:02x}, but the selected camera target is {} (0x{address:02x})",
+                bytes[0],
+                camera,
+            ).into(),
+        });
+    }
+    let maximum = target.profile().maximum_request_bytes();
+    if written > maximum {
+        return Err(Error::InvalidRequest {
+            reason: format!(
+                "encoded request has {written} bytes, exceeding this profile's supported envelope payload bound ({maximum})"
+            ).into(),
+        });
+    }
+    Ok((lowered, result))
+}
+
+/// Refuses profile-free encoding for requests that must lower against a target.
+pub(crate) fn target_required_for_encoding() -> Error {
+    Error::InvalidRequest {
+        reason: "request encoding requires a target profile".into(),
+    }
+}
+
 /// A request that can be fully encoded before owner admission.
 pub trait Request: Send + Sync {
     /// Closed semantic request class.
@@ -895,8 +919,11 @@ pub trait Request: Send + Sync {
     /// The default derives an ordinary class from the typed policy.
     #[doc(hidden)]
     #[allow(private_interfaces)]
-    fn admission_control_class(&self, _authority: RequestContractAuthority) -> ControlClass {
-        request::policy::Sealed::control_class(self.policy())
+    fn admission(
+        &self,
+        _authority: RequestContractAuthority,
+    ) -> request::policy::AdmissionOf<Self::Class> {
+        request::policy::Sealed::ordinary_admission(self.policy())
     }
 
     /// Returns the fixed encoded-size declaration used for owner admission.
@@ -917,9 +944,8 @@ pub trait Request: Send + Sync {
     ///
     /// This is only the profile-free encoding hook: it receives the explicit
     /// target address, but not a [`crate::profiles::ProfileSpec`]. Do not use it for
-    /// capability or profile-range validation. Shared preparation calls
-    /// [`Self::validate_for_target`] first and encodes only after that check
-    /// succeeds.
+    /// capability or profile-range validation. Use
+    /// [`crate::config::TargetRegistration::encode`] for target-bound encoding.
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize>;
 
     /// Encodes a reviewed built-in request against the selected target.
@@ -939,11 +965,9 @@ pub trait Request: Send + Sync {
 
     /// Validates target-specific capability, range and installation facts before encoding.
     ///
-    /// Every request submitted through a direct generic or noun path reaches
-    /// this hook during preparation, before encoding, owner admission, or
-    /// transport I/O. Crate-provided requests override it to return
-    /// [`Error::FeatureNotSupported`] when the selected profile lacks a
-    /// required feature.
+    /// Shared preparation validates the request before encoding, owner admission,
+    /// or transport I/O. Built-in intents can combine validation with lowering
+    /// and return [`Error::FeatureNotSupported`] for an unavailable feature.
     ///
     /// Raw and other downstream requests are explicit low-level extensions:
     /// they may override this hook with their own profile validation, while a
@@ -952,6 +976,21 @@ pub trait Request: Send + Sync {
     /// `Has*` marker bounds with request-specific compile-time `P` bounds.
     fn validate_for_target(&self, _target: &crate::TargetRegistration) -> Result<()> {
         Ok(())
+    }
+
+    /// Validates and lowers the request against its receiving target.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn lower_for_target<T>(
+        &self,
+        target: &crate::TargetRegistration,
+        buffer: &mut [u8],
+        before_write: impl FnOnce() -> Result<T>,
+        _authority: RequestContractAuthority,
+    ) -> Result<(LoweredRequest, T)> {
+        self.validate_for_target(target)?;
+        let result = before_write()?;
+        Ok((write_lowered(self, target, buffer)?, result))
     }
 
     /// Carries the largest reviewed built-in pan/tilt speed to owner admission.
@@ -980,36 +1019,31 @@ pub trait Request: Send + Sync {
 
 #[cfg(any(feature = "blocking", feature = "async"))]
 /// Reads a request's authorized scheduling class at the owner boundary.
-pub(crate) fn admission_control_class<R: Request + ?Sized>(request: &R) -> ControlClass {
-    request.admission_control_class(RequestContractAuthority::new())
+pub(crate) fn admission<R: Request + ?Sized>(
+    request: &R,
+) -> request::policy::AdmissionOf<R::Class> {
+    request.admission(RequestContractAuthority::new())
 }
 
-#[cfg(any(feature = "blocking", feature = "async"))]
 /// Reads a request's fixed size declaration at the owner boundary.
 pub(crate) fn declared_max_size<R: Request + ?Sized>(request: &R) -> usize {
     request.declared_max_size(RequestContractAuthority::new())
 }
 
-#[cfg(any(feature = "blocking", feature = "async"))]
-/// Reads the hidden request effect hook at the preparation boundary.
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) fn applied_state_projection<R: Request + ?Sized>(
     request: &R,
 ) -> Option<crate::runtime::engine::AppliedStateProjection> {
     request.applied_state_projection(AppliedStateAuthority::new())
 }
 
-#[cfg(any(feature = "blocking", feature = "async"))]
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) fn write_for_target<R: Request + ?Sized>(
     request: &R,
     target: &crate::TargetRegistration,
     buffer: &mut [u8],
 ) -> Result<usize> {
     request.write_for_target(target, buffer, RequestContractAuthority::new())
-}
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-pub(crate) fn pan_tilt_max_speed<R: Request + ?Sized>(request: &R) -> Option<u8> {
-    request.pan_tilt_max_speed(RequestContractAuthority::new())
 }
 
 /// A command with no physical-operation handle semantics.
@@ -1143,27 +1177,6 @@ where
     ) -> Result<AffectedAxes> {
         Ok(self.affected_axes())
     }
-
-    /// Validates the receiving target and retains lowered bytes for target-bound movement.
-    #[doc(hidden)]
-    #[allow(private_interfaces)]
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn prepare_movement(
-        &self,
-        target: &crate::TargetRegistration,
-        _authority: RequestContractAuthority,
-    ) -> Result<Option<crate::prepared::PreparedMovement>> {
-        self.validate_for_target(target)?;
-        Ok(None)
-    }
-}
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-pub(crate) fn prepare_movement<K: completion::Kind, O: OperationCommand<K> + ?Sized>(
-    operation: &O,
-    target: &crate::TargetRegistration,
-) -> Result<Option<crate::prepared::PreparedMovement>> {
-    operation.prepare_movement(target, RequestContractAuthority::new())
 }
 
 #[cfg(test)]

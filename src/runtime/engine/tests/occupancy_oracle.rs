@@ -1,6 +1,7 @@
 //! Independent scans for decision-local occupancy and dispatch gates.
 //! Expected phase sets intentionally do not call the new lifecycle predicates.
 use super::*;
+use crate::runtime::owner::AdmissionPermitPool;
 
 fn command_on_wire(lifecycle: Lifecycle) -> bool {
     matches!(
@@ -158,6 +159,8 @@ fn a_single_admission_slot_excludes_a_second_inquiry_for_every_envelope() {
     ] {
         let mut engine = engine(envelope, transport);
         engine.policy.capacity = std::num::NonZeroUsize::MIN;
+        let permits = AdmissionPermitPool::new(1, PerTarget::default());
+        let first_permit = permits.try_acquire_ordinary().unwrap();
         let (write, first) = admit(
             &mut engine,
             1,
@@ -166,22 +169,10 @@ fn a_single_admission_slot_excludes_a_second_inquiry_for_every_envelope() {
         );
         let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
         send_ok(&mut engine, &write, sequence, now);
-        let rejected = engine.handle(
-            Input::Admit {
-                ticket: AdmissionTicket(2),
-                request: inquiry_with_shape(1, PayloadShape::Bytes(2)),
-                slot: AdmissionSlot::Ordinary,
-            },
-            now,
-        );
         assert!(matches!(
-            rejected.as_slice(),
-            [Effect::AdmissionRejected {
-                error: Error::RuntimeQueueFull { capacity: 1 },
-                ..
-            }]
+            permits.try_acquire_ordinary(),
+            Err(Error::RuntimeQueueFull { capacity: 1 })
         ));
-        assert!(request_transmit_optional(&rejected).is_none());
         let replied = engine.handle(
             frame(
                 1,
@@ -196,6 +187,8 @@ fn a_single_admission_slot_excludes_a_second_inquiry_for_every_envelope() {
             terminal_outcome(&replied, first),
             Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }))
         ));
+        drop(first_permit);
+        let _second_permit = permits.try_acquire_ordinary().unwrap();
         let (write, next) = admit(
             &mut engine,
             3,
@@ -227,12 +220,13 @@ proptest::proptest! {
         for (index, action) in actions.into_iter().enumerate() {
             now += Duration::from_millis(if action & 7 == 7 { 35 } else { 1 });
             let target = 1;
-            let input = if action & 7 < 5 {
-                Input::Admit {
+            let mut effects = if action & 7 < 5 && engine.active_len() == capacity {
+                engine.advance(now)
+            } else if action & 7 < 5 {
+                engine.handle(Input::Admit {
                     ticket: AdmissionTicket(index as u64),
                     request: inquiry_with_shape(target, PayloadShape::Bytes(1 + usize::from(action & 3))),
-                    slot: AdmissionSlot::Ordinary,
-                }
+                }, now)
             } else {
                 let candidate = engine.entries.iter().find(|(_, entry)| {
                     entry.request.context().target == camera(target) && entry.lifecycle().is_awaiting_reply()
@@ -244,10 +238,9 @@ proptest::proptest! {
                     };
                     (entry.current_sequence(), length)
                 });
-                frame(target, sequence,
-                    DecodedResponse::InquiryReply { payload: std::iter::repeat_n(1, length).collect() })
+                engine.handle(frame(target, sequence,
+                    DecodedResponse::InquiryReply { payload: std::iter::repeat_n(1, length).collect() }), now)
             };
-            let mut effects = engine.handle(input, now);
             while let Some((_, id, _)) = request_transmit_optional(&effects) {
                 let sequence = (envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));
                 effects = send_ok(&mut engine, &effects, sequence, now);

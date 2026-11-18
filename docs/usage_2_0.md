@@ -153,11 +153,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
     capabilities.power = Some(PowerCaps {
         status_query: PowerStatusQuery::Standard,
-        on_time: Duration::from_secs(1),
-        standby: None,
-        wake_on_lan: false,
-        retains_settings: false,
-        home_on_up: false,
+        standby: false,
     });
 
     let timing = ProfileTiming::builder()
@@ -193,7 +189,7 @@ Every timing and protocol-safety fact is explicit.
 `CommandTimeouts::default()` opts into the standard 1.x command-category
 deadlines without making the rest of the profile implicit. Builder failures
 name their Rust field identifiers (for example, `position_inquiries` and
-`capabilities.inquiry_support`) so a failed invariant points back to the value
+`capabilities.inquiries`) so a failed invariant points back to the value
 to fix. The raw inquiry reply skew may be zero, but cannot exceed the profile's
 minimum inquiry spacing; it is retained only when a raw inquiry ends without a
 matched reply.
@@ -276,6 +272,10 @@ command category (`quick_timeout`, `movement_timeout`,
 `preset_timeout`, `long_running_timeout`, and `network_timeout`), retry count,
 and retry backoff/budget.
 
+Configure read and write timeouts and receive limits separately from
+operational tuning. The standard connection configuration holds these
+`IoBounds` alongside its TCP, UDP, or serial settings.
+
 Tuning can make the owner more conservative but cannot weaken a profile's
 minimum pacing, raise its socket limit, undercut a profile command category,
 or use zero timeouts. When targets have different profile minima, the strictest
@@ -287,6 +287,11 @@ stable samples do not prove arrival at the endpoint or independently guarantee
 that physical motion has ended. Inquiries always use `inquiry_timeout`.
 
 ## Caller-owned transports and executors
+
+To create an async transport separately, use the chosen `Runtime`'s
+`connect_tcp` or `connect_udp` hook with a parsed `NetworkEndpoint` and
+`TcpConnect` or `UdpConnect` settings, plus checked `IoBounds`. The
+`connect_serial` hook takes `SerialConfig` and the I/O bounds.
 
 Use `Session::open` when the application already owns a transport or needs a
 custom executor. The async path is:
@@ -325,13 +330,13 @@ correct stream/datagram send semantics. A blocking implementation must bound
 both `send_with_timeout` and `recv_into_with_timeout` by the supplied positive
 duration; the owner cannot preempt arbitrary synchronous code. The blocking
 worker reads in slices of at most 10 ms, so a read that overruns its duration
-delays every STOP, cancellation, and `close` by the overrun. Zero advertised
-read/write timeouts are rejected at construction. A standard-kind caller-owned
+delays every STOP, cancellation, and `close` by the overrun. The `io_bounds()` method returns an
+`IoBounds` value with checked read and write timeouts and buffer limits. A standard-kind caller-owned
 transport is checked against the profile transport registry. A transport
 declaring `TransportIdentity::Custom { semantics, addressing }` uses the custom
 path, with validation of target registration, envelope, addressing, pacing,
 framing, buffer limits, and owner capacity. A runtime-neutral async
-executor must provide coherent spawn, sleep, reusable timers, and clock behavior
+executor must provide detached spawning, sleep, reusable timers, and clock behavior
 from one runtime. Async construction uses the crate's operation-first deadline
 race. Dropping a built-in connect future cancels its pending connector work. `raw::InquiryRequest::new` uses the inquiry lifecycle's fixed
 timeout and accepts no timeout argument; `from_fn`, `with_context`, and explicit
@@ -399,7 +404,7 @@ rejected requests do not supersede it. Established cached evidence and exact
 profile completion remain valid.
 
 A motion observation reads one position snapshot, waits until at least
-`MotionQuery::window` (default 100 ms, set with `with_window`) has elapsed on
+`MotionQuery::window()` (default 100 ms, set with `with_window`) has elapsed on
 the owner clock, and reads a second. `true` means a selected axis moved by more
 than its tolerance across that window. `false` means no movement was detected
 over the window: an axis creeping slowly enough to stay within tolerance, or
@@ -408,6 +413,11 @@ detects slower movement but makes the call take longer. A zero window is
 rejected with `Error::InvalidParameter` before any inquiry, and a window that
 cannot elapse within the observation deadline returns `Error::Timeout`, never
 `false`.
+
+`MotionQuery` uses `axes()`, `tolerance()` and `window()` getters. Use its
+`with_*` methods to change the tolerance or window. A zero window is also
+refused during deserialization. `MovementTolerance` uses unsigned magnitudes
+with per-axis getters and `with_*` methods.
 
 `IdleWait` uses private fields with `axes()`, `timeout()`, `tolerance()` and
 `interval()` getters and the corresponding `with_*` methods. Its sampling

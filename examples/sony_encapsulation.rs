@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example sony_encapsulation --features runtime-tokio -- 192.168.0.110
+//! cargo run --example sony_encapsulation --features runtime-tokio -- 192.0.2.10
 //! ```
 
 mod support;
@@ -62,7 +62,7 @@ fn camera_address() -> Result<String, io::Error> {
             ));
         }
         Some(value) => value,
-        None => env::var("VISCA_CAMERA_ADDR").unwrap_or_else(|_| "192.168.0.110".to_string()),
+        None => env::var("VISCA_CAMERA_ADDR").unwrap_or_else(|_| "192.0.2.10".to_string()),
     };
 
     if let Some(extra) = values.next() {

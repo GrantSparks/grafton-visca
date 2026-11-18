@@ -35,9 +35,7 @@ fn assert_end(
         )
         .is_empty());
     let turn = engine.begin_input_turn(now);
-    let refusal = engine
-        .admit_in_turn(&turn, inquiry(1), AdmissionSlot::Ordinary)
-        .unwrap_err();
+    let refusal = engine.admit_in_turn(&turn, inquiry(1)).unwrap_err();
     assert_eq!(format!("{refusal:?}"), format!("{expected:?}"));
     engine.assert_invariants().unwrap();
 }

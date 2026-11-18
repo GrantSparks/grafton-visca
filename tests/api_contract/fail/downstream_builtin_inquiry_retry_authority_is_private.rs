@@ -1,5 +1,5 @@
 use grafton_visca::{
-    request, request::ControlClass, request::Inquiry, request::Request, request::ResponseDecoder,
+    request, request::Inquiry, request::Request, request::ResponseDecoder,
     request::CommandRetryClass, profiles::CommandTimeoutClass, types::CameraId,
 };
 

@@ -91,6 +91,7 @@ pub trait HardwareProfile:
     + Permits<gate::PanTiltPositioning>
     + Permits<gate::Zoom>
     + Permits<gate::Presets>
+    + Permits<gate::PresetRecallSettlement>
 {
 }
 impl<P> HardwareProfile for P where
@@ -99,6 +100,7 @@ impl<P> HardwareProfile for P where
         + Permits<gate::PanTiltPositioning>
         + Permits<gate::Zoom>
         + Permits<gate::Presets>
+        + Permits<gate::PresetRecallSettlement>
 {
 }
 

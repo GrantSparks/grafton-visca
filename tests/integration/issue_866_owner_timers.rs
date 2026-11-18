@@ -30,7 +30,7 @@ fn local_manual_clock_actor_reuses_four_timer_factories() {
         spawned: Arc::clone(&spawned),
         timer_calls: Arc::clone(&timer_calls),
     };
-    executor.block_on(async {
+    executor.inner.run_until(async {
         let fake = FakeCamera::acking(1);
         let session = Session::open(
             fake.async_wire(),

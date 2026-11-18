@@ -3,6 +3,7 @@
 
 #![cfg(feature = "blocking")]
 
+use grafton_visca::tuning::RetryLimit;
 use grafton_visca_test_support::fake_camera;
 
 use std::{
@@ -45,7 +46,7 @@ fn keepalive_expired_camera() -> FakeCamera {
 
 fn config() -> SessionConfig {
     SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in profile"))
-        .with_tuning(OperationalTuning::new().with_retry_limit(0))
+        .with_tuning(OperationalTuning::new().with_retry_limit(RetryLimit::MIN))
 }
 
 /// An admitted inquiry's conclusive failure keeps the precise liveness cause.

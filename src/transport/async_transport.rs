@@ -64,7 +64,7 @@ pub trait AsyncTransport: Send {
     /// # Timeout and cancellation
     ///
     /// The async runtime bounds every write with the session's configured
-    /// `write_timeout` (the `TransportConfig` knob), because the runtime-agnostic
+    /// `write_timeout` (the `IoBounds` knob), because the runtime-agnostic
     /// transports carry no timer of their own. If the write outlasts that budget
     /// the runtime drops this future and treats the write as failed under the
     /// semantics above — a stream write that can no longer be confirmed poisons
@@ -155,7 +155,7 @@ pub trait AsyncTransport: Send {
     ///
     /// A transport may block until data arrives; it need not implement its own
     /// read timeout. The async runtime bounds every read with the session's
-    /// configured `read_timeout` (the `TransportConfig` knob) and, if it elapses,
+    /// configured `read_timeout` (the `IoBounds` knob) and, if it elapses,
     /// drops this future and treats the read as an idle no-data receive — exactly
     /// as if it had returned `Err(Error::io_timeout())`. A read that consumed nothing
     /// on cancellation keeps framing state intact, so implementations should be

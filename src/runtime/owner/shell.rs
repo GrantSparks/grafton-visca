@@ -580,8 +580,8 @@ impl OwnerShellCore {
 
     /// Apply `effects` up to the next staged transmit, publishing a terminal
     /// session verdict as it is applied. Returns `None` once `effects` is
-    /// exhausted. A staged transmit ends any receive pause: its reply must
-    /// be read as soon as it arrives.
+    /// exhausted. A successful write ends the receive pause and resets idle
+    /// escalation. A failed or unsent write preserves the pause.
     pub(super) fn next_transmit(
         &mut self,
         effects: &mut VecDeque<Effect>,
@@ -1198,6 +1198,7 @@ mod tests {
     use super::super::boundary::OwnerHandleCore;
     use super::super::{DiagnosticEvent, OwnerPolicy};
     use super::*;
+    use crate::observability::{DiagnosticCapacity, SessionEndStatus};
     use crate::runtime::engine::{CancellationPolicy, EnvelopeKind, ProtocolPolicy, TargetPolicy};
     use crate::target::TargetSlot;
 
@@ -1229,6 +1230,7 @@ mod tests {
             TargetSlot::CAMERA_1,
             TargetPolicy {
                 command_sockets: crate::types::CommandSocketCount::TWO,
+                physical_command_sockets: crate::types::CommandSocketCount::TWO,
                 cancellation: CancellationPolicy::Supported,
                 control_reserve: 0,
             },
@@ -1259,18 +1261,30 @@ mod tests {
     #[test]
     fn terminal_effect_publishes_its_cause_without_reading_back_the_engine() {
         use crate::runtime::engine::{EndStatus, SessionEnd};
-        for (status, cause) in [
-            (EndStatus::Shutdown, Error::RuntimeShutdown),
-            (EndStatus::Closed, Error::connection_closed(None)),
+        for (status, public_status, cause) in [
+            (
+                EndStatus::Shutdown,
+                SessionEndStatus::Shutdown,
+                Error::RuntimeShutdown,
+            ),
+            (
+                EndStatus::Closed,
+                SessionEndStatus::Closed,
+                Error::connection_closed(None),
+            ),
             (
                 EndStatus::Poisoned,
+                SessionEndStatus::Poisoned,
                 Error::stream_poisoned(Arc::new(Error::OwnerTerminated)),
             ),
         ] {
             let (handle, mut core) = owner();
             let diagnostics = core
                 .state
-                .subscribe_diagnostics(4, Arc::clone(&core.lifecycle))
+                .subscribe_diagnostics(
+                    DiagnosticCapacity::new(4).unwrap(),
+                    Arc::clone(&core.lifecycle),
+                )
                 .unwrap();
             // A deliberately undriven engine proves publication is derived
             // from the effect itself, with no retained-cause read-back.
@@ -1286,10 +1300,8 @@ mod tests {
             );
             assert!(matches!(
                 diagnostics.try_recv(),
-                Some(DiagnosticEvent::SessionChanged { from, to, reason })
-                    if from == crate::SessionStatus::Running
-                        && to == crate::SessionStatus::from_engine(status.state())
-                        && reason == cause.kind()
+                Some(DiagnosticEvent::SessionEnded { status, reason })
+                    if status == public_status && reason == cause.kind()
             ));
             assert!(diagnostics.try_recv().is_none());
         }
@@ -1325,6 +1337,7 @@ mod tests {
     fn declared_request(stop: bool) -> crate::runtime::engine::RuntimeRequest {
         use crate::runtime::engine::*;
         RuntimeRequest::Command {
+            not_executable: false,
             reply_shape: if stop {
                 CommandReply::Stop
             } else {
@@ -1560,7 +1573,10 @@ mod tests {
         let (reply, controlled) = flume::bounded(1);
         handle
             .control
-            .try_send(ControlBoundary::SubscribeDiagnostics { capacity: 1, reply })
+            .try_send(ControlBoundary::SubscribeDiagnostics {
+                capacity: DiagnosticCapacity::MIN,
+                reply,
+            })
             .unwrap();
         for _ in 0..8 {
             assert_eq!(handle.terminal_metrics().unwrap().unwrap(), published);
@@ -1602,7 +1618,7 @@ mod tests {
             .filter(|event| {
                 matches!(
                     event,
-                    DiagnosticEvent::Ignored { .. } | DiagnosticEvent::SessionChanged { .. }
+                    DiagnosticEvent::Ignored { .. } | DiagnosticEvent::SessionEnded { .. }
                 )
             })
             .collect();
@@ -1612,8 +1628,8 @@ mod tests {
             .all(|event| matches!(event, DiagnosticEvent::Ignored { .. })));
         assert!(matches!(
             relevant[3],
-            DiagnosticEvent::SessionChanged {
-                to: crate::SessionStatus::Poisoned,
+            DiagnosticEvent::SessionEnded {
+                status: SessionEndStatus::Poisoned,
                 ..
             }
         ));
@@ -1643,7 +1659,10 @@ mod tests {
                     let (reply, receiver) = flume::bounded(1);
                     handle
                         .control
-                        .send(ControlBoundary::SubscribeDiagnostics { capacity: 1, reply })
+                        .send(ControlBoundary::SubscribeDiagnostics {
+                            capacity: DiagnosticCapacity::MIN,
+                            reply,
+                        })
                         .unwrap();
                     subscriptions.push(receiver);
                     acting += 1;

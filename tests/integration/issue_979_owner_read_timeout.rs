@@ -14,7 +14,7 @@ use grafton_visca::{
     config::SessionConfig,
     operation::{AppliedOnly, CancellationOutcome},
     profiles::ProfileSpec,
-    transport::TransportConfig,
+    transport::IoBounds,
     types::IndividualCameraId,
 };
 use grafton_visca_test_support::{
@@ -27,8 +27,10 @@ use grafton_visca_test_support::{
 struct ShortReads(FakeCamera);
 
 impl ShortReads {
-    fn config() -> TransportConfig {
-        TransportConfig::default().with_read_timeout(Duration::from_millis(1))
+    fn config() -> IoBounds {
+        IoBounds::default()
+            .with_read_timeout(Duration::from_millis(1))
+            .expect("read bound")
     }
 
     #[cfg(all(feature = "blocking", feature = "test-utils"))]

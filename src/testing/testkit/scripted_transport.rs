@@ -23,9 +23,7 @@ use std::{
 use crate::transport::BlockingTransport;
 use crate::transport::{AddressedBus, AddressingMode, SendSemantics, TransportIdentity};
 #[cfg(any(feature = "async", feature = "blocking"))]
-use crate::transport::{
-    HasTransportConfig, ReceiveOutcome, ScriptedReceive, ValidatedTransportConfig,
-};
+use crate::transport::{HasTransportConfig, IoBounds, ReceiveOutcome, ScriptedReceive};
 use crate::Error;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::Result;
@@ -351,7 +349,7 @@ pub struct ScriptedTransport<E = Immediate> {
     script: Script,
     executor: E,
     shutdown_rx: Option<flume::Receiver<()>>,
-    config: ValidatedTransportConfig,
+    config: IoBounds,
 }
 
 #[cfg(feature = "async")]
@@ -374,7 +372,7 @@ impl ScriptedTransport<Immediate> {
             script: Script::new("ScriptedTransport", identity, steps.into()),
             executor: Immediate,
             shutdown_rx: None,
-            config: ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
         }
     }
 
@@ -413,12 +411,10 @@ impl<E> ScriptedTransport<E> {
         self
     }
 
-    /// Set a custom transport configuration.
+    /// Select checked I/O timeouts and buffer limits.
     ///
-    /// This allows tests to configure transport parameters such as socket,
-    /// timeout, and buffer settings. Session admission capacity is configured
-    /// on [`crate::config::SessionConfig`], not on the transport.
-    pub fn with_config(mut self, config: ValidatedTransportConfig) -> Self {
+    /// Configure admission capacity on [`crate::config::SessionConfig`].
+    pub fn with_config(mut self, config: IoBounds) -> Self {
         self.config = config;
         self
     }
@@ -454,7 +450,7 @@ impl<E: Executor> ScriptedTransport<E> {
                 let replies_tx = self.script.replies_tx.clone();
                 let sleeper = self.executor.clone();
                 let deadline = sleeper.now().checked_add(delay);
-                self.executor.spawn_bg(async move {
+                self.executor.spawn_detached(async move {
                     match deadline {
                         Some(deadline) => sleeper.timer(deadline).await,
                         None => std::future::pending::<()>().await,
@@ -548,7 +544,7 @@ impl<E> HasTransportConfig for ScriptedTransport<E> {
         self.script.identity.as_identity()
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -563,7 +559,7 @@ impl<E> HasTransportConfig for ScriptedTransport<E> {
 #[derive(Clone, Debug)]
 pub struct ScriptedBlockingTransport {
     script: Script,
-    config: ValidatedTransportConfig,
+    config: IoBounds,
     clock: Option<ManualClock>,
     scheduled: Arc<Mutex<Vec<ScheduledBatch>>>,
 }
@@ -581,7 +577,7 @@ impl ScriptedBlockingTransport {
     pub fn new(identity: ScriptedTransportIdentity, steps: impl Into<Vec<Step>>) -> Self {
         Self {
             script: Script::new("ScriptedBlockingTransport", identity, steps.into()),
-            config: ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             clock: None,
             scheduled: Arc::new(Mutex::new(Vec::new())),
         }
@@ -641,8 +637,8 @@ impl ScriptedBlockingTransport {
         }
     }
 
-    /// Set a custom transport configuration.
-    pub fn with_config(mut self, config: ValidatedTransportConfig) -> Self {
+    /// Select checked I/O timeouts and buffer limits.
+    pub fn with_config(mut self, config: IoBounds) -> Self {
         self.config = config;
         self
     }
@@ -745,7 +741,7 @@ impl HasTransportConfig for ScriptedBlockingTransport {
         self.script.identity.as_identity()
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -932,19 +928,17 @@ mod tests {
     use crate::transport::ReceiveOutcome;
 
     #[cfg(feature = "async")]
-    fn assert_executor_delivers_at_its_deadline(executor: impl Executor) {
+    async fn assert_executor_delivers_at_its_deadline(executor: impl Executor) {
         let start = executor.now();
         let mut transport = ScriptedTransport::new(
             ScriptedTransportIdentity::Tcp,
             vec![Step::after(Duration::from_secs(30), vec![helpers::ack(1)])],
         )
         .with_executor(executor.clone());
-        executor.block_on(async {
-            transport.send(&[0x81]).await.expect("send");
-            let mut buffer = [0; 16];
-            let outcome = transport.recv_into(&mut buffer).await.expect("reply");
-            assert_eq!(&buffer[..outcome.copied_len()], helpers::ack(1));
-        });
+        transport.send(&[0x81]).await.expect("send");
+        let mut buffer = [0; 16];
+        let outcome = transport.recv_into(&mut buffer).await.expect("reply");
+        assert_eq!(&buffer[..outcome.copied_len()], helpers::ack(1));
         assert_eq!(executor.now() - start, Duration::from_secs(30));
     }
 
@@ -953,20 +947,19 @@ mod tests {
     fn tokio_scripted_transport_uses_manual_clock_deadlines() {
         let runtime = tokio::runtime::Runtime::new().expect("Tokio");
         let clock = ManualClock::new();
-        assert_executor_delivers_at_its_deadline(ManualClockExecutor::new(
+        let executor = ManualClockExecutor::new(
             crate::TokioExecutor::from_handle(runtime.handle().clone()),
             &clock,
-        ));
+        );
+        executor.run_until(assert_executor_delivers_at_its_deadline(executor.clone()));
     }
 
     #[cfg(feature = "runtime-smol")]
     #[test]
     fn smol_scripted_transport_uses_manual_clock_deadlines() {
         let clock = ManualClock::new();
-        assert_executor_delivers_at_its_deadline(ManualClockExecutor::new(
-            crate::SmolExecutor::new(),
-            &clock,
-        ));
+        let executor = ManualClockExecutor::new(crate::SmolExecutor::new(), &clock);
+        executor.run_until(assert_executor_delivers_at_its_deadline(executor.clone()));
     }
 
     #[cfg(feature = "blocking")]
@@ -1212,7 +1205,8 @@ mod tests {
     #[test]
     fn delayed_response_uses_the_one_manual_clock() {
         let clock = ManualClock::new();
-        assert_executor_delivers_at_its_deadline(ManualClockExecutor::local(&clock));
+        let executor = ManualClockExecutor::local(&clock);
+        executor.run_until(assert_executor_delivers_at_its_deadline(executor.clone()));
     }
 
     /// A scripted receive error is surfaced unchanged, not as a timeout.

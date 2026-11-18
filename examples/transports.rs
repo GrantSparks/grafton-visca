@@ -50,7 +50,12 @@ fn parse_args() -> Result<(String, Selection), Box<dyn std::error::Error>> {
     Ok((
         address
             .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
-            .unwrap_or_else(|| "192.168.0.110".to_owned()),
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "pass a camera address or set VISCA_CAMERA_ADDR",
+                )
+            })?,
         selection,
     ))
 }

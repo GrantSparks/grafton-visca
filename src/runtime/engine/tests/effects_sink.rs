@@ -65,7 +65,6 @@ fn complete_input_appends_input_and_dispatch_effects_after_existing_work() {
     let input = || Input::Admit {
         ticket: AdmissionTicket(1),
         request: command(1),
-        slot: AdmissionSlot::Ordinary,
     };
     let expected = collecting.handle(input(), now);
     let mut sink = vec![Effect::Ignored(IgnoreReason::MalformedFrame)];

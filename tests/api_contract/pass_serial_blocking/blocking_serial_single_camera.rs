@@ -6,7 +6,7 @@
 
 use grafton_visca::{
     blocking::CameraSession, config::CameraConfig, profiles::PtzOpticsG2,
-    transport::TransportConfig, Error,
+    Error,
 };
 
 fn one_liner_serial_camera() -> Result<(), Error> {
@@ -22,8 +22,7 @@ fn one_liner_serial_camera() -> Result<(), Error> {
 }
 
 fn configured_serial_camera() -> Result<(), Error> {
-    let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600)
-        .with_transport_config(TransportConfig::for_serial());
+    let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600);
     let session: CameraSession<PtzOpticsG2> = CameraSession::connect(&config)?;
 
     let camera = session.camera();

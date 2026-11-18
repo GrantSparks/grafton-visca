@@ -126,7 +126,7 @@ pub(crate) use kind::NetworkTransport;
 pub use kind::StandardTransport;
 #[path = "serial/config.rs"]
 pub(crate) mod serial_config;
-pub use serial_config::{SerialConfig, SerialStartup, ValidatedSerialConfig};
+pub use serial_config::{SerialConfig, SerialStartup};
 
 #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
 pub(crate) mod serial;
@@ -154,7 +154,7 @@ pub use blocking_transport::{
     AddressedBus, BlockingTransport, HasTransportConfig, TransportIdentity,
 };
 pub use buffer::BufferConfig;
-pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig, ValidatedTransportConfig};
+pub use builder::{AddressingMode, IoBounds, TcpConnect, TcpKeepaliveConfig, UdpConnect};
 pub use datagram::ReceiveOutcome;
 #[doc(hidden)]
 pub use datagram::ScriptedReceive;

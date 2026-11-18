@@ -7,16 +7,12 @@
 use crate::{
     camera_id::IndividualCameraId,
     capabilities::{SupportsSerial, SupportsTcp, SupportsUdp},
-    error::Error,
     profiles::{
         AnyProfile, CameraProfile, CompileTimeProfile, ProfileSelection, TypedProfileSelection,
     },
-    transport::{SerialStartup, TransportConfig},
+    transport::{IoBounds, SerialConfig, TcpConnect, UdpConnect},
     MountPosition,
 };
-
-#[cfg(any(feature = "async", feature = "blocking"))]
-use crate::transport::SerialConfig;
 
 /// Standard transport kind used for profile support validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -61,25 +57,33 @@ impl std::fmt::Display for TransportKind {
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum TransportOptions {
-    /// TCP connection with address.
+    /// TCP endpoint and its connection and I/O settings.
     #[non_exhaustive]
     Tcp {
-        /// Host:port string (e.g., "192.168.0.110:5678")
+        /// Host with an optional port, such as "192.168.0.110:5678".
         address: String,
+        /// Settings applied while establishing the connection.
+        connect: TcpConnect,
+        /// Bounds used by the owner after connection.
+        io_bounds: IoBounds,
     },
-    /// UDP connection with address.
+    /// UDP endpoint and its connection and I/O settings.
     #[non_exhaustive]
     Udp {
-        /// Host:port string (e.g., "192.168.0.110:1259")
+        /// Host with an optional port, such as "192.168.0.110:1259".
         address: String,
+        /// Settings applied while establishing the connection.
+        connect: UdpConnect,
+        /// Bounds used by the owner after connection.
+        io_bounds: IoBounds,
     },
-    /// Serial connection.
+    /// Serial device and its I/O settings.
     #[non_exhaustive]
     Serial {
-        /// Serial port path (e.g., "/dev/ttyUSB0")
-        port: String,
-        /// Baud rate (default: 9600)
-        baud_rate: u32,
+        /// Device, baud rate and startup settings.
+        config: SerialConfig,
+        /// Bounds used for startup and subsequent I/O.
+        io_bounds: IoBounds,
     },
     /// Custom transport provided by user.
     #[cfg_attr(
@@ -115,27 +119,8 @@ impl TransportOptions {
         }
     }
 
-    /// Validate this transport selection against built-in profile registry facts.
-    pub fn validate_for_profile(
-        &self,
-        profile: crate::camera::profiles::ProfileId,
-    ) -> Result<(), Error> {
-        let supported = self.identity().is_none_or(|identity| {
-            identity
-                .standard_kind()
-                .is_none_or(|kind| profile.transport_compatibility().supports(kind))
-        });
-        if supported {
-            Ok(())
-        } else {
-            Err(Error::UnsupportedTransport {
-                profile,
-                transport: self.kind(),
-            })
-        }
-    }
-
     /// The selected standard descriptor, or a caller-owned transport selection.
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) const fn identity(&self) -> Option<crate::transport::TransportIdentity<'static>> {
         match self {
             Self::Tcp { .. } => Some(crate::transport::TransportIdentity::Tcp),
@@ -145,26 +130,53 @@ impl TransportOptions {
         }
     }
 
-    /// Create TCP transport options.
+    /// Creates TCP transport options with the default connection and I/O settings.
     pub fn tcp(address: impl Into<String>) -> Self {
+        Self::tcp_configured(address, TcpConnect::default(), IoBounds::TCP_DEFAULT)
+    }
+
+    /// Creates TCP transport options with explicit connection and I/O settings.
+    pub fn tcp_configured(
+        address: impl Into<String>,
+        connect: TcpConnect,
+        io_bounds: IoBounds,
+    ) -> Self {
         Self::Tcp {
             address: address.into(),
+            connect,
+            io_bounds,
         }
     }
 
-    /// Create UDP transport options.
+    /// Creates UDP transport options with the default connection and I/O settings.
     pub fn udp(address: impl Into<String>) -> Self {
+        Self::udp_configured(address, UdpConnect::default(), IoBounds::UDP_DEFAULT)
+    }
+
+    /// Creates UDP transport options with explicit connection and I/O settings.
+    pub fn udp_configured(
+        address: impl Into<String>,
+        connect: UdpConnect,
+        io_bounds: IoBounds,
+    ) -> Self {
         Self::Udp {
             address: address.into(),
+            connect,
+            io_bounds,
         }
     }
 
-    /// Create serial transport options.
+    /// Creates serial transport options with default I/O settings and no startup writes.
     pub fn serial(port: impl Into<String>, baud_rate: u32) -> Self {
-        Self::Serial {
-            port: port.into(),
-            baud_rate,
-        }
+        Self::serial_configured(
+            SerialConfig::new(port).with_baud_rate(baud_rate),
+            IoBounds::SERIAL_DEFAULT,
+        )
+    }
+
+    /// Creates serial transport options with explicit device and I/O settings.
+    pub fn serial_configured(config: SerialConfig, io_bounds: IoBounds) -> Self {
+        Self::Serial { config, io_bounds }
     }
 }
 
@@ -196,8 +208,6 @@ pub struct CameraConfig<P: CameraProfile = AnyProfile> {
     profile: P::Selection,
     transport: TransportOptions,
     policy: crate::session_config::SessionPolicy,
-    transport_config: Option<TransportConfig>,
-    serial_startup: SerialStartup,
     camera_id: Option<IndividualCameraId>,
     mount: Option<MountPosition>,
 }
@@ -208,8 +218,6 @@ impl<P: CameraProfile> Clone for CameraConfig<P> {
             profile: self.profile.clone(),
             transport: self.transport.clone(),
             policy: self.policy,
-            transport_config: self.transport_config,
-            serial_startup: self.serial_startup,
             camera_id: self.camera_id,
             mount: self.mount,
         }
@@ -221,8 +229,6 @@ impl<P: CameraProfile> std::fmt::Debug for CameraConfig<P> {
             .field("profile", &self.profile)
             .field("transport", &self.transport)
             .field("policy", &self.policy)
-            .field("transport_config", &self.transport_config)
-            .field("serial_startup", &self.serial_startup)
             .field("camera_id", &self.camera_id)
             .field("mount", &self.mount)
             .finish()
@@ -245,16 +251,51 @@ impl<P: CompileTimeProfile> CameraConfig<P> {
     where
         P: SupportsTcp,
     {
+        Self::tcp_configured(address, TcpConnect::default(), IoBounds::TCP_DEFAULT)
+    }
+    /// Selects UDP using the profile's default port for a host-only address.
+    pub fn udp(address: impl Into<String>) -> Self
+    where
+        P: SupportsUdp,
+    {
+        Self::udp_configured(address, UdpConnect::default(), IoBounds::UDP_DEFAULT)
+    }
+    /// Selects an individual camera on a serial VISCA bus.
+    pub fn serial(port: impl Into<String>, baud_rate: u32) -> Self
+    where
+        P: SupportsSerial,
+    {
+        Self::serial_configured(
+            SerialConfig::new(port).with_baud_rate(baud_rate),
+            IoBounds::SERIAL_DEFAULT,
+        )
+    }
+    /// Selects TCP with explicit connection and I/O settings.
+    pub fn tcp_configured(
+        address: impl Into<String>,
+        connect: TcpConnect,
+        io_bounds: IoBounds,
+    ) -> Self
+    where
+        P: SupportsTcp,
+    {
         const {
             assert!(
                 P::TRANSPORTS.contains(crate::transport::StandardTransport::Tcp),
                 "profile marker `SupportsTcp` requires its transport in TRANSPORTS",
             );
         }
-        Self::typed(TransportOptions::tcp(address))
+        Self::typed(TransportOptions::tcp_configured(
+            address, connect, io_bounds,
+        ))
     }
-    /// Selects UDP using the profile's default port for a host-only address.
-    pub fn udp(address: impl Into<String>) -> Self
+
+    /// Selects UDP with explicit connection and I/O settings.
+    pub fn udp_configured(
+        address: impl Into<String>,
+        connect: UdpConnect,
+        io_bounds: IoBounds,
+    ) -> Self
     where
         P: SupportsUdp,
     {
@@ -264,10 +305,13 @@ impl<P: CompileTimeProfile> CameraConfig<P> {
                 "profile marker `SupportsUdp` requires its transport in TRANSPORTS",
             );
         }
-        Self::typed(TransportOptions::udp(address))
+        Self::typed(TransportOptions::udp_configured(
+            address, connect, io_bounds,
+        ))
     }
-    /// Selects an individual camera on a serial VISCA bus.
-    pub fn serial(port: impl Into<String>, baud_rate: u32) -> Self
+
+    /// Selects an individual camera on a serial bus with explicit settings.
+    pub fn serial_configured(config: SerialConfig, io_bounds: IoBounds) -> Self
     where
         P: SupportsSerial,
     {
@@ -277,7 +321,7 @@ impl<P: CompileTimeProfile> CameraConfig<P> {
                 "profile marker `SupportsSerial` requires its transport in TRANSPORTS",
             );
         }
-        Self::typed(TransportOptions::serial(port, baud_rate))
+        Self::typed(TransportOptions::serial_configured(config, io_bounds))
     }
 }
 impl<P: CameraProfile> CameraConfig<P> {
@@ -286,8 +330,6 @@ impl<P: CameraProfile> CameraConfig<P> {
             profile,
             transport,
             policy: crate::session_config::SessionPolicy::DEFAULT,
-            transport_config: None,
-            serial_startup: SerialStartup::default(),
             camera_id: None,
             mount: None,
         }
@@ -309,21 +351,11 @@ impl<P: CameraProfile> CameraConfig<P> {
     /// Returns the network endpoint for TCP or UDP, before default-port resolution.
     pub fn address(&self) -> Option<&str> {
         match &self.transport {
-            TransportOptions::Tcp { address } | TransportOptions::Udp { address } => Some(address),
+            TransportOptions::Tcp { address, .. } | TransportOptions::Udp { address, .. } => {
+                Some(address)
+            }
             _ => None,
         }
-    }
-    /// Replaces a TCP or UDP endpoint, preserving the selected transport kind.
-    /// IPv6 literals must be bracketed; a host-only endpoint uses the profile port.
-    #[must_use]
-    pub fn with_address(mut self, address: impl Into<String>) -> Self {
-        let address = address.into();
-        self.transport = match self.transport {
-            TransportOptions::Tcp { .. } => TransportOptions::tcp(address),
-            TransportOptions::Udp { .. } => TransportOptions::udp(address),
-            other => other,
-        };
-        self
     }
     /// Returns the explicit VISCA address override, or `None` for the profile default.
     pub const fn camera_id(&self) -> Option<IndividualCameraId> {
@@ -351,26 +383,6 @@ impl<P: CameraProfile> CameraConfig<P> {
         self.mount = Some(mount);
         self
     }
-    /// Returns an explicit transport configuration, or `None` for transport defaults.
-    pub const fn transport_config(&self) -> Option<TransportConfig> {
-        self.transport_config
-    }
-    /// Replaces the selected transport's defaults with these explicit settings.
-    #[must_use]
-    pub const fn with_transport_config(mut self, config: TransportConfig) -> Self {
-        self.transport_config = Some(config);
-        self
-    }
-    /// Returns the serial startup writes selected by this configuration.
-    pub const fn serial_startup(&self) -> SerialStartup {
-        self.serial_startup
-    }
-    /// Selects optional Address Set and I/F Clear writes; the default writes nothing.
-    #[must_use]
-    pub const fn with_serial_startup(mut self, startup: SerialStartup) -> Self {
-        self.serial_startup = startup;
-        self
-    }
     crate::session_config::session_policy_accessors!();
 
     /// Resolves a typed profile into an explicit runtime selection.
@@ -389,8 +401,6 @@ impl<P: CameraProfile> CameraConfig<P> {
             profile,
             transport: self.transport,
             policy: self.policy,
-            transport_config: self.transport_config,
-            serial_startup: self.serial_startup,
             camera_id: self.camera_id,
             mount: self.mount,
         }
@@ -414,9 +424,7 @@ impl<P: CameraProfile> CameraConfig<P> {
         let registration = std::sync::Arc::new(registration);
         let config = crate::session_config::SessionConfig::from_registration(registration.clone())
             .with_policy(self.policy)
-            .with_transport(self.transport.clone())
-            .with_serial_startup(self.serial_startup)
-            .with_optional_transport_config(self.transport_config);
+            .with_transport(self.transport.clone());
         Ok((config, registration))
     }
     /// Returns the session registry after profile, policy and transport validation.
@@ -467,31 +475,12 @@ pub(crate) fn selection_for_spec(spec: crate::profiles::ProfileSpec) -> ProfileS
 }
 
 #[cfg(any(feature = "async", feature = "blocking"))]
-pub(crate) fn serial_device_config(
-    port: &str,
-    baud_rate: u32,
-    transport: Option<TransportConfig>,
-    startup: SerialStartup,
-) -> crate::Result<crate::transport::ValidatedSerialConfig> {
-    let transport = transport.unwrap_or_else(TransportConfig::for_serial);
-    let config = SerialConfig::new(port.to_owned())
-        .with_baud_rate(baud_rate)
-        .with_startup(startup)
-        .with_read_timeout(transport.read_timeout())
-        .with_write_timeout(transport.write_timeout())
-        .with_buffer_config(transport.buffer_config());
-    // Serial consumes only timeouts and buffers. TCP-only options do not
-    // participate in serial validation, matching the opened device facts.
-    config.validated()
-}
-
-#[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) fn validate_selected_transport(
     config: &crate::session_config::ValidatedSessionConfig,
     selected: &TransportOptions,
 ) -> crate::Result<()> {
     match selected.identity() {
-        Some(identity) => config.validate_for_transport(identity),
+        Some(identity) => config.validate_for_transport(identity).map(|_| ()),
         None => Ok(()),
     }
 }
@@ -509,7 +498,10 @@ pub(crate) struct ConnectionPlan {
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) enum ConnectionTransport {
     Network(NetworkConnection),
-    Serial(crate::transport::ValidatedSerialConfig),
+    Serial {
+        config: SerialConfig,
+        io_bounds: IoBounds,
+    },
 }
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -519,7 +511,7 @@ impl ConnectionTransport {
     pub(crate) fn endpoint(&self) -> String {
         match self {
             Self::Network(network) => network.endpoint.to_string(),
-            Self::Serial(serial) => serial.as_config().port().to_owned(),
+            Self::Serial { config, .. } => config.port().to_owned(),
         }
     }
 
@@ -527,7 +519,7 @@ impl ConnectionTransport {
     #[allow(clippy::panic)]
     pub(crate) fn into_serial(self) -> SerialConfig {
         match self {
-            Self::Serial(serial) => serial.into_parts().0,
+            Self::Serial { config, .. } => config,
             Self::Network(_) => panic!("test requires a serial plan"),
         }
     }
@@ -537,7 +529,7 @@ impl ConnectionTransport {
     pub(crate) fn into_network(self) -> NetworkConnection {
         match self {
             Self::Network(network) => network,
-            Self::Serial(_) => panic!("test requires a network plan"),
+            Self::Serial { .. } => panic!("test requires a network plan"),
         }
     }
 }
@@ -545,9 +537,26 @@ impl ConnectionTransport {
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) struct NetworkConnection {
-    pub(crate) kind: crate::transport::NetworkTransport,
+    pub(crate) connector: NetworkConnector,
     pub(crate) endpoint: crate::transport::NetworkEndpoint,
-    pub(crate) transport_config: crate::transport::ValidatedTransportConfig,
+    pub(crate) io_bounds: IoBounds,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) enum NetworkConnector {
+    Tcp(TcpConnect),
+    Udp(UdpConnect),
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl NetworkConnector {
+    pub(crate) const fn kind(self) -> crate::transport::NetworkTransport {
+        match self {
+            Self::Tcp(_) => crate::transport::NetworkTransport::Tcp,
+            Self::Udp(_) => crate::transport::NetworkTransport::Udp,
+        }
+    }
 }
 
 /// A single-camera plan retains the registration already proved by its config.
@@ -585,7 +594,7 @@ mod tests {
             assert!(std::sync::Arc::ptr_eq(&plan.registration, &stored));
             if matches!(
                 plan.connection.transport,
-                super::ConnectionTransport::Serial(_)
+                super::ConnectionTransport::Serial { .. }
             ) {
                 assert_eq!(
                     plan.connection.transport.into_serial().port(),
@@ -643,21 +652,25 @@ mod tests {
     fn blocking_camera_open_preserves_configured_transport_validation() {
         use crate::{
             blocking::{CameraSession, Session},
-            camera::{CameraConfig, TransportKind},
+            camera::CameraConfig,
             profiles::{ProfileId, SonyFr7},
-            transport::blocking::Udp,
+            transport::{blocking::Udp, StandardTransport},
             Error, SessionConfig,
         };
         let camera = CameraConfig::new(ProfileId::SonyFr7, TransportOptions::tcp("unused.invalid"))
             .with_camera_id(crate::types::IndividualCameraId::CAMERA_3);
         let udp = || {
-            Udp::connect_with_config("127.0.0.1:9", crate::transport::TransportConfig::for_udp())
-                .expect("local UDP transport")
+            Udp::connect_with_config(
+                "127.0.0.1:9",
+                crate::transport::UdpConnect::default(),
+                crate::transport::IoBounds::default(),
+            )
+            .expect("local UDP transport")
         };
         assert!(matches!(
             CameraSession::open(udp(), &camera),
             Err(Error::UnsupportedTransport {
-                transport: TransportKind::Tcp,
+                transport: StandardTransport::Tcp,
                 ..
             })
         ));
@@ -672,6 +685,54 @@ mod tests {
             .expect("custom selection uses opened UDP facts");
         assert_eq!(single.target(), crate::types::IndividualCameraId::CAMERA_3);
         single.close().expect("close");
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn unsupported_transport_names_built_in_and_custom_profiles() {
+        use crate::{
+            capabilities::Capabilities,
+            config::CameraConfig,
+            error::{ErrorKind, Recovery},
+            profiles::{ProfileEnvelope, ProfileId, ProfileSpec, TransportCompatibility},
+            transport::StandardTransport,
+            types::CommandSocketCount,
+            Error,
+        };
+        let built_in = ProfileId::SonyEviH100.spec().expect("built-in profile");
+        let custom = ProfileSpec::builder(
+            Capabilities::runtime_baseline("Custom serial camera", 1).expect("custom capabilities"),
+        )
+        .transports(TransportCompatibility::new().with_serial())
+        .envelope(ProfileEnvelope::RawVisca)
+        .timing(built_in.timing())
+        .maximum_command_sockets(CommandSocketCount::ONE)
+        .supports_operation_complete(false)
+        .supports_command_cancel(false)
+        .position_inquiries(None)
+        .build()
+        .expect("custom serial-only profile");
+        for (profile, expected_identity) in
+            [(built_in, Some(ProfileId::SonyEviH100)), (custom, None)]
+        {
+            let name = profile.name().to_owned();
+            let config = CameraConfig::new(profile, TransportOptions::tcp("unresolved.invalid"));
+            let error = config.validate().expect_err("serial-only profile");
+            assert_eq!(error.kind(), ErrorKind::Unsupported);
+            assert_eq!(error.recovery(), Recovery::Abandon);
+            assert_eq!(
+                error.to_string(),
+                format!("Profile {name} does not support TCP transport")
+            );
+            assert!(matches!(
+                error,
+                Error::UnsupportedTransport {
+                    model,
+                    profile,
+                    transport: StandardTransport::Tcp,
+                } if model == name && profile == expected_identity
+            ));
+        }
     }
 
     /// #822: a downstream profile's host-only TCP/UDP address resolves to
@@ -795,7 +856,10 @@ mod tests {
             let preflight = config.validate().expect_err("unsupported custom transport");
             let session = config.session_config().expect_err("same session preflight");
             assert_eq!(preflight.to_string(), session.to_string());
-            assert!(matches!(preflight, crate::Error::InvalidRequest { .. }));
+            assert!(matches!(
+                preflight,
+                crate::Error::UnsupportedTransport { profile: None, .. }
+            ));
         }
         #[cfg(feature = "blocking")]
         {
@@ -882,76 +946,52 @@ mod tests {
         use crate::{
             camera::{CameraConfig, TransportOptions},
             profiles::{PtzOpticsG2, SonyFr7},
-            transport::{BufferConfig, NetworkTransport, TcpKeepaliveConfig, TransportConfig},
+            transport::{BufferConfig, IoBounds, TcpConnect, TcpKeepaliveConfig, UdpConnect},
         };
 
-        let transport_config = TransportConfig {
-            connect_timeout: Duration::from_millis(17),
-            read_timeout: Duration::from_millis(19),
-            write_timeout: Duration::from_millis(23),
-            buffer_config: BufferConfig {
-                recv_buffer_size: 31,
-                max_buffer_size: 37,
-            },
-            tcp_nodelay: Some(false),
-            tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(4))),
-            ttl: Some(41),
-        };
+        let io_bounds = IoBounds::new(
+            Duration::from_millis(19),
+            Duration::from_millis(23),
+            BufferConfig::default()
+                .with_recv_buffer_size(31)
+                .with_max_buffer_size(37),
+        )
+        .expect("valid I/O bounds");
+        let tcp_options = TcpConnect::default()
+            .with_connect_timeout(Duration::from_millis(17))
+            .expect("valid connect timeout")
+            .with_nodelay(Some(false))
+            .with_keepalive(Some(TcpKeepaliveConfig::new(Duration::from_secs(4))))
+            .expect("valid keepalive")
+            .with_ttl(Some(41))
+            .expect("valid TTL");
+        let udp_options = UdpConnect::default()
+            .with_connect_timeout(Duration::from_millis(17))
+            .expect("valid connect timeout")
+            .with_ttl(Some(41))
+            .expect("valid TTL");
 
-        let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local")
-            .with_transport_config(transport_config)
-            .connection_plan()
-            .map(|plan| plan.connection.transport.into_network())
-            .expect("TCP plan");
-        assert_eq!(tcp.kind, NetworkTransport::Tcp);
+        let tcp =
+            CameraConfig::<PtzOpticsG2>::tcp_configured("camera.local", tcp_options, io_bounds)
+                .connection_plan()
+                .map(|plan| plan.connection.transport.into_network())
+                .expect("TCP plan");
         assert_eq!(tcp.endpoint.to_string(), "camera.local:5678");
-        assert_eq!(
-            tcp.transport_config.as_config().connect_timeout,
-            Duration::from_millis(17)
+        assert_eq!(tcp.io_bounds, io_bounds);
+        assert!(
+            matches!(tcp.connector, super::NetworkConnector::Tcp(found) if found == tcp_options)
         );
-        assert_eq!(
-            tcp.transport_config.as_config().read_timeout,
-            Duration::from_millis(19)
-        );
-        assert_eq!(
-            tcp.transport_config.as_config().write_timeout,
-            Duration::from_millis(23)
-        );
-        assert_eq!(
-            tcp.transport_config.as_config().buffer_config,
-            transport_config.buffer_config
-        );
-        assert_eq!(tcp.transport_config.as_config().tcp_nodelay, Some(false));
-        assert_eq!(
-            tcp.transport_config.as_config().tcp_keepalive,
-            transport_config.tcp_keepalive
-        );
-        assert_eq!(tcp.transport_config.as_config().ttl, Some(41));
 
-        let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
-            .with_transport_config(transport_config)
-            .connection_plan()
-            .map(|plan| plan.connection.transport.into_network())
-            .expect("UDP plan");
-        assert_eq!(udp.kind, NetworkTransport::Udp);
+        let udp =
+            CameraConfig::<PtzOpticsG2>::udp_configured("camera.local", udp_options, io_bounds)
+                .connection_plan()
+                .map(|plan| plan.connection.transport.into_network())
+                .expect("UDP plan");
         assert_eq!(udp.endpoint.to_string(), "camera.local:1259");
-        assert_eq!(
-            udp.transport_config.as_config().connect_timeout,
-            Duration::from_millis(17)
+        assert_eq!(udp.io_bounds, io_bounds);
+        assert!(
+            matches!(udp.connector, super::NetworkConnector::Udp(found) if found == udp_options)
         );
-        assert_eq!(
-            udp.transport_config.as_config().read_timeout,
-            Duration::from_millis(19)
-        );
-        assert_eq!(
-            udp.transport_config.as_config().write_timeout,
-            Duration::from_millis(23)
-        );
-        assert_eq!(
-            udp.transport_config.as_config().buffer_config,
-            transport_config.buffer_config
-        );
-        assert_eq!(udp.transport_config.as_config().ttl, Some(41));
 
         let sony = CameraConfig::<SonyFr7>::udp("camera.local")
             .connection_plan()
@@ -1063,32 +1103,26 @@ mod tests {
         use crate::{
             camera::CameraConfig,
             profiles::PtzOpticsG2,
-            transport::{BufferConfig, TransportConfig},
+            transport::{BufferConfig, IoBounds, SerialConfig},
         };
 
-        let transport_config = TransportConfig {
-            read_timeout: Duration::from_millis(37),
-            write_timeout: Duration::from_millis(41),
-            buffer_config: BufferConfig {
-                recv_buffer_size: 43,
-                max_buffer_size: 53,
-            },
-
-            ..TransportConfig::default()
-        };
-        let config = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 38_400)
-            .with_transport_config(transport_config);
-        let serial = config
+        let bounds = IoBounds::new(
+            Duration::from_millis(37),
+            Duration::from_millis(41),
+            BufferConfig::default()
+                .with_recv_buffer_size(43)
+                .with_max_buffer_size(53),
+        )
+        .expect("valid serial bounds");
+        let device = SerialConfig::new("/dev/fake-visca").with_baud_rate(38_400);
+        let plan = CameraConfig::<PtzOpticsG2>::serial_configured(device.clone(), bounds)
             .connection_plan()
-            .map(|plan| plan.connection.transport.into_serial())
             .expect("valid serial config");
-        assert_eq!(serial.port, "/dev/fake-visca");
-        assert_eq!(serial.baud_rate, 38_400);
-        assert_eq!(serial.read_timeout, Duration::from_millis(37));
-        assert_eq!(serial.write_timeout, Duration::from_millis(41));
-        assert_eq!(serial.buffer_config, transport_config.buffer_config);
-
-        assert_eq!(serial.transport_config().tcp_keepalive, None);
+        assert!(matches!(
+            plan.connection.transport,
+            super::ConnectionTransport::Serial { config, io_bounds }
+                if config == device && io_bounds == bounds
+        ));
     }
 
     /// #828: every `CameraConfig` serial open used to broadcast I/F Clear
@@ -1100,7 +1134,11 @@ mod tests {
     ))]
     #[test]
     fn serial_open_writes_only_the_selected_startup() {
-        use crate::{camera::CameraConfig, profiles::PtzOpticsG2, transport::SerialStartup};
+        use crate::{
+            camera::CameraConfig,
+            profiles::PtzOpticsG2,
+            transport::{IoBounds, SerialConfig, SerialStartup},
+        };
 
         let plain = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 9_600)
             .connection_plan()
@@ -1112,11 +1150,13 @@ mod tests {
         let selected = SerialStartup::default()
             .with_address_set(true)
             .with_interface_clear(true);
-        let configured = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 9_600)
-            .with_serial_startup(selected)
-            .connection_plan()
-            .map(|plan| plan.connection.transport.into_serial())
-            .expect("valid serial config");
+        let configured = CameraConfig::<PtzOpticsG2>::serial_configured(
+            SerialConfig::new("/dev/fake-visca").with_startup(selected),
+            IoBounds::default(),
+        )
+        .connection_plan()
+        .map(|plan| plan.connection.transport.into_serial())
+        .expect("valid serial config");
         assert_eq!(configured.startup, selected);
     }
 

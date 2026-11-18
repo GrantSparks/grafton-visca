@@ -130,10 +130,6 @@ super::typed_support_registry::typed_support_registry!(define_typed_surface_look
 /// fact in the typed-support registry.
 #[cfg(test)]
 macro_rules! typed_method_vocabulary {
-    (@header $entries:ident, [typed $marker:ident], $noun:ident, $method:expr) => {
-        $entries.push((typed_surface!($marker), crate::command::surface::StaticNoun::$noun, $method));
-    };
-    (@header $entries:ident, $base:tt, $noun:ident, $method:expr) => {};
     (
         $(
             @noun $noun:ident {
@@ -149,18 +145,18 @@ macro_rules! typed_method_vocabulary {
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
-        @exceptions;
-        $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
-        #[allow(clippy::vec_init_then_push)] // Header gates expand to optional statements.
         fn noun_typed_methods() -> Vec<(TypedSupportSurface, crate::command::surface::StaticNoun, &'static str)> {
+            use crate::command::surface::{noun_row_gate, RowGate, StaticNoun};
+
             let mut entries = Vec::new();
             $( $(
-                typed_method_vocabulary!(@header entries, $base, $noun, concat!(stringify!($getter), "().", stringify!($method)));
-                $(
-                    entries.push((typed_surface!($gate), crate::command::surface::StaticNoun::$noun, concat!(stringify!($getter), "().", stringify!($method))));
-                    $(entries.push((typed_surface!($extra), crate::command::surface::StaticNoun::$noun, concat!(stringify!($getter), "().", stringify!($method))));)*
-                )?
+                if let RowGate::Typed(surfaces) | RowGate::DomainAndTyped(_, surfaces) =
+                    noun_row_gate!([$($gate $(, $extra)*)?], $base)
+                {
+                    let method = concat!(stringify!($getter), "().", stringify!($method));
+                    entries.extend(surfaces.iter().map(|surface| (surface, StaticNoun::$noun, method)));
+                }
             )* )*
             entries
         }

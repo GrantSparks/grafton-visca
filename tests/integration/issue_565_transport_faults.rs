@@ -40,7 +40,7 @@ use grafton_visca::{
     error::{ErrorKind, Recovery},
     operation::{AppliedOnly, CancellationOutcome},
     profiles::SonyFr7,
-    transport::{AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressingMode, IoBounds, SendSemantics},
     Error,
 };
 
@@ -80,8 +80,8 @@ impl Rig {
         }
     }
 
-    fn config(&self) -> TransportConfig {
-        TransportConfig::default()
+    fn config(&self) -> IoBounds {
+        IoBounds::default()
     }
 
     #[cfg(all(feature = "blocking", feature = "test-utils"))]

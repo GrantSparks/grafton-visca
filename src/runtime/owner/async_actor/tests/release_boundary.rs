@@ -1,4 +1,5 @@
 use super::*;
+use crate::transport::IoBounds;
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
@@ -1047,7 +1048,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },
@@ -1124,7 +1125,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
         let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
             ChunkedStreamTransport {
                 addressing: crate::transport::AddressingMode::Ip,
-                config: crate::transport::ValidatedTransportConfig::default(),
+                config: IoBounds::default(),
                 chunks,
                 sent,
             },
@@ -1214,7 +1215,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },
@@ -1268,7 +1269,7 @@ async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },
@@ -1315,7 +1316,7 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },
@@ -1370,13 +1371,11 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
         .expect("generic raw profile");
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
-    let config = crate::transport::builder::TransportConfig {
-        ..crate::transport::builder::TransportConfig::default()
-    };
+    let config = IoBounds::default();
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Serial,
-            config: config.validated().unwrap(),
+            config,
             chunks,
             sent,
         },
@@ -1421,7 +1420,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
         .submit(inquiry_for(TargetSlot::CAMERA_1))
         .await
         .unwrap();
-    // A's inquiry lane is independent from C's live inquiry, so the successor
+    // A's inquiry debt is independent from C's live inquiry, so the successor
     // is written before C's retained prefix is installed.
     let _ = sent_rx.recv_async().await.unwrap();
 
@@ -1472,17 +1471,16 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         .expect("generic raw profile");
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
-    let config = crate::transport::builder::TransportConfig {
-        buffer_config: crate::transport::buffer::BufferConfig {
+    let config = IoBounds::default()
+        .with_buffer_config(crate::transport::buffer::BufferConfig {
             recv_buffer_size: 512,
             ..crate::transport::buffer::BufferConfig::default()
-        },
-        ..crate::transport::builder::TransportConfig::default()
-    };
+        })
+        .unwrap();
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Serial,
-            config: config.validated().unwrap(),
+            config,
             chunks,
             sent,
         },
@@ -1531,7 +1529,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         .submit(inquiry_for(TargetSlot::CAMERA_1))
         .await
         .unwrap();
-    // A's per-target inquiry lane is independent from C's, so this write is
+    // A's inquiry debt is independent from C's, so this write is
     // legal before the retained C/A input batch arrives.
     let _ = sent_rx.recv_async().await.unwrap();
 
@@ -1588,11 +1586,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing,
-            config: crate::transport::builder::TransportConfig {
-                ..crate::transport::builder::TransportConfig::default()
-            }
-            .validated()
-            .unwrap(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },
@@ -1721,7 +1715,7 @@ async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },
@@ -2054,7 +2048,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::ValidatedTransportConfig::default(),
+            config: IoBounds::default(),
             chunks,
             sent,
         },

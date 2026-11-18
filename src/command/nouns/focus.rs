@@ -83,26 +83,14 @@ crate::command::nouns::forward_inquiry!(SensitivityInquiry, crate::command::Auto
 /// Dropping the operation handle does not stop lens motion.
 #[derive(Debug, Clone, Copy)]
 pub struct FarVariable {
-    preview: Option<builtin::FocusDrive>,
     speed: Speed<FocusSpeed>,
 }
 impl FarVariable {
     /// Captures a speed to resolve against the receiving camera during preparation.
     pub fn new(speed: impl Into<Speed<FocusSpeed>>) -> Self {
         Self {
-            preview: None,
             speed: speed.into(),
         }
-    }
-
-    /// Creates a movement intent with a preview for direct encoding.
-    pub fn for_target(
-        target: &TargetRegistration,
-        speed: impl Into<Speed<FocusSpeed>>,
-    ) -> crate::Result<Self> {
-        let mut request = Self::new(speed);
-        request.preview = Some(request.lower(target)?);
-        Ok(request)
     }
 
     fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::FocusDrive> {
@@ -131,26 +119,14 @@ crate::command::nouns::movement_intent!(
 /// Dropping the operation handle does not stop lens motion.
 #[derive(Debug, Clone, Copy)]
 pub struct NearVariable {
-    preview: Option<builtin::FocusDrive>,
     speed: Speed<FocusSpeed>,
 }
 impl NearVariable {
     /// Captures a speed to resolve against the receiving camera during preparation.
     pub fn new(speed: impl Into<Speed<FocusSpeed>>) -> Self {
         Self {
-            preview: None,
             speed: speed.into(),
         }
-    }
-
-    /// Creates a movement intent with a preview for direct encoding.
-    pub fn for_target(
-        target: &TargetRegistration,
-        speed: impl Into<Speed<FocusSpeed>>,
-    ) -> crate::Result<Self> {
-        let mut request = Self::new(speed);
-        request.preview = Some(request.lower(target)?);
-        Ok(request)
     }
 
     fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::FocusDrive> {
@@ -373,7 +349,6 @@ mod tests {
         capabilities::CapabilityRange,
         profiles::{ProfileId, ProfileSpec},
         types::SpeedLevel,
-        CameraId, Request,
     };
 
     fn narrow_speed_target() -> TargetRegistration {
@@ -399,22 +374,15 @@ mod tests {
     #[test]
     fn variable_speeds_lower_coarse_levels_and_reject_unsupported_exact_values() {
         let target = narrow_speed_target();
-        let far =
-            FarVariable::for_target(&target, SpeedLevel::Slowest).expect("slowest supported speed");
-        let near = NearVariable::for_target(&target, SpeedLevel::Fastest)
-            .expect("fastest supported speed");
+        let far = FarVariable::new(SpeedLevel::Slowest);
+        let near = NearVariable::new(SpeedLevel::Fastest);
         let mut buffer = [0; 6];
-        assert_eq!(
-            far.write_into(CameraId::CAMERA_1, &mut buffer)
-                .expect("far encoding"),
-            6
-        );
+        assert_eq!(target.encode(&far, &mut buffer).expect("far encoding"), 6);
         assert_eq!(buffer, [0x81, 1, 4, 8, 0x23, 0xff]);
-        near.write_into(CameraId::CAMERA_1, &mut buffer)
-            .expect("near encoding");
+        target.encode(&near, &mut buffer).expect("near encoding");
         assert_eq!(buffer, [0x81, 1, 4, 8, 0x35, 0xff]);
         assert!(matches!(
-            FarVariable::for_target(&target, FocusSpeed::MAX),
+            target.encode(&FarVariable::new(FocusSpeed::MAX), &mut buffer),
             Err(Error::ParameterOutOfRange { .. })
         ));
     }

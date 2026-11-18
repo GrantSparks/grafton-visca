@@ -91,13 +91,12 @@ fn strict_poison_policy() -> ProtocolPolicy {
 /// A two-target raw datagram engine in the strict `strict_unconfirmed_poison`
 /// opt-in mode, mirroring [`engine`] for the whole-session poison tests.
 fn strict_poison_engine() -> ProtocolEngine {
-    let mut engine = ProtocolEngine::new(strict_poison_policy(), Instant::now()).unwrap();
-    for target in [camera(1), camera(2)] {
-        engine
-            .register_target(target, TargetPolicy::test_default())
-            .unwrap();
-    }
-    engine
+    ProtocolEngine::new(
+        strict_poison_policy(),
+        target_policies(&[camera(1), camera(2)], TargetPolicy::test_default()),
+        Instant::now(),
+    )
+    .unwrap()
 }
 
 fn retrying() -> RetryPolicy {
@@ -106,12 +105,6 @@ fn retrying() -> RetryPolicy {
         initial_backoff: Duration::from_millis(10),
         maximum_backoff: Duration::from_millis(100),
         total_budget: Some(NonZeroDuration::new(Duration::from_secs(10)).unwrap()),
-        ack_timeout: true,
-        completion_timeout: true,
-        inquiry_timeout: true,
-        buffer_full: true,
-        movement_not_executable: true,
-        builtin_inquiry_syntax: true,
     }
 }
 
@@ -140,6 +133,7 @@ fn wire(address: u8) -> Arc<EncodedMessage> {
 
 fn command(target: u8) -> RuntimeRequest {
     RuntimeRequest::Command {
+        not_executable: true,
         reply_shape: CommandReply::AckThenCompletion,
         wire: wire(0x80 | target),
         context: context(target),
@@ -161,6 +155,7 @@ fn command_with_reply_shape(target: u8, reply_shape: CommandReply) -> RuntimeReq
     let context = context(target);
 
     RuntimeRequest::Command {
+        not_executable: true,
         reply_shape,
         wire: wire(0x80 | target),
         context,
@@ -192,7 +187,6 @@ fn admit(
         Input::Admit {
             ticket: AdmissionTicket(ticket),
             request,
-            slot: AdmissionSlot::Ordinary,
         },
         now,
     );
@@ -238,6 +232,7 @@ fn inquiry_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
     let mut inquiry_context = context(target);
     inquiry_context.retry = retry;
     RuntimeRequest::Inquiry {
+        syntax: true,
         payload_shape: PayloadShape::Unknown,
         wire: wire(0x80 | target),
         context: inquiry_context,
@@ -246,34 +241,39 @@ fn inquiry_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
 
 fn inquiry_with_shape(target: u8, shape: PayloadShape) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
+        syntax: true,
         payload_shape: shape,
         wire: wire(0x80 | target),
         context: context(target),
     }
 }
 
+fn target_policies(
+    targets: &[TargetSlot],
+    policy: TargetPolicy,
+) -> PerTarget<Option<TargetPolicy>> {
+    PerTarget::from_fn(|target| targets.contains(&target).then_some(policy))
+}
+
 fn engine(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolEngine {
-    let mut engine = ProtocolEngine::new(policy(envelope, transport), Instant::now()).unwrap();
-    engine
-        .register_target(camera(1), TargetPolicy::test_default())
-        .unwrap();
-    engine
-        .register_target(camera(2), TargetPolicy::test_default())
-        .unwrap();
-    engine
+    ProtocolEngine::new(
+        policy(envelope, transport),
+        target_policies(&[camera(1), camera(2)], TargetPolicy::test_default()),
+        Instant::now(),
+    )
+    .unwrap()
 }
 
 /// Unknown raw inquiry declarations overlap. A released FIFO owner therefore
 /// has a queued successor and needs the bounded target ambiguity hold.
 fn single_flight_raw_engine() -> ProtocolEngine {
     let configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
-    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-    for target in [camera(1), camera(2)] {
-        engine
-            .register_target(target, TargetPolicy::test_default())
-            .unwrap();
-    }
-    engine
+    ProtocolEngine::new(
+        configured,
+        target_policies(&[camera(1), camera(2)], TargetPolicy::test_default()),
+        Instant::now(),
+    )
+    .unwrap()
 }
 
 fn admitted(effects: &[Effect]) -> RequestId {
@@ -356,6 +356,7 @@ fn inert_wire_is_inline_and_reused_across_retry_without_reallocation() {
     let prepared = wire(0x81);
     assert!(prepared.is_inline());
     let request = RuntimeRequest::Command {
+        not_executable: true,
         reply_shape: CommandReply::AckThenCompletion,
         wire: Arc::clone(&prepared),
         context: context(1),
@@ -365,7 +366,6 @@ fn inert_wire_is_inline_and_reused_across_retry_without_reallocation() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request,
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_micros(2),
     );
@@ -404,7 +404,6 @@ fn explicit_target_not_wire_bytes_drives_independent_socket_ownership() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -414,7 +413,6 @@ fn explicit_target_not_wire_bytes_drives_independent_socket_ownership() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: target_two,
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -467,7 +465,6 @@ fn duplicate_write_receipts_do_not_requeue_the_request() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -511,7 +508,6 @@ fn request_and_transmission_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -522,7 +518,6 @@ fn request_and_transmission_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -540,7 +535,6 @@ fn request_and_transmission_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -552,7 +546,6 @@ fn request_and_transmission_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -587,7 +580,6 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry_with_retry(1, RetryPolicy::NEVER),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -623,7 +615,6 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -633,7 +624,6 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: inquiry(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -680,7 +670,6 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
         Input::Admit {
             ticket: AdmissionTicket(4),
             request: inquiry_with_retry(1, RetryPolicy::NEVER),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -710,7 +699,6 @@ fn sony_exact_request_and_cancellation_collision_is_ignored() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -778,7 +766,6 @@ fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -883,7 +870,6 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -965,7 +951,6 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         retry_ready,
     );
@@ -996,7 +981,6 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -1066,7 +1050,6 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(2),
     );
@@ -1233,16 +1216,17 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let mut configured = policy(EnvelopeKind::Sony, TransportKind::Datagram);
     configured.inquiry_cooldown = Duration::ZERO;
     configured.inquiry_spacing = Duration::from_millis(10);
-    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-    engine
-        .register_target(camera(1), TargetPolicy::test_default())
-        .unwrap();
+    let mut engine = ProtocolEngine::new(
+        configured,
+        target_policies(&[camera(1)], TargetPolicy::test_default()),
+        Instant::now(),
+    )
+    .unwrap();
 
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -1256,7 +1240,6 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
     );
@@ -1414,7 +1397,6 @@ fn raw_overlapping_inquiries_serialize_in_per_target_write_order() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: inquiry(target),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1492,7 +1474,6 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(1),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1521,7 +1502,6 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: inquiry_with_shape(1, PayloadShape::Bytes(1)),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1531,7 +1511,6 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: inquiry_with_shape(1, PayloadShape::Bytes(2)),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1589,7 +1568,6 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: inquiry(1),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1599,7 +1577,6 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: command(1),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1694,7 +1671,6 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(1),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1727,7 +1703,6 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(1),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1790,7 +1765,6 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_request_order() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -1816,7 +1790,6 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_request_order() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry_with_retry(1, RetryPolicy::NEVER),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(20),
     );
@@ -1826,7 +1799,6 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_request_order() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: inquiry_with_retry(2, RetryPolicy::NEVER),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(20),
     );
@@ -2313,7 +2285,6 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2338,7 +2309,6 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         b_started,
     );
@@ -2458,7 +2428,6 @@ fn engine_turn_options_share_one_input_tail_without_implicit_dispatch() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
         EngineTurn::InputOnly,
@@ -2478,18 +2447,20 @@ fn engine_with_target(
     sockets: CommandSocketCount,
     cancellation: CancellationPolicy,
 ) -> ProtocolEngine {
-    let mut engine = ProtocolEngine::new(policy(envelope, transport), Instant::now()).unwrap();
-    engine
-        .register_target(
-            camera(1),
+    ProtocolEngine::new(
+        policy(envelope, transport),
+        target_policies(
+            &[camera(1)],
             TargetPolicy {
                 command_sockets: sockets,
+                physical_command_sockets: sockets,
                 cancellation,
                 ..TargetPolicy::test_default()
             },
-        )
-        .unwrap();
-    engine
+        ),
+        Instant::now(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -2505,7 +2476,6 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2515,7 +2485,6 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2607,7 +2576,6 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request,
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2710,7 +2678,6 @@ fn requested_cancellation_waits_for_shared_command_spacing() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2755,7 +2722,6 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2777,7 +2743,6 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
     );
@@ -2833,7 +2798,6 @@ fn zero_spacing_drains_pending_cancellations_in_request_order() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2853,7 +2817,6 @@ fn zero_spacing_drains_pending_cancellations_in_request_order() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2875,7 +2838,6 @@ fn zero_spacing_drains_pending_cancellations_in_request_order() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: command(2),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
     );
@@ -3064,12 +3026,12 @@ fn executing_cancel_waits_for_pacing_without_expiring_at_ambiguity() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: RuntimeRequest::Command {
+                not_executable: true,
                 reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context: request_context,
                 applied_state: None,
             },
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3126,7 +3088,6 @@ fn cancel_after_raw_ack_timeout_cannot_resurrect_the_terminal_owner() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3191,7 +3152,6 @@ fn completion_before_cancellation_pacing_due_wins_and_removes_intent() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3262,7 +3222,6 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3289,7 +3248,6 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(21),
     );
@@ -3330,7 +3288,6 @@ fn ambiguity_expiry_is_unconfirmed_and_releases_only_after_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3366,7 +3323,6 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3434,7 +3390,6 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_request_order() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3454,7 +3409,6 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_request_order() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3505,7 +3459,6 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(2),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3515,7 +3468,6 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3556,7 +3508,6 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: inquiry(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3585,6 +3536,7 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
     ));
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let request = RuntimeRequest::Command {
+        not_executable: true,
         reply_shape: CommandReply::AckThenCompletion,
         wire: wire(0x82),
         context: context(2),
@@ -3594,7 +3546,6 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request,
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3665,12 +3616,12 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
             Input::Admit {
                 ticket: AdmissionTicket(offset as u64 + 1),
                 request: RuntimeRequest::Command {
+                    not_executable: true,
                     reply_shape: CommandReply::AckThenCompletion,
                     wire: wire(0x81),
                     context: context(1),
                     applied_state: Some(projection),
                 },
-                slot: AdmissionSlot::Ordinary,
             },
             now,
         );
@@ -3714,6 +3665,7 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
         Input::Admit {
             ticket: AdmissionTicket(9),
             request: RuntimeRequest::Command {
+                not_executable: true,
                 reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context,
@@ -3721,7 +3673,6 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
                     crate::KnownState::ExposureSpotlight(false),
                 )),
             },
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(153),
     );
@@ -3762,17 +3713,16 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.command_spacing = Duration::from_millis(10);
-    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-    for target in [camera(1), camera(2)] {
-        engine
-            .register_target(target, TargetPolicy::test_default())
-            .unwrap();
-    }
+    let mut engine = ProtocolEngine::new(
+        configured,
+        target_policies(&[camera(1), camera(2)], TargetPolicy::test_default()),
+        Instant::now(),
+    )
+    .unwrap();
     let seed = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3790,7 +3740,6 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: background_command,
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3808,7 +3757,6 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: user_inquiry,
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3830,7 +3778,6 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(10),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3849,7 +3796,6 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(11),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3858,7 +3804,6 @@ fn dispatch_is_priority_fifo_in_request_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(12),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3883,18 +3828,17 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.command_spacing = Duration::from_millis(10);
-    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-    for target in [camera(1), camera(2)] {
-        engine
-            .register_target(target, TargetPolicy::test_default())
-            .unwrap();
-    }
+    let mut engine = ProtocolEngine::new(
+        configured,
+        target_policies(&[camera(1), camera(2)], TargetPolicy::test_default()),
+        Instant::now(),
+    )
+    .unwrap();
 
     let seed = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3903,7 +3847,6 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3918,7 +3861,6 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: inquiry(2),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -3950,7 +3892,6 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3973,7 +3914,6 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -4004,7 +3944,6 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
     );
@@ -4111,12 +4050,15 @@ fn retune_runs_the_production_debug_invariant_hook() {
 fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     let start = Instant::now();
     let configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
-    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-    engine
-        .register_target(camera(1), TargetPolicy::test_default())
-        .unwrap();
+    let mut engine = ProtocolEngine::new(
+        configured,
+        target_policies(&[camera(1)], TargetPolicy::test_default()),
+        Instant::now(),
+    )
+    .unwrap();
     let first_wire = wire(0x81);
     let first_request = RuntimeRequest::Inquiry {
+        syntax: true,
         payload_shape: PayloadShape::Unknown,
         wire: Arc::clone(&first_wire),
         context: context(1),
@@ -4125,7 +4067,6 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: first_request,
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -4135,7 +4076,6 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -4251,7 +4191,6 @@ fn replaying_identical_ordered_trace_produces_identical_effects() {
             Input::Admit {
                 ticket: AdmissionTicket(7),
                 request: command(1),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -4341,16 +4280,15 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                     other => panic!("unknown fixture envelope {other}"),
                 };
                 if engine.is_none() {
-                    let mut created = ProtocolEngine::new(
+                    let created = ProtocolEngine::new(
                         policy(record_envelope, TransportKind::Datagram),
+                        target_policies(
+                            &[camera(1), camera(2), camera(3)],
+                            TargetPolicy::test_default(),
+                        ),
                         Instant::now(),
                     )
                     .unwrap();
-                    for target in 1..=3 {
-                        created
-                            .register_target(camera(target), TargetPolicy::test_default())
-                            .unwrap();
-                    }
                     engine = Some(created);
                     envelope = Some(record_envelope);
                 }
@@ -4361,12 +4299,14 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                 fixture_context.retry = RetryPolicy::NEVER;
                 let request = match fixture_required(&fields, "kind") {
                     "command" => RuntimeRequest::Command {
+                        not_executable: true,
                         reply_shape: CommandReply::AckThenCompletion,
                         wire: wire(0x80 | target),
                         context: fixture_context,
                         applied_state: None,
                     },
                     "inquiry" => RuntimeRequest::Inquiry {
+                        syntax: true,
                         payload_shape: fixture_shape(&fields),
                         wire: wire(0x80 | target),
                         context: fixture_context,
@@ -4378,7 +4318,6 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                     Input::Admit {
                         ticket: AdmissionTicket(ticket),
                         request,
-                        slot: AdmissionSlot::Ordinary,
                     },
                     now,
                 );
@@ -4659,13 +4598,12 @@ fn due_effects(engine: &mut ProtocolEngine, now: Instant) -> Vec<Effect> {
 fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
     let mut configured = policy(configuration.envelope, configuration.transport);
     configured.strict_unconfirmed_poison = configuration.strict_unconfirmed_poison;
-    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-    for target in [camera(1), camera(2)] {
-        engine
-            .register_target(target, TargetPolicy::test_default())
-            .unwrap();
-    }
-    engine
+    ProtocolEngine::new(
+        configured,
+        target_policies(&[camera(1), camera(2)], TargetPolicy::test_default()),
+        Instant::now(),
+    )
+    .unwrap()
 }
 
 /// A receive-side fault the owner has already classified as transient.
@@ -4791,14 +4729,17 @@ fn fuzz_step(
                 2 => command_with_reply_shape(target, CommandReply::CompletionOnly),
                 _ => command_with_reply_shape(target, CommandReply::NoReply),
             };
-            engine.handle(
-                Input::Admit {
-                    ticket: AdmissionTicket(*ticket),
-                    request,
-                    slot: AdmissionSlot::Ordinary,
-                },
-                *now,
-            )
+            if engine.active_len() >= engine.policy.capacity.get() {
+                engine.advance(*now)
+            } else {
+                engine.handle(
+                    Input::Admit {
+                        ticket: AdmissionTicket(*ticket),
+                        request,
+                    },
+                    *now,
+                )
+            }
         }
         1 => {
             let Some((transmission, owner)) = active_transmissions(engine).next() else {
@@ -5077,7 +5018,6 @@ fn seed_admit(
         Input::Admit {
             ticket: AdmissionTicket(*ticket),
             request,
-            slot: AdmissionSlot::Ordinary,
         },
         now,
     );
@@ -5746,7 +5686,6 @@ fn raw_late_ack_at_ambiguity_boundary_is_routed_and_cancel_remains_active() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5791,7 +5730,6 @@ fn full_width_sony_miss_never_uses_lower16_fallback() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry_with_retry(1, RetryPolicy::NEVER),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5823,7 +5761,6 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5884,12 +5821,12 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: RuntimeRequest::Command {
+                not_executable: true,
                 reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context: request_context,
                 applied_state: None,
             },
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5938,6 +5875,7 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
         &mut engine,
         1,
         RuntimeRequest::Command {
+            not_executable: true,
             reply_shape: CommandReply::AckThenCompletion,
             wire: wire(0x81),
             context: request_context,
@@ -6018,7 +5956,6 @@ fn retryable_rejection_after_cancel_intent_is_cancelled_without_retry() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6053,14 +5990,16 @@ fn retryable_rejection_after_cancel_intent_is_cancelled_without_retry() {
 fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
     let start = Instant::now();
 
-    let mut custom_retry = retrying();
-    custom_retry.builtin_inquiry_syntax = false;
+    let mut custom = inquiry(1);
+    let RuntimeRequest::Inquiry { syntax, .. } = &mut custom else {
+        unreachable!("an inquiry fixture");
+    };
+    *syntax = false;
     let mut custom_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let custom_admission = custom_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: inquiry_with_retry(1, custom_retry),
-            slot: AdmissionSlot::Ordinary,
+            request: custom,
         },
         start,
     );
@@ -6093,7 +6032,6 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry_with_retry(1, retrying()),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6127,23 +6065,22 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.capacity = std::num::NonZeroUsize::new(4).unwrap();
-    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-    for target in [camera(1), camera(2)] {
-        engine
-            .register_target(
-                target,
-                TargetPolicy {
-                    command_sockets: CommandSocketCount::ONE,
-                    ..TargetPolicy::test_default()
-                },
-            )
-            .unwrap();
-    }
+    let mut engine = ProtocolEngine::new(
+        configured,
+        target_policies(
+            &[camera(1), camera(2)],
+            TargetPolicy {
+                command_sockets: CommandSocketCount::ONE,
+                ..TargetPolicy::test_default()
+            },
+        ),
+        Instant::now(),
+    )
+    .unwrap();
     let occupying = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6162,7 +6099,6 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6172,7 +6108,6 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: command(1),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -6189,7 +6124,6 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
         Input::Admit {
             ticket: AdmissionTicket(20),
             request: command(2),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6214,12 +6148,12 @@ fn retry_backoff_must_fit_inside_total_budget() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: RuntimeRequest::Command {
+                not_executable: true,
                 reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context: request_context,
                 applied_state: None,
             },
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6278,7 +6212,6 @@ fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6288,7 +6221,6 @@ fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6337,12 +6269,12 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: RuntimeRequest::Command {
+                not_executable: true,
                 reply_shape: CommandReply::AckThenCompletion,
                 wire: wire(0x81),
                 context: once,
                 applied_state: None,
             },
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6352,7 +6284,6 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(2),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6418,7 +6349,6 @@ fn stream_write_failure_poisons_with_the_typed_transport_cause() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6428,7 +6358,6 @@ fn stream_write_failure_poisons_with_the_typed_transport_cause() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6483,7 +6412,6 @@ fn datagram_write_failure_fails_exactly_one_request() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6493,7 +6421,6 @@ fn datagram_write_failure_fails_exactly_one_request() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6525,7 +6452,6 @@ fn socketless_ack_assigns_the_first_free_socket() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6553,7 +6479,6 @@ fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6573,7 +6498,6 @@ fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6597,7 +6521,6 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6617,7 +6540,6 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6684,7 +6606,6 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6727,7 +6648,6 @@ fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: command(1),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -6751,7 +6671,6 @@ fn sequenced_socketless_ack_with_two_live_socket_owners_fails_after_ack_without_
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6811,7 +6730,6 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6831,7 +6749,6 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6920,7 +6837,6 @@ fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6955,7 +6871,6 @@ fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(41),
     );
@@ -7027,7 +6942,6 @@ fn raw_ack_in_awaiting_ack_uses_the_unique_command_candidate() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7122,7 +7036,6 @@ fn socketless_completion_needs_a_sole_socket_holder() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7142,7 +7055,6 @@ fn socketless_completion_needs_a_sole_socket_holder() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7198,7 +7110,6 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7217,10 +7128,19 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
     engine.assert_invariants().unwrap();
 }
 
+fn without_not_executable_retry(mut request: RuntimeRequest) -> RuntimeRequest {
+    let RuntimeRequest::Command { not_executable, .. } = &mut request else {
+        unreachable!("the fixture has the command class");
+    };
+    *not_executable = false;
+    request
+}
+
 fn command_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
     let mut command_context = context(target);
     command_context.retry = retry;
     RuntimeRequest::Command {
+        not_executable: true,
         reply_shape: CommandReply::AckThenCompletion,
         wire: wire(0x80 | target),
         context: command_context,
@@ -7232,7 +7152,7 @@ fn sony_sequence(id: RequestId) -> u32 {
     0x1000 + u32::try_from(id.get()).unwrap()
 }
 
-fn deadline_expiries(effects: &[Effect], id: RequestId) -> Vec<(DeadlineKind, bool)> {
+pub(super) fn deadline_expiries(effects: &[Effect], id: RequestId) -> Vec<(DeadlineKind, bool)> {
     effects
         .iter()
         .filter_map(|effect| match effect {
@@ -7303,7 +7223,6 @@ fn ack_deadline_expiry_reports_its_own_retry_decision_before_the_retry() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7333,7 +7252,6 @@ fn ack_deadline_expiry_without_retry_policy_reports_no_retry() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, RetryPolicy::NEVER),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7374,7 +7292,6 @@ fn completion_deadline_expiry_is_reported_as_a_completion_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7431,7 +7348,6 @@ fn inquiry_reply_deadline_expiry_is_reported_as_an_inquiry_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7446,7 +7362,7 @@ fn inquiry_reply_deadline_expiry_is_reported_as_an_inquiry_deadline() {
 }
 
 /// Issue #571: `will_retry` reports the decision the engine actually took, not
-/// the policy flag that motivated it. The policy still permits ACK-deadline
+/// the policy that motivated it. The policy still permits ACK-deadline
 /// retries on the second expiry below; the attempt budget is what refuses it.
 #[test]
 fn deadline_expiry_reports_no_retry_once_the_attempt_budget_is_spent() {
@@ -7456,12 +7372,10 @@ fn deadline_expiry_reports_no_retry_once_the_attempt_budget_is_spent() {
         max_retries: 1,
         ..retrying()
     };
-    assert!(policy.ack_timeout);
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, policy),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7493,7 +7407,6 @@ fn ack_capped_retry() -> RetryPolicy {
         initial_backoff: Duration::from_millis(1),
         maximum_backoff: Duration::from_secs(10),
         total_budget: Some(NonZeroDuration::new(Duration::from_secs(600)).unwrap()),
-        ..retrying()
     }
 }
 
@@ -7557,7 +7470,6 @@ fn retry_backoff_follows_the_pinned_jitter_sequence() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7641,7 +7553,6 @@ fn concurrent_retries_of_the_same_instant_are_separated() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: command(target),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -7668,7 +7579,6 @@ fn the_jitter_sequence_moves_with_the_seed() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7691,7 +7601,6 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, ack_capped_retry()),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7757,7 +7666,6 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command_with_retry(1, ack_capped_retry()),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7844,7 +7752,6 @@ fn a_command_that_never_acks_exhausts_its_attempt_budget() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7903,7 +7810,6 @@ fn a_retry_waiting_in_backoff_fails_when_the_total_budget_expires() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7959,7 +7865,6 @@ fn raw_sending_with_reply_shape(
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_reply_shape_and_retry(1, reply_shape, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8000,7 +7905,6 @@ fn initial_ready_request_expires_at_admission_budget_without_transmitting() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8012,7 +7916,6 @@ fn initial_ready_request_expires_at_admission_budget_without_transmitting() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8056,7 +7959,6 @@ fn initial_active_phases_expire_at_admission_budget() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8077,7 +7979,6 @@ fn initial_active_phases_expire_at_admission_budget() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8113,7 +8014,6 @@ fn initial_active_phases_expire_at_admission_budget() {
                     CommandReply::CompletionOnly,
                     immediate_retry_budget(Duration::from_millis(10)),
                 ),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8134,7 +8034,6 @@ fn initial_active_phases_expire_at_admission_budget() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: inquiry_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8280,7 +8179,6 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_reply_shape_and_retry(1, CommandReply::NoReply, retry),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8323,7 +8221,6 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, retry),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8367,7 +8264,6 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, retry),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8410,7 +8306,6 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, retry),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8492,7 +8387,6 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, immediate_retry_budget(budget)),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8503,7 +8397,6 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: command_with_retry(2, immediate_retry_budget(budget)),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8567,7 +8460,6 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             Input::Admit {
                 ticket: AdmissionTicket(3),
                 request: command(1),
-                slot: AdmissionSlot::Ordinary,
             },
             late_at,
         );
@@ -8595,7 +8487,6 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: inquiry_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8629,7 +8520,6 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: inquiry_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8678,7 +8568,6 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, retry),
-                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8722,7 +8611,6 @@ fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request,
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8802,7 +8690,6 @@ fn initial_budget_does_not_shorten_raw_unconfirmed_quarantine() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8847,7 +8734,6 @@ fn retry_budget_expires_while_awaiting_sony_ack() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8903,7 +8789,6 @@ fn retry_budget_expires_while_executing_sony_command() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8964,7 +8849,6 @@ fn retry_budget_expires_while_awaiting_inquiry_reply() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9015,7 +8899,6 @@ fn raw_ready_retry_budget_expiry_reports_last_error_without_poisoning() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9065,7 +8948,6 @@ fn raw_active_retry_budget_expiry_quarantines_and_fails_per_request() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9132,7 +9014,6 @@ fn raw_active_retry_budget_expiry_poisons_under_strict_opt_in() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9187,7 +9068,6 @@ fn raw_receive_fault_leaves_unacked_command_and_keeps_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9234,7 +9114,6 @@ fn raw_receive_fault_poisons_under_strict_opt_in() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9270,7 +9149,6 @@ fn strict_raw_receive_fault_after_cancel_uses_cancellation_resolution() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9375,7 +9253,6 @@ fn raw_ack_timeout_hold_rejects_late_ack_and_protects_successor() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9403,7 +9280,6 @@ fn raw_ack_timeout_hold_rejects_late_ack_and_protects_successor() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(21),
     );
@@ -9450,7 +9326,6 @@ fn raw_completion_timeout_hold_rejects_exact_late_completion() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9510,13 +9385,10 @@ fn command_not_executable_retries_only_where_the_policy_allows_it() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
 
-    let mut movement = retrying();
-    movement.movement_not_executable = true;
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: command_with_retry(1, movement),
-            slot: AdmissionSlot::Ordinary,
+            request: command(1),
         },
         start,
     );
@@ -9539,15 +9411,10 @@ fn command_not_executable_retries_only_where_the_policy_allows_it() {
     assert_eq!(attempt, 1);
     assert!(terminal_outcome(&refused, movement_id).is_none());
 
-    let standard = RetryPolicy {
-        movement_not_executable: false,
-        ..retrying()
-    };
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command_with_retry(2, standard),
-            slot: AdmissionSlot::Ordinary,
+            request: without_not_executable_retry(command(2)),
         },
         start,
     );
@@ -9585,7 +9452,6 @@ fn no_socket_is_retried_like_a_full_command_buffer() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9611,7 +9477,6 @@ fn no_socket_is_retried_like_a_full_command_buffer() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command_with_retry(2, RetryPolicy::NEVER),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9650,7 +9515,6 @@ fn a_post_ack_completion_timeout_never_rewrites_the_command() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -10313,7 +10177,7 @@ fn terminal_tombstone_ignores_frame_at_exact_expiry_before_releasing_successor()
 }
 
 /// A matched raw inquiry reply exhausts that request's possible response. It
-/// therefore releases the single-flight inquiry lane immediately and installs
+/// therefore releases the overlapping inquiry class immediately and installs
 /// no target tombstone (#712).
 #[test]
 fn raw_single_flight_inquiry_success_releases_successor_without_tombstone() {
@@ -12146,164 +12010,6 @@ fn overlapping_raw_inquiries_are_serialized_per_target() {
     engine.assert_invariants().unwrap();
 }
 
-/// A capacity-1 engine whose two cameras each reserve two control slots.
-fn reserved_engine() -> ProtocolEngine {
-    let mut configured = policy(EnvelopeKind::Sony, TransportKind::Datagram);
-    configured.capacity = std::num::NonZeroUsize::new(1).unwrap();
-    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-    for target in [1, 2] {
-        engine
-            .register_target(
-                camera(target),
-                TargetPolicy {
-                    control_reserve: 2,
-                    ..TargetPolicy::test_default()
-                },
-            )
-            .unwrap();
-    }
-    engine
-}
-
-fn admit_into(
-    engine: &mut ProtocolEngine,
-    ticket: u64,
-    request: RuntimeRequest,
-    slot: AdmissionSlot,
-    now: Instant,
-) -> Result<RequestId, Error> {
-    let effects = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(ticket),
-            request,
-            slot,
-        },
-        now,
-    );
-    if let Some((_, id, _)) = request_transmit_optional(&effects) {
-        let sequence = (engine.policy.wire.kind() == EnvelopeKind::Sony).then(|| sony_sequence(id));
-        send_ok(engine, &effects, sequence, now);
-    }
-    effects
-        .iter()
-        .find_map(|effect| match effect {
-            Effect::Admitted { id, .. } => Some(Ok(*id)),
-            Effect::AdmissionRejected { error, .. } => Some(Err(error.clone())),
-            _ => None,
-        })
-        .expect("an admission verdict")
-}
-
-/// D26 (#778): ordinary saturation leaves each camera's control reserve to
-/// urgent stops, and a full reserve is a distinct rejection.
-#[test]
-fn control_reserve_admits_urgent_stops_past_ordinary_saturation() {
-    let now = Instant::now();
-    let mut engine = reserved_engine();
-    admit_into(&mut engine, 1, command(1), AdmissionSlot::Ordinary, now)
-        .expect("the one ordinary slot");
-    assert!(matches!(
-        admit_into(&mut engine, 2, command(1), AdmissionSlot::Ordinary, now),
-        Err(Error::RuntimeQueueFull { capacity: 1 })
-    ));
-
-    for ticket in [3, 4] {
-        admit_into(
-            &mut engine,
-            ticket,
-            urgent_command(1),
-            AdmissionSlot::ControlReserve,
-            now,
-        )
-        .expect("an urgent stop takes camera 1's reserve");
-    }
-    assert!(matches!(
-        admit_into(
-            &mut engine,
-            5,
-            urgent_command(1),
-            AdmissionSlot::ControlReserve,
-            now,
-        ),
-        Err(Error::ControlReserveExhausted { target, reserve: 2 }) if target == camera(1).individual_camera()
-    ));
-
-    // Camera 1 cannot use camera 2's reserve, so camera 2 keeps its own.
-    admit_into(
-        &mut engine,
-        6,
-        urgent_command(2),
-        AdmissionSlot::ControlReserve,
-        now,
-    )
-    .expect("camera 2's reserve is untouched");
-    engine.assert_invariants().unwrap();
-}
-
-/// D26 (#778): only an urgent request may hold a reserved slot, and a freed
-/// reserved slot is available again.
-#[test]
-fn control_reserve_is_urgent_only_and_released_at_terminal() {
-    let now = Instant::now();
-    let mut engine = reserved_engine();
-    assert!(matches!(
-        admit_into(
-            &mut engine,
-            1,
-            command(1),
-            AdmissionSlot::ControlReserve,
-            now
-        ),
-        Err(Error::InvalidState { .. })
-    ));
-
-    let admission = engine.handle(
-        Input::Admit {
-            ticket: AdmissionTicket(2),
-            request: urgent_command(1),
-            slot: AdmissionSlot::ControlReserve,
-        },
-        now,
-    );
-    let first = admitted(&admission);
-    let sequence = sony_sequence(first);
-    send_ok(&mut engine, &admission, Some(sequence), now);
-    admit_into(
-        &mut engine,
-        3,
-        urgent_command(1),
-        AdmissionSlot::ControlReserve,
-        now,
-    )
-    .unwrap();
-    for response in [
-        DecodedResponse::Ack {
-            socket: Some(ViscaSocket::S1),
-        },
-        DecodedResponse::Completion {
-            socket: Some(ViscaSocket::S1),
-        },
-    ] {
-        let effects = engine.handle(frame(1, Some(sequence), response), now);
-        if let Some(outcome) = terminal_outcome(&effects, first) {
-            assert!(matches!(
-                outcome,
-                RuntimeOutcome::Command(CommandOutcome::Applied)
-            ));
-        }
-    }
-    assert!(engine.entry(first).is_none(), "the first stop concluded");
-    admit_into(
-        &mut engine,
-        4,
-        urgent_command(1),
-        AdmissionSlot::ControlReserve,
-        now,
-    )
-    .expect("the terminal stop released its reserved slot");
-    engine.assert_invariants().unwrap();
-}
-
 fn declared_motion(target: u8, axes: crate::AffectedAxes, order: u64) -> RuntimeRequest {
     let mut request = command(target);
     request.context_mut().motion = Some(MotionEffect { axes });
@@ -12315,10 +12021,12 @@ fn declared_motion(target: u8, axes: crate::AffectedAxes, order: u64) -> Runtime
 fn halt_fence_suppresses_queued_declared_motion_only_and_preserves_new_work() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let halt_axes = crate::AffectedAxes::PAN_TILT | crate::AffectedAxes::ZOOM;
     let mut ids = Vec::new();
     for (ticket, request) in [
-        declared_motion(1, crate::AffectedAxes::PAN_TILT, 1),
+        declared_motion(1, halt_axes, 1),
         declared_motion(1, crate::AffectedAxes::ZOOM, 2),
+        declared_motion(1, crate::AffectedAxes::IRIS, 3),
         declared_motion(2, crate::AffectedAxes::PAN_TILT, 3),
         command(1),
         declared_motion(1, crate::AffectedAxes::PAN_TILT, 6),
@@ -12330,44 +12038,51 @@ fn halt_fence_suppresses_queued_declared_motion_only_and_preserves_new_work() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket as u64 + 1),
                 request,
-                slot: AdmissionSlot::Ordinary,
             },
             now,
             EngineTurn::InputOnly,
         );
         ids.push(admitted(&effects));
     }
-    let halted = engine.halt_in_turn(
-        &engine.begin_input_turn(now),
-        camera(1),
-        crate::AffectedAxes::PAN_TILT,
-        5,
-    );
-    assert!(matches!(
-        terminal_failure(&halted, ids[0]),
-        Some(Error::MotionSuperseded { .. })
-    ));
-    for id in &ids[1..] {
+    let halted = engine.halt_in_turn(&engine.begin_input_turn(now), camera(1), halt_axes, 5);
+    for (id, expected) in [(ids[0], halt_axes), (ids[1], crate::AffectedAxes::ZOOM)] {
+        assert!(matches!(
+            terminal_failure(&halted, id),
+            Some(Error::MotionSuperseded { axes, context })
+                if axes == expected
+                    && context == FailureContext::new(FailureStage::Terminal, Certainty::NotAccepted)
+        ));
+    }
+    for id in &ids[2..] {
         assert!(phase_of(&engine, *id).is_some());
     }
-    // A submission already in the ingress channel when the owner accepted
-    // halt remains fenced even when admission runs after the halt lane.
-    let old_ingress = engine.handle_turn(
-        Input::Admit {
-            ticket: AdmissionTicket(20),
-            request: declared_motion(1, crate::AffectedAxes::PAN_TILT, 4),
-            slot: AdmissionSlot::Ordinary,
-        },
-        now,
-        EngineTurn::InputOnly,
-    );
-    assert!(old_ingress.iter().any(|effect| matches!(
-        effect,
-        Effect::AdmissionRejected {
-            error: Error::MotionSuperseded { .. },
-            ..
-        }
-    )));
+    // Submissions already in the ingress channel when the owner accepted
+    // halt remain fenced even when admission runs after the halt lane.
+    for (ticket, declared, expected) in [
+        (20, crate::AffectedAxes::ZOOM, crate::AffectedAxes::ZOOM),
+        (
+            21,
+            crate::AffectedAxes::PAN_TILT | crate::AffectedAxes::IRIS,
+            crate::AffectedAxes::PAN_TILT,
+        ),
+    ] {
+        let old_ingress = engine.handle_turn(
+            Input::Admit {
+                ticket: AdmissionTicket(ticket),
+                request: declared_motion(1, declared, 4),
+            },
+            now,
+            EngineTurn::InputOnly,
+        );
+        assert!(old_ingress.iter().any(|effect| matches!(
+            effect,
+            Effect::AdmissionRejected {
+                error: Error::MotionSuperseded { axes, context },
+                ..
+            } if *axes == expected
+                && *context == FailureContext::new(FailureStage::PreAdmission, Certainty::NotAccepted)
+        )));
+    }
     engine.assert_invariants().unwrap();
 }
 
@@ -12378,7 +12093,11 @@ fn halt_during_retry_backoff_suppresses_rewrite_without_claiming_no_prior_effect
     let (effects, id) = admit(
         &mut engine,
         1,
-        declared_motion(1, crate::AffectedAxes::PAN_TILT, 1),
+        declared_motion(
+            1,
+            crate::AffectedAxes::PAN_TILT | crate::AffectedAxes::IRIS,
+            1,
+        ),
         now,
     );
     let (_, _, retry_at) = ack_timeout_retry(&mut engine, &effects, now);
@@ -12389,6 +12108,9 @@ fn halt_during_retry_backoff_suppresses_rewrite_without_claiming_no_prior_effect
         2,
     );
     let error = terminal_failure(&halted, id).expect("retry terminalized by halt");
+    assert!(
+        matches!(error, Error::MotionSuperseded { axes, .. } if axes == crate::AffectedAxes::PAN_TILT)
+    );
     assert_eq!(
         error.failure_context(),
         Some(FailureContext::new(
@@ -12407,7 +12129,11 @@ fn halt_of_written_motion_preserves_correlation_but_disables_future_retry() {
     let (effects, id) = admit(
         &mut engine,
         1,
-        declared_motion(1, crate::AffectedAxes::PAN_TILT, 1),
+        declared_motion(
+            1,
+            crate::AffectedAxes::PAN_TILT | crate::AffectedAxes::IRIS,
+            1,
+        ),
         now,
     );
     send_ok(&mut engine, &effects, Some(sony_sequence(id)), now);
@@ -12423,10 +12149,72 @@ fn halt_of_written_motion_preserves_correlation_but_disables_future_retry() {
     let timeout = engine.advance(now + Duration::from_millis(20));
     assert!(matches!(
         terminal_failure(&timeout, id),
-        Some(Error::MotionSuperseded { .. })
+        Some(Error::MotionSuperseded { axes, context })
+            if axes == crate::AffectedAxes::PAN_TILT
+                && context == FailureContext::new(FailureStage::Terminal, Certainty::Unconfirmed)
     ));
     assert!(retry_scheduled(&timeout).is_none());
     engine.assert_invariants().unwrap();
+}
+
+#[cfg(any(feature = "blocking", feature = "test-utils"))]
+#[test]
+fn halting_a_zero_retry_movement_preserves_its_own_ack_timeout() {
+    use crate::request::CommandRetryClass;
+    use crate::testing::manual_clock::ManualClock;
+
+    for retry_class in [CommandRetryClass::Movement, CommandRetryClass::Never] {
+        let clock = ManualClock::new();
+        let start = clock.now();
+        let registration = crate::TargetRegistration::new(
+            crate::IndividualCameraId::CAMERA_1,
+            crate::profiles::ProfileId::SonyFr7.spec().unwrap(),
+        );
+        let tuning = crate::OperationalTuning::new()
+            .with_retry_limit(crate::tuning::RetryLimit::new(0).unwrap());
+        let request = crate::raw::PlainRequest::new(
+            [0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
+            crate::CommandTimeoutClass::Movement,
+            retry_class,
+            crate::SubmissionClass::Normal,
+        )
+        .unwrap()
+        .with_motion_axes(crate::AffectedAxes::ZOOM);
+        let mut request = crate::prepared::test_support::prepare_command(
+            &request,
+            &registration,
+            tuning,
+            crate::prepared::ClassSelection::Request,
+        )
+        .unwrap()
+        .admit_with(|request, _| request.into_inner());
+        request.context_mut().submission_order = 1;
+        let ack_window = request.context().timeout.ack.get();
+        assert_eq!(request.context().retry.max_retries, 0);
+
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let (effects, id) = admit(&mut engine, 1, request, start);
+        send_ok(&mut engine, &effects, Some(sony_sequence(id)), start);
+        let turn = engine.begin_input_turn(start);
+        assert!(engine
+            .halt_in_turn(&turn, camera(1), crate::AffectedAxes::ZOOM, 1)
+            .is_empty());
+
+        clock.advance(ack_window);
+        let timeout = engine.advance(clock.now());
+        assert_eq!(
+            deadline_expiries(&timeout, id),
+            [(DeadlineKind::Ack, false)]
+        );
+        assert!(
+            matches!(
+                terminal_failure(&timeout, id),
+                Some(Error::Timeout { context })
+                    if context == FailureContext::new(FailureStage::Terminal, Certainty::Unconfirmed)
+            ),
+            "{retry_class:?}: {timeout:?}"
+        );
+    }
 }
 
 #[test]
@@ -12512,13 +12300,12 @@ fn halt_raw_siblings_wait_for_ack_not_completion_and_still_bypass_ordinary_motio
 /// A raw stream engine whose Unknown inquiry declarations overlap per target.
 fn single_flight_raw_stream_engine() -> ProtocolEngine {
     let configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
-    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
-    for target in [camera(1), camera(2)] {
-        engine
-            .register_target(target, TargetPolicy::test_default())
-            .unwrap();
-    }
-    engine
+    ProtocolEngine::new(
+        configured,
+        target_policies(&[camera(1), camera(2)], TargetPolicy::test_default()),
+        Instant::now(),
+    )
+    .unwrap()
 }
 
 fn unkeyed_reply(target: u8, value: u8) -> Input {
@@ -12531,7 +12318,7 @@ fn unkeyed_reply(target: u8, value: u8) -> Input {
     )
 }
 
-/// The inquiry lane's owed-reply state while the target's inquiry hold exists.
+/// The inquiry class's owed-reply state while the target's inquiry hold exists.
 fn owed_state(engine: &ProtocolEngine, target: u8) -> Option<LaneState> {
     engine
         .raw_hold(camera(target), RawHoldScope::Inquiry(PayloadShape::Unknown))
@@ -12564,7 +12351,7 @@ fn time_out_stream_inquiry(engine: &mut ProtocolEngine, start: Instant) -> (Requ
 }
 
 /// #795: on a stream a timed-out raw inquiry's reply is late,
-/// not lost. It is owed: the target's inquiry lane stays closed until that one
+/// not lost. It is owed: the inquiry class stays closed until that one
 /// unkeyed reply is absorbed, so it can never complete a later inquiry.
 #[test]
 fn raw_stream_inquiry_timeout_owes_its_reply_and_never_binds_it_to_a_successor() {
@@ -12736,7 +12523,6 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: inquiry(1),
-            slot: AdmissionSlot::Ordinary,
         },
         window_end + Duration::from_millis(1),
     );
@@ -12855,7 +12641,7 @@ fn latch_camera_one(engine: &mut ProtocolEngine, start: Instant) -> Instant {
 
 /// A latched owed reply was written before any later command, so on a byte
 /// stream a socketless error is that reply's late answer: stream order
-/// settles the inquiry lane (#795), and the command's own rejection, which
+/// settles the inquiry class (#795), and the command's own rejection, which
 /// follows it, still fails the command.
 #[test]
 fn latched_target_settles_its_owed_reply_before_a_commands_socketless_rejection() {
@@ -12922,7 +12708,6 @@ fn latched_target_fails_completion_only_commands_promptly() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: completion_only(),
-            slot: AdmissionSlot::Ordinary,
         },
         window_end,
     );
@@ -12991,7 +12776,6 @@ fn next_wake_ignores_a_stream_socket_hold_that_expired_after_the_last_turn() {
                 CommandReply::CompletionOnly,
                 retrying(),
             ),
-            slot: AdmissionSlot::Ordinary,
         },
         now,
         EngineTurn::InputOnly,

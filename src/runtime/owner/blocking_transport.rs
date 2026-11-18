@@ -86,7 +86,7 @@ mod tests {
             owner::{BlockingOwnerHandle, BlockingTransportAdapter, Clock, RetainedStreamInput},
         },
         transport::{
-            builder::{AddressingMode, TransportConfig},
+            builder::{AddressingMode, IoBounds},
             ReceiveOutcome, SendSemantics,
         },
         OperationalTuning, ProfileSpec,
@@ -96,7 +96,7 @@ mod tests {
     /// reporting end of stream.
     #[derive(Debug)]
     struct ScriptedTransport {
-        config: crate::transport::ValidatedTransportConfig,
+        config: IoBounds,
         sent: Arc<Mutex<Vec<Vec<u8>>>>,
         write_timeouts: Arc<Mutex<Vec<Duration>>>,
         write_error: Option<Error>,
@@ -111,11 +111,11 @@ mod tests {
         }
 
         fn with_config(
-            config: TransportConfig,
+            config: IoBounds,
             receives: impl IntoIterator<Item = Result<Vec<u8>, Error>>,
         ) -> Self {
             Self {
-                config: config.validated().unwrap(),
+                config,
                 sent: Arc::new(Mutex::new(Vec::new())),
                 write_timeouts: Arc::new(Mutex::new(Vec::new())),
                 write_error: None,
@@ -144,7 +144,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+        fn io_bounds(&self) -> &IoBounds {
             &self.config
         }
     }
@@ -169,10 +169,8 @@ mod tests {
         }
     }
 
-    fn config() -> TransportConfig {
-        TransportConfig {
-            ..TransportConfig::default()
-        }
+    fn config() -> IoBounds {
+        IoBounds::default()
     }
 
     fn adapter(
@@ -200,12 +198,7 @@ mod tests {
     fn buffers(adapter: &BlockingTransportAdapter<ScriptedTransport>) -> OwnerBuffers {
         OwnerBuffers::new(super::super::OwnerLimits {
             receive_bytes: std::num::NonZeroUsize::new(
-                adapter
-                    .transport
-                    .config
-                    .as_config()
-                    .buffer_config
-                    .recv_buffer_size,
+                adapter.transport.config.buffer_config().recv_buffer_size(),
             )
             .unwrap(),
             ..super::super::OwnerLimits::default()
@@ -238,9 +231,10 @@ mod tests {
 
     #[test]
     fn policy_and_raw_write_use_profile_and_transport_facts() {
-        let mut transport_config = config();
-        transport_config.write_timeout = Duration::from_millis(37);
-        let transport = ScriptedTransport::with_config(transport_config, []);
+        let io_bounds = config()
+            .with_write_timeout(Duration::from_millis(37))
+            .unwrap();
+        let transport = ScriptedTransport::with_config(io_bounds, []);
         let write_timeouts = Arc::clone(&transport.write_timeouts);
         let (mut adapter, policy) = adapter(transport);
         // The session's bound was validated at construction; a custom
@@ -248,9 +242,7 @@ mod tests {
         adapter.transport.config = adapter
             .transport
             .config
-            .as_config()
             .with_write_timeout(Duration::from_secs(7))
-            .validated()
             .unwrap();
         assert_eq!(
             policy.protocol.wire.kind(),
@@ -419,7 +411,7 @@ mod tests {
     #[test]
     fn an_oversized_datagram_is_a_decode_error_and_later_frames_still_decode() {
         let mut oversized = vec![0x90, 0x41, 0xff];
-        oversized.resize(config().buffer_config.recv_buffer_size + 1, 0);
+        oversized.resize(config().buffer_config().recv_buffer_size() + 1, 0);
         let (mut adapter, _) = adapter(ScriptedTransport::new([
             Ok(oversized),
             Ok(vec![0x90, 0x41, 0xff]),
@@ -440,7 +432,7 @@ mod tests {
     /// possibly truncated, as the receive contract requires.
     #[derive(Debug)]
     struct UnobservedTruncation {
-        config: crate::transport::ValidatedTransportConfig,
+        config: IoBounds,
         datagrams: VecDeque<Vec<u8>>,
     }
 
@@ -452,7 +444,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+        fn io_bounds(&self) -> &IoBounds {
             &self.config
         }
     }
@@ -484,14 +476,14 @@ mod tests {
     /// discard it through one classification, and the next datagram decodes.
     #[test]
     fn an_unobservable_exact_fill_is_discarded_like_the_async_owner() {
-        let capacity = config().buffer_config.recv_buffer_size;
+        let capacity = config().buffer_config().recv_buffer_size();
         // A valid ACK prefix of a datagram larger than the buffer.
         let mut oversized = vec![0x90, 0x41, 0xff];
         oversized.resize(capacity + 1, 0);
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let (mut adapter, _) = BlockingTransportAdapter::new(
             UnobservedTruncation {
-                config: config().validated().unwrap(),
+                config: config(),
                 datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
             },
             &profile,
@@ -500,12 +492,7 @@ mod tests {
         .unwrap();
         let mut buffers = OwnerBuffers::new(super::super::OwnerLimits {
             receive_bytes: std::num::NonZeroUsize::new(
-                adapter
-                    .transport
-                    .config
-                    .as_config()
-                    .buffer_config
-                    .recv_buffer_size,
+                adapter.transport.config.buffer_config().recv_buffer_size(),
             )
             .unwrap(),
             ..super::super::OwnerLimits::default()
@@ -540,9 +527,12 @@ mod tests {
             framed.len(),
             crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE
         );
-        let mut config = config();
-        config.buffer_config.recv_buffer_size =
-            crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE;
+        let config = config()
+            .with_buffer_config(
+                crate::transport::BufferConfig::default()
+                    .with_recv_buffer_size(crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE),
+            )
+            .unwrap();
         let (mut adapter, _) = sony_adapter(ScriptedTransport::with_config(config, [Ok(framed)]));
         let mut buffers = buffers(&adapter);
         let frames = frames(receive(&mut adapter, &mut buffers));

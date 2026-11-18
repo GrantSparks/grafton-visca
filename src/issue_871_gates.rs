@@ -214,8 +214,8 @@ impl Sample for types::ShutterSpeed {
                 .capabilities()
                 .exposure
                 .as_ref()
-                .and_then(|domain| domain.shutter_speeds.first())
-                .map_or(0, |entry| entry.value),
+                .and_then(|domain| domain.shutter_codes.as_ref())
+                .map_or(0, |domain| domain.min()),
         )
         .expect("profile shutter code")
     }
@@ -234,7 +234,7 @@ impl Sample for types::Kelvin {
                 .capabilities()
                 .white_balance
                 .as_ref()
-                .and_then(|domain| domain.color_temp_range)
+                .and_then(crate::capabilities::WhiteBalanceCaps::color_temperature_range)
                 .map_or(2500, |range| range.min()),
         )
         .expect("temperature")
@@ -448,19 +448,12 @@ macro_rules! source_agreement_row {
                     admitted += 1;
                     $coverage.record::<$ret>(row, &frame);
                     $coverage.check_other_encoding_targets(&request, $profile, &$index);
-                    assert!(row_gate(row).validate($profile, "admitted command discovery").is_ok(),
+                    assert!(row_gate(row).validate_command(row, $profile, "admitted command discovery").is_ok(),
                         "{} {:?} admits a request its discovery gate refuses", $profile.name(), row);
                     let prepared = prepare!($kind, &request, $profile);
-                    if $profile.capabilities().profile_id == Some(crate::profiles::ProfileId::GenericVisca)
-                        && matches!(row, BuiltinCommand::PanTiltHome | BuiltinCommand::PanTiltReset | BuiltinCommand::PresetRecall)
-                    {
-                        assert!(matches!(prepared, Err(crate::Error::FeatureNotSupported { .. })),
-                            "{row:?} requires pan/tilt settlement");
-                    } else {
-                        assert!(prepared.is_ok(), "{} {:?} passed target validation but failed class-specific preparation: {prepared:?}",
-                            $profile.name(), row);
-                    }
-                    if row_gate(row).validate(&$denied, "denied command discovery").is_err() {
+                    assert!(prepared.is_ok(), "{} {:?} passed target validation but failed class-specific preparation: {prepared:?}",
+                        $profile.name(), row);
+                    if row_gate(row).validate_command(row, &$denied, "denied command discovery").is_err() {
                         builtin::reset_request_write_count();
                         let result = prepare!($kind, &request, &$denied);
                         assert!(result.is_err(), "{row:?}: missing permissions admitted a command");
@@ -471,7 +464,7 @@ macro_rules! source_agreement_row {
             }
         });
         let expected = <$ret as BuiltinRequestContract>::LEDGER_ROWS.iter()
-            .any(|row| row_gate(*row).validate($profile, "canonical command family").is_ok());
+            .any(|row| row_gate(*row).validate_command(*row, $profile, "canonical command family").is_ok());
         assert_eq!(admitted > 0, expected,
             "{} {} must have a positive frame exactly when its discovery gate is granted",
             $profile.name(), std::any::type_name::<$ret>());
@@ -488,7 +481,7 @@ macro_rules! family_coverage {
 macro_rules! gate_tests {
     ($(@noun $noun:ident { $($header:tt)* };
        $($(#[$row_doc:meta])* $kind:ident [$key:ident] $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];)*)*
-       @exceptions; $($exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty;)*) => {
+    ) => {
         #[test]
         fn every_preflight_admitted_builtin_value_has_exact_positive_source_and_literal_family_coverage() {
             let index = crate::source_evidence::checked::Index::parse(include_str!("../docs/visca_reference.md"))
@@ -508,7 +501,7 @@ macro_rules! gate_tests {
             assert_eq!(coverage.surfaces, TypedSupportSurface::ALL.into_iter().collect(),
                 "every declared typed permission must gate a canonical row or argument");
             for (_, row) in &coverage.selected {
-                if row_gate(*row).validate(&denied, "denied command discovery").is_err() {
+                if row_gate(*row).validate_command(*row, &denied, "denied command discovery").is_err() {
                     assert!(coverage.denied.contains(row), "{row:?}: missing negative preflight witness");
                 }
             }

@@ -548,16 +548,16 @@ InvalidAddress//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(Fail
 InvalidAddress//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
 InvalidAddress//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
 InvalidAddress//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
-UnsupportedTransport//bare	Unsupported	false	None	Abandon
-UnsupportedTransport//WithContext	Unsupported	false	None	Abandon
-UnsupportedTransport//InquiryFailed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
-UnsupportedTransport//TransportError	Transport	false	None	Resubmit { after: 50ms }
-UnsupportedTransport//SettlementObservationFailed	Unsupported	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
-UnsupportedTransport//CancellationObservationFailed	Unsupported	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
-UnsupportedTransport//TransmissionNotSent/NotAccepted	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
-UnsupportedTransport//TransmissionNotSent/FailedConclusively	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
-UnsupportedTransport//TransmissionNotSent/StillLive	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
-UnsupportedTransport//TransmissionNotSent/Unconfirmed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
+UnsupportedTransport/built-in or custom profile/bare	Unsupported	false	None	Abandon
+UnsupportedTransport/built-in or custom profile/WithContext	Unsupported	false	None	Abandon
+UnsupportedTransport/built-in or custom profile/InquiryFailed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+UnsupportedTransport/built-in or custom profile/TransportError	Transport	false	None	Resubmit { after: 50ms }
+UnsupportedTransport/built-in or custom profile/SettlementObservationFailed	Unsupported	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
+UnsupportedTransport/built-in or custom profile/CancellationObservationFailed	Unsupported	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
+UnsupportedTransport/built-in or custom profile/TransmissionNotSent/NotAccepted	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
+UnsupportedTransport/built-in or custom profile/TransmissionNotSent/FailedConclusively	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
+UnsupportedTransport/built-in or custom profile/TransmissionNotSent/StillLive	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
+UnsupportedTransport/built-in or custom profile/TransmissionNotSent/Unconfirmed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
 MissingRuntime//bare	Unsupported	false	None	Abandon
 MissingRuntime//WithContext	Unsupported	false	None	Abandon
 MissingRuntime//InquiryFailed	Unsupported	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon

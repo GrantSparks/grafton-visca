@@ -459,7 +459,14 @@ proptest! {
         events in prop::collection::vec((0u8..5, 0u16..40_000), 1..160),
     ) {
         use std::collections::BTreeSet;
-        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let mut configured = policy(EnvelopeKind::Sony, TransportKind::Datagram);
+        // This model bypasses the owner permit pool and may admit once per event.
+        configured.capacity = std::num::NonZeroUsize::new(events.len()).unwrap();
+        let mut engine = ProtocolEngine::new(
+            configured,
+            target_policies(&[camera(1), camera(2)], TargetPolicy::test_default()),
+            Instant::now(),
+        ).unwrap();
         let mut written = BTreeMap::<RequestId, u32>::new();
         let mut accepted = BTreeSet::<RequestId>::new();
         let mut now = Instant::now();
@@ -469,7 +476,7 @@ proptest! {
             let input = match action {
                 0 => {
                     ticket += 1;
-                    Input::Admit { ticket: AdmissionTicket(ticket), request: command(1), slot: AdmissionSlot::Ordinary }
+                    Input::Admit { ticket: AdmissionTicket(ticket), request: command(1) }
                 }
                 1 => Input::ReceiveFault { error: Error::transport_error(std::io::Error::other("model receive fault")) },
                 2 | 3 if !written.is_empty() => {

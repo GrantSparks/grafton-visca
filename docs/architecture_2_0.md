@@ -120,8 +120,8 @@ and grows when necessary to cover that full attempt; untuned built-in budgets
 are unchanged. Completion-only commands and inquiries keep their one response
 window. Default observers cover the resulting retry budget (#842).
 The owner/engine consumes that context without reselecting or inventing a
-deadline. `TransportConfig` carries I/O timeouts, buffer bounds, and socket
-options. Transport kind, send semantics, and VISCA addressing come from the
+deadline. `IoBounds` carries checked I/O timeouts and buffer bounds. `TcpConnect` and
+`UdpConnect` carry the socket options used while connecting. Transport kind, send semantics, and VISCA addressing come from the
 required `HasTransportConfig::identity()` descriptor; the configuration has no
 addressing field and does not own protocol retry or completion policy.
 
@@ -204,10 +204,13 @@ completion and cancellation support, preset axes and position inquiries.
 A custom profile cannot claim a built-in identity after changing any of those
 facts. `camera::<AnyProfile>(target)` retains runtime validation instead of
 making compile-time capability claims.
-Profile validation and settlement preparation share one axis-to-inquiry
-declaration and its canonical noun gates; a declared IRIS position inquiry or
-preset recall axis requires the `Iris` grant (#937). Targeted preparation proves
-axis and inquiry availability eagerly, but retains only immutable polling inputs.
+A targeted noun permits work whose affected axes are all in the profile's
+settlement set. Exact completion settles the profile's supported axes.
+Otherwise the set contains its permitted position inquiries. Profile validation
+checks the canonical inquiry gates, including the `Iris` grant for iris polling,
+and refuses a typed grant whose targeted rows could not settle. An unresolved
+domain-only row is withheld. Targeted preparation retains immutable polling
+inputs.
 The first `settled()` wait that needs position evidence prepares the selected
 query templates and caches them for later waits. The captured registration and
 validated tuning remain those from submission, including after live retuning;
@@ -232,9 +235,9 @@ hatch from the standard profile/transport pair matrix. It still undergoes
 target-registry, envelope, addressing/topology, pacing, framing, buffer, and
 bounded-owner validation. The adapter reads this descriptor before transport
 configuration and performs its topology check once, deriving wire addressing
-and write-failure policy from the same identity. Wrappers, including both
-transport-handle enums, forward the inner identity with its serial Address Set
-bus report.
+and write-failure policy from the same identity. Wrappers such as
+`runtime::TransportHandle` forward the inner identity with its serial
+Address Set bus report.
 
 The owner supplies complete framed packets to transport writes.
 `BlockingTransport::send_with_timeout(&mut self, bytes, timeout)` takes no
@@ -577,15 +580,17 @@ that sent it:
 - A frame that pays the STOP's debt while another request could have sent
   it is *handed off*: it was the STOP's late answer, or the next waiting
   request's own, so that request is disputed in turn and the frame is kept
-  for it (with any completion or error naming the socket its ACK named,
-  which also frees that socket). At most three hand-offs are followed.
+  for it. With named completions, a terminal naming the ACK's socket
+  follows that ACK and frees the socket. Without that evidence, a
+  rejection-class error naming the socket disputes a waiting command that
+  could have earned the error. At most three hand-offs are followed.
 - A disputed command waits one ambiguity interval past its ACK deadline for
   the proof before it ends unconfirmed.
 - Once every request the dispute names has ended, and one ambiguity interval
   with it, the dispute goes *dormant*: it falls to the latch below and no
   longer holds anything back — the camera's command lane latches through the
-  debts, its inquiry lane too while the `CompletionOnly` command is not
-  proven accepted, so queued and new inquiries fail at once with
+  debts. All inquiry classes also latch while acceptance of the
+  `CompletionOnly` command is still unproven, so queued and new inquiries fail at once with
   `InquiryCorrelationLost` rather than waiting out their deadlines — while a
   late answer can still settle it and reopen the lanes.
 
@@ -674,8 +679,10 @@ so lowering capacity cannot forget an older execution, while a one-socket
 session gains no phantom second hold. Existing socket owners and the newly
 accepted live request end unconfirmed through the usual
 strict-policy path; a paid debt or disputed ACK keeps the same execution
-holds. Socketless completions cannot release this anonymous union, while
-named socket evidence restores exact correlation. STOP delivery continues.
+holds. Named socket evidence restores exact correlation. The per-target
+upper bound on owed terminals also releases every stale socket hold when it
+proves that no terminal remains and no live socket owner can claim old
+correlation evidence. STOP delivery continues.
 
 A tracked dispute is also decided where the engine learns who sent nothing
 or who completed, and its frames are then assigned at once:
@@ -877,10 +884,17 @@ old frame to a successor. An ACK reusing a held socket proves that predecessor
 ended, but does not prove whose earlier completion arrived; reuse therefore
 discards that ambiguous attribution instead of completing the other owner
 by guess. A missing terminal, an intervening execution error, or socket reuse
-can still leave a socket ambiguity unconfirmed. A
-`CompletionOnly` completion can still be lost to that ambiguity and latch the
-command lane. A camera that names its sockets (the PTZOptics G2 sends
-`90 51 FF` and `90 52 FF`) does not pay these availability costs (#858).
+can still leave a socket ambiguity unconfirmed. Each target tracks bounds
+on terminals the camera owes. Every ACK adds one within proven socket
+capacity and each written `CompletionOnly` command adds another. A definite
+terminal reduces the bound even when it has no attributable request. An
+ambiguous rejection reduces only the lower bound until further evidence
+proves it ended an execution. Once the upper bound is zero, stale holds can
+no longer intercept a successor's answers. The count alone assigns no
+outcome to a live request. A `CompletionOnly` completion can still be lost to
+ambiguity and latch the command lane. A camera that names its sockets (the
+PTZOptics G2 sends `90 51 FF` and `90 52 FF`) avoids the socketless
+availability cost.
 
 Datagram transports cannot rely on order (a datagram may be lost) and keep
 the time-bounded holds; the Sony envelope correlates by sequence.
@@ -963,11 +977,10 @@ retains any later input. The Sony framer supplies the decoded payload type
 and sequence with its validated frame span. A single stream read that decodes more than `frames_per_receive` frames stops at the limit and
 leaves the remaining complete frames buffered for the next receive (the framer
 retains bytes across reads, bounded by `max_buffer_size + recv_buffer_size`), rather than failing
-`ResponseTooLarge` over a large-but-valid burst. A single-target IP session,
-which carries no routable source, accepts any `0x9y..=0xFy` reply source and
-attributes it to its sole target, so a camera configured with a non-default
-chain address still settles its command (#590/#598); the strict `0x90` check is
-kept only when more than one target is registered.
+`ResponseTooLarge` over a large-but-valid burst. An IP session attributes every
+`0x9y..=0xFy` reply source to the single target established at preflight.
+This also lets a camera with a non-default chain address settle its commands
+(#590/#598).
 
 At an ambiguity-expiry boundary on a byte stream, already complete buffered
 frames are classified and correlated before the due release. Retained partial
@@ -1043,7 +1056,7 @@ single stored `Lifecycle` value owns the phase-local attempt facts and legal
 cancellation substate
 (`src/runtime/engine/lifecycle.rs`, #836). `Phase` and `CancelState` are
 flattened read-only diagnostic/test projections, never independently stored
-entry fields. The public diagnostic phase vocabulary is unchanged.
+entry fields. Every engine phase has its own public diagnostic phase.
 Production code classifies lifecycles with lifecycle predicates; `Phase` is
 diagnostic only.
 The tables below follow the exhaustive lifecycle transitions in
@@ -1173,11 +1186,16 @@ an exhaustive halt preparation arm before the crate compiles (#999).
 
 ### Transition table
 
+The owner's permit pool decides capacity before engine admission. Each target
+reserves one permit per supported typed STOP. An urgent STOP takes a target
+reserve permit first, then an ordinary permit if the reserve is held. The pool
+reports `Error::RuntimeQueueFull` to ordinary work when the ordinary budget is
+full and `Error::ControlReserveExhausted` to urgent STOPs when both budgets
+are full (D26, #778).
+
 | Input / state | Transition or result |
 | --- | --- |
-| Admit while `Running`, within capacity, target registered, policy compatible | Allocate a non-colliding `RequestId`, create one `Ready` lifecycle with no cancellation substate, enqueue it, and return its `RequestId` directly. No write happens here. |
-| Admit over ordinary capacity | Reject with `Error::RuntimeQueueFull`; no id, entry, observer, or queue slot is created. |
-| Admit an urgent typed STOP into its target's control reserve | Admit while that target's reserved entries are below its reserve (one per supported typed STOP); otherwise reject with `Error::ControlReserveExhausted`. Only an urgent request may hold a reserved slot (D26, #778). |
+| Admit a compatible request with an owner permit while `Running` | Allocate a non-colliding `RequestId`, create one `Ready` lifecycle with no cancellation substate, enqueue it, and return its `RequestId` directly. No write happens here. |
 | Admit with the request identity space exhausted | Reject with `Error::RuntimeIdentityExhausted`. |
 | Admit to a non-`Running` session | Reject with the session's terminal error (or `Error::RuntimeShutdown`). |
 | Select a `Ready` request | Transition to `Sending`, allocate one `TransmissionId`, emit exactly one request `Transmit` (Sony carries its retained sequence; raw carries none). |
@@ -1231,7 +1249,7 @@ an exhaustive halt preparation arm before the crate compiles (#999).
 | A transient raw receive fault in `AwaitingAck` with no recorded cancel intent, or any raw unconfirmed-recovery trigger above, under the `strict_unconfirmed_poison` opt-in | Poison the session and report `Error::StreamPoisoned`, restoring the pre-#671 behavior. A recorded cancel instead follows its live cancellation-resolution path and poisons only if that deadline remains unconfirmed. |
 | Sony retry exhaustion or budget expiry after a lost ACK and later rejection | Preserve the exact rejection as the source of `RequestUnconfirmed` (`Terminal`/`Unconfirmed`, `Reconcile`). Pure-rejection histories retain the bare rejection and its recovery (#962). |
 | Retry becomes eligible (`Backoff` → ready) | Return to `Ready` and dispatch through the ordinary capacity and pacing gates. |
-| Owner halt fence over a `Ready` or `Backoff` request, a retry decision for a fenced request, or admission of a fenced submission | `finish` (or reject admission) with `Error::MotionSuperseded`. Its context is `PreAdmission`/`NotAccepted` for a rejected submission; otherwise `Terminal`, with `NotAccepted` when no written attempt can have taken effect (never written, or every written attempt rejected before ACK) and `Unconfirmed` when an earlier attempt lost its ACK, completion, or receive path (#795). |
+| Owner halt fence over a `Ready` or `Backoff` request, a retry decision for a fenced request, or admission of a fenced submission | `finish` (or reject admission) with `Error::MotionSuperseded`. Its `axes` are the request’s declared axes that the halt fence covers. Its context is `PreAdmission`/`NotAccepted` for a rejected submission; otherwise `Terminal`, with `NotAccepted` when no written attempt can have taken effect (never written, or every written attempt rejected before ACK) and `Unconfirmed` when an earlier attempt lost its ACK, completion, or receive path (#795). |
 | Cancel in `Ready` or `Backoff` | Remove without I/O; emit `CancellationRecorded`. Finish `Cancelled` only when every earlier attempt is conclusively rejected or unwritten; otherwise finish `CancellationUnconfirmed` and fail its observation (#962). |
 | Cancellation decision for a `Sending` command | Refuse with `CancellationNotSupported`; this state cannot record intent. A public cancellation arriving during a transport write is processed only after its result, under the resulting lifecycle (#860). |
 | Cancel in `AwaitingAck` (supported target) | Record requested intent, suppress retries, and wait for socket assignment or the later of the ACK and cancellation ambiguity deadlines (#835). |
@@ -1380,12 +1398,11 @@ or queue (#856, #859).
 
 ## Scheduling and async source arbitration
 
-Ordinary requests carry their intrinsic scheduling `ControlClass`. Typed
-STOPs are lowered to the engine’s ACK-bearing `Stop` class; cancellation is
-owner-issued wire traffic. That safety authority is separate from caller QoS.
-Camera handles and individual calls may choose a `SubmissionClass` for ordinary
-traffic (`Background`, `Normal`, or `User`). The public QoS type has no urgent
-variant, and both override forms preserve an intrinsically urgent request.
+Ordinary requests select a `SubmissionClass` (`Background`, `Normal`, or
+`User`) in their policy. A camera handle or individual call may override that
+ordinary class. Typed STOPs and owner-issued cancellation always use the
+urgent lane. Preparation lowers typed STOPs to the engine’s ACK-bearing
+`Stop` class.
 Within each effective class the owner retains admission order; class selection
 only chooses the next eligible queued write and never interrupts in-flight I/O.
 Urgency bypasses ordinary admission backlog, not command-to-command physical
@@ -1548,8 +1565,8 @@ fault and spending no retry budget). Reads that already waited for their full
 budget do not receive an extra pause or spend the receive-flood fairness streak.
 When a pause ends at a response or grace deadline, one receive-first probe
 preserves complete input before the due pass. Fault pauses are armed before
-write effects; staging the next transmission clears its receive pause, while
-a successful write resets idle escalation (#838).
+write effects. A successful write ends the receive pause and resets idle
+escalation. A failed or unsent write preserves the pause (#838).
 The coordinator paces only the receive
 source, so boundaries, timers, and control stay selectable during the pause in
 both shells, and an eager custom driver cannot hot-spin either owner (#723).
@@ -1669,8 +1686,9 @@ controls, not camera requests; the serial handshake owns them before the target
 registry starts. Address Set treats an oversized delimiter-framed input as
 discarded bus noise after the framer has resynchronized, then continues the
 current scan or a remaining bounded attempt. Socket cancellation is likewise owner-only because only the
-owner knows which live operation owns a camera-assigned socket. None of those
-three wire primitives is exposed as a generic `request::builtin` command.
+owner knows which live operation owns a camera-assigned socket. The ledger
+classifies all three wire primitives as `OwnerOnly` and generates no
+`Request` for them.
 
 ## Preserved implementation boundaries
 

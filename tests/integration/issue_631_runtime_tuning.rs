@@ -370,7 +370,7 @@ mod paused {
             let tuning = OperationalTuning::new()
                 .with_ack_timeout(WIDE_ACK_TIMEOUT)
                 .with_quick_timeout(Duration::from_secs(9))
-                .with_retry_limit(2);
+                .with_retry_limit(grafton_visca::tuning::RetryLimit::new(2).expect("valid retry limit"));
             wait!(session.set_tuning(tuning)).expect("accepted");
             assert_eq!(session.tuning(), tuning, "the getter reports what was set");
             assert_eq!(
@@ -436,8 +436,6 @@ mod paused {
                 OperationalTuning::new().with_ack_timeout(Duration::from_millis(1)),
                 // A zero deadline is never a deadline.
                 OperationalTuning::new().with_quick_timeout(Duration::ZERO),
-                // Tuning may only lower the default base retry count of 3.
-                OperationalTuning::new().with_retry_limit(4),
                 // An initial backoff outside the effective ceiling.
                 OperationalTuning::new().with_initial_retry_backoff(Duration::from_secs(2)),
                 // A retry budget below the profile floor.
@@ -538,11 +536,13 @@ mod concurrent_async_updates {
         let first = OperationalTuning::new()
             .with_ack_timeout(Duration::from_millis(500))
             .with_quick_timeout(Duration::from_secs(9))
-            .with_retry_limit(1);
+            .with_retry_limit(
+                grafton_visca::tuning::RetryLimit::new(1).expect("valid retry limit"),
+            );
         let second = OperationalTuning::new()
             .with_ack_timeout(Duration::from_millis(900))
             .with_quick_timeout(Duration::from_secs(11))
-            .with_retry_limit(3);
+            .with_retry_limit(grafton_visca::tuning::RetryLimit::MAX);
 
         for _ in 0..16 {
             let left = session.set_tuning(first);

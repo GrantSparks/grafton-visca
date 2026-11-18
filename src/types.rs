@@ -35,9 +35,9 @@ use crate::error::Error;
 
 /// Gain code for direct gain control.
 ///
-/// The union domain includes BRC-H900 codes through `0x19` (R11 p. 36).
+/// The two-nibble register carries a full byte.
 /// Request preparation checks the selected profile's gain range.
-#[crate::value(min = 0x00, max = 0x19, display = "Gain Level {:#04x}")]
+#[crate::value(min = 0x00, max = 0xFF, display = "Gain Level {:#04x}")]
 pub struct GainLevel(u8);
 
 /// Maximum automatic gain code, checked against the selected profile at preparation.
@@ -55,13 +55,14 @@ pub struct NoiseReduction3DLevel(u8);
 /// Iris code in the union of the built-in profiles' direct iris domains.
 ///
 /// Request preparation checks the selected profile's iris range.
-#[crate::value(min = 0x00, max = 0x1E, display = "Iris {:#04x}")]
+#[crate::value(min = 0x00, max = 0xFF, display = "Iris {:#04x}")]
 pub struct IrisLevel(u8);
 
 /// Shutter code carried by a two-nibble shutter field.
 ///
 /// Every byte is a syntactically valid code. The selected profile's shutter
-/// table determines the exposure time and whether the code is supported.
+/// code domain determines which codes can be sent. A separate time table,
+/// when sourced, maps codes to exposure times.
 #[crate::value(min = 0, max = 255, display = "Shutter {:#04x}")]
 pub struct ShutterSpeed(u8);
 
@@ -289,49 +290,6 @@ impl PositionSpeeds {
         };
         PanTiltSpeed::new(PanSpeed(pan), TiltSpeed(tilt))
     }
-}
-
-/// Descriptive F-stop values for iris control.
-///
-/// The value encoding identifies an F-stop; it is not a camera's iris code.
-/// The selected profile's iris table supplies any physical-to-code mapping.
-#[crate::value_enum]
-pub enum FStop {
-    /// Iris completely closed.
-    Closed = 0,
-    /// F/11, a small aperture opening.
-    F11 = 1,
-    /// F/9.6.
-    #[value(display = "F9.6")]
-    F9_6 = 2,
-    /// F/8.
-    F8 = 3,
-    /// F/6.8.
-    #[value(display = "F6.8")]
-    F6_8 = 4,
-    /// F/5.6.
-    #[value(display = "F5.6")]
-    F5_6 = 5,
-    /// F/4.8.
-    #[value(display = "F4.8")]
-    F4_8 = 6,
-    /// F/4.
-    F4 = 7,
-    /// F/3.4.
-    #[value(display = "F3.4")]
-    F3_4 = 8,
-    /// F/2.8.
-    #[value(display = "F2.8")]
-    F2_8 = 9,
-    /// F/2.4.
-    #[value(display = "F2.4")]
-    F2_4 = 10,
-    /// F/2.
-    #[value(display = "F2.0")]
-    F2 = 11,
-    /// F/1.8, a wide aperture opening.
-    #[value(display = "F1.8")]
-    F1_8 = 12,
 }
 
 /// NDI streaming quality setting.

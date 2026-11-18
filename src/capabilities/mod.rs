@@ -32,9 +32,9 @@ pub use encodings::*;
 pub use exposure::ShutterSpeedEntry;
 pub use pan_tilt::PanTiltWireCodec;
 pub use profile_metadata::{
-    Domain, DomainSet, HasExposure, HasFocus, HasImage, HasMenu, HasPanTilt, HasPower, HasPresets,
-    HasWhiteBalance, HasZoom, InquirySupport, SupportsSerial, SupportsTcp, SupportsUdp,
-    TransportSet,
+    Domain, DomainSet, HasExposure, HasFocus, HasFocusSettlement, HasImage, HasMenu, HasPanTilt,
+    HasPanTiltSettlement, HasPower, HasPresetRecallSettlement, HasPresets, HasWhiteBalance,
+    HasZoom, SettlementSupport, SupportsSerial, SupportsTcp, SupportsUdp, TransportSet,
 };
 pub(crate) use typed_support::typed_surface;
 pub use typed_support::{TypedSupportSet, TypedSupportSurface};

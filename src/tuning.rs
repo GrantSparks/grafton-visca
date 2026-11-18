@@ -4,11 +4,18 @@ use std::time::Duration;
 
 use crate::{profiles::RetryBounds, timeout::CommandTimeoutClass};
 
+/// A checked override for the base retry count, from zero to three.
+///
+/// Requests still derive their effective retry count from their class and
+/// timeout category.
+#[crate::value(min = 0, max = 3)]
+pub struct RetryLimit(#[cfg_attr(feature = "ts-rs", ts(type = "0 | 1 | 2 | 3"))] u8);
+
 /// Operational overrides that cannot change request or profile semantics.
 ///
 /// Tuning contains no request class, route, decoder, cancellation capability,
-/// or completion-kind fields. Every value is validated against a profile before
-/// it is lowered.
+/// or completion-kind fields. Fixed bounds are checked by their value types, and
+/// profile-dependent bounds are validated against the profile before use.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -36,7 +43,7 @@ pub struct OperationalTuning {
     settlement_timeout: Option<Duration>,
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number } | null"))]
     inquiry_timeout: Option<Duration>,
-    retry_limit: Option<u32>,
+    retry_limit: Option<RetryLimit>,
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number } | null"))]
     initial_retry_backoff: Option<Duration>,
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number } | null"))]
@@ -161,9 +168,8 @@ impl OperationalTuning {
 
     /// Lowers the base bounded retry count.
     ///
-    /// The default base is 3, and tuning may only reduce it:
-    /// [`crate::profiles::ProfileSpec::validate_tuning`] rejects a larger value, so tuning can
-    /// never make retries more aggressive than the default. Each request's own
+    /// The default base is 3, the largest value accepted by [`RetryLimit`].
+    /// Each request's own
     /// budget is derived from this base by its timeout category: quick and
     /// inquiry work gets two more attempts, network work one fewer (at least
     /// one), and a long-running command exactly one, so the effective count is
@@ -172,7 +178,7 @@ impl OperationalTuning {
     /// [`crate::request::InquiryRetryClass::Never`] is never replayed
     /// regardless of this value.
     #[must_use]
-    pub const fn with_retry_limit(mut self, maximum: u32) -> Self {
+    pub const fn with_retry_limit(mut self, maximum: RetryLimit) -> Self {
         self.retry_limit = Some(maximum);
         self
     }
@@ -269,7 +275,7 @@ impl OperationalTuning {
 
     /// Returns the optional retry limit override.
     #[must_use]
-    pub const fn retry_limit(self) -> Option<u32> {
+    pub const fn retry_limit(self) -> Option<RetryLimit> {
         self.retry_limit
     }
 
@@ -306,7 +312,8 @@ impl OperationalTuning {
     /// override may only reduce it.
     #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn reduce_retry_base(self, default: u32) -> u32 {
-        self.retry_limit.map_or(default, |limit| limit.min(default))
+        self.retry_limit
+            .map_or(default, |limit| u32::from(limit.value()).min(default))
     }
 }
 
@@ -346,7 +353,7 @@ mod tests {
             .with_network_timeout(duration)
             .with_settlement_timeout(duration)
             .with_inquiry_timeout(duration)
-            .with_retry_limit(2)
+            .with_retry_limit(RetryLimit::new(2).expect("retry limit"))
             .with_initial_retry_backoff(duration)
             .with_maximum_retry_backoff(duration)
             .with_retry_budget(duration);
@@ -354,7 +361,7 @@ mod tests {
             tuning.maximum_command_sockets(),
             Some(crate::CommandSocketCount::ONE)
         );
-        assert_eq!(tuning.retry_limit(), Some(2));
+        assert_eq!(tuning.retry_limit().map(RetryLimit::value), Some(2));
         for value in [
             tuning.command_spacing(),
             tuning.inquiry_spacing(),
@@ -374,6 +381,17 @@ mod tests {
         }
     }
 
+    #[test]
+    fn retry_limit_checks_its_fixed_domain() {
+        for limit in 0..=3 {
+            let value = RetryLimit::new(limit).expect("in-range retry limit");
+            assert_eq!(value.value(), limit);
+        }
+        for limit in [4, 99] {
+            assert!(RetryLimit::new(limit).is_err());
+        }
+    }
+
     #[cfg(feature = "serde")]
     #[test]
     fn tuning_persistence_has_fifteen_optional_settings_and_no_unchecked_fields() {
@@ -382,6 +400,14 @@ mod tests {
             assert!(
                 serde_json::from_value::<OperationalTuning>(serde_json::json!({
                     "maximum_command_sockets": count
+                }))
+                .is_err()
+            );
+        }
+        for limit in [-1, 4, 99] {
+            assert!(
+                serde_json::from_value::<OperationalTuning>(serde_json::json!({
+                    "retry_limit": limit
                 }))
                 .is_err()
             );
@@ -409,7 +435,7 @@ mod tests {
         let saved = OperationalTuning::new()
             .with_maximum_command_sockets(crate::types::CommandSocketCount::ONE)
             .with_quick_timeout(Duration::new(12, 345))
-            .with_retry_limit(2)
+            .with_retry_limit(RetryLimit::new(2).expect("retry limit"))
             .with_retry_budget(Duration::from_secs(30));
         assert_eq!(
             serde_json::to_value(saved).expect("serialize populated tuning"),
@@ -439,6 +465,15 @@ mod tests {
                 "TypeScript omits {key}: {declaration}"
             );
         }
+        assert!(
+            declaration.contains("retry_limit: RetryLimit | null"),
+            "{declaration}"
+        );
+        let retry_limit = schemars::schema_for!(RetryLimit);
+        assert_eq!(retry_limit.as_value()["minimum"], 0);
+        assert_eq!(retry_limit.as_value()["maximum"], 3);
+        let retry_limit = <RetryLimit as ts_rs::TS>::decl(&ts_rs::Config::default());
+        assert!(retry_limit.contains("0 | 1 | 2 | 3"), "{retry_limit}");
         assert!(declaration.contains("secs: number"), "{declaration}");
         assert!(declaration.contains("nanos: number"), "{declaration}");
     }

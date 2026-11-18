@@ -2,6 +2,7 @@
 use super::*;
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::owner::turn::{ReceiveClass, Selected};
+use crate::transport::IoBounds;
 
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test(start_paused = true)]
@@ -211,16 +212,15 @@ async fn accepted_io_timeouts_saturate_after_the_owner_clock_advances() {
     let initial = Instant::now();
     let latest = crate::timeout::saturating_deadline(initial, Duration::MAX);
     let timeout = latest.duration_since(initial) / 2;
-    let config = crate::transport::TransportConfig {
-        read_timeout: timeout,
-        write_timeout: timeout,
-        ..crate::transport::TransportConfig::default()
-    };
-    let config = config.validated().unwrap();
+    let config = IoBounds::default()
+        .with_read_timeout(timeout)
+        .unwrap()
+        .with_write_timeout(timeout)
+        .unwrap();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let mut owner_policy = policy(1);
-    owner_policy.read_timeout = config.read_timeout;
-    owner_policy.write_timeout = config.write_timeout;
+    owner_policy.read_timeout = config.read_timeout_bound();
+    owner_policy.write_timeout = config.write_timeout_bound();
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
     runtime.advance(timeout + Duration::from_secs(1));
     let now = Executor::now(&runtime);

@@ -15,7 +15,7 @@ macro_rules! testkit_utility_exports {
             };
 
             all(feature = "test-utils", feature = "async") => crate::testing::manual_clock {
-                LocalExecutor, ManualClockExecutor, ManualClockTimer, TaskJoin,
+                LocalExecutor, ManualClockExecutor, ManualClockTimer,
             };
 
             feature = "test-utils" => scripted_transport {

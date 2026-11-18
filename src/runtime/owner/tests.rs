@@ -1,5 +1,6 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+use crate::observability::DiagnosticCapacity;
 use crate::runtime::engine::AdmissionTicket;
 
 use std::time::Duration;
@@ -27,14 +28,9 @@ pub(super) struct DiagnosticRecorder {
 impl DiagnosticRecorder {
     pub(super) fn new(state: &mut OwnerState) -> Self {
         let (_, ends) = boundary::OwnerHandleCore::new(state);
-        let capacity = state
-            .facts()
-            .limits
-            .diagnostic_events_per_subscription
-            .get();
         Self {
             subscription: state
-                .subscribe_diagnostics(capacity, ends.lifecycle)
+                .subscribe_diagnostics(DiagnosticCapacity::MAX, ends.lifecycle)
                 .unwrap(),
             observed: std::cell::RefCell::new(Vec::new()),
         }
@@ -247,13 +243,18 @@ fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
 #[test]
 fn construction_and_retuning_have_identical_limits_for_every_profile_and_serial_registry() {
     let now = Instant::now();
-    let config = crate::transport::ValidatedTransportConfig::default();
-    let identity = crate::transport::TransportIdentity::Custom {
-        semantics: crate::transport::SendSemantics::Stream,
-        addressing: crate::transport::AddressingMode::Serial,
-    };
+    let config = crate::transport::IoBounds::default();
     let check = |profiles: PerTarget<Option<&crate::ProfileSpec>>| {
         let registered = || profiles.iter().filter_map(|(_, profile)| *profile);
+        let wire = validate_profile_registry_topology(
+            &profiles,
+            crate::transport::TransportIdentity::Custom {
+                semantics: crate::transport::SendSemantics::Stream,
+                addressing: crate::transport::AddressingMode::Serial,
+            },
+        )
+        .unwrap()
+        .wire();
         let baseline = TuningBaseline::from_registry(&profiles);
         for tuning in [
             crate::OperationalTuning::new(),
@@ -269,7 +270,8 @@ fn construction_and_retuning_have_identical_limits_for_every_profile_and_serial_
             let policy = adapter::owner_policy_for_registry_with_tuning(
                 &profiles,
                 &config,
-                identity,
+                wire.clone(),
+                TransportKind::Stream,
                 validated,
                 crate::DEFAULT_ADMISSION_CAPACITY,
                 false,
@@ -283,7 +285,8 @@ fn construction_and_retuning_have_identical_limits_for_every_profile_and_serial_
             let policy = adapter::owner_policy_for_registry_with_tuning(
                 &profiles,
                 &config,
-                identity,
+                wire.clone(),
+                TransportKind::Stream,
                 initial,
                 crate::DEFAULT_ADMISSION_CAPACITY,
                 false,
@@ -395,6 +398,7 @@ mod control_reserve {
             control: ControlPolicy::default(),
         };
         RuntimeRequest::Command {
+            not_executable: false,
             reply_shape,
             context,
             wire: Arc::new(
@@ -730,12 +734,6 @@ mod metrics {
             total_budget: Some(
                 crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(10)).unwrap(),
             ),
-            ack_timeout: true,
-            completion_timeout: true,
-            inquiry_timeout: true,
-            buffer_full: true,
-            movement_not_executable: true,
-            builtin_inquiry_syntax: true,
         }
     }
 
@@ -783,6 +781,7 @@ mod metrics {
 
     fn command(retry: RetryPolicy) -> RuntimeRequest {
         RuntimeRequest::Command {
+            not_executable: true,
             reply_shape: CommandReply::AckThenCompletion,
             wire: wire(),
             context: request_context(retry),
@@ -794,6 +793,7 @@ mod metrics {
         let mut context = request_context(retry);
         context.timeout.inquiry = crate::runtime::engine::NonZeroDuration::new(INQUIRY).unwrap();
         RuntimeRequest::Inquiry {
+            syntax: true,
             payload_shape: crate::PayloadShape::Unknown,
             wire: wire(),
             context,
@@ -877,8 +877,8 @@ mod metrics {
     fn plain_focus_command_emits_the_complete_public_event_sequence() {
         use crate::{
             observability::{
-                DiagnosticEvent as Event, DiagnosticLane, DiagnosticOutcome, DiagnosticPhase,
-                DiagnosticResponse,
+                DiagnosticCapacity, DiagnosticEvent as Event, DiagnosticLane, DiagnosticOutcome,
+                DiagnosticPhase, DiagnosticResponse,
             },
             prepared::{test_support::prepare_command, ClassSelection},
             profiles::GenericVisca,
@@ -889,9 +889,9 @@ mod metrics {
         let start = Instant::now();
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), start).unwrap();
         let (_, ends) = boundary::OwnerHandleCore::new(&state);
-        let subscription = crate::observability::DiagnosticSubscription::from_owner(
-            state.subscribe_diagnostics(128, ends.lifecycle).unwrap(),
-        );
+        let subscription = state
+            .subscribe_diagnostics(DiagnosticCapacity::MAX, ends.lifecycle)
+            .unwrap();
         let target = IndividualCameraId::CAMERA_1;
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let prepared = prepare_command(
@@ -1701,7 +1701,6 @@ mod metrics {
             Input::Admit {
                 ticket: crate::runtime::engine::AdmissionTicket(99),
                 request: motion,
-                slot: AdmissionSlot::Ordinary,
             },
             Instant::now(),
             EngineTurn::InputOnly,
@@ -2396,6 +2395,7 @@ mod lifecycle_trace {
 
     fn command(target: TargetSlot, wire: &str, ack: Duration) -> RuntimeRequest {
         RuntimeRequest::Command {
+            not_executable: false,
             reply_shape: CommandReply::AckThenCompletion,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
@@ -2424,6 +2424,7 @@ mod lifecycle_trace {
 
     fn inquiry(target: TargetSlot, wire: &str, reply: Duration) -> RuntimeRequest {
         RuntimeRequest::Inquiry {
+            syntax: false,
             payload_shape: crate::PayloadShape::Unknown,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {

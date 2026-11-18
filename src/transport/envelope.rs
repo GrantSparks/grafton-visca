@@ -360,6 +360,7 @@ pub(crate) enum MalformedFrame {
     Sony(SonyMalformed),
     InvalidSonyHeader,
     DatagramFrameLimit { limit: usize },
+    DatagramOversized,
     DatagramTrailingBytes,
 }
 

@@ -4,51 +4,7 @@
 //! and smol socket converts into on Unix and Windows alike, so each option is
 //! written once.
 
-use crate::transport::builder::{TcpKeepaliveConfig, ValidatedTransportConfig};
-
-/// The TCP projection of a [`ValidatedTransportConfig`].
-#[derive(Debug, Clone, Copy)]
-pub struct TcpConnectionConfig {
-    /// `TCP_NODELAY`; `None` keeps the operating-system default.
-    pub nodelay: Option<bool>,
-    /// IPv4 TTL / IPv6 hop limit; `None` keeps the operating-system default.
-    pub ttl: Option<u32>,
-    /// Budget for resolving and connecting.
-    pub connect_timeout: std::time::Duration,
-    /// TCP keepalive policy. When set, enables OS-level probes that detect
-    /// broken peers and may preserve idle network-path state. These probes are
-    /// not application-level VISCA traffic.
-    pub tcp_keepalive: Option<TcpKeepaliveConfig>,
-}
-
-impl From<ValidatedTransportConfig> for TcpConnectionConfig {
-    fn from(config: ValidatedTransportConfig) -> Self {
-        Self {
-            nodelay: config.as_config().tcp_nodelay,
-            ttl: config.as_config().ttl,
-            connect_timeout: config.connect_timeout.get(),
-            tcp_keepalive: config.as_config().tcp_keepalive,
-        }
-    }
-}
-
-/// The UDP projection of a [`ValidatedTransportConfig`].
-#[derive(Debug, Clone, Copy)]
-pub struct UdpSocketConfig {
-    /// IPv4 TTL / IPv6 hop limit; `None` keeps the operating-system default.
-    pub ttl: Option<u32>,
-    /// Budget for resolving and connecting.
-    pub connect_timeout: std::time::Duration,
-}
-
-impl From<ValidatedTransportConfig> for UdpSocketConfig {
-    fn from(config: ValidatedTransportConfig) -> Self {
-        Self {
-            ttl: config.as_config().ttl,
-            connect_timeout: config.connect_timeout.get(),
-        }
-    }
-}
+use crate::transport::{TcpConnect, TcpKeepaliveConfig, UdpConnect};
 
 /// Create a TCP socket with every option applied before its first packet.
 ///
@@ -56,7 +12,7 @@ impl From<ValidatedTransportConfig> for UdpSocketConfig {
 /// to this address attempt, just like an error from `connect` itself.
 pub(crate) fn configured_tcp_socket(
     address: std::net::SocketAddr,
-    config: TcpConnectionConfig,
+    config: TcpConnect,
 ) -> std::io::Result<socket2::Socket> {
     let socket = socket2::Socket::new(
         socket2::Domain::for_address(address),
@@ -71,19 +27,19 @@ pub(crate) fn configured_tcp_socket(
 pub(crate) fn apply_tcp_socket_options(
     socket: socket2::SockRef<'_>,
     address: std::net::SocketAddr,
-    config: TcpConnectionConfig,
+    config: TcpConnect,
 ) -> std::io::Result<()> {
-    if let Some(nodelay) = config.nodelay {
+    if let Some(nodelay) = config.nodelay() {
         socket.set_tcp_nodelay(nodelay)?;
     }
-    if let Some(ttl) = config.ttl {
+    if let Some(ttl) = config.ttl() {
         if address.is_ipv6() {
             socket.set_unicast_hops_v6(ttl)?;
         } else {
             socket.set_ttl_v4(ttl)?;
         }
     }
-    if let Some(keepalive) = config.tcp_keepalive {
+    if let Some(keepalive) = config.keepalive() {
         socket.set_tcp_keepalive(&tcp_keepalive(keepalive))?;
     }
     Ok(())
@@ -93,9 +49,9 @@ pub(crate) fn apply_tcp_socket_options(
 pub(crate) fn apply_udp_socket_options(
     socket: socket2::SockRef<'_>,
     address: std::net::SocketAddr,
-    config: UdpSocketConfig,
+    config: UdpConnect,
 ) -> std::io::Result<()> {
-    if let Some(ttl) = config.ttl {
+    if let Some(ttl) = config.ttl() {
         if address.is_ipv6() {
             socket.set_unicast_hops_v6(ttl)?;
         } else {
@@ -149,11 +105,9 @@ mod tests {
             }
             let socket = configured_tcp_socket(
                 address,
-                crate::transport::TransportConfig::for_tcp()
+                TcpConnect::default()
                     .with_ttl(Some(2))
-                    .validated()
-                    .expect("valid connector test configuration")
-                    .into(),
+                    .expect("valid connector test configuration"),
             )
             .expect("configure unconnected TCP socket");
             assert!(socket.peer_addr().is_err(), "no handshake has started");
@@ -181,12 +135,8 @@ mod tests {
         });
 
         let stream = TcpStream::connect(addr).expect("connect stream");
-        let config = TcpConnectionConfig::from(
-            crate::transport::TransportConfig::for_tcp()
-                .validated()
-                .expect("valid connector test configuration"),
-        );
-        assert_eq!(config.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
+        let config = TcpConnect::default();
+        assert_eq!(config.keepalive(), Some(DEFAULT_TCP_KEEPALIVE));
         apply_tcp_socket_options(socket2::SockRef::from(&stream), addr, config)
             .expect("apply TCP options");
 
@@ -209,11 +159,9 @@ mod tests {
         apply_tcp_socket_options(
             socket2::SockRef::from(&stream),
             address,
-            crate::transport::TransportConfig::for_tcp()
+            TcpConnect::default()
                 .with_ttl(Some(7))
-                .validated()
-                .expect("valid connector test configuration")
-                .into(),
+                .expect("valid connector test configuration"),
         )
         .expect("TCP options");
         assert_eq!(stream.ttl().expect("IPv4 TCP TTL"), 7);
@@ -221,11 +169,9 @@ mod tests {
         apply_udp_socket_options(
             socket2::SockRef::from(&socket),
             address,
-            crate::transport::TransportConfig::for_udp()
+            UdpConnect::default()
                 .with_ttl(Some(7))
-                .validated()
-                .expect("valid connector test configuration")
-                .into(),
+                .expect("valid connector test configuration"),
         )
         .expect("UDP options");
         assert_eq!(socket.ttl().expect("IPv4 UDP TTL"), 7);

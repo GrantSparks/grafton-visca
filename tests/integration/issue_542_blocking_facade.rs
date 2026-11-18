@@ -8,7 +8,7 @@ use grafton_visca::{
     blocking::{Camera, Session},
     config::{SessionConfig, TransportKind},
     profiles::{ProfileSpec, SonyFr7},
-    transport::{AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressingMode, IoBounds, SendSemantics, StandardTransport},
     Error,
 };
 
@@ -23,7 +23,7 @@ fn wire(kind: Option<TransportKind>) -> (FakeCamera, BlockingWire) {
     let wire = camera.blocking_wire();
     let wire = match kind {
         Some(TransportKind::Serial) => {
-            let config = TransportConfig::default();
+            let config = IoBounds::default();
 
             wire.with_config(config)
                 .with_addressing(AddressingMode::Serial)
@@ -49,8 +49,8 @@ fn incompatible_standard_transport_fails_before_blocking_startup_or_io() {
     assert!(matches!(
         error,
         Error::UnsupportedTransport {
-            profile: grafton_visca::profiles::ProfileId::SonyFr7,
-            transport: TransportKind::Tcp,
+            profile: Some(grafton_visca::profiles::ProfileId::SonyFr7),
+            transport: StandardTransport::Tcp,
             ..
         }
     ));

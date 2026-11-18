@@ -1,11 +1,5 @@
 //! Receive-side frame and retention limits shared by every transport.
 //!
-//! The per-transport presets are consumed by
-//! [`TransportConfig::for_tcp`](crate::transport::TransportConfig::for_tcp),
-//! [`TransportConfig::for_udp`](crate::transport::TransportConfig::for_udp) and
-//! [`TransportConfig::for_serial`](crate::transport::TransportConfig::for_serial),
-//! which are the defaults every built-in entry point uses.
-
 /// Validate the byte count a transport reported before indexing its buffer.
 #[cfg(any(feature = "async", feature = "blocking", test))]
 pub(crate) fn checked_read(reported: usize, capacity: usize) -> crate::Result<usize> {
@@ -143,17 +137,17 @@ impl BufferConfig {
     }
 
     /// Limits for UDP transports: one datagram of up to 1024 bytes.
-    pub fn for_udp() -> Self {
+    pub const fn for_udp() -> Self {
         Self::with_frame_limit(UDP_FRAME_LIMIT)
     }
 
     /// Limits for raw VISCA over TCP: frames of up to 256 bytes.
-    pub fn for_tcp() -> Self {
+    pub const fn for_tcp() -> Self {
         Self::with_frame_limit(TCP_FRAME_LIMIT)
     }
 
     /// Limits for serial transports: frames of up to 256 bytes.
-    pub fn for_serial() -> Self {
+    pub const fn for_serial() -> Self {
         Self::with_frame_limit(SERIAL_FRAME_LIMIT)
     }
 

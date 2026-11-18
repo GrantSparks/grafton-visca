@@ -224,6 +224,7 @@ macro_rules! api_convention_tests {
                             runtime.extend(surfaces.iter().map(|surface| format!("Has{surface:?}")));
                         },
                     }
+                    runtime.extend(row.settlement_marker().map(str::to_owned));
                     let static_markers: BTreeSet<_> = row.gate_markers.iter().map(|marker| (*marker).to_owned()).collect();
                     assert_eq!(runtime, static_markers, "static/runtime gate lost a marker: {row:?}");
                 }

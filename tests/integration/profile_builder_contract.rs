@@ -238,9 +238,4 @@ fn persisted_profile_ids_use_explicit_stable_spellings() {
         let spec = id.spec().expect("registry spec");
         assert_eq!(spec.capabilities().profile_id, Some(id));
     }
-    let group = grafton_visca::profiles::ProfileGroup::PtzOptics;
-    assert_eq!(
-        serde_json::to_value(group).expect("serialize group"),
-        "ptzoptics"
-    );
 }

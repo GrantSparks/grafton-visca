@@ -22,7 +22,7 @@ use std::marker::PhantomData;
 fn root_value_and_transport_contract() {
     use grafton_visca::{
         config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY},
-        transport::{BufferConfig, TcpKeepaliveConfig, TransportConfig},
+        transport::{BufferConfig, IoBounds, TcpConnect, TcpKeepaliveConfig, UdpConnect},
         types::{
             CameraId, FocusPosition, Kelvin, PanSpeed, PresetNumber, SpeedLevel, TiltSpeed,
             ViscaSocket, ZoomPosition, ZoomSpeed,
@@ -100,13 +100,16 @@ fn root_value_and_transport_contract() {
     assert_eq!(keepalive.idle(), Duration::from_secs(10));
     assert_eq!(keepalive.interval(), Some(Duration::from_secs(10)));
 
-    let config = TransportConfig::default();
-    assert_eq!(config.connect_timeout(), Duration::from_secs(5));
+    let config = IoBounds::default();
+    let tcp = TcpConnect::default();
+    let udp = UdpConnect::default();
+    assert_eq!(tcp.connect_timeout(), Duration::from_secs(5));
+    assert_eq!(udp.connect_timeout(), Duration::from_secs(5));
     assert_eq!(config.read_timeout(), Duration::from_secs(5));
     assert_eq!(config.write_timeout(), Duration::from_secs(5));
 
-    assert_eq!(config.tcp_nodelay(), Some(true));
-    assert_eq!(config.tcp_keepalive(), Some(keepalive));
+    assert_eq!(tcp.nodelay(), Some(true));
+    assert_eq!(tcp.keepalive(), Some(keepalive));
     assert_eq!(
         SessionConfig::default().admission_capacity(),
         DEFAULT_ADMISSION_CAPACITY
@@ -164,7 +167,7 @@ fn profile_marker_and_capability_contract() {
     use grafton_visca::{
         capabilities::{
             HasExposure, HasFocus, HasImage, HasNdFilter, HasPanTilt, HasPower, HasWhiteBalance,
-            HasZoom, InquirySupport, SupportsTcp, SupportsUdp, TypedSupportSurface,
+            HasZoom, SupportsTcp, SupportsUdp, TypedSupportSurface,
         },
         profiles::{CompileTimeProfile, GenericVisca, PtzOpticsG2, SonyFr7},
     };
@@ -191,7 +194,7 @@ fn profile_marker_and_capability_contract() {
         assert_eq!(transports.tcp_port(), Some(5678));
         assert_eq!(transports.udp_port(), Some(1259));
     }
-    assert_eq!(g2.inquiry_support, InquirySupport::Full);
+    assert!(g2.inquiries);
     assert_eq!(
         g2.pan_tilt
             .as_ref()
@@ -217,7 +220,6 @@ fn profile_marker_and_capability_contract() {
     assert!(fr7.supports(TypedSupportSurface::IrisSteps));
     assert!(fr7.supports(TypedSupportSurface::BlackLevels));
     assert!(fr7.supports(TypedSupportSurface::NdFilter));
-    assert!(fr7.power.as_ref().expect("power domain").wake_on_lan);
     assert_eq!(fr7_profile.transports().tcp_port(), None);
     assert_eq!(fr7_profile.transports().udp_port(), Some(52381));
 }

@@ -24,12 +24,12 @@ async fn ready_transport_close_precedes_shutdown_and_queued_admission() {
     let frame_or_close = diagnostics
         .events()
         .iter()
-        .position(|event| matches!(event, DiagnosticEvent::SessionChanged { .. }))
+        .position(|event| matches!(event, DiagnosticEvent::SessionEnded { .. }))
         .unwrap();
     assert_eq!(frame_or_close, 0, "close is the first applied ready source");
 }
 /// The engine's terminal verdict is published while `handle_event` drives
-/// its `SessionChanged` effect, not only in `run`'s epilogue. Keeping this
+/// its `SessionEnded` effect, not only in `run`'s epilogue. Keeping this
 /// seam direct makes the race deterministic: the actor has returned `Stop`
 /// but still owns a live shutdown receiver, exactly where a pre-fix caller
 /// could enqueue and incorrectly receive `Ok(())`.
@@ -88,7 +88,7 @@ async fn ready_frame_is_observed_before_explicit_shutdown() {
     let shutdown = diagnostics
         .events()
         .iter()
-        .position(|event| matches!(event, DiagnosticEvent::SessionChanged { .. }))
+        .position(|event| matches!(event, DiagnosticEvent::SessionEnded { .. }))
         .unwrap();
     assert!(frame < shutdown);
     assert_eq!(snapshot.state, SessionState::Shutdown);

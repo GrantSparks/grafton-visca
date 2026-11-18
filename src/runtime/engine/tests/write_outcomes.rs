@@ -363,9 +363,6 @@ fn refused_cancellation_keeps_the_written_operation_and_its_socket_live() {
 fn a_result_with_another_requests_identity_cannot_consume_the_active_write() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
-    engine
-        .register_target(camera(2), TargetPolicy::test_default())
-        .unwrap();
     let (first, first_id) = admit(&mut engine, 1, command(1), now);
     send_ok(&mut engine, &first, Some(0x1001), now);
     let (second, second_id) = admit(&mut engine, 2, command(2), now);
@@ -520,7 +517,6 @@ fn failed_raw_datagram_holds_late_answers_away_from_a_successor() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: request(),
-                slot: AdmissionSlot::Ordinary,
             },
             now,
         );

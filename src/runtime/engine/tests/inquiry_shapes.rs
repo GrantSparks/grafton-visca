@@ -126,12 +126,12 @@ impl Session {
         configured.inquiry_spacing = Duration::from_millis(2);
         configured.raw_inquiry_release_hold = Duration::from_millis(5);
         configured.raw_release_grace = Duration::from_millis(8);
-        let mut engine = ProtocolEngine::new(configured, now).unwrap();
-        for target in [camera(1), camera(2)] {
-            engine
-                .register_target(target, TargetPolicy::test_default())
-                .unwrap();
-        }
+        let engine = ProtocolEngine::new(
+            configured,
+            target_policies(&[camera(1), camera(2)], TargetPolicy::test_default()),
+            now,
+        )
+        .unwrap();
         Self {
             engine,
             transport,
@@ -156,6 +156,12 @@ impl Session {
 
     fn submit(&mut self, target: u8, shape: PayloadShape, mode: AnswerMode) -> Option<RequestId> {
         self.ticket += 1;
+        if self.engine.active_len() == self.engine.policy.capacity.get() {
+            self.coverage.rejected += 1;
+            let effects = self.engine.advance(self.now);
+            self.process(effects, None);
+            return None;
+        }
         let mut request = inquiry_with_retry(target, RetryPolicy::NEVER);
         let RuntimeRequest::Inquiry {
             context,
@@ -173,7 +179,6 @@ impl Session {
             Input::Admit {
                 ticket: AdmissionTicket(self.ticket),
                 request,
-                slot: AdmissionSlot::Ordinary,
             },
             self.now,
         );
@@ -508,7 +513,6 @@ fn distinct_shape_debts_stay_bounded_at_single_request_capacity() {
         Input::Admit {
             ticket: AdmissionTicket(model.ticket),
             request: command(1),
-            slot: AdmissionSlot::Ordinary,
         },
         model.now,
     );
@@ -572,12 +576,12 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
         WireProtocol::new(EnvelopeKind::Raw, crate::transport::AddressingMode::Serial);
     configured.capacity = std::num::NonZeroUsize::new(1).unwrap();
     configured.raw_inquiry_release_hold = Duration::from_millis(1);
-    let mut engine = ProtocolEngine::new(configured, now).unwrap();
-    for target in 1..=7 {
-        engine
-            .register_target(camera(target), TargetPolicy::test_default())
-            .unwrap();
-    }
+    let mut engine = ProtocolEngine::new(
+        configured,
+        target_policies(&TargetSlot::ALL, TargetPolicy::test_default()),
+        now,
+    )
+    .unwrap();
     // No reserve is needed: each preceding request has already terminalized,
     // so A is exactly one while the urgent lane still bypasses the debt cap.
     let bound = stream_ledger::max_entries_per_target(1);
@@ -593,7 +597,6 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
                     <= MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET
             );
         }
-        engine.assert_invariants().unwrap();
     }
 
     fn unanswered(
@@ -681,7 +684,6 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: skipped_inquiry(target, usize::from(target - 1) * classes + classes + 1),
-                slot: AdmissionSlot::Ordinary,
             },
             now,
         );

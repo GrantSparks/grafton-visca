@@ -5,7 +5,7 @@ SerialChainTooLong	src/transport/serial/handshake.rs	AddressSetChunk::ChainTooLo
 ConnectionClosed	src/error.rs	Self::ConnectionClosed { source }
 CommandPending	src/command/response/types.rs	Response::CmdAck { .. } => Err(Error::CommandPending)
 InvalidResponse	src/command/response/types.rs	Response::Unknown { data, .. } => Err(Error::InvalidResponse {
-FeatureNotSupported	src/prepared.rs	crate::capabilities::InquirySupport::None ) { return Err(Error::FeatureNotSupported {
+FeatureNotSupported	src/prepared.rs	if !profile.capabilities().inquiries { return Err(Error::FeatureNotSupported {
 Io	src/error.rs	Self::Io { source: Arc::new(err), }
 SyntaxError	src/protocol/response.rs	Self::Syntax => crate::Error::SyntaxError,
 CommandBufferFull	src/protocol/response.rs	Self::BufferFull => crate::Error::CommandBufferFull,
@@ -16,7 +16,7 @@ InvalidResponseFormat	src/command/response/payload.rs	if padding.iter().any(|&ni
 InvalidResponseLength	src/error.rs	Self::InvalidResponseLength { expected, actual: payload.len(),
 UnexpectedResponseType	src/command/inquiry_structs.rs	Response::Error(e) => Err(e), _ => Err(Error::UnexpectedResponseType),
 Unknown	src/protocol/response.rs	Self::Other(code) => crate::Error::Unknown { code },
-InvalidRequest	src/raw.rs	if bytes.len() < 2 { return Err(Error::InvalidRequest { reason:
+InvalidRequest	src/raw.rs	if bytes.len() < 3 { return Err(Error::InvalidRequest { reason:
 MessageLengthError	src/protocol/response.rs	Self::MessageLength => crate::Error::MessageLengthError,
 TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
 InvalidParameter	src/macros/public.rs	crate::Error::InvalidParameter { parameter, value: ::std::borrow::Cow::Borrowed(
@@ -41,12 +41,12 @@ InquiryCorrelationLost	src/runtime/engine/mod.rs	return Some(Error::inquiry_corr
 CommandCorrelationLost	src/runtime/engine/mod.rs	.then(|| Error::command_correlation_lost(target.individual_camera()))
 CommandFailedAfterAck	src/runtime/engine/mod.rs	Error::command_failed_after_ack(error)
 RuntimeIdentityExhausted	src/runtime/engine/mod.rs	let Some(id) = self.allocate_request_id() else { return Err(Error::RuntimeIdentityExhausted); };
-RuntimeQueueFull	src/runtime/engine/mod.rs	return Err(Error::RuntimeQueueFull {
+RuntimeQueueFull	src/runtime/owner/mod.rs	return Err(Error::RuntimeQueueFull {
 StreamPoisoned	src/error.rs	Self::StreamPoisoned { source }
 InvalidCameraId	src/camera_id.rs	error = Error::InvalidCameraId { id: value }
 ResponseTooLarge	src/error.rs	Self::ResponseTooLarge { max_size }
 InvalidAddress	src/transport/address.rs	Error::InvalidAddress { reason: reason.into(), }
-UnsupportedTransport	src/runtime/owner/adapter.rs	return Err(Error::UnsupportedTransport {
+UnsupportedTransport	src/error.rs	Self::UnsupportedTransport { model: profile.name()
 MissingRuntime	src/executor.rs	.map_err(|_| Error::MissingRuntime)
 WithContext	src/error.rs	Self::WithContext { context: context.into(), source: Box::new(self), }
 TransmissionNotSent	src/error.rs	Self::TransmissionNotSent { source: Arc::new(source), context: FailureContext::new(FailureStage::Terminal, certainty), }

@@ -1,6 +1,7 @@
 //! Independent characterization of the timing lowering before #1001.
 #![allow(clippy::expect_used)]
 use super::*;
+use crate::tuning::RetryLimit;
 
 // The historical oracle deliberately keeps its own literal categories so it
 // remains independent of the typed production lowering.
@@ -177,7 +178,12 @@ fn every_profile_class_and_override_preserves_the_characterized_context() {
         // Deliberately make ACK longer than twice Quick, so the two reply
         // shapes exercise different total-budget floors.
         tunings.push(OperationalTuning::new().with_ack_timeout(Duration::from_secs(900)));
-        tunings.push(OperationalTuning::new().with_retry_limit(1));
+        for limit in [0, 1] {
+            tunings.push(
+                OperationalTuning::new()
+                    .with_retry_limit(RetryLimit::new(limit).expect("valid retry limit")),
+            );
+        }
         tunings.push(
             OperationalTuning::new()
                 .with_initial_retry_backoff(Duration::from_secs(1))
@@ -189,19 +195,36 @@ fn every_profile_class_and_override_preserves_the_characterized_context() {
             let validated = ValidatedTuning::validate(tuning, [&profile])
                 .expect("valid characterization tuning");
             for (policy, class, retry, shape) in valid_policies() {
-                let actual = match policy {
+                let (actual, not_executable) = match policy {
                     TimingPolicy::Command(policy) => {
                         let request = TimingRequest(policy);
-                        request_context(&request, &registration, validated, ClassSelection::Request)
-                            .expect("command context")
+                        let (actual, command) = lower_request_context(
+                            &request,
+                            &registration,
+                            validated,
+                            ClassSelection::Request,
+                        );
+                        (actual, Some(command.not_executable))
                     }
                     TimingPolicy::Inquiry(policy) => {
                         let request = TimingInquiry(policy);
-                        request_context(&request, &registration, validated, ClassSelection::Request)
-                            .expect("inquiry context")
+                        let (actual, ()) = lower_request_context(
+                            &request,
+                            &registration,
+                            validated,
+                            ClassSelection::Request,
+                        );
+                        (actual, None)
                     }
                 };
                 let inquiry = matches!(policy, TimingPolicy::Inquiry(_));
+                assert_eq!(
+                    not_executable,
+                    (!inquiry).then_some(matches!(
+                        retry,
+                        ExpectedRetry::Movement | ExpectedRetry::Preset
+                    )),
+                );
                 let ack = tuning.ack_timeout().unwrap_or_else(|| timing.ack_timeout());
                 let completion = class.command_category().map_or(
                     timing.command_timeouts().quick_timeout(),
@@ -230,7 +253,9 @@ fn every_profile_class_and_override_preserves_the_characterized_context() {
                         .max(attempt)
                         .max(timing.busy_timeout()),
                 );
-                let base = tuning.retry_limit().map_or(3, |limit| limit.min(3));
+                let base = tuning
+                    .retry_limit()
+                    .map_or(3, |limit| u32::from(limit.value()).min(3));
                 let count = match class {
                     ExpectedDeadline::Quick | ExpectedDeadline::Inquiry => base + 2,
                     ExpectedDeadline::Movement | ExpectedDeadline::Preset => base,
@@ -277,15 +302,6 @@ fn every_profile_class_and_override_preserves_the_characterized_context() {
                             crate::runtime::engine::NonZeroDuration::new(total_budget)
                                 .expect("positive characterized budget")
                         ),
-                        ack_timeout: retry != ExpectedRetry::Never,
-                        completion_timeout: retry != ExpectedRetry::Never,
-                        inquiry_timeout: retry == ExpectedRetry::Inquiry,
-                        buffer_full: retry != ExpectedRetry::Never,
-                        movement_not_executable: matches!(
-                            retry,
-                            ExpectedRetry::Movement | ExpectedRetry::Preset
-                        ),
-                        builtin_inquiry_syntax: false,
                     },
                     "{id:?} {class:?} {shape:?} {tuning:?}"
                 );
@@ -302,7 +318,7 @@ fn every_profile_class_and_override_preserves_the_characterized_context() {
                         timeout: actual.timeout,
                         retry: actual.retry,
                         control: ControlPolicy {
-                            class: crate::runtime::engine::ControlClass::Normal,
+                            class: ControlClass::Normal,
                             minimum_spacing: actual.control.minimum_spacing,
                         },
                     }

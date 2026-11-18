@@ -21,9 +21,7 @@ use fake_camera::AsyncWire;
 #[cfg(feature = "blocking")]
 use fake_camera::BlockingWire;
 use fake_camera::FakeCamera;
-use grafton_visca::{
-    config::SessionConfig, profiles::ProfileSpec, transport::TransportConfig, Error,
-};
+use grafton_visca::{config::SessionConfig, profiles::ProfileSpec, transport::IoBounds, Error};
 
 fn profile() -> ProfileSpec {
     ProfileSpec::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>().expect("profile")
@@ -64,8 +62,8 @@ fn closing_camera() -> FakeCamera {
 
 /// Serial addressing selects stream send semantics, which is the transport
 /// class the spec poisons on a write failure.
-fn serial_config() -> TransportConfig {
-    TransportConfig::default()
+fn serial_config() -> IoBounds {
+    IoBounds::default()
 }
 
 #[cfg(feature = "blocking")]

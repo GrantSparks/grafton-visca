@@ -37,7 +37,7 @@ fn print_profile<P: CompileTimeProfile>() -> Result<(), Error> {
     println!("{}", profile.name());
     println!("  TCP default port: {:?}", profile.transports().tcp_port());
     println!("  UDP default port: {:?}", profile.transports().udp_port());
-    println!("  Inquiry support: {:?}", caps.inquiry_support);
+    println!("  Inquiry support: {:?}", caps.inquiries);
     if let Some(pan_tilt) = caps.pan_tilt.and_then(|domain| domain.geometry) {
         println!("  Pan range: {:?} VISCA units", pan_tilt.pan_range);
         println!(

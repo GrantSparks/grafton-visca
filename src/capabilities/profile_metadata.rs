@@ -164,79 +164,6 @@ impl TransportSet {
     }
 }
 
-/// Level of VISCA inquiry command support for a camera profile.
-///
-/// VISCA cameras vary in their support for inquiry (status read-back) commands.
-/// This enum lets consumers determine inquiry support per-profile without
-/// matching on [`ProfileGroup`](crate::profiles::ProfileGroup).
-///
-/// # Hardware Evidence
-///
-/// PTZOptics G2/G3/30X cameras have baseline VISCA inquiry support confirmed by
-/// hardware testing. Model-specific optional inquiries still require their own
-/// source-backed typed-support gate; a profile-wide `Full` value is never a
-/// fallback permission for an optional accessor. See
-/// [issue #498](https://github.com/GrantSparks/grafton-visca/issues/498) for
-/// the tested G2 baseline.
-///
-/// # Usage
-///
-/// ```
-/// use grafton_visca::capabilities::InquirySupport;
-/// use grafton_visca::profiles::ProfileId;
-///
-/// # fn main() -> grafton_visca::Result<()> {
-/// let profile = ProfileId::PtzOpticsG2;
-/// match profile.spec()?.capabilities().inquiry_support {
-///     InquirySupport::Full => {
-///         // Baseline inquiries are available; optional accessors still
-///         // require their profile-specific typed gates.
-///     }
-///     InquirySupport::Partial => {
-///         // Basic inquiries work; advanced ones may not
-///     }
-///     InquirySupport::None => {
-///         // Camera does not support inquiry commands
-///     }
-///     _ => {
-///         // Future inquiry support categories should be handled conservatively
-///     }
-/// }
-/// # Ok(())
-/// # }
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[non_exhaustive]
-pub enum InquirySupport {
-    /// Full baseline inquiry support for the documented profile family.
-    ///
-    /// Cameras in this category support the baseline VISCA inquiry set used by
-    /// their profile. Optional model-specific inquiries remain independently
-    /// gated by typed support markers and runtime capability facts.
-    ///
-    /// Confirmed profiles: PTZOptics G2, PTZOptics G3, PTZOptics 30X,
-    /// Sony FR7, Sony BRC-H900.
-    Full,
-
-    /// Partial inquiry support — basic inquiries work, but some may not respond.
-    ///
-    /// Position queries (zoom, pan/tilt, focus) and basic status queries work,
-    /// but some feature-specific inquiries (exposure mode, image processing, etc.)
-    /// may time out or return errors. Consumers should handle inquiry failures
-    /// gracefully for cameras at this level.
-    Partial,
-
-    /// No inquiry command support.
-    ///
-    /// The camera does not respond to any VISCA inquiry commands.
-    /// All inquiry operations will fail.
-    None,
-}
-
 /// Evidence-backed support for standard TCP transport construction.
 ///
 /// The marker requires the matching entry in
@@ -266,6 +193,82 @@ pub trait SupportsUdp {}
     message = "profile `{Self}` does not support SERIAL transport construction"
 )]
 pub trait SupportsSerial {}
+
+/// Targeted families a compile-time profile can settle.
+///
+/// A positive declaration requires an exact completion or sufficient position
+/// inquiries and the corresponding domain record.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct SettlementSupport(u8);
+
+impl SettlementSupport {
+    /// Builds the settlement declaration from the profile's domains, its
+    /// provable settlement axes, and its preset recall axes when present.
+    #[must_use]
+    pub const fn from_axes(
+        domains: DomainSet,
+        available: Option<crate::types::AffectedAxes>,
+        recall: Option<crate::types::AffectedAxes>,
+    ) -> Self {
+        use crate::types::AffectedAxes;
+
+        let Some(axes) = available else {
+            return Self(0);
+        };
+        let mut bits = 0;
+        if domains.contains(Domain::PanTilt) && axes.contains(AffectedAxes::PAN_TILT) {
+            bits |= 1;
+        }
+        if domains.contains(Domain::Focus) && axes.contains(AffectedAxes::FOCUS) {
+            bits |= 2;
+        }
+        if let Some(recall) = recall {
+            if domains.contains(Domain::Presets) && axes.contains(recall) {
+                bits |= 4;
+            }
+        }
+        Self(bits)
+    }
+
+    /// Whether home and reset can settle.
+    #[must_use]
+    pub const fn pan_tilt(self) -> bool {
+        self.0 & 1 != 0
+    }
+
+    /// Whether direct focus position can settle.
+    #[must_use]
+    pub const fn focus(self) -> bool {
+        self.0 & 2 != 0
+    }
+
+    /// Whether recall can settle all axes that its preset affects.
+    #[must_use]
+    pub const fn preset_recall(self) -> bool {
+        self.0 & 4 != 0
+    }
+}
+
+/// Supports settlement of pan/tilt home and reset.
+///
+/// Downstream profiles declare the settlement proof in
+/// [`CompileTimeProfile::SETTLEMENT_SUPPORT`](crate::profiles::CompileTimeProfile::SETTLEMENT_SUPPORT).
+#[diagnostic::on_unimplemented(message = "profile `{Self}` cannot settle pan/tilt home or reset")]
+pub trait HasPanTiltSettlement {}
+
+/// Supports settlement of direct focus position.
+///
+/// Downstream profiles declare the settlement proof in
+/// [`CompileTimeProfile::SETTLEMENT_SUPPORT`](crate::profiles::CompileTimeProfile::SETTLEMENT_SUPPORT).
+#[diagnostic::on_unimplemented(message = "profile `{Self}` cannot settle direct focus position")]
+pub trait HasFocusSettlement {}
+
+/// Supports settlement of every axis affected by preset recall.
+///
+/// Downstream profiles declare the settlement proof in
+/// [`CompileTimeProfile::SETTLEMENT_SUPPORT`](crate::profiles::CompileTimeProfile::SETTLEMENT_SUPPORT).
+#[diagnostic::on_unimplemented(message = "profile `{Self}` cannot settle preset recall")]
+pub trait HasPresetRecallSettlement {}
 
 /// Evidence-backed support for the Power capability domain.
 ///

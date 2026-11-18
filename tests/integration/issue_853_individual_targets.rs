@@ -10,7 +10,7 @@ use grafton_visca::{
     config::SessionConfig,
     profiles::{ProfileSpec, PtzOpticsG2},
     state_cache::{StateEntry, StateKey},
-    transport::{AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressingMode, IoBounds, SendSemantics},
     Error,
 };
 use grafton_visca_test_support::{facade_matrix, fake_camera::FakeCamera};
@@ -32,7 +32,11 @@ impl SerialCamera {
     fn blocking_wire(&self) -> grafton_visca_test_support::fake_camera::BlockingWire {
         self.0
             .blocking_wire()
-            .with_config(TransportConfig::for_serial())
+            .with_config(
+                IoBounds::default()
+                    .with_buffer_config(grafton_visca::transport::BufferConfig::for_serial())
+                    .expect("serial bounds"),
+            )
             .with_semantics(SendSemantics::Stream)
             .with_addressing(AddressingMode::Serial)
     }
@@ -41,7 +45,11 @@ impl SerialCamera {
     fn async_wire(&self) -> grafton_visca_test_support::fake_camera::AsyncWire {
         self.0
             .async_wire()
-            .with_config(TransportConfig::for_serial())
+            .with_config(
+                IoBounds::default()
+                    .with_buffer_config(grafton_visca::transport::BufferConfig::for_serial())
+                    .expect("serial bounds"),
+            )
             .with_semantics(SendSemantics::Stream)
             .with_addressing(AddressingMode::Serial)
     }

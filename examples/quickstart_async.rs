@@ -5,8 +5,8 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110
-//! cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110 --move
+//! cargo run --example quickstart_async --features runtime-tokio -- 192.0.2.10
+//! cargo run --example quickstart_async --features runtime-tokio -- 192.0.2.10 --move
 //! ```
 
 mod support;
@@ -55,7 +55,12 @@ impl Args {
         Ok(Self {
             address: address
                 .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
-                .unwrap_or_else(|| "192.168.0.110".to_string()),
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "pass a camera address or set VISCA_CAMERA_ADDR",
+                    )
+                })?,
             move_camera,
         })
     }

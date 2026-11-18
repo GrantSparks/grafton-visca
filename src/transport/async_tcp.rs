@@ -3,15 +3,12 @@
 //! A runtime supplies a stream type implementing [`NetStream`]; connecting
 //! and the transport contract are implemented here.
 
-use std::time::Duration;
-
 use crate::{
     transport::{
-        async_connect::{self, AsyncNet},
-        async_io::{write_all_flush, AsyncReadExt, AsyncWriteExt},
-        builder::{TransportConfig, ValidatedTransportConfig},
-        connect::preflight,
-        stream_read, AsyncTransport, HasTransportConfig, NetworkEndpoint, ReceiveOutcome,
+        async_connect::AsyncNet,
+        async_io::{AsyncReadExt, AsyncWriteExt},
+        builder::IoBounds,
+        stream_read, AsyncTransport, HasTransportConfig, ReceiveOutcome,
     },
     Error,
 };
@@ -31,65 +28,34 @@ pub trait NetStream: AsyncReadExt + AsyncWriteExt + Send + Sized {
 #[derive(Debug)]
 pub struct Tcp<S: AsyncReadExt + AsyncWriteExt> {
     pub(crate) stream: S,
-    config: ValidatedTransportConfig,
+    config: IoBounds,
 }
 
 impl<S: AsyncReadExt + AsyncWriteExt> Tcp<S> {
     /// Create a new TCP transport from a connected stream.
     ///
     /// The stream should already be connected to the remote endpoint.
-    pub fn new(stream: S, config: ValidatedTransportConfig) -> Self {
+    pub(crate) fn new(stream: S, config: IoBounds) -> Self {
         Self { stream, config }
-    }
-
-    /// Get the transport configuration.
-    pub fn config(&self) -> &TransportConfig {
-        self.config.as_config()
     }
 }
 
+#[cfg(feature = "runtime-smol")]
 impl<S: NetStream> Tcp<S> {
-    /// Connect to a TCP endpoint with [`TransportConfig::for_tcp`].
-    ///
-    /// The address must include an explicit port; IPv6 literals must be
-    /// bracketed. Host names are resolved.
-    pub async fn connect(address: &str) -> Result<Self, Error> {
-        Self::connect_with_config(address, TransportConfig::for_tcp()).await
-    }
-
-    /// Connect with [`TransportConfig::for_tcp`] and a custom connect timeout.
-    pub async fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
-        let mut config = TransportConfig::for_tcp();
-        config.connect_timeout = timeout;
-        Self::connect_with_config(address, config).await
-    }
-
-    /// Connect with a full configuration.
-    ///
-    /// Name resolution and connection setup share `config.connect_timeout`,
-    /// and each resolved address is tried in order. See
-    /// [`crate::transport::connect`] for the error contract shared with the
-    /// blocking connector.
-    pub async fn connect_with_config(
-        address: &str,
-        config: TransportConfig,
-    ) -> Result<Self, Error> {
-        let (endpoint, config) = preflight(address, config)?;
-        Self::connect_endpoint(&endpoint, config).await
-    }
-
     pub(crate) async fn connect_endpoint(
-        endpoint: &NetworkEndpoint,
-        config: ValidatedTransportConfig,
+        endpoint: &crate::transport::NetworkEndpoint,
+        options: crate::transport::TcpConnect,
+        io_bounds: IoBounds,
     ) -> Result<Self, Error> {
-        let stream = async_connect::connect_tcp::<S::Net>(endpoint, config.into()).await?;
-        Ok(Self::new(S::from_connected(stream), config))
+        let stream =
+            crate::transport::async_connect::connect_tcp::<S::Net>(endpoint, options).await?;
+        Ok(Self::new(S::from_connected(stream), io_bounds))
     }
 }
 
 impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Tcp<S> {
     async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        write_all_flush(&mut self.stream, data).await
+        self.stream.write_all(data).await
     }
 
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
@@ -102,7 +68,7 @@ impl<S: AsyncReadExt + AsyncWriteExt> HasTransportConfig for Tcp<S> {
         crate::transport::TransportIdentity::Tcp
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }

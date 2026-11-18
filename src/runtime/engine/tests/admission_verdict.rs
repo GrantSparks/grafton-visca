@@ -1,10 +1,9 @@
 //! Synchronous admission and the legacy test input express one verdict.
 use super::*;
 
-fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, AdmissionSlot, Instant) {
+fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Instant) {
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let mut request = command(1);
-    let mut slot = AdmissionSlot::Ordinary;
     let mut now = start;
     match case {
         "admitted" => {}
@@ -22,35 +21,11 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Admis
             let turn = engine.begin_input_turn(now);
             engine.halt_in_turn(&turn, camera(1), crate::AffectedAxes::ZOOM, 1);
         }
-        "ordinary capacity" => {
-            engine.policy.capacity = std::num::NonZeroUsize::new(1).unwrap();
-            let turn = engine.begin_input_turn(now);
-            engine.admit_in_turn(&turn, request.clone(), slot).unwrap();
-        }
-        "nonurgent reserve" => {
-            slot = AdmissionSlot::ControlReserve;
-        }
-        "full reserve" => {
-            engine = reserved_engine();
-            request = urgent_command(1);
-            slot = AdmissionSlot::ControlReserve;
-            let turn = engine.begin_input_turn(now);
-            for _ in 0..2 {
-                engine.admit_in_turn(&turn, request.clone(), slot).unwrap();
-            }
-        }
-        "unregistered target" => {
-            request = command(7);
-        }
         "shape capacity" => {
             let turn = engine.begin_input_turn(now);
             for length in 1..=MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET {
                 engine
-                    .admit_in_turn(
-                        &turn,
-                        inquiry_with_shape(1, PayloadShape::Bytes(length)),
-                        slot,
-                    )
+                    .admit_in_turn(&turn, inquiry_with_shape(1, PayloadShape::Bytes(length)))
                     .unwrap();
             }
             request = inquiry_with_shape(1, PayloadShape::Unknown);
@@ -65,14 +40,9 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Admis
         "request identity exhausted" => {
             engine.seed_allocators(0, 1);
         }
-        "duplicate identity refused" => {
-            let turn = engine.begin_input_turn(now);
-            engine.admit_in_turn(&turn, request.clone(), slot).unwrap();
-            engine.seed_allocators(1, 1);
-        }
         other => panic!("unknown admission case {other}"),
     }
-    (engine, request, slot, now)
+    (engine, request, now)
 }
 
 #[test]
@@ -83,26 +53,20 @@ fn synchronous_admission_and_test_shim_agree_on_every_verdict_path() {
         "terminal",
         "invalid deadline",
         "motion superseded",
-        "ordinary capacity",
-        "nonurgent reserve",
-        "full reserve",
-        "unregistered target",
         "shape capacity",
         "latched lane",
         "request identity exhausted",
-        "duplicate identity refused",
     ] {
-        let (mut direct, request, slot, now) = fixture(case, start);
+        let (mut direct, request, now) = fixture(case, start);
         let turn = direct.begin_input_turn(now);
-        let verdict = direct.admit_in_turn(&turn, request, slot);
-        let (mut shim, request, slot, now) = fixture(case, start);
+        let verdict = direct.admit_in_turn(&turn, request);
+        let (mut shim, request, now) = fixture(case, start);
         let turn = shim.begin_input_turn(now);
         let effects = shim.handle_in_turn(
             &turn,
             Input::Admit {
                 ticket: AdmissionTicket(7),
                 request,
-                slot,
             },
         );
         assert_eq!(

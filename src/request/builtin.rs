@@ -15,7 +15,7 @@ use crate::{
     },
     completion,
     noun_table::noun_table,
-    request, AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request,
+    request, AffectedAxes, CameraId, Error, OperationCommand, Request, SubmissionClass,
 };
 use crate::{command::preset_wire::PresetAction, wire::WireValue};
 use std::borrow::Cow;
@@ -67,13 +67,13 @@ use crate::request::CommandRetryClass;
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 use crate::types::SpeedLevel;
 use crate::types::{FocusPosition, IrisLevel, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed};
+use crate::units::Degrees;
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 use crate::CommandTimeoutClass;
 use crate::{
     capabilities::PanTiltWireCodec,
     command::pan_tilt_wire::{MoveSpeeds, PanTiltFraming, PanTiltProfiled},
 };
-use crate::{units::Degrees, PanTiltCoordinateConversion};
 
 /// Implements the typed request contract of built-in request types from
 /// their ledger rows.
@@ -83,7 +83,7 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 /// ```text
 /// <type> => <BuiltinCommand row>: <Plain | Targeted | AppliedOnly> [(profile_axes)] {
 ///     size: <MAX_SIZE>
-///     [, policy: (<CommandTimeoutClass>, <CommandRetryClass>, <ControlClass>)]
+///     [, policy: (<CommandTimeoutClass>, <CommandRetryClass>, <SubmissionClass>)]
 ///     [, wire: <closure from &type to its wire value>]
 ///     [, rows: |<value>| match <value>[.<field>] { <Variant path> => <BuiltinCommand row>, ... }]
 /// };
@@ -126,7 +126,7 @@ macro_rules! builtin_request {
         )
     };
     (@explicit ($timeout:ident, $retry:ident, $control:ident)) => {
-        Some((crate::CommandTimeoutClass::$timeout, crate::request::CommandRetryClass::$retry, ControlClass::$control))
+        Some((crate::CommandTimeoutClass::$timeout, crate::request::CommandRetryClass::$retry, SubmissionClass::$control))
     };
     (@explicit) => { None };
 
@@ -266,11 +266,11 @@ macro_rules! builtin_request {
 
             #[doc(hidden)]
             #[allow(private_interfaces)]
-            fn admission_control_class(
+            fn admission(
                 &self,
                 _authority: crate::requests::RequestContractAuthority,
-            ) -> ControlClass {
-                <Self as BuiltinRequestContract>::POLICY.class
+            ) -> request::policy::CommandAdmission {
+                <Self as BuiltinRequestContract>::ADMISSION
             }
 
             #[cfg(any(feature = "blocking", feature = "async"))]
@@ -301,7 +301,7 @@ pub(crate) use super::builtin_contract::BuiltinValidation;
 /// Profile-wide row checks shared by request preparation and STOP discovery.
 pub(crate) fn validate_row(row: BuiltinCommand, profile: &crate::ProfileSpec) -> crate::Result<()> {
     let feature = surface_entry(row).feature();
-    row_gate(row).validate(profile, feature)?;
+    row_gate(row).validate_command(row, profile, feature)?;
     row.source().validate_for_profile(profile, feature)
 }
 pub(crate) fn validate_movement_row(
@@ -445,16 +445,6 @@ fn presets_facts(profile: &crate::ProfileSpec) -> Result<&crate::capabilities::P
         .ok_or(Error::FeatureNotSupported { feature: "presets" })
 }
 
-fn pan_tilt_geometry(
-    profile: &crate::ProfileSpec,
-) -> Result<&crate::capabilities::PanTiltGeometry, Error> {
-    profile
-        .pan_tilt_geometry()
-        .ok_or(Error::FeatureNotSupported {
-            feature: "degree-based pan/tilt positioning",
-        })
-}
-
 fn validate_pan_tilt_speed(
     profile: &crate::ProfileSpec,
     pan: PanSpeed,
@@ -483,21 +473,6 @@ fn validate_pan_tilt_position_speed(
     PanTiltFraming::for_conversion(conversion).move_speeds(pan, tilt)
 }
 
-fn validate_move_speeds(profile: &crate::ProfileSpec, speeds: MoveSpeeds) -> Result<(), Error> {
-    let facts = pan_tilt_facts(profile)?;
-    let (pan, tilt) = speeds.values();
-    require_in_range("pan speed", pan, &facts.pan_speed)?;
-    require_in_range("tilt speed", tilt, &facts.tilt_speed)?;
-    let current = PanTiltFraming::for_conversion(pan_tilt_geometry(profile)?.coordinates)
-        .move_speeds(PanSpeed::new(pan)?, TiltSpeed::new(tilt)?)?;
-    if current != speeds {
-        return Err(Error::InvalidRequest {
-            reason: "position speeds belong to another wire grammar".into(),
-        });
-    }
-    Ok(())
-}
-
 fn validate_power_state(profile: &crate::ProfileSpec, standby: bool) -> Result<(), Error> {
     if standby {
         require(
@@ -505,7 +480,7 @@ fn validate_power_state(profile: &crate::ProfileSpec, standby: bool) -> Result<(
                 .capabilities()
                 .power
                 .as_ref()
-                .is_some_and(|domain| domain.standby.is_some()),
+                .is_some_and(|domain| domain.standby),
             "standby power control",
         )?;
     }
@@ -545,15 +520,18 @@ fn validate_exposure_compensation(
 
 fn validate_shutter(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(), Error> {
     if let Some(value) = value {
-        if !exposure_facts(profile)?
-            .shutter_speeds
-            .iter()
-            .any(|speed| speed.value == value)
-        {
+        let domain =
+            exposure_facts(profile)?
+                .shutter_codes
+                .as_ref()
+                .ok_or(Error::FeatureNotSupported {
+                    feature: "direct shutter positioning",
+                })?;
+        if !domain.contains(value) {
             return Err(Error::invalid_parameter(
                 "shutter speed",
                 Cow::Owned(value.to_string()),
-                Cow::Borrowed("code is not in the profile's shutter table"),
+                Cow::Borrowed("code is outside the profile's shutter domain"),
             ));
         }
     }
@@ -617,13 +595,8 @@ fn validate_color_temperature(
     value: Option<crate::types::Kelvin>,
 ) -> Result<(), Error> {
     if let Some(value) = value {
-        let range = white_balance_facts(profile)?
-            .color_temp_range
-            .as_ref()
-            .ok_or(Error::FeatureNotSupported {
-                feature: "color-temperature range",
-            })?;
-        require_in_range("color temperature", value.value(), range)?;
+        #[cfg(test)]
+        record_request_value_validation();
         white_balance_facts(profile)?.color_temperature_wire(value)?;
     }
     Ok(())
@@ -1017,110 +990,26 @@ impl BuiltinValidation for crate::command::motion_sync_wire::SetMotionSyncPreset
     }
 }
 
-impl BuiltinValidation for crate::command::system_wire::AddressSetCommand {}
-
-impl BuiltinValidation for crate::command::system_wire::InterfaceClearCommand {}
-
-impl BuiltinValidation for crate::command::system_wire::CommandCancelCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        require(
-            profile.supports_command_cancel(),
-            "VISCA socket cancellation",
-        )
-    }
-}
-
 impl BuiltinValidation for ImageFlipCommand {}
 
 impl BuiltinValidation for ImageMirrorCommand {}
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PreparedPanTiltPosition {
     pan: i32,
     tilt: i32,
-    conversion: PanTiltCoordinateConversion,
-    mount: Option<crate::MountPosition>,
+    framing: PanTiltFraming,
 }
 
-impl PreparedPanTiltPosition {
-    fn for_target(
-        pan: Degrees,
-        tilt: Degrees,
-        target: &crate::TargetRegistration,
-    ) -> Result<Self, Error> {
-        let profile = target.profile();
-        let conversion = profile
-            .pan_tilt_coordinates()
-            .ok_or(Error::FeatureNotSupported {
-                feature: "degree-based pan/tilt positioning",
-            })?;
-        let (pan, tilt) = target.convert_pan_tilt_degrees(pan.value(), tilt.value())?;
-        Ok(Self {
-            pan,
-            tilt,
-            conversion,
-            mount: target.mount(),
+fn target_coordinates(
+    target: &crate::TargetRegistration,
+) -> Result<crate::PanTiltCoordinateConversion, Error> {
+    target
+        .profile()
+        .pan_tilt_coordinates()
+        .ok_or(Error::FeatureNotSupported {
+            feature: "degree-based pan/tilt positioning",
         })
-    }
-
-    fn validate(self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        if profile.pan_tilt_coordinates() != Some(self.conversion) {
-            return Err(Error::InvalidRequest {
-                reason: "pan/tilt request was converted for a different profile".into(),
-            });
-        }
-        #[cfg(test)]
-        record_request_value_validation();
-        check_range(
-            "pan position",
-            self.pan,
-            &pan_tilt_geometry(profile)?.pan_range,
-        )?;
-        check_range(
-            "tilt position",
-            self.tilt,
-            &pan_tilt_geometry(profile)?.tilt_ranges.range(self.mount),
-        )
-    }
-}
-
-/// A relative displacement: source scale and codec, with a span bound.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct PreparedPanTiltOffset {
-    pan: i32,
-    tilt: i32,
-    conversion: PanTiltCoordinateConversion,
-}
-
-impl PreparedPanTiltOffset {
-    fn for_target(
-        pan: Degrees,
-        tilt: Degrees,
-        target: &crate::TargetRegistration,
-    ) -> Result<Self, Error> {
-        let profile = target.profile();
-        let conversion = profile
-            .pan_tilt_coordinates()
-            .ok_or(Error::FeatureNotSupported {
-                feature: "degree-based pan/tilt positioning",
-            })?;
-        let (pan, tilt) = target.convert_pan_tilt_offset_degrees(pan.value(), tilt.value())?;
-        target.validate_pan_tilt_offset(pan, tilt)?;
-        Ok(Self {
-            pan,
-            tilt,
-            conversion,
-        })
-    }
-
-    fn validate(self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        if profile.pan_tilt_coordinates() != Some(self.conversion) {
-            return Err(Error::InvalidRequest {
-                reason: "pan/tilt offset was converted for a different profile".into(),
-            });
-        }
-        Ok(())
-    }
 }
 
 /// Return pan/tilt to its home position.
@@ -1418,14 +1307,6 @@ builtin_request! {
     crate::command::tally_wire::TallyGreenOff => TallyGreenOff: Plain { size: 8 };
     crate::command::motion_sync_wire::SetMotionSyncMode => MotionSyncMode: Plain { size: 6 };
     crate::command::motion_sync_wire::SetMotionSyncPreset => MotionSyncPreset: Plain { size: 6 };
-    // These three protocol controls deliberately have crate-private request
-    // implementations. Address assignment and interface clear run only while
-    // the serial transport handshake owns the wire; socket cancellation is
-    // emitted by the operation owner that holds the exact request/socket
-    // correlation.
-    crate::command::system_wire::AddressSetCommand => AddressSet: Plain { size: 4 };
-    crate::command::system_wire::InterfaceClearCommand => InterfaceClear: Plain { size: 5 };
-    crate::command::system_wire::CommandCancelCommand => CommandCancel: Plain { size: 3 };
 }
 
 /// Separate vertical-flip command with its own VISCA opcode.
@@ -1558,13 +1439,10 @@ macro_rules! typed_request_inventory {
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
-        @exceptions;
-        $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
         const _: () = {
             use crate::command;
             $( $( assert_canonical_request!($kind, $ret); )* )*
-            $( assert_request_rows::<$exty>(); )*
         };
 
         #[cfg(all(test, any(feature = "blocking", feature = "async")))]
@@ -1572,7 +1450,6 @@ macro_rules! typed_request_inventory {
             use crate::command;
             &[
                 $( $( typed_request_family!($kind, $ret, [$($request)*]), )* )*
-                $( typed_request_family!(plain, $exty, [$exkind]), )*
             ]
         };
     };
@@ -1662,7 +1539,7 @@ builtin_request! {
 
 /// Continuous pan/tilt directional drive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PanTiltDrive {
+pub(crate) struct PanTiltDrive {
     direction: PanTiltDirection,
     pan_speed: PanSpeed,
     tilt_speed: TiltSpeed,
@@ -1697,7 +1574,7 @@ builtin_request! {
 
 /// Stop pan/tilt movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PanTiltStop {
+pub(crate) struct PanTiltStop {
     pan_speed: PanSpeed,
     tilt_speed: TiltSpeed,
 }
@@ -1725,7 +1602,7 @@ builtin_request! {
 
 /// Absolute pan/tilt target converted from degrees through one validated profile.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PanTiltAbsolute {
+pub(crate) struct PanTiltAbsolute {
     position: PreparedPanTiltPosition,
     speeds: MoveSpeeds,
 }
@@ -1741,8 +1618,10 @@ impl PanTiltAbsolute {
     ) -> Result<Self, Error> {
         let profile = target.profile();
         let speeds = validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
+        let framing = PanTiltFraming::for_conversion(target_coordinates(target)?);
+        let (pan, tilt) = target.convert_pan_tilt_degrees(pan.value(), tilt.value())?;
         Ok(Self {
-            position: PreparedPanTiltPosition::for_target(pan, tilt, target)?,
+            position: PreparedPanTiltPosition { pan, tilt, framing },
             speeds,
         })
     }
@@ -1765,7 +1644,7 @@ builtin_request! {
     PanTiltAbsolute => PanTiltAbsolute: Targeted {
         size: 17,
         wire: |value: &PanTiltAbsolute| PanTiltProfiled::AbsolutePosition {
-            framing: PanTiltFraming::for_conversion(value.position.conversion),
+            framing: value.position.framing,
             pan: value.position.pan,
             tilt: value.position.tilt,
             speeds: value.speeds,
@@ -1775,8 +1654,8 @@ builtin_request! {
 
 /// Relative pan/tilt offset converted from degrees through one validated profile.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PanTiltRelative {
-    offset: PreparedPanTiltOffset,
+pub(crate) struct PanTiltRelative {
+    offset: PreparedPanTiltPosition,
     speeds: MoveSpeeds,
 }
 
@@ -1791,8 +1670,10 @@ impl PanTiltRelative {
     ) -> Result<Self, Error> {
         let profile = target.profile();
         let speeds = validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
+        let framing = PanTiltFraming::for_conversion(target_coordinates(target)?);
+        let (pan, tilt) = target.convert_pan_tilt_offset_degrees(pan.value(), tilt.value())?;
         Ok(Self {
-            offset: PreparedPanTiltOffset::for_target(pan, tilt, target)?,
+            offset: PreparedPanTiltPosition { pan, tilt, framing },
             speeds,
         })
     }
@@ -1815,7 +1696,7 @@ builtin_request! {
     PanTiltRelative => PanTiltRelative: Targeted {
         size: 17,
         wire: |value: &PanTiltRelative| PanTiltProfiled::RelativePosition {
-            framing: PanTiltFraming::for_conversion(value.offset.conversion),
+            framing: value.offset.framing,
             pan: value.offset.pan,
             tilt: value.offset.tilt,
             speeds: value.speeds,
@@ -1825,7 +1706,7 @@ builtin_request! {
 
 /// Set one pan/tilt movement-limit corner from profile-converted degree values.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PanTiltLimitSet {
+pub(crate) struct PanTiltLimitSet {
     corner: PanTiltLimitCorner,
     position: PreparedPanTiltPosition,
     applied_position: crate::types::PanTiltPosition,
@@ -1839,10 +1720,13 @@ impl PanTiltLimitSet {
         tilt: Degrees,
         target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
-        let position = PreparedPanTiltPosition::for_target(pan, tilt, target)?;
-        let applied_position = position
-            .conversion
-            .to_degrees(crate::types::PanTiltUnits::new(position.pan, position.tilt))?;
+        #[cfg(test)]
+        record_request_value_validation();
+        let conversion = target_coordinates(target)?;
+        let framing = PanTiltFraming::for_conversion(conversion);
+        let (pan, tilt) = target.convert_pan_tilt_degrees(pan.value(), tilt.value())?;
+        let position = PreparedPanTiltPosition { pan, tilt, framing };
+        let applied_position = conversion.to_degrees(crate::types::PanTiltUnits::new(pan, tilt))?;
         Ok(Self {
             corner,
             position,
@@ -1855,7 +1739,7 @@ builtin_request! {
     PanTiltLimitSet => PanTiltLimitSet: Plain {
         size: 17,
         wire: |value: &PanTiltLimitSet| PanTiltProfiled::LimitSet {
-            framing: PanTiltFraming::for_conversion(value.position.conversion),
+            framing: value.position.framing,
             corner: value.corner,
             pan: value.position.pan,
             tilt: value.position.tilt,
@@ -1865,7 +1749,7 @@ builtin_request! {
 
 /// Clear one pan/tilt movement-limit corner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PanTiltLimitClear {
+pub(crate) struct PanTiltLimitClear {
     corner: PanTiltLimitCorner,
     wire_codec: PanTiltWireCodec,
 }
@@ -1889,6 +1773,8 @@ impl PanTiltLimitClear {
         corner: PanTiltLimitCorner,
         profile: &crate::ProfileSpec,
     ) -> Result<Self, Error> {
+        #[cfg(test)]
+        record_request_value_validation();
         let conversion = profile
             .pan_tilt_coordinates()
             .ok_or(Error::FeatureNotSupported {
@@ -1936,9 +1822,7 @@ builtin_request! {
 
 impl WireEncode for crate::command::zoom::SetNormalized {
     fn write_into(&self, _camera_id: CameraId, _buffer: &mut [u8]) -> Result<usize, Error> {
-        Err(Error::InvalidRequest {
-            reason: "normalized zoom encoding requires a target profile".into(),
-        })
+        Err(crate::requests::target_required_for_encoding())
     }
 }
 
@@ -1954,7 +1838,7 @@ fn write_normalized_zoom_for_target(
 
 /// Continuous zoom-drive direction and speed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ZoomDrive {
+pub(crate) enum ZoomDrive {
     /// Drive toward telephoto at standard speed.
     Tele,
     /// Drive toward wide angle at standard speed.
@@ -2026,7 +1910,7 @@ builtin_request! {
 
 /// Continuous focus drive direction and speed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FocusDrive {
+pub(crate) enum FocusDrive {
     /// Drive focus farther at standard speed.
     Far,
     /// Drive focus nearer at standard speed.
@@ -2348,92 +2232,27 @@ impl BuiltinValidation for PanTiltDrive {
     fn pan_tilt_max_speed(&self) -> Option<u8> {
         Some(self.pan_speed.value().max(self.tilt_speed.value()))
     }
-
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt_speed(profile, self.pan_speed, self.tilt_speed)
-    }
 }
 
-impl BuiltinValidation for PanTiltStop {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt_speed(profile, self.pan_speed, self.tilt_speed)
-    }
-}
+impl BuiltinValidation for PanTiltStop {}
 
 impl BuiltinValidation for PanTiltAbsolute {
     fn pan_tilt_max_speed(&self) -> Option<u8> {
-        Some({
-            let (pan, tilt) = self.speeds.values();
-            pan.max(tilt)
-        })
-    }
-
-    fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
-        self.validate(target.profile())?;
-        if self.position.mount != target.mount() {
-            return Err(Error::InvalidRequest {
-                reason: "pan/tilt position belongs to a different target mount".into(),
-            });
-        }
-        Ok(())
-    }
-
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_move_speeds(profile, self.speeds)?;
-        self.position.validate(profile)
+        let (pan, tilt) = self.speeds.values();
+        Some(pan.max(tilt))
     }
 }
 
 impl BuiltinValidation for PanTiltRelative {
     fn pan_tilt_max_speed(&self) -> Option<u8> {
-        Some({
-            let (pan, tilt) = self.speeds.values();
-            pan.max(tilt)
-        })
-    }
-
-    fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
-        self.validate(target.profile())?;
-        target.validate_pan_tilt_offset(self.offset.pan, self.offset.tilt)
-    }
-
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_move_speeds(profile, self.speeds)?;
-        self.offset.validate(profile)
+        let (pan, tilt) = self.speeds.values();
+        Some(pan.max(tilt))
     }
 }
 
-impl BuiltinValidation for PanTiltLimitSet {
-    fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
-        self.validate(target.profile())?;
-        if self.position.mount != target.mount() {
-            return Err(Error::InvalidRequest {
-                reason: "pan/tilt limit belongs to a different target mount".into(),
-            });
-        }
-        Ok(())
-    }
+impl BuiltinValidation for PanTiltLimitSet {}
 
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        self.position.validate(profile)
-    }
-}
-
-impl BuiltinValidation for PanTiltLimitClear {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        #[cfg(test)]
-        record_request_value_validation();
-        if profile
-            .pan_tilt_coordinates()
-            .is_none_or(|conversion| conversion.wire_codec() != self.wire_codec)
-        {
-            return Err(Error::InvalidRequest {
-                reason: "pan/tilt limit-clear request was built for a different wire codec".into(),
-            });
-        }
-        Ok(())
-    }
-}
+impl BuiltinValidation for PanTiltLimitClear {}
 
 impl BuiltinValidation for ZoomTarget {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
@@ -2467,17 +2286,7 @@ impl BuiltinValidation for crate::command::zoom::SetNormalized {
     }
 }
 
-impl BuiltinValidation for ZoomDrive {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let speed = match self {
-            Self::Tele | Self::Wide => return Ok(()),
-            Self::TeleVariable(speed) | Self::WideVariable(speed) => speed.value(),
-        };
-        let zoom = zoom_facts(profile)?;
-        require(zoom.variable, "variable zoom drive")?;
-        require_in_range("zoom speed", speed, &zoom.speed)
-    }
-}
+impl BuiltinValidation for ZoomDrive {}
 
 impl BuiltinValidation for ZoomStop {}
 
@@ -2493,15 +2302,7 @@ impl BuiltinValidation for FocusTarget {
 
 impl BuiltinValidation for FocusInfinity {}
 
-impl BuiltinValidation for FocusDrive {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let speed = match self {
-            Self::Far | Self::Near => return Ok(()),
-            Self::FarVariable(speed) | Self::NearVariable(speed) => speed.value(),
-        };
-        require_in_range("focus speed", speed, &focus_facts(profile)?.speed)
-    }
-}
+impl BuiltinValidation for FocusDrive {}
 
 impl BuiltinValidation for FocusStop {}
 
@@ -3025,7 +2826,6 @@ mod tests {
         )
         .expect("reachable relative offset");
         assert_eq!(&wire(&request)[10..14], [15, 13, 7, 8]);
-        request.validate(&profile).expect("offset validation");
         let conversion = profile.pan_tilt_coordinates().unwrap();
         let caps = profile.capabilities().pan_tilt.as_ref().expect("pan/tilt");
         let target =
@@ -3058,7 +2858,10 @@ mod tests {
                 )
                 .expect("full span");
             assert!(matches!(
-                target.validate_pan_tilt_offset(pan + 1, tilt + 1),
+                target.convert_pan_tilt_offset_degrees(
+                    conversion.pan_degrees(pan + 2),
+                    conversion.tilt_degrees(tilt + 2)
+                ),
                 Err(Error::InvalidParameter { .. })
             ));
         }
@@ -3126,7 +2929,9 @@ mod tests {
         let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
         let capabilities = g2.capabilities();
 
-        let gain = capabilities
+        let sony = ProfileSpec::from_compile_time::<SonyBrcH900>().expect("H900 profile");
+        let gain = sony
+            .capabilities()
             .exposure
             .as_ref()
             .expect("exposure")
@@ -3135,7 +2940,7 @@ mod tests {
             .as_inclusive();
         let above_gain = *gain.end() + 1;
         assert_profile_range_error(
-            validate_gain(&g2, Some(above_gain)),
+            validate_gain(&sony, Some(above_gain)),
             "gain level",
             i32::from(above_gain),
             (i32::from(*gain.start()), i32::from(*gain.end())),
@@ -3272,13 +3077,11 @@ mod tests {
                 crate::target::TargetSlot::CAMERA_1,
                 profile.clone(),
             );
-            let result = crate::command::presets::SetRecallSpeed::for_target(
-                &target,
+            let request = crate::command::presets::SetRecallSpeed::new(
                 PresetSpeed::new(12).expect("valid recall speed"),
-            )
-            .and_then(|request| {
-                prepare_builtin_command(&request, &target, OperationalTuning::new()).map(drop)
-            });
+            );
+            let result = prepare_builtin_command(&request, &target, OperationalTuning::new());
+
             assert_eq!(
                 result.is_ok(),
                 profile
@@ -3737,7 +3540,11 @@ mod tests {
                 covered = true;
                 assert_eq!(entry.state_key, expected, "{row:?} generated state key");
             }
-            assert!(covered, "{row:?} has no generated request projection");
+            assert_eq!(
+                covered,
+                row.classification() != crate::command::semantics::BuiltinRequestClass::OwnerOnly,
+                "{row:?} request projection"
+            );
         }
 
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
@@ -4172,133 +3979,133 @@ mod tests {
             17,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<PanTiltLimitClear>(
             17,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<crate::command::PresetRecallSpeedCommand>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<FocusLockCommand>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<SpotlightOn>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<SpotlightOff>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<AutoSlowShutterOn>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<AutoSlowShutterOff>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<NdFilterModeCommand>(
             7,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<AutoNdCommand>(
             7,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<ImageFreeze>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<DigitalZoom>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<MulticastStreamingCommand>(
             6,
             CommandTimeoutClass::Network,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<SetNdiQuality>(
             6,
             CommandTimeoutClass::Network,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<TallyBrightLo>(
             8,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<TallyBrightHi>(
             8,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<crate::command::SetVariableSpeedMode>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<TallyOn>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<TallyOff>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<TallyFlash>(
             6,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<PresetSet>(
             7,
             CommandTimeoutClass::Preset,
             CommandRetryClass::Preset,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
         assert_policy::<PresetReset>(
             7,
             CommandTimeoutClass::Preset,
             CommandRetryClass::Preset,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         );
     }
 
@@ -4322,7 +4129,7 @@ mod tests {
         max_size: usize,
         timeout: CommandTimeoutClass,
         retry: CommandRetryClass,
-        control: ControlClass,
+        control: SubmissionClass,
     ) {
         assert_eq!(R::MAX_SIZE, max_size);
         assert_eq!(R::POLICY.timeout, timeout);
@@ -4529,8 +4336,14 @@ mod tests {
     }
 
     #[test]
-    fn typed_request_inventory_covers_exactly_every_ledger_row() {
-        let ledger_rows: HashSet<_> = BuiltinCommand::ALL.iter().copied().collect();
+    fn typed_request_inventory_covers_exactly_every_request_ledger_row() {
+        let ledger_rows: HashSet<_> = BuiltinCommand::ALL
+            .iter()
+            .copied()
+            .filter(|row| {
+                row.classification() != crate::command::semantics::BuiltinRequestClass::OwnerOnly
+            })
+            .collect();
         let inventory_rows: HashSet<_> = BUILTIN_TYPED_REQUEST_INVENTORY
             .iter()
             .map(|entry| {
@@ -4588,55 +4401,55 @@ mod tests {
             6,
             CommandTimeoutClass::Movement,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         );
         assert_policy::<IrisUp>(
             6,
             CommandTimeoutClass::Movement,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         );
         assert_policy::<IrisDown>(
             6,
             CommandTimeoutClass::Movement,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         );
         assert_policy::<IrisDirect>(
             9,
             CommandTimeoutClass::Movement,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         );
         assert_policy::<NdFilterDirect>(
             10,
             CommandTimeoutClass::Movement,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         );
         assert_policy::<NdFilterStepUp>(
             7,
             CommandTimeoutClass::Movement,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         );
         assert_policy::<NdFilterStepDown>(
             7,
             CommandTimeoutClass::Movement,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         );
         assert_policy::<PushAfPress>(
             7,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         );
         assert_policy::<PushAfRelease>(
             7,
             CommandTimeoutClass::Quick,
             CommandRetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         );
     }
 
@@ -4919,7 +4732,7 @@ mod tests {
         .is_ok());
 
         reset_request_write_count();
-        // BRC-H900's sourced maximum is 0x19, not the global type's 0x1E.
+        // BRC-H900's sourced maximum is 0x19, even though the wire carries a full byte.
         let beyond_h900 = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisDirect::new(IrisLevel::new(0x1A).unwrap()),
             &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, h900.clone()),
@@ -4984,6 +4797,62 @@ mod tests {
     }
 
     #[test]
+    fn ptzoptics_exposure_accepts_every_wire_code_without_a_shutter_time_table() {
+        use crate::{command::exposure, profiles::ProfileId, types};
+
+        for id in [
+            ProfileId::PtzOpticsG2,
+            ProfileId::PtzOpticsG3,
+            ProfileId::PtzOptics30x,
+        ] {
+            let profile = id.spec().expect("profile");
+            let target =
+                crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
+            let tuning = OperationalTuning::new();
+            for code in u8::MIN..=u8::MAX {
+                prepare_builtin_operation::<completion::Targeted, _>(
+                    &exposure::SetIris::new(IrisLevel::new(code).expect("iris code")),
+                    &target,
+                    tuning,
+                )
+                .expect("PTZOptics iris");
+                prepare_builtin_command(
+                    &exposure::SetShutter::new(
+                        types::ShutterSpeed::new(code).expect("shutter code"),
+                    ),
+                    &target,
+                    tuning,
+                )
+                .expect("PTZOptics shutter");
+                prepare_builtin_command(
+                    &exposure::SetGain::new(types::GainLevel::new(code).expect("gain code")),
+                    &target,
+                    tuning,
+                )
+                .expect("PTZOptics gain");
+                prepare_builtin_command(
+                    &exposure::SetBrightness::new(
+                        types::BrightnessLevel::new(code).expect("bright code"),
+                    ),
+                    &target,
+                    tuning,
+                )
+                .expect("PTZOptics brightness");
+            }
+
+            let caps = target.profile().capabilities();
+            assert!(matches!(
+                caps.shutter_speed_for(crate::units::ExposureTime::reciprocal(60)),
+                Err(Error::FeatureNotSupported { .. })
+            ));
+            assert!(matches!(
+                caps.exposure_time_for(types::ShutterSpeed::MIN),
+                Err(Error::FeatureNotSupported { .. })
+            ));
+        }
+    }
+
+    #[test]
     fn gain_validation_uses_each_profiles_sourced_domain() {
         let h900 = ProfileSpec::from_compile_time::<SonyBrcH900>().expect("H900 profile");
         let evi = ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI profile");
@@ -5009,16 +4878,18 @@ mod tests {
             crate::IndividualCameraId::CAMERA_1,
             ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile"),
         );
-        let ptz = crate::TargetRegistration::new(
+        let generic = crate::TargetRegistration::new(
             crate::IndividualCameraId::CAMERA_1,
-            ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
+            crate::profiles::ProfileId::GenericVisca
+                .spec()
+                .expect("Generic profile"),
         );
         reset_request_write_count();
         let absent = prepare_builtin_command(&gain, &fr7, OperationalTuning::new())
             .expect_err("FR7 has no shared gain family");
         assert!(matches!(absent, Error::FeatureNotSupported { .. }));
-        let out_of_range = prepare_builtin_command(&gain, &ptz, OperationalTuning::new())
-            .expect_err("G2's shared gain maximum is 7");
+        let out_of_range = prepare_builtin_command(&gain, &generic, OperationalTuning::new())
+            .expect_err("Generic VISCA's shared gain maximum is 7");
         assert!(matches!(
             out_of_range,
             Error::ParameterOutOfRange {

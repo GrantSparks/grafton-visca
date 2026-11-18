@@ -147,7 +147,7 @@ fn cancellation_observation_action_progresses() {
 #[test]
 fn retry_budget_action_progresses() {
     assert_progress(Scenario::Budget, |action| {
-        matches!(action, DueAction::RetryBudget { .. })
+        matches!(action, DueAction::RetryBudget)
     });
 }
 
@@ -335,7 +335,7 @@ fn engine_construction_retuning_and_admission_refuse_unrepresentable_intervals()
     let now = Instant::now();
     let mut invalid = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     invalid.command_spacing = Duration::MAX;
-    assert!(ProtocolEngine::new(invalid, now).is_err());
+    assert!(ProtocolEngine::new(invalid, PerTarget::default(), now).is_err());
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let spacing = engine.policy.command_spacing;
     assert!(engine
@@ -351,7 +351,6 @@ fn engine_construction_retuning_and_admission_refuse_unrepresentable_intervals()
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: invalid,
-            slot: AdmissionSlot::Ordinary,
         },
         now,
     );

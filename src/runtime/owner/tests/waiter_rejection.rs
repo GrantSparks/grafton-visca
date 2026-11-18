@@ -7,7 +7,9 @@
 use super::*;
 use crate::runtime::engine::{CancellationPolicy, DecodedFrame, DecodedResponse, TransmissionMeta};
 
-pub(in crate::runtime::owner) const ITERATIONS: usize = 10_000;
+// Each facade runs its waiter scenario once. The test
+// `every_admission_rejection_releases_capacity_before_waking_its_receiver`
+// pins permit-before-wake ordering directly.
 pub(in crate::runtime::owner) const BUDGET: Duration = Duration::from_secs(1);
 pub(in crate::runtime::owner) const INTERVAL: Duration = Duration::from_millis(25);
 pub(in crate::runtime::owner) const AXES: crate::AffectedAxes =

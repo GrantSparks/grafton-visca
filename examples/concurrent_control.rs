@@ -24,7 +24,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = env::args()
         .nth(1)
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
-        .unwrap_or_else(|| "192.168.0.110".to_owned());
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "pass a camera address or set VISCA_CAMERA_ADDR",
+            )
+        })?;
     let runtime = TokioRuntime::from_current()?;
     let session = CameraSession::<PtzOpticsG2>::connect_tcp(&address, runtime).await?;
     let result = concurrent_work(session.camera()).await;

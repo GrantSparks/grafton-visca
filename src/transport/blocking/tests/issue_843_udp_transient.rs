@@ -26,7 +26,7 @@ use crate::{
     observability::{MetricsSnapshot, SessionStatus},
     operation::AppliedOnly,
     profiles::SonyFr7,
-    transport::{HasTransportConfig, ReceiveOutcome, TransportConfig},
+    transport::{HasTransportConfig, IoBounds, ReceiveOutcome, UdpConnect},
     Error,
 };
 
@@ -122,8 +122,8 @@ impl<T: HasTransportConfig> HasTransportConfig for Observed<T> {
         self.inner.identity()
     }
 
-    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
-        self.inner.transport_config()
+    fn io_bounds(&self) -> &IoBounds {
+        self.inner.io_bounds()
     }
 }
 
@@ -167,7 +167,8 @@ fn blocking_udp_port_unreachable_retries_and_keeps_session() {
     let recovery = Recovery::new();
     let inner = crate::transport::blocking::Udp::connect_with_config(
         &recovery.endpoint.to_string(),
-        TransportConfig::for_udp(),
+        UdpConnect::default(),
+        IoBounds::UDP_DEFAULT,
     )
     .expect("UDP transport");
     let session = crate::blocking::Session::open(
@@ -201,7 +202,11 @@ async fn async_udp_port_unreachable_retries_and_keeps_session(
 ) {
     let recovery = Recovery::new();
     let inner = runtime
-        .connect_udp(&recovery.endpoint.to_string(), TransportConfig::for_udp())
+        .connect_udp(
+            crate::transport::NetworkEndpoint::parse(&recovery.endpoint.to_string(), None).unwrap(),
+            UdpConnect::default(),
+            IoBounds::UDP_DEFAULT,
+        )
         .await
         .expect("UDP transport");
     let session = crate::r#async::Session::open(

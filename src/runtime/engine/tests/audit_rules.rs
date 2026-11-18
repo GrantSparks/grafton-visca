@@ -57,9 +57,7 @@ fn corrupt_capacity() -> ProtocolEngine {
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let turn = engine.begin_input_turn(Instant::now());
     for _ in 0..2 {
-        engine
-            .admit_in_turn(&turn, command(1), AdmissionSlot::Ordinary)
-            .unwrap();
+        engine.admit_in_turn(&turn, command(1)).unwrap();
     }
     // Lower an existing valid proof beneath the admitted population.
     engine.policy.capacity = std::num::NonZeroUsize::MIN;

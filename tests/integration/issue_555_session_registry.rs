@@ -40,7 +40,7 @@ use grafton_visca::{
 ))]
 use grafton_visca::{
     config::{OperationalTuning, TransportKind},
-    transport::{AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressingMode, IoBounds, SendSemantics},
 };
 
 fn raw_profile() -> ProfileSpec {
@@ -83,8 +83,8 @@ fn spy_camera(addressing: AddressingMode) -> FakeCamera {
     feature = "runtime-smol"
 ))]
 /// The transport configuration of a spy with `addressing`.
-fn spy_config(_addressing: AddressingMode) -> TransportConfig {
-    TransportConfig::default()
+fn spy_config(_addressing: AddressingMode) -> IoBounds {
+    IoBounds::default()
 }
 
 #[cfg(any(

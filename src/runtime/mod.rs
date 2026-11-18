@@ -25,7 +25,7 @@ pub use traits::TokioRuntime;
 pub use traits::{Runtime, TransportHandle};
 
 #[cfg(feature = "async")]
-pub use crate::executor::{ExecError, Executor, ResettableTimer};
+pub use crate::executor::{Executor, ResettableTimer};
 #[cfg(all(feature = "async", feature = "runtime-smol"))]
 pub use crate::executor::{SmolExecutor, SmolTimer};
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]

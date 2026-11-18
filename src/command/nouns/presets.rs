@@ -4,7 +4,7 @@ use crate::command::nouns::{forward_inquiry, forward_request};
 use crate::{
     command::{inquiry_structs, preset_wire, sony_fr7_presets},
     request::builtin,
-    types, Request, TargetRegistration,
+    types, TargetRegistration,
 };
 
 /// Request recall.
@@ -296,30 +296,23 @@ forward_inquiry!(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SetRecallSpeed {
     speed: types::PresetSpeed,
-    encoding: crate::capabilities::PresetRecallSpeedEncoding,
 }
 
 impl SetRecallSpeed {
-    /// Checks the target's speed domain and selects its documented encoding.
-    pub fn for_target(
-        target: &TargetRegistration,
-        speed: types::PresetSpeed,
-    ) -> crate::Result<Self> {
-        let request = Self::selected_for_target(target, speed)?;
-        request.validate_for_target(target)?;
-        Ok(request)
+    /// Captures a speed to validate and encode for the receiving target.
+    #[must_use]
+    pub const fn new(speed: types::PresetSpeed) -> Self {
+        Self { speed }
     }
 
-    pub(crate) fn selected_for_target(
+    fn encoding_for_target(
         target: &TargetRegistration,
-        speed: types::PresetSpeed,
-    ) -> crate::Result<Self> {
-        let encoding = target.profile().encodings().preset_recall_speed().ok_or(
+    ) -> crate::Result<crate::capabilities::PresetRecallSpeedEncoding> {
+        target.profile().encodings().preset_recall_speed().ok_or(
             crate::Error::FeatureNotSupported {
                 feature: "preset recall speed encoding",
             },
-        )?;
-        Ok(Self { speed, encoding })
+        )
     }
 
     /// Returns the requested recall speed.
@@ -328,19 +321,7 @@ impl SetRecallSpeed {
         self.speed
     }
 
-    fn validate_encoding(&self, target: &TargetRegistration) -> crate::Result<()> {
-        if target.profile().encodings().preset_recall_speed() != Some(self.encoding) {
-            return Err(crate::Error::InvalidRequest {
-                reason: "preset recall speed was constructed for a different protocol encoding"
-                    .into(),
-            });
-        }
-        // The standard inner request validates its profile range. FR7's
-        // protocol request carries only the checked union value, so this
-        // target-selected wrapper validates that arm's narrower profile range.
-        if self.encoding == crate::capabilities::PresetRecallSpeedEncoding::PtzOptics {
-            return Ok(());
-        }
+    fn validate_speed(&self, target: &TargetRegistration) -> crate::Result<()> {
         #[cfg(test)]
         builtin::record_request_value_validation();
         let range = target
@@ -365,17 +346,18 @@ impl SetRecallSpeed {
 }
 
 forward_request!(SetRecallSpeed, preset_wire::PresetRecallSpeedCommand, Plain;
-    select |request, target| (request.encoding) default (request.encoding) {
+    select target |request, target| (Self::encoding_for_target(target)?)
+        default (crate::capabilities::PresetRecallSpeedEncoding::PtzOptics) {
         crate::capabilities::PresetRecallSpeedEncoding::PtzOptics => (
             preset_wire::PresetRecallSpeedCommand, PresetRecallSpeed,
             preset_wire::PresetRecallSpeedCommand::new(request.speed)
         ),
         crate::capabilities::PresetRecallSpeedEncoding::SonyFr7 => (
             sony_fr7_presets::Fr7SetCommonPresetSpeed, Fr7SetCommonPresetSpeed,
-            sony_fr7_presets::Fr7SetCommonPresetSpeed::new(request.speed)
+            sony_fr7_presets::Fr7SetCommonPresetSpeed::new(request.speed),
+            request.validate_speed(target)
         ),
     }
-    validate = |request, target| request.validate_encoding(target)
 );
 
 #[cfg(test)]
@@ -384,7 +366,7 @@ mod tests {
     use super::*;
     use crate::{
         command::semantics::{BuiltinCommand, BuiltinRequestContract},
-        CameraId, ProfileSpec,
+        CameraId, ProfileSpec, Request,
     };
 
     fn target<P: crate::CompileTimeProfile>() -> TargetRegistration {
@@ -395,67 +377,63 @@ mod tests {
     }
 
     #[test]
-    fn recall_speed_uses_selected_register_and_profile_bounds() {
+    fn recall_speed_uses_each_receiving_register_and_range() {
         let ptz = target::<crate::profiles::PtzOpticsG2>();
         let fr7 = target::<crate::profiles::SonyFr7>();
-        let ptz_request =
-            SetRecallSpeed::for_target(&ptz, types::PresetSpeed::new(24).expect("24"))
-                .expect("PTZ speed");
-        let fr7_request =
-            SetRecallSpeed::for_target(&fr7, types::PresetSpeed::new(50).expect("50"))
-                .expect("FR7 speed");
-        assert_eq!(ptz_request.speed().value(), 24);
+        let request = SetRecallSpeed::new(types::PresetSpeed::new(5).expect("shared speed"));
+        assert_eq!(request.speed().value(), 5);
         assert_eq!(
-            ptz_request.selected_ledger_row(),
+            request
+                .selected_ledger_row_for_target(&ptz)
+                .expect("PTZ row"),
             BuiltinCommand::PresetRecallSpeed
         );
         assert_eq!(
-            fr7_request.selected_ledger_row(),
+            request
+                .selected_ledger_row_for_target(&fr7)
+                .expect("FR7 row"),
             BuiltinCommand::Fr7SetCommonPresetSpeed
         );
         let mut bytes = [0; SetRecallSpeed::MAX_SIZE];
-        let len = ptz_request
-            .write_into(CameraId::CAMERA_1, &mut bytes)
-            .expect("PTZ frame");
-        assert_eq!(&bytes[..len], &[0x81, 0x01, 0x06, 0x01, 24, 0xFF]);
-        let len = fr7_request
-            .write_into(CameraId::CAMERA_1, &mut bytes)
-            .expect("FR7 frame");
-        assert_eq!(
-            &bytes[..len],
-            &[0x81, 0x01, 0x7E, 0x04, 0x1C, 0x03, 0x02, 0xFF]
-        );
-        assert!(SetRecallSpeed::for_target(
-            &ptz,
-            types::PresetSpeed::new(25).expect("union speed")
-        )
-        .is_err());
-        assert!(ptz_request.validate_for_target(&fr7).is_err());
-        assert!(fr7_request.validate_for_target(&ptz).is_err());
+        assert!(request.write_into(CameraId::CAMERA_1, &mut bytes).is_err());
+        let len = ptz.encode(&request, &mut bytes).expect("PTZ frame");
+        assert_eq!(&bytes[..len], &[0x81, 0x01, 0x06, 0x01, 5, 0xFF]);
+        let len = fr7.encode(&request, &mut bytes).expect("FR7 frame");
+        assert_eq!(&bytes[..len], &[0x81, 0x01, 0x7E, 0x04, 0x1C, 0, 5, 0xFF]);
+        let fr7_speed = SetRecallSpeed::new(types::PresetSpeed::new(50).expect("FR7 speed"));
+        assert!(ptz.encode(&fr7_speed, &mut bytes).is_err());
+        let len = fr7.encode(&fr7_speed, &mut bytes).expect("FR7 frame");
+        assert_eq!(&bytes[..len], &[0x81, 0x01, 0x7E, 0x04, 0x1C, 3, 2, 0xFF]);
     }
 
     #[test]
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn recall_speed_retains_each_registers_cache_contract() {
-        let ptz = SetRecallSpeed::for_target(
+        let request = SetRecallSpeed::new(types::PresetSpeed::MIN);
+        let mut bytes = [0; SetRecallSpeed::MAX_SIZE];
+        let (ptz, ()) = crate::requests::encode_for_target(
+            &request,
             &target::<crate::profiles::PtzOpticsG2>(),
-            types::PresetSpeed::MIN,
+            &mut bytes,
+            || Ok(()),
         )
         .expect("PTZ");
-        let fr7 = SetRecallSpeed::for_target(
+        let (fr7, ()) = crate::requests::encode_for_target(
+            &request,
             &target::<crate::profiles::SonyFr7>(),
-            types::PresetSpeed::MIN,
+            &mut bytes,
+            || Ok(()),
         )
         .expect("FR7");
         assert_eq!(
-            crate::requests::applied_state_projection(&ptz),
+            ptz.applied_state,
             Some(
                 crate::request::builtin_contract::AppliedStateProjection::Set(
                     crate::KnownState::PresetsRecallSpeed(types::PresetSpeed::MIN)
                 )
             )
         );
-        assert_eq!(crate::requests::applied_state_projection(&fr7), None);
+        assert_eq!(fr7.applied_state, None);
     }
 
     #[test]

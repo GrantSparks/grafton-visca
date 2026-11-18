@@ -33,7 +33,7 @@
 //! | `hw05_focus_zone_round_trip` | `81 01 04 AA 00/01/02 FF` and `81 09 04 AA FF` |
 //! | `hw05_direct_zoom_positions` | `81 01 04 47 00 08 00 00 FF` and `81 01 04 47 01 00 00 00 FF` |
 //! | `hw05_absolute_pan_tilt_small_offset` | `81 01 06 02 01 01 <pan x4> <tilt x4> FF` |
-//! | `hw05_shutter_round_trip` | `81 09 04 39 FF`, `81 01 04 39 0A FF` (only when the mode has no settable shutter) and its restore, `81 01 04 4A 00 00 0p 0q FF` for one step from the current code and the table minimum, middle and maximum, `81 09 04 4A FF` |
+//! | `hw05_shutter_round_trip` | `81 09 04 39 FF`, `81 01 04 39 0A FF` (only when the mode has no settable shutter) and its restore, `81 01 04 4A 00 00 0p 0q FF` for two previously observed codes, `81 09 04 4A FF` |
 //! | `hw05_tilt_polarity` | `81 01 06 01 01 01 03 01 FF` (up), `81 01 06 01 01 01 03 02 FF` (down), `81 01 06 01 <vv> <ww> 03 03 FF` (stop), `81 09 06 12 FF` |
 //!
 //! Safety rules the tests keep:
@@ -69,7 +69,7 @@
 //!   -- --ignored --nocapture --test-threads=1
 //! ```
 //!
-//! The G2 shutter table round trip alone (settings, no motion):
+//! The G2 shutter code round trip alone (settings, no motion):
 //! ```sh
 //! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=ptzoptics_g2 VISCA_HW_ALLOW_SETTINGS=1 \
 //!   cargo test --test integration --features runtime-tokio \
@@ -97,7 +97,7 @@ use grafton_visca::wire::WireValue;
 
 use grafton_visca::{
     blocking::{Camera, CameraSession},
-    capabilities::{Capabilities, ShutterSpeedEntry},
+    capabilities::Capabilities,
     profiles::{AnyProfile, ProfileSpec},
     raw,
     request::{InquiryRetryClass, Request},
@@ -955,7 +955,7 @@ fn slowest_speed(range: &std::ops::RangeInclusive<u8>, level_speed: u8) -> u8 {
 }
 
 // ---------------------------------------------------------------------------
-// HW-05.6: shutter table round trip (settings)
+// HW-05.6: shutter code round trip (settings)
 // ---------------------------------------------------------------------------
 
 /// Encodes `request` for `target` through the request's own wire encoder.
@@ -1032,12 +1032,11 @@ struct ShutterProbe<'a> {
 }
 
 impl ShutterProbe<'_> {
-    /// Sets `entry`'s code (`81 01 04 4A 00 00 0p 0q FF`), waits, inquires it
+    /// Sets the observed code (`81 01 04 4A 00 00 0p 0q FF`), waits, inquires it
     /// back (`81 09 04 4A FF`) and checks that both the typed `ShutterSpeed`
     /// and the raw reply position equal the code set.
-    fn round_trip(&self, checks: &mut Checks, label: &str, entry: &ShutterSpeedEntry) {
+    fn round_trip(&self, checks: &mut Checks, label: &str, speed: ShutterSpeed) {
         let hw = &self.hw;
-        let speed = ShutterSpeed::new(entry.value).expect("valid value");
         let set_frame = encode(
             &grafton_visca::command::exposure::SetShutter::new(speed),
             self.target,
@@ -1045,9 +1044,8 @@ impl ShutterProbe<'_> {
         .map_or_else(|_| "ERR".to_owned(), |bytes| hex(&bytes));
         hw!(
             hw,
-            "shutter.{label}.target fraction={} code=0x{:02X} set_frame={set_frame}",
-            entry.exposure,
-            entry.value
+            "shutter.{label}.target code=0x{:02X} set_frame={set_frame}",
+            speed.value()
         );
         let set = self.camera.exposure().set_shutter(speed);
         observe(hw, &format!("shutter.{label}.set"), &set);
@@ -1062,10 +1060,9 @@ impl ShutterProbe<'_> {
             .and_then(|payload| shutter_position(payload));
         hw!(
             hw,
-            "shutter.{label}.decode fraction={} set_code=0x{:02X} inquiry_frame={} \
+            "shutter.{label}.decode set_code=0x{:02X} inquiry_frame={} \
              reply_payload={} typed={} raw_position={}",
-            entry.exposure,
-            entry.value,
+            speed.value(),
             hex(self.raw_inquiry.bytes()),
             payload
                 .as_ref()
@@ -1082,7 +1079,7 @@ impl ShutterProbe<'_> {
         checks.check(
             hw,
             format!("shutter_{label}_raw_position_equals_set"),
-            raw_position == Some(entry.value),
+            raw_position == Some(speed.value()),
         );
     }
 }
@@ -1147,10 +1144,9 @@ impl Drop for ShutterGuard<'_> {
 }
 
 /// Reads the exposure mode (`81 09 04 39 FF`), shutter (`81 09 04 4A FF`),
-/// iris and gain; selects a shutter-settable exposure mode; then sets and
-/// inquires back one step from the current shutter code and the profile
-/// table's minimum, middle and maximum codes
-/// (`81 01 04 4A 00 00 0p 0q FF`). Each readback must equal the code set,
+/// iris and gain. Selects a shutter-settable exposure mode, then sets the
+/// baseline and a distinct code read after a camera-defined shutter step.
+/// Each direct write (`81 01 04 4A 00 00 0p 0q FF`) must read back its code,
 /// both through the typed inquiry and as the raw `00 00 0p 0q` reply payload
 /// of the same inquiry frame. Restores the shutter and then the mode, and
 /// asserts both equal the originals.
@@ -1174,25 +1170,6 @@ fn shutter_round_trip(hw: &Hw, ip: &str) {
 fn shutter_body(camera: &Camera<AnyProfile>, target: CameraId, hw: &Hw) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let capabilities = camera.capabilities();
-    let table = &capabilities
-        .exposure
-        .as_ref()
-        .expect("exposure domain")
-        .shutter_speeds;
-    for entry in table {
-        hw!(
-            hw,
-            "profile.shutter_entry code=0x{:02X} fraction={}",
-            entry.value,
-            entry.exposure
-        );
-    }
-    checks.check(
-        hw,
-        "profile_shutter_table_has_three_entries",
-        table.len() >= 3,
-    );
-
     let original_mode = camera.exposure().mode();
     observe(hw, "original.exposure_mode", &original_mode);
     let original_shutter = camera.exposure().shutter();
@@ -1204,9 +1181,6 @@ fn shutter_body(camera: &Camera<AnyProfile>, target: CameraId, hw: &Hw) -> Resul
     let (Ok(original_mode), Ok(original_shutter)) = (original_mode, original_shutter) else {
         return Ok(checks);
     };
-    if table.len() < 3 {
-        return Ok(checks);
-    }
     let Some(test_mode) = settable_shutter_mode(capabilities, original_mode) else {
         hw!(
             hw,
@@ -1260,26 +1234,36 @@ fn shutter_body(camera: &Camera<AnyProfile>, target: CameraId, hw: &Hw) -> Resul
     }
 
     if mode_ready {
-        let last = table.len() - 1;
-        let original_index = table
-            .iter()
-            .position(|entry| entry.value == original_shutter.value());
-        hw!(hw, "shutter.original_table_index={original_index:?}");
-        // One step from the current code (up, or down from the maximum), then
-        // the table's minimum, middle and maximum. Consecutive targets always
-        // differ, so every readback proves a change.
-        let one_step = original_index.map(|index| {
-            let neighbour = if index < last { index + 1 } else { index - 1 };
-            ("one_step", neighbour)
-        });
-        let steps = one_step.into_iter().chain([
-            ("table_min", 0),
-            ("table_middle", last / 2),
-            ("table_max", last),
-        ]);
-        guard.shutter_dirty.set(true);
-        for (label, index) in steps {
-            probe.round_trip(&mut checks, label, &table[index]);
+        let baseline = camera.exposure().shutter();
+        observe(hw, "shutter.baseline", &baseline);
+        checks.check(hw, "shutter_baseline_readable", baseline.is_ok());
+        if let Ok(baseline) = baseline {
+            guard.shutter_dirty.set(true);
+            let mut stepped = None;
+            // At an endpoint one direction can leave the code unchanged.
+            for up in [true, false] {
+                let exposure = camera.exposure();
+                let (label, step) = if up {
+                    ("up", exposure.shutter_up())
+                } else {
+                    ("down", exposure.shutter_down())
+                };
+                observe(hw, &format!("shutter.step.{label}"), &step);
+                sleep(SETTLE_DELAY);
+                let readback = camera.exposure().shutter();
+                observe(hw, &format!("shutter.readback.{label}"), &readback);
+                stepped = readback
+                    .ok()
+                    .filter(|code| step.is_ok() && *code != baseline);
+                if stepped.is_some() {
+                    break;
+                }
+            }
+            checks.check(hw, "shutter_observed_a_distinct_code", stepped.is_some());
+            if let Some(stepped) = stepped {
+                probe.round_trip(&mut checks, "baseline", baseline);
+                probe.round_trip(&mut checks, "stepped", stepped);
+            }
         }
     }
 

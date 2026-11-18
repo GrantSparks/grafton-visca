@@ -1,6 +1,6 @@
 use grafton_visca::{
     profiles::CommandTimeoutClass,
-    request::{self, CommandPolicy, CommandRetryClass, ControlClass, Request, SubmissionClass},
+    request::{self, CommandPolicy, CommandRetryClass, Request, SubmissionClass},
     types::CameraId,
 };
 
@@ -23,12 +23,13 @@ impl Request for DownstreamUrgent {
         Ok(3)
     }
 
-    fn admission_control_class(
+    fn admission(
         &self,
         _authority: grafton_visca::requests::RequestContractAuthority,
         //~^ E0603 "module `requests` is private"
-    ) -> ControlClass {
-        ControlClass::Urgent
+    ) -> grafton_visca::request::policy::CommandAdmission {
+        //~^ E0603 "module `policy` is private"
+        loop {}
     }
 }
 

@@ -17,7 +17,7 @@ use crate::{
             handshake::{Action, SerialStartup, StartupTiming},
             open_failed, port_builder, Config as SerialConfig,
         },
-        AddressedBus,
+        AddressedBus, IoBounds,
     },
 };
 
@@ -57,40 +57,29 @@ impl AsyncWriteExtTrait for TokioSerialAdapter {
         use tokio::io::AsyncWriteExt;
         Ok(self.stream.write_all(buf).await?)
     }
-
-    async fn flush(&mut self) -> Result<(), Error> {
-        use tokio::io::AsyncWriteExt;
-        Ok(self.stream.flush().await?)
-    }
 }
 
 /// Helper methods for creating tokio serial transports.
 impl Serial {
-    /// Open the configured port and perform the requested startup.
-    ///
-    /// The configuration is validated before the device is opened. Opening
-    /// writes nothing to the bus unless [`SerialConfig::startup`] requests
-    /// Address Set or I/F Clear. See [`crate::transport::serial`] for the
-    /// open and startup behaviour shared with the blocking transport.
-    #[allow(clippy::manual_async_fn)]
-    pub fn connect(config: SerialConfig) -> impl Future<Output = Result<Self>> + Send {
-        async move { Self::open_validated(config.validated()?).await }
-    }
-
-    async fn open_validated(config: crate::transport::ValidatedSerialConfig) -> Result<Self> {
-        let (config, transport_config) = config.into_parts();
+    async fn open(config: SerialConfig, io_bounds: IoBounds) -> Result<Self> {
         let stream = port_builder(&config)
             .open_native_async()
             .map_err(|error| open_failed(&config, error))?;
         let mut adapter = TokioSerialAdapter { stream };
 
         let executor = TokioExecutor::from_current()?;
-        let addressed_cameras =
-            perform_startup(&executor, &mut adapter, &config, StartupTiming::VISCA).await?;
+        let addressed_cameras = perform_startup(
+            &executor,
+            &mut adapter,
+            &config,
+            io_bounds,
+            StartupTiming::VISCA,
+        )
+        .await?;
 
         let addressed_bus =
             addressed_cameras.map(|cameras| AddressedBus::new(config.port.clone(), cameras));
-        Ok(Self::new(adapter, transport_config).with_addressed_bus(addressed_bus))
+        Ok(Self::new(adapter, io_bounds).with_addressed_bus(addressed_bus))
     }
 
     /// Connect on an explicitly selected Tokio runtime.
@@ -100,17 +89,13 @@ impl Serial {
     /// same runtime that will own the session actor.
     pub(crate) fn connect_on(
         handle: tokio::runtime::Handle,
-        config: crate::transport::ValidatedSerialConfig,
+        config: SerialConfig,
+        io_bounds: IoBounds,
     ) -> impl Future<Output = Result<Self>> + Send {
         // Polling through this wrapper retains the caller-owned future while
         // still installing the selected handle before opening the async
         // descriptor and at every handshake poll.
-        TokioBoundFuture::new(handle, Self::open_validated(config))
-    }
-
-    /// Connect to a serial port with default configuration.
-    pub async fn connect_default(port: &str) -> Result<Self> {
-        Self::connect(SerialConfig::new(port)).await
+        TokioBoundFuture::new(handle, Self::open(config, io_bounds))
     }
 }
 
@@ -143,6 +128,7 @@ fn perform_startup<'a, E, S>(
     exec: &'a E,
     io: &'a mut S,
     config: &'a SerialConfig,
+    io_bounds: IoBounds,
     timing: StartupTiming,
 ) -> impl Future<Output = Result<Option<u8>>> + Send + 'a
 where
@@ -150,21 +136,21 @@ where
     S: AsyncReadExtTrait + AsyncWriteExtTrait + DiscardInput + Send + ?Sized,
 {
     async move {
-        let mut startup = SerialStartup::new(config, timing)?;
+        let mut startup = SerialStartup::new(config, io_bounds, timing)?;
         let mut buffer = vec![0; startup.read_capacity()];
         loop {
             match startup.next(exec.now()) {
-                Action::Write { frame, timeout } => {
-                    let written = bounded(exec, timeout, io.write_all(frame))
+                Action::Write(write) => {
+                    let written = bounded(exec, write.timeout, io.write_all(write.frame()))
                         .await
                         .and_then(|written| written);
-                    startup.wrote(written);
+                    write.complete(written);
                 }
-                Action::Read { timeout } => {
-                    let read = bounded(exec, timeout, io.read(&mut buffer))
+                Action::Read(read_action) => {
+                    let read = bounded(exec, read_action.timeout, io.read(&mut buffer))
                         .await
                         .and_then(|read| read);
-                    startup.read(read.map(|read| &buffer[..read]));
+                    read_action.complete(read.map(|read| &buffer[..read]));
                 }
                 Action::Sleep(duration) => sleep(exec, duration).await,
                 Action::DiscardInput => io.discard_input()?,
@@ -183,27 +169,30 @@ mod tests {
             handshake::scenarios::{self, Read as ScriptRead, Write as ScriptWrite},
             Startup,
         },
-        BufferConfig, HasTransportConfig,
+        HasTransportConfig,
     };
     use std::collections::VecDeque;
+
+    fn default_bounds() -> IoBounds {
+        IoBounds::SERIAL_DEFAULT
+    }
+
+    async fn open_serial(config: SerialConfig) -> Result<Serial> {
+        use crate::runtime::{Runtime, TokioRuntime};
+        TokioRuntime::from_current()?
+            .connect_serial(config, default_bounds())
+            .await
+    }
 
     #[cfg(unix)]
     #[tokio::test]
     async fn transport_handle_preserves_the_serial_addressed_bus_identity() {
-        use crate::{
-            transport::{TransportConfig, TransportIdentity},
-            TokioRuntime, TransportHandle,
-        };
+        use crate::{transport::TransportIdentity, TokioRuntime, TransportHandle};
 
         let (_master, stream) = SerialStream::pair().expect("pseudo-terminal pair");
         let bus = AddressedBus::new("test pseudo-terminal", 3);
-        let transport = Serial::new(
-            TokioSerialAdapter { stream },
-            TransportConfig::for_serial()
-                .validated()
-                .expect("valid connector test configuration"),
-        )
-        .with_addressed_bus(Some(bus.clone()));
+        let transport = Serial::new(TokioSerialAdapter { stream }, default_bounds())
+            .with_addressed_bus(Some(bus.clone()));
         let handle = TransportHandle::<TokioRuntime>::Serial(Box::new(transport));
 
         assert_eq!(
@@ -240,9 +229,11 @@ mod tests {
             master
         });
 
-        let config = CameraConfig::<PtzOpticsG2>::serial(path.clone(), 9_600)
-            .with_camera_id(IndividualCameraId::CAMERA_2)
-            .with_serial_startup(Startup::default().with_address_set(true));
+        let config = CameraConfig::<PtzOpticsG2>::serial_configured(
+            SerialConfig::new(path.clone()).with_startup(Startup::default().with_address_set(true)),
+            default_bounds(),
+        )
+        .with_camera_id(IndividualCameraId::CAMERA_2);
         let runtime = crate::runtime::TokioRuntime::from_current().expect("Tokio runtime");
         let result = crate::r#async::CameraSession::connect(&config, runtime).await;
         let _master = bus.join().expect("bus thread");
@@ -260,7 +251,6 @@ mod tests {
         reads: VecDeque<Result<Vec<u8>>>,
         write_results: VecDeque<Result<()>>,
         writes: Vec<Vec<u8>>,
-        flush_calls: usize,
         input_discards: usize,
     }
 
@@ -284,11 +274,6 @@ mod tests {
                 Some(Err(error)) => Err(error),
                 Some(Ok(())) | None => Ok(()),
             }
-        }
-
-        async fn flush(&mut self) -> Result<()> {
-            self.flush_calls += 1;
-            Ok(())
         }
     }
 
@@ -326,8 +311,14 @@ mod tests {
                 ..TranscriptIo::default()
             };
 
-            let result =
-                perform_startup(&executor, &mut io, &scenario.config, scenarios::TIMING).await;
+            let result = perform_startup(
+                &executor,
+                &mut io,
+                &scenario.config,
+                default_bounds(),
+                scenarios::TIMING,
+            )
+            .await;
 
             scenarios::check(&scenario, &result);
             if matches!(scenario.outcome, scenarios::Outcome::Closed) {
@@ -340,56 +331,13 @@ mod tests {
                 "{}",
                 scenario.name
             );
-            assert_eq!(
-                io.flush_calls, 0,
-                "{}: startup must not enter the unbounded device flush",
-                scenario.name
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn invalid_buffer_bounds_fail_before_serial_device_open() {
-        let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
-            .with_buffer_config(BufferConfig {
-                recv_buffer_size: 65,
-                max_buffer_size: 64,
-            });
-
-        let result = Serial::connect(config).await;
-
-        assert!(matches!(
-            result,
-            Err(Error::InvalidRequest { reason: actual })
-                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
-        ));
-    }
-
-    #[tokio::test]
-    async fn zero_io_timeouts_fail_before_serial_device_open() {
-        for (config, message) in [
-            (
-                SerialConfig::new("grafton-visca-zero-read-timeout-serial-device")
-                    .with_read_timeout(Duration::ZERO),
-                "transport read timeout must be non-zero",
-            ),
-            (
-                SerialConfig::new("grafton-visca-zero-write-timeout-serial-device")
-                    .with_write_timeout(Duration::ZERO),
-                "transport write timeout must be non-zero",
-            ),
-        ] {
-            assert!(matches!(
-                Serial::connect(config).await,
-                Err(Error::InvalidRequest { reason: actual }) if actual.as_ref() == message
-            ));
         }
     }
 
     #[tokio::test]
     async fn an_absent_port_is_a_connection_failure_naming_the_port() {
         let config = SerialConfig::new("/dev/grafton-visca-absent-serial-device");
-        let error = Serial::connect(config)
+        let error = open_serial(config)
             .await
             .expect_err("an absent port cannot open");
         assert!(matches!(
@@ -412,10 +360,6 @@ mod tests {
         async fn write_all<'a>(&'a mut self, _buf: &'a [u8]) -> Result<()> {
             std::future::pending().await
         }
-
-        async fn flush(&mut self) -> Result<()> {
-            Ok(())
-        }
     }
 
     impl DiscardInput for PendingWriteIo {
@@ -429,12 +373,14 @@ mod tests {
         let executor = TokioExecutor::from_current().expect("Tokio runtime is present");
         let mut io = PendingWriteIo;
         let config = SerialConfig::new("/dev/test")
-            .with_startup(Startup::default().with_interface_clear(true))
-            .with_write_timeout(Duration::from_millis(5));
+            .with_startup(Startup::default().with_interface_clear(true));
+        let bounds = default_bounds()
+            .with_write_timeout(Duration::from_millis(5))
+            .expect("short write timeout");
 
         let bounded = tokio::time::timeout(
             Duration::from_millis(100),
-            perform_startup(&executor, &mut io, &config, StartupTiming::VISCA),
+            perform_startup(&executor, &mut io, &config, bounds, StartupTiming::VISCA),
         )
         .await;
         let error = bounded
@@ -459,16 +405,12 @@ mod tests {
         let path = slave.name().expect("pseudo-terminal path");
         let config = SerialConfig::new(path.clone());
 
-        let first = Serial::connect(config.clone())
+        let first = open_serial(config.clone())
             .await
             .expect("first opener succeeds");
-        let reported = first.transport_config().as_config();
-        assert_eq!(reported, &config.transport_config());
+        assert_eq!(first.io_bounds(), &default_bounds());
 
-        assert_eq!(reported.tcp_nodelay, None);
-        assert_eq!(reported.tcp_keepalive, None);
-
-        let second = Serial::connect(config)
+        let second = open_serial(config)
             .await
             .expect_err("the port is held exclusively");
         assert!(matches!(

@@ -40,7 +40,7 @@ use grafton_visca::{
     config::SessionConfig,
     error::{Certainty, FailureContext, FailureStage},
     profiles::{ProfileSpec, ProfileTiming, PtzOpticsG2},
-    transport::{AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressingMode, IoBounds, SendSemantics},
     types::{CameraId, FocusMode},
     Error,
 };
@@ -151,8 +151,8 @@ impl Bench {
         }
     }
 
-    fn transport_config(&self) -> TransportConfig {
-        TransportConfig::default()
+    fn io_bounds(&self) -> IoBounds {
+        IoBounds::default()
     }
 
     fn addressing(&self) -> AddressingMode {
@@ -168,7 +168,7 @@ impl Bench {
     fn blocking_wire(&self) -> BlockingWire {
         self.camera
             .blocking_wire()
-            .with_config(self.transport_config())
+            .with_config(self.io_bounds())
             .with_semantics(self.semantics)
             .with_addressing(self.addressing())
     }
@@ -181,7 +181,7 @@ impl Bench {
     fn async_wire(&self) -> AsyncWire {
         self.camera
             .async_wire()
-            .with_config(self.transport_config())
+            .with_config(self.io_bounds())
             .with_semantics(self.semantics)
             .with_addressing(self.addressing())
     }

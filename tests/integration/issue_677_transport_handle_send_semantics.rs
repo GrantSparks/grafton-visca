@@ -5,7 +5,8 @@
 
 use grafton_visca::runtime::{Runtime, TokioRuntime, TransportHandle};
 use grafton_visca::transport::{
-    HasTransportConfig, SendSemantics, TransportConfig, TransportIdentity,
+    HasTransportConfig, IoBounds, NetworkEndpoint, SendSemantics, TcpConnect, TransportIdentity,
+    UdpConnect,
 };
 
 /// A UDP session built through the wrapper must be governed by datagram rules.
@@ -19,7 +20,11 @@ async fn udp_transport_handle_reports_datagram_semantics() {
     // operation that needs no listener. This is the exact shape from
     // `TransportHandle`'s rustdoc.
     let udp = rt
-        .connect_udp("127.0.0.1:9999", TransportConfig::default())
+        .connect_udp(
+            NetworkEndpoint::parse("127.0.0.1:9999", None).expect("endpoint"),
+            UdpConnect::default(),
+            IoBounds::default(),
+        )
         .await
         .expect("udp connect is a local operation and needs no peer");
     let handle: TransportHandle<TokioRuntime> = TransportHandle::Udp(udp);
@@ -49,7 +54,11 @@ async fn tcp_transport_handle_reports_stream_semantics() {
     let addr = listener.local_addr().expect("listener local addr");
 
     let tcp = rt
-        .connect_tcp(&addr.to_string(), TransportConfig::default())
+        .connect_tcp(
+            NetworkEndpoint::parse(&addr.to_string(), None).expect("endpoint"),
+            TcpConnect::default(),
+            IoBounds::default(),
+        )
         .await
         .expect("tcp connect to local listener");
     let handle: TransportHandle<TokioRuntime> = TransportHandle::Tcp(tcp);

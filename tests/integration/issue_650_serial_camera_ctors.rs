@@ -27,7 +27,7 @@ mod blocking_serial_single_camera {
         let config = CameraConfig::<PtzOpticsG2>::serial(super::ABSENT_PORT, 9600);
         assert_eq!(config.transport().kind(), TransportKind::Serial);
         assert!(
-            matches!(config.transport(), TransportOptions::Serial { port, baud_rate: 9600, .. } if port == super::ABSENT_PORT)
+            matches!(config.transport(), TransportOptions::Serial { config, .. } if config.port() == super::ABSENT_PORT && config.baud_rate() == 9600)
         );
     }
 
@@ -60,7 +60,7 @@ mod tokio_serial_single_camera {
         let config = CameraConfig::<PtzOpticsG2>::serial(super::ABSENT_PORT, 9600);
         assert_eq!(config.transport().kind(), TransportKind::Serial);
         assert!(
-            matches!(config.transport(), TransportOptions::Serial { port, baud_rate: 9600, .. } if port == super::ABSENT_PORT)
+            matches!(config.transport(), TransportOptions::Serial { config, .. } if config.port() == super::ABSENT_PORT && config.baud_rate() == 9600)
         );
     }
 

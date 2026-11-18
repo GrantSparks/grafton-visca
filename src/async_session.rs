@@ -11,6 +11,7 @@
 
 #![cfg(feature = "async")]
 
+use crate::observability::DiagnosticCapacity;
 use std::{fmt, marker::PhantomData, sync::Arc};
 
 use crate::{
@@ -36,7 +37,7 @@ pub use crate::async_operation::Operation;
 /// Dropping this stream releases its subscription without keeping the owner
 /// alive. Queued events remain readable before the owner's original terminal cause.
 pub struct Diagnostics {
-    inner: crate::observability::DiagnosticSubscription,
+    inner: crate::runtime::owner::DiagnosticSubscription,
     wait: crate::observability::DiagnosticWait,
 }
 
@@ -46,7 +47,7 @@ impl Diagnostics {
         clock: crate::runtime::owner::BoundClock,
     ) -> Self {
         Self {
-            inner: crate::observability::DiagnosticSubscription::from_owner(inner),
+            inner,
             wait: crate::observability::DiagnosticWait::new(clock),
         }
     }
@@ -59,7 +60,7 @@ impl Diagnostics {
 
     /// Waits for an event, preserving the owner's terminal cause after the queue drains.
     pub async fn recv(&self) -> Result<crate::observability::DiagnosticEvent> {
-        self.inner.recv().await
+        self.inner.recv_async().await
     }
 
     /// Waits at most `timeout` on the session's selected runtime clock.
@@ -129,16 +130,17 @@ impl Session {
         T: AsyncTransport + HasTransportConfig + 'static,
     {
         async move {
-            config.validate_opened_transport(&transport)?;
+            let routing = config.validate_opened_transport(&transport)?;
             let tuning = config.validated_tuning();
             let profiles = config.profile_registry();
-            let (mut adapter, policy) = AsyncTransportAdapter::new_with_targets(
+            let (mut adapter, policy) = AsyncTransportAdapter::new_with_routing(
                 transport,
                 &profiles,
+                routing,
                 tuning,
                 config.admission_capacity(),
                 config.strict_unconfirmed_poison(),
-            )?;
+            );
 
             if config.sony_sequence_reset_on_connect() {
                 crate::timeout::within(
@@ -151,7 +153,9 @@ impl Session {
             let (owner, actor) = AsyncOwnerActor::new(policy, executor.clone())?;
             // This is the only task spawned by this facade. The owner handle is
             // cloneable; all public camera views share its one serialized actor.
-            executor.spawn_bg(actor.run(adapter));
+            executor.spawn_detached(async move {
+                actor.run(adapter).await;
+            });
             if let Some(error) = owner.terminal_error() {
                 return Err(error);
             }
@@ -175,7 +179,7 @@ impl Session {
     }
 
     #[doc = crate::camera_facade::session_contract!(diagnostics)]
-    pub async fn subscribe_diagnostics(&self, capacity: usize) -> Result<Diagnostics> {
+    pub async fn subscribe_diagnostics(&self, capacity: DiagnosticCapacity) -> Result<Diagnostics> {
         let subscription = self.owner.subscribe_diagnostics(capacity).await?;
         Ok(Diagnostics::from_owner(
             subscription,
@@ -330,8 +334,8 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
-            self.inner.transport_config()
+        fn io_bounds(&self) -> &crate::transport::IoBounds {
+            self.inner.io_bounds()
         }
     }
 
@@ -488,32 +492,18 @@ mod tests {
     }
 
     impl<E: Executor> Executor for ConstructionExecutor<E> {
-        type Join<T>
-            = std::pin::Pin<
-            Box<dyn Future<Output = std::result::Result<T, crate::executor::ExecError>> + Send>,
-        >
-        where
-            T: Send + 'static;
-        type Detach = ();
         type Timer = E::Timer;
 
         fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
             self.inner.timer(deadline)
         }
-        fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, ())
+        fn spawn_detached<F>(&self, future: F)
         where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
+            F: Future<Output = ()> + Send + 'static,
         {
-            if self.drop_actor {
-                drop(future);
-                (Box::pin(std::future::pending()), ())
-            } else {
-                (Box::pin(self.inner.spawn(future)), ())
+            if !self.drop_actor {
+                self.inner.spawn_detached(future);
             }
-        }
-        fn block_on<F: Future>(&self, future: F) -> F::Output {
-            self.inner.block_on(future)
         }
         async fn sleep(&self, duration: Duration) {
             if !self.ready_sleep {
@@ -539,8 +529,8 @@ mod tests {
         fn identity(&self) -> crate::transport::TransportIdentity<'_> {
             self.inner.identity()
         }
-        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
-            self.inner.transport_config()
+        fn io_bounds(&self) -> &crate::transport::IoBounds {
+            self.inner.io_bounds()
         }
     }
     impl<T: AsyncTransport> AsyncTransport for DropTrackedTransport<T> {
@@ -796,27 +786,19 @@ mod tests {
         timers: Arc<std::sync::atomic::AtomicUsize>,
     }
     impl<E: Executor> Executor for DiagnosticExecutor<E> {
-        type Join<T>
-            = E::Join<T>
-        where
-            T: Send + 'static;
-        type Detach = E::Detach;
         type Timer = E::Timer;
         fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
             self.timers
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.inner.timer(deadline)
         }
-        fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
+        fn spawn_detached<F>(&self, future: F)
         where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
+            F: Future<Output = ()> + Send + 'static,
         {
-            self.inner.spawn_with_detach(future)
+            self.inner.spawn_detached(future);
         }
-        fn block_on<F: Future>(&self, future: F) -> F::Output {
-            self.inner.block_on(future)
-        }
+
         fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
             self.inner.sleep(duration)
         }
@@ -826,7 +808,7 @@ mod tests {
         }
     }
 
-    fn assert_diagnostics_reuse_one_timer(clock: &ManualClock, executor: impl Executor) {
+    async fn assert_diagnostics_reuse_one_timer(clock: &ManualClock, executor: impl Executor) {
         use crate::profiles::GenericVisca;
         use std::{
             pin::pin,
@@ -841,12 +823,13 @@ mod tests {
         let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
             .with_executor(runtime.inner.clone());
         let config = SessionConfig::from_compile_time::<GenericVisca>().expect("configuration");
-        let session = runtime
-            .block_on(Session::open(transport, &config, runtime.clone()))
+        let session = Session::open(transport, &config, runtime.clone())
+            .await
             .expect("session");
         let before = runtime.timers.load(Ordering::Relaxed);
-        let mut diagnostics = runtime
-            .block_on(session.subscribe_diagnostics(128))
+        let mut diagnostics = session
+            .subscribe_diagnostics(DiagnosticCapacity::MAX)
+            .await
             .expect("subscription");
         assert_eq!(
             runtime.timers.load(Ordering::Relaxed),
@@ -855,44 +838,42 @@ mod tests {
         );
         let created = runtime.timers.load(Ordering::Relaxed);
         // Drop a pending receive, then reuse the same timer and subscription.
-        runtime.block_on(async {
+        {
             let mut receive = pin!(diagnostics.recv_with_timeout(Duration::from_secs(60)));
             assert!(futures_lite::future::poll_once(receive.as_mut())
                 .await
                 .is_none());
-        });
-        // Measure within one tracked task: between block_on roots the clock
-        // may also service the owner's independent idle deadlines.
-        runtime.block_on(async {
-            for _ in 0..3 {
-                let start = clock.now();
-                assert!(diagnostics
-                    .recv_with_timeout(Duration::from_secs(2))
-                    .await
-                    .expect("empty timed observation")
-                    .is_none());
-                assert_eq!(clock.now() - start, Duration::from_secs(2));
-            }
-        });
+        }
+        for _ in 0..3 {
+            let start = clock.now();
+            assert!(diagnostics
+                .recv_with_timeout(Duration::from_secs(2))
+                .await
+                .expect("empty timed observation")
+                .is_none());
+            assert_eq!(clock.now() - start, Duration::from_secs(2));
+        }
         assert_eq!(
             runtime.timers.load(Ordering::Relaxed),
             created,
             "receives reset the original timer"
         );
-        runtime
-            .block_on(session.close())
+        session
+            .close()
+            .await
             .expect("owner closes while subscription exists");
-        assert!(runtime
-            .block_on(diagnostics.recv_with_timeout(Duration::ZERO))
+        assert!(diagnostics
+            .recv_with_timeout(Duration::ZERO)
+            .await
             .expect("queued ending event")
             .is_some());
         while diagnostics.try_recv().is_some() {}
         assert!(matches!(
-            runtime.block_on(diagnostics.recv()),
+            diagnostics.recv().await,
             Err(Error::RuntimeShutdown)
         ));
         assert!(matches!(
-            runtime.block_on(diagnostics.recv_with_timeout(Duration::ZERO)),
+            diagnostics.recv_with_timeout(Duration::ZERO).await,
             Err(Error::RuntimeShutdown)
         ));
     }
@@ -900,7 +881,8 @@ mod tests {
     #[test]
     fn diagnostics_reuse_one_timer_on_the_selected_manual_clock() {
         let clock = ManualClock::new();
-        assert_diagnostics_reuse_one_timer(&clock, ManualClockExecutor::local(&clock));
+        let executor = ManualClockExecutor::local(&clock);
+        executor.run_until(assert_diagnostics_reuse_one_timer(&clock, executor.clone()));
     }
 
     #[cfg(feature = "runtime-tokio")]
@@ -908,23 +890,19 @@ mod tests {
     fn diagnostics_reuse_the_selected_tokio_manual_clock() {
         let selected = tokio::runtime::Runtime::new().expect("Tokio runtime");
         let clock = ManualClock::new();
-        assert_diagnostics_reuse_one_timer(
+        let executor = ManualClockExecutor::new(
+            crate::runtime::TokioExecutor::from_handle(selected.handle().clone()),
             &clock,
-            ManualClockExecutor::new(
-                crate::runtime::TokioExecutor::from_handle(selected.handle().clone()),
-                &clock,
-            ),
         );
+        executor.run_until(assert_diagnostics_reuse_one_timer(&clock, executor.clone()));
     }
 
     #[cfg(feature = "runtime-smol")]
     #[test]
     fn diagnostics_reuse_the_selected_smol_manual_clock() {
         let clock = ManualClock::new();
-        assert_diagnostics_reuse_one_timer(
-            &clock,
-            ManualClockExecutor::new(crate::runtime::SmolExecutor::new(), &clock),
-        );
+        let executor = ManualClockExecutor::new(crate::runtime::SmolExecutor::new(), &clock);
+        executor.run_until(assert_diagnostics_reuse_one_timer(&clock, executor.clone()));
     }
 
     #[test]
@@ -945,7 +923,7 @@ mod tests {
             .run_until(Session::open(transport, &config, runtime.clone()))
             .expect("session");
         let diagnostics = runtime
-            .run_until(session.subscribe_diagnostics(128))
+            .run_until(session.subscribe_diagnostics(DiagnosticCapacity::MAX))
             .expect("subscription");
         assert!(runtime
             .run_until(

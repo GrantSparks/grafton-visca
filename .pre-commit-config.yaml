@@ -3,8 +3,8 @@
 # which changes the frame the fuzzer replays; exclude the directory instead.
 exclude: ^fuzz/corpus/
 
-# Commit hooks cover the default development path. Feature-specific lint and
-# rustdoc hooks are opt-in; CI owns the broad lint, test, and documentation gates.
+# Commit hooks cover the default development path. The canonical feature
+# matrix script and CI cover the supported feature configurations.
 default_stages: [commit]
 
 repos:
@@ -28,80 +28,9 @@ repos:
       - id: clippy-default
         name: clippy (default features)
         description: Lint rust sources with default features
-        entry: cargo clippy
+        entry: cargo +1.98.0 clippy
         language: system
         args: ["--all-targets", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
-      - id: clippy-all-features
-        stages: [manual]
-        name: clippy (all features, lib only)
-        description: Lint rust lib with all features (skip examples due to runtime conflicts)
-        entry: cargo clippy
-        language: system
-        args: ["--lib", "--all-features", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
-      - id: clippy-no-default
-        stages: [manual]
-        name: clippy (no default features)
-        description: Lint rust sources with no default features
-        entry: cargo clippy
-        language: system
-        args: ["--all-targets", "--no-default-features", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
-      - id: clippy-async
-        stages: [manual]
-        name: clippy (async feature)
-        description: Lint rust sources with base async feature
-        entry: cargo clippy
-        language: system
-        args: ["--all-targets", "--no-default-features", "--features", "async", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
-      - id: clippy-runtime-tokio
-        stages: [manual]
-        name: clippy (runtime-tokio)
-        description: Lint rust sources with tokio runtime
-        entry: cargo clippy
-        language: system
-        args: ["--all-targets", "--no-default-features", "--features", "runtime-tokio", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
-      - id: clippy-runtime-smol
-        stages: [manual]
-        name: clippy (runtime-smol)
-        description: Lint rust sources with smol runtime
-        entry: cargo clippy
-        language: system
-        args: ["--all-targets", "--no-default-features", "--features", "runtime-smol", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
-      - id: clippy-test-utils
-        stages: [manual]
-        name: clippy (test-utils)
-        description: Lint rust sources with test-utils feature
-        entry: cargo clippy
-        language: system
-        args: ["--all-targets", "--no-default-features", "--features", "test-utils", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
-      - id: clippy-tokio-test-utils
-        stages: [manual]
-        name: clippy (runtime-tokio + test-utils)
-        description: Lint rust sources with tokio runtime and test utilities
-        entry: cargo clippy
-        language: system
-        args: ["--all-targets", "--no-default-features", "--features", "runtime-tokio,test-utils", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
-      - id: doc
-        stages: [manual]
-        name: doc
-        description: Check documentation builds without warnings
-        entry: bash -c 'RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps'
-        language: system
         types: [rust]
         pass_filenames: false
   - repo: https://github.com/pre-commit/pre-commit-hooks

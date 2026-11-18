@@ -73,13 +73,13 @@ mod tests {
             engine::RawPrefixEvidence,
             owner::{AsyncTransportAdapter, RetainedStreamInput},
         },
-        transport::{builder::TransportConfig, ReceiveOutcome, SendSemantics},
+        transport::{builder::IoBounds, ReceiveOutcome, SendSemantics},
         ViscaSocket,
     };
 
     #[derive(Debug)]
     struct ScriptedTransport {
-        config: crate::transport::ValidatedTransportConfig,
+        config: IoBounds,
         sent: Vec<Vec<u8>>,
         receives: std::collections::VecDeque<Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
@@ -90,7 +90,7 @@ mod tests {
     /// possibly truncated, as the receive contract requires.
     #[derive(Debug)]
     struct UnobservedTruncation {
-        config: crate::transport::ValidatedTransportConfig,
+        config: IoBounds,
         datagrams: std::collections::VecDeque<Vec<u8>>,
     }
 
@@ -102,7 +102,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+        fn io_bounds(&self) -> &IoBounds {
             &self.config
         }
     }
@@ -132,7 +132,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+        fn io_bounds(&self) -> &IoBounds {
             &self.config
         }
     }
@@ -206,11 +206,11 @@ mod tests {
     /// ACK prefix must never be decoded.
     #[test]
     fn truncated_datagram_prefix_is_rejected_before_visca_decode() {
-        let config = TransportConfig::default();
+        let config = IoBounds::default();
         let mut oversized = vec![0x90, 0x41, 0xff];
-        oversized.resize(config.buffer_config.recv_buffer_size + 1, 0);
+        oversized.resize(config.buffer_config().recv_buffer_size() + 1, 0);
         let transport = ScriptedTransport {
-            config: config.validated().unwrap(),
+            config,
             sent: Vec::new(),
             receives: [Ok(oversized)].into_iter().collect(),
             semantics: SendSemantics::Datagram,
@@ -234,13 +234,13 @@ mod tests {
     /// prefix), and the next datagram decodes.
     #[test]
     fn an_unobservable_exact_fill_is_discarded_like_the_blocking_owner() {
-        let config = TransportConfig::default();
-        let capacity = config.buffer_config.recv_buffer_size;
+        let config = IoBounds::default();
+        let capacity = config.buffer_config().recv_buffer_size();
         let mut oversized = vec![0x90, 0x41, 0xff];
         oversized.resize(capacity + 1, 0);
         let (mut adapter, adapter_policy) = AsyncTransportAdapter::new(
             UnobservedTruncation {
-                config: config.validated().unwrap(),
+                config,
                 datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
             },
             &profile(),
@@ -270,13 +270,11 @@ mod tests {
     #[test]
     fn read_and_write_timeouts_are_lowered_from_transport_config() {
         let transport = ScriptedTransport {
-            config: TransportConfig {
-                read_timeout: std::time::Duration::from_millis(111),
-                write_timeout: std::time::Duration::from_millis(222),
-                ..TransportConfig::default()
-            }
-            .validated()
-            .unwrap(),
+            config: IoBounds::default()
+                .with_read_timeout(std::time::Duration::from_millis(111))
+                .unwrap()
+                .with_write_timeout(std::time::Duration::from_millis(222))
+                .unwrap(),
             sent: Vec::new(),
             receives: std::collections::VecDeque::new(),
             semantics: SendSemantics::Datagram,

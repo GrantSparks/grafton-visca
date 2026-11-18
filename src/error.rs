@@ -68,7 +68,7 @@
 //! | `InvalidCameraId` | `InvalidParameter` | — | `Abandon` |
 //! | `ResponseTooLarge` | `Protocol` | — | `Abandon` |
 //! | `InvalidAddress` | `InvalidParameter` | — | `Abandon` |
-//! | `UnsupportedTransport` | `Unsupported` | — | `Abandon` |
+//! | `UnsupportedTransport / built-in or custom profile` | `Unsupported` | — | `Abandon` |
 //! | `MissingRuntime` | `Unsupported` | — | `Abandon` |
 //! | `WithContext / pending command` | `Busy` | — | `WaitAgain` |
 //! | `Timeout / inquiry reply` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
@@ -482,7 +482,7 @@ pub enum Error {
     /// request. Supersession is never proof of physical rest.
     #[non_exhaustive]
     MotionSuperseded {
-        /// Axes selected by the fence.
+        /// The request's declared axes that the halt fence covers.
         axes: crate::AffectedAxes,
         /// Where the request was superseded, and whether it may have taken
         /// effect.
@@ -574,42 +574,24 @@ pub enum Error {
     /// [`crate::config::SessionConfig::with_strict_unconfirmed_poison`]: crate::config::SessionConfig::with_strict_unconfirmed_poison
     UnsequencedCommandUnconfirmed,
 
-    /// Raw-VISCA inquiries to `camera` cannot be correlated on this session,
-    /// so this request was not sent.
+    /// Raw-VISCA response correlation for this request is blocked by a latched
+    /// inquiry overlap class on the camera. The request was unwritten.
     ///
-    /// On a stream transport (TCP, serial) an inquiry that timed out after it
-    /// was written is still owed its reply: the stream loses nothing, and raw
-    /// inquiry replies carry no identity, so that late reply would otherwise be
-    /// returned as the next inquiry's data. The session waits the profile's
-    /// [`ambiguity_timeout`](crate::profiles::ProfileTiming::ambiguity_timeout)
-    /// for it. If it has not arrived by then — a long stall, a camera that
-    /// never answers that inquiry, or an absent address — every inquiry to
-    /// that camera (and every user-declared
-    /// [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly) raw
-    /// command, whose completion is equally unkeyed) fails with this error
-    /// without being written, until the owed reply arrives or a later answer
-    /// proves it never will.
+    /// On streams, overlapping inquiries wait up to the profile's
+    /// [ambiguity timeout](crate::profiles::ProfileTiming::ambiguity_timeout)
+    /// for an earlier reply. After it expires, overlapping inquiries and any
+    /// `CompletionOnly` command that could claim the reply fail unwritten.
+    /// Disjoint inquiries, including position queries used for motion
+    /// observation and settlement, can continue and settle older debts by
+    /// write order. An owed `CompletionOnly` reply blocks all inquiries to
+    /// that camera. See the
+    /// [raw stream correlation ledger](https://github.com/GrantSparks/grafton-visca/blob/main/docs/architecture_2_0.md#the-raw-byte-stream-correlation-ledger).
     ///
-    /// Nothing was sent, so the failure context is `Terminal` /
-    /// [`crate::error::Certainty::NotAccepted`]. It is not retryable on this session: retrying
-    /// fails the same way until the lane reopens. The session itself is live —
-    /// other cameras are unaffected, and STOPs and other ACK-bearing commands
-    /// to this camera are still sent; settlement polling and motion
-    /// observation on this camera fail because they need inquiries — so
-    /// [`Self::requires_new_session`] is `false`. Frames on a raw stream are
-    /// resolved in write order, and a camera answers in the order it reads:
-    /// the owed reply (data or a socketless rejection) reopens the lane, and
-    /// so does the first answer to any command written after the inquiry,
-    /// which proves the owed reply will never come. A camera that never
-    /// answers that inquiry therefore keeps accepting commands, and its next
-    /// command answer reopens its inquiries. To recover this camera's
-    /// inquiries sooner, close and reopen the session. A raw
-    /// [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly) command
-    /// whose answer is still owed holds the camera's inquiries back the same
-    /// way: it is exclusive on its camera until its completion arrives.
+    /// The failure context is `Terminal` / [`Certainty::NotAccepted`].
+    /// [`Self::requires_new_session`] returns `false`.
     #[non_exhaustive]
     InquiryCorrelationLost {
-        /// The camera whose raw inquiry lane is latched.
+        /// The camera with the latched inquiry overlap class.
         camera: crate::IndividualCameraId,
     },
 
@@ -775,13 +757,15 @@ pub enum Error {
         reason: Cow<'static, str>,
     },
 
-    /// Selected standard transport is unsupported for the selected built-in profile.
+    /// The selected profile does not support the selected standard transport.
     #[non_exhaustive]
     UnsupportedTransport {
-        /// Built-in profile that rejected the transport.
-        profile: crate::camera::profiles::ProfileId,
-        /// Selected transport kind.
-        transport: crate::camera::TransportKind,
+        /// Model name declared by the profile.
+        model: Cow<'static, str>,
+        /// Built-in identity, when the profile has one.
+        profile: Option<crate::profiles::ProfileId>,
+        /// Standard transport that the profile cannot use.
+        transport: crate::transport::StandardTransport,
     },
 
     /// Runtime is required for async operations but was not provided.
@@ -999,12 +983,13 @@ impl fmt::Display for Error {
             Self::InvalidAddress { reason } => {
                 write!(f, "Invalid address: {reason}")
             }
-            Self::UnsupportedTransport { profile, transport } => {
-                write!(
-                    f,
-                    "Profile {profile} does not support {transport} transport"
-                )
-            }
+            Self::UnsupportedTransport {
+                model, transport, ..
+            } => write!(
+                f,
+                "Profile {model} does not support {} transport",
+                transport.configuration_kind()
+            ),
             Self::MissingRuntime => f.write_str("No runtime configured for async operations"),
             Self::WithContext { context, source } => {
                 write!(f, "{context}: {source}")
@@ -1558,13 +1543,17 @@ impl Error {
         }
     }
 
-    /// Reports a transport unsupported by a built-in profile.
+    /// Reports a standard transport unsupported by the selected profile.
     #[must_use]
-    pub const fn unsupported_transport(
-        profile: crate::camera::profiles::ProfileId,
-        transport: crate::camera::TransportKind,
+    pub fn unsupported_transport(
+        profile: &crate::profiles::ProfileSpec,
+        transport: crate::transport::StandardTransport,
     ) -> Self {
-        Self::UnsupportedTransport { profile, transport }
+        Self::UnsupportedTransport {
+            model: profile.name().to_owned().into(),
+            profile: profile.capabilities().profile_id,
+            transport,
+        }
     }
 
     /// Reports that later admitted motion superseded this operation's settlement.

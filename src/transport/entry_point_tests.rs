@@ -1,10 +1,7 @@
 //! Cross-entry-point agreement tests for the built-in transports.
 //!
-//! Every built-in way to open a TCP, UDP or serial transport must produce the
-//! defaults of [`TransportConfig::for_tcp`], [`TransportConfig::for_udp`] or
-//! [`TransportConfig::for_serial`] (#799), report an addressing hint that
-//! matches the configuration the owner frames with, and share one error
-//! contract for budgets and name resolution (#798, #800).
+//! Built-in connection plans, socket connectors, and caller-owned transports
+//! share the checked bounds and preserve their physical transport identity.
 
 #![allow(clippy::expect_used, clippy::panic)]
 
@@ -20,130 +17,63 @@ mod tcp_queue;
 
 #[cfg(feature = "blocking")]
 use crate::transport::HasTransportConfig;
-use crate::transport::TransportConfig;
+use crate::transport::{IoBounds, TcpConnect, UdpConnect};
 
+const TCP_BOUNDS: IoBounds = IoBounds::TCP_DEFAULT;
+const UDP_BOUNDS: IoBounds = IoBounds::UDP_DEFAULT;
 #[cfg(feature = "blocking")]
-fn invalid_bound_configurations() -> Vec<TransportConfig> {
-    use crate::transport::{BufferConfig, TcpKeepaliveConfig};
-    use std::time::Duration;
+const SERIAL_BOUNDS: IoBounds = IoBounds::SERIAL_DEFAULT;
 
-    let mut cases = Vec::new();
-    for duration in [
-        Duration::ZERO,
-        Duration::from_millis(500),
-        Duration::from_millis(1500),
-        Duration::from_secs(32_768),
-        Duration::MAX,
-    ] {
-        let mut idle = TransportConfig::for_tcp();
-        idle.tcp_keepalive = Some(TcpKeepaliveConfig::new(duration));
-        cases.push(idle);
-        let mut interval = TransportConfig::for_tcp();
-        interval.tcp_keepalive = Some(TcpKeepaliveConfig::default().with_interval(Some(duration)));
-        cases.push(interval);
-    }
-    for ttl in [0, 256, u32::MAX] {
-        let mut config = TransportConfig::for_tcp();
-        config.ttl = Some(ttl);
-        cases.push(config);
-    }
-    for (recv, max) in [
-        (
-            BufferConfig::MAX_RECV_BUFFER_SIZE + 1,
-            BufferConfig::MAX_RETENTION_SIZE,
-        ),
-        (
-            BufferConfig::MIN_RECV_BUFFER_SIZE,
-            BufferConfig::MAX_RETENTION_SIZE + 1,
-        ),
-        (usize::MAX, usize::MAX),
-    ] {
-        let mut config = TransportConfig::for_tcp();
-        config.buffer_config = BufferConfig {
-            recv_buffer_size: recv,
-            max_buffer_size: max,
-        };
-        cases.push(config);
-    }
-    cases
-}
-
-#[test]
-fn maximum_supported_transport_bounds_validate() {
-    use crate::transport::{BufferConfig, TcpKeepaliveConfig};
-    use std::time::Duration;
-    let mut config = TransportConfig::for_tcp();
-    config.buffer_config = BufferConfig {
-        recv_buffer_size: BufferConfig::MAX_RECV_BUFFER_SIZE,
-        max_buffer_size: BufferConfig::MAX_RETENTION_SIZE,
-    };
-    config.tcp_keepalive = Some(
-        TcpKeepaliveConfig::new(Duration::from_secs(32_767))
-            .with_interval(Some(Duration::from_secs(32_767))),
-    );
-    for ttl in [1, 255] {
-        config.ttl = Some(ttl);
-        config.validated().expect("supported boundary values");
-    }
-}
-
-/// The two IP defaults differ only in their frame limit; both use IP
-/// addressing. Serial uses serial addressing and no TCP socket options.
 #[test]
 fn per_transport_defaults_are_internally_consistent() {
-    let tcp = TransportConfig::for_tcp();
-    let udp = TransportConfig::for_udp();
-    let serial = TransportConfig::for_serial();
+    assert_eq!(TCP_BOUNDS.buffer_config().recv_buffer_size(), 256);
+    assert_eq!(UDP_BOUNDS.buffer_config().recv_buffer_size(), 1024);
+    #[cfg(feature = "blocking")]
+    assert_eq!(SERIAL_BOUNDS.buffer_config().recv_buffer_size(), 256);
 
-    assert_eq!(tcp.buffer_config.recv_buffer_size, 256);
-    assert_eq!(udp.buffer_config.recv_buffer_size, 1024);
-    assert_eq!(serial.buffer_config.recv_buffer_size, 256);
-    assert_eq!(
-        (serial.tcp_nodelay, serial.ttl, serial.tcp_keepalive),
-        (None, None, None)
-    );
-    // UDP carries no TCP socket options either.
-    assert_eq!((udp.tcp_nodelay, udp.tcp_keepalive), (None, None));
-    assert!(tcp.tcp_nodelay.is_some() && tcp.tcp_keepalive.is_some());
-    for config in [tcp, udp, serial] {
-        assert_eq!(
-            config.connect_timeout,
-            TransportConfig::default().connect_timeout
-        );
-        assert_eq!(config.read_timeout, TransportConfig::default().read_timeout);
-        assert_eq!(
-            config.write_timeout,
-            TransportConfig::default().write_timeout
-        );
-        config.validated().expect("every default is valid");
+    for bounds in [TCP_BOUNDS, UDP_BOUNDS] {
+        assert_eq!(bounds.buffer_config().max_buffer_size(), 8192);
+        assert_eq!(bounds.read_timeout(), std::time::Duration::from_secs(5));
+        assert_eq!(bounds.write_timeout(), std::time::Duration::from_secs(5));
     }
+    assert_eq!(
+        TcpConnect::default().connect_timeout(),
+        std::time::Duration::from_secs(5)
+    );
+    assert_eq!(
+        UdpConnect::default().connect_timeout(),
+        std::time::Duration::from_secs(5)
+    );
+    assert_eq!(TcpConnect::default().nodelay(), Some(true));
+    assert_eq!(
+        TcpConnect::default().keepalive(),
+        Some(crate::transport::TcpKeepaliveConfig::default())
+    );
+    assert_eq!(TcpConnect::default().ttl(), None);
+    assert_eq!(UdpConnect::default().ttl(), None);
 }
 
 /// Camera configuration lowers through the same TCP and UDP presets that the
-/// direct connectors use; an omitted override stays explicitly absent.
+/// connectors use.
 #[cfg(feature = "blocking")]
 #[test]
 fn camera_config_agrees_with_the_transport_defaults() {
     use crate::{config::CameraConfig, profiles::PtzOpticsG2};
     let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local");
     let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local");
-    assert_eq!(tcp.transport_config(), None);
-    assert_eq!(udp.transport_config(), None);
     assert_eq!(
         tcp.connection_plan()
             .map(|plan| plan.connection.transport.into_network())
             .expect("TCP plan")
-            .transport_config
-            .as_config(),
-        &TransportConfig::for_tcp()
+            .io_bounds,
+        TCP_BOUNDS
     );
     assert_eq!(
         udp.connection_plan()
             .map(|plan| plan.connection.transport.into_network())
             .expect("UDP plan")
-            .transport_config
-            .as_config(),
-        &TransportConfig::for_udp()
+            .io_bounds,
+        UDP_BOUNDS
     );
 }
 
@@ -152,25 +82,33 @@ fn camera_config_agrees_with_the_transport_defaults() {
 #[cfg(feature = "blocking")]
 #[test]
 fn camera_config_honours_an_explicit_generic_buffer_choice() {
-    use crate::{config::CameraConfig, profiles::PtzOpticsG2, transport::BufferConfig};
-    let explicit = TransportConfig::for_tcp().with_buffer_config(BufferConfig::default());
-    let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local")
-        .with_transport_config(explicit)
-        .connection_plan()
-        .map(|plan| plan.connection.transport.into_network())
-        .expect("explicit TCP plan");
+    use crate::{config::CameraConfig, profiles::PtzOpticsG2};
+    let tcp = CameraConfig::<PtzOpticsG2>::tcp_configured(
+        "camera.local",
+        TcpConnect::default(),
+        IoBounds::default(),
+    )
+    .connection_plan()
+    .map(|plan| plan.connection.transport.into_network())
+    .expect("explicit TCP plan");
     assert_eq!(
-        tcp.transport_config.as_config().buffer_config(),
-        BufferConfig::default()
+        tcp.io_bounds.buffer_config(),
+        crate::transport::BufferConfig::default()
     );
 
     // A caller-selected preset does not change the connector's transport kind.
-    let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
-        .with_transport_config(TransportConfig::for_serial())
-        .connection_plan()
-        .map(|plan| plan.connection.transport.into_network())
-        .expect("explicit UDP plan");
-    assert_eq!(udp.kind, crate::transport::NetworkTransport::Udp);
+    let udp = CameraConfig::<PtzOpticsG2>::udp_configured(
+        "camera.local",
+        UdpConnect::default(),
+        SERIAL_BOUNDS,
+    )
+    .connection_plan()
+    .map(|plan| plan.connection.transport.into_network())
+    .expect("explicit UDP plan");
+    assert_eq!(
+        udp.connector.kind(),
+        crate::transport::NetworkTransport::Udp
+    );
 }
 
 /// Live loopback checks of the blocking connectors.
@@ -188,39 +126,19 @@ mod blocking {
     };
 
     #[test]
-    fn invalid_configuration_fails_before_network_io() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
-        listener
-            .set_nonblocking(true)
-            .expect("nonblocking listener");
-        let address = listener.local_addr().expect("address").to_string();
-        for config in invalid_bound_configurations() {
-            for error in [
-                crate::transport::blocking::Tcp::connect_with_config(&address, config)
-                    .expect_err("invalid TCP config"),
-                crate::transport::blocking::Udp::connect_with_config(&address, config)
-                    .expect_err("invalid UDP config"),
-            ] {
-                assert!(matches!(error, Error::InvalidRequest { .. }), "{error:?}");
-            }
-            assert!(
-                matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
-            );
-        }
-    }
-
-    #[test]
     fn ip_connectors_derive_identity_independently_of_config_preset() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
         let address = listener.local_addr().expect("address").to_string();
         let tcp = crate::transport::blocking::Tcp::connect_with_config(
             &address,
-            TransportConfig::for_serial(),
+            TcpConnect::default(),
+            SERIAL_BOUNDS,
         )
         .expect("TCP with caller-selected buffers");
         let udp = crate::transport::blocking::Udp::connect_with_config(
             &address,
-            TransportConfig::for_serial(),
+            UdpConnect::default(),
+            SERIAL_BOUNDS,
         )
         .expect("UDP with caller-selected buffers");
         assert_eq!(tcp.identity(), crate::transport::TransportIdentity::Tcp);
@@ -255,7 +173,8 @@ mod blocking {
         });
         let transport = crate::transport::blocking::Tcp::connect_with_config(
             &address,
-            TransportConfig::for_tcp(),
+            TcpConnect::default(),
+            TCP_BOUNDS,
         )
         .expect("connect");
         let session = crate::blocking::Session::open(
@@ -284,23 +203,25 @@ mod blocking {
         let tcp = BlockingTransportHandle::Tcp(
             crate::transport::blocking::Tcp::connect_with_config(
                 &listener.local_addr().expect("address").to_string(),
-                TransportConfig::for_tcp(),
+                TcpConnect::default(),
+                TCP_BOUNDS,
             )
             .expect("TCP connects"),
         );
         let udp = BlockingTransportHandle::Udp(
             crate::transport::blocking::Udp::connect_with_config(
                 &peer.local_addr().expect("address").to_string(),
-                TransportConfig::for_udp(),
+                UdpConnect::default(),
+                UDP_BOUNDS,
             )
             .expect("UDP connects"),
         );
 
         for (transport, expected, identity) in [
-            (&tcp, TransportConfig::for_tcp(), TransportIdentity::Tcp),
-            (&udp, TransportConfig::for_udp(), TransportIdentity::Udp),
+            (&tcp, TCP_BOUNDS, TransportIdentity::Tcp),
+            (&udp, UDP_BOUNDS, TransportIdentity::Udp),
         ] {
-            assert_eq!(transport.transport_config().as_config(), &expected);
+            assert_eq!(transport.io_bounds(), &expected);
             assert_eq!(transport.identity(), identity);
         }
     }
@@ -315,14 +236,16 @@ mod blocking {
         let mut tcp = BlockingTransportHandle::Tcp(
             crate::transport::blocking::Tcp::connect_with_config(
                 &listener.local_addr().expect("address").to_string(),
-                TransportConfig::for_tcp(),
+                TcpConnect::default(),
+                TCP_BOUNDS,
             )
             .expect("TCP connects"),
         );
         let mut udp = BlockingTransportHandle::Udp(
             crate::transport::blocking::Udp::connect_with_config(
                 &peer.local_addr().expect("address").to_string(),
-                TransportConfig::for_udp(),
+                UdpConnect::default(),
+                UDP_BOUNDS,
             )
             .expect("UDP connects"),
         );
@@ -368,9 +291,10 @@ mod blocking {
             use crate::transport::{serial::Config, AddressingMode};
 
             let (_master, slave) = serialport::TTYPort::pair().expect("pseudo-terminal pair");
-            let mut serial = crate::transport::serial_blocking::SerialTransport::new(Config::new(
-                slave.name().expect("pseudo-terminal path"),
-            ))
+            let mut serial = crate::transport::serial_blocking::SerialTransport::open(
+                Config::new(slave.name().expect("pseudo-terminal path")),
+                SERIAL_BOUNDS,
+            )
             .expect("serial opens");
             rejected(
                 serial.send_with_timeout(&[0x81, 0x01, 0xFF], Duration::MAX),
@@ -386,10 +310,7 @@ mod blocking {
                 serial.recv_into_with_timeout(&mut dst, Duration::ZERO),
                 Err(Error::Timeout { .. })
             ));
-            assert_eq!(
-                serial.transport_config().as_config(),
-                &TransportConfig::for_serial()
-            );
+            assert_eq!(serial.io_bounds(), &SERIAL_BOUNDS);
             assert_eq!(
                 serial.identity().addressing(),
                 AddressingMode::Serial,
@@ -399,52 +320,44 @@ mod blocking {
     }
 }
 
-/// The async direct connectors and runtime connectors use the same defaults
-/// and the same name-resolution error as the blocking facade.
+/// The runtime connectors share name-resolution errors with blocking and
+/// pass the caller's checked settings through to the transport.
 #[cfg(all(
     feature = "blocking",
     feature = "runtime-tokio",
     feature = "runtime-smol"
 ))]
 mod facades {
-    use std::net::{TcpListener, UdpSocket};
+    use std::net::TcpListener;
 
     use super::*;
     use crate::{
+        camera::config::CameraConfig,
+        profiles::PtzOpticsG2,
         runtime::{Runtime, SmolRuntime, TokioRuntime},
-        transport::{smol, tokio as tokio_adapters},
+        transport::NetworkEndpoint,
         Error,
     };
 
     #[tokio::test]
-    async fn invalid_configuration_fails_before_io_on_every_runtime() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
-        listener
-            .set_nonblocking(true)
-            .expect("nonblocking listener");
-        let address = listener.local_addr().expect("address").to_string();
+    async fn malformed_endpoint_is_refused_on_each_runtime() {
         let tokio = TokioRuntime::from_current().expect("runtime");
         let smol = SmolRuntime::new();
-        for config in invalid_bound_configurations() {
-            for error in [
-                tokio
-                    .connect_tcp(&address, config)
-                    .await
-                    .expect_err("invalid Tokio TCP config"),
-                tokio
-                    .connect_udp(&address, config)
-                    .await
-                    .expect_err("invalid Tokio UDP config"),
-                ::smol::block_on(smol.connect_tcp(&address, config))
-                    .expect_err("invalid smol TCP config"),
-                ::smol::block_on(smol.connect_udp(&address, config))
-                    .expect_err("invalid smol UDP config"),
-            ] {
-                assert!(matches!(error, Error::InvalidRequest { .. }), "{error:?}");
-            }
-            assert!(
-                matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
-            );
+        let tcp = CameraConfig::<PtzOpticsG2>::tcp("127.1:1259");
+        let udp = CameraConfig::<PtzOpticsG2>::udp("127.1:1259");
+        for error in [
+            crate::r#async::CameraSession::connect(&tcp, tokio.clone())
+                .await
+                .expect_err("invalid endpoint"),
+            crate::r#async::CameraSession::connect(&udp, tokio)
+                .await
+                .expect_err("invalid endpoint"),
+            ::smol::block_on(crate::r#async::CameraSession::connect(&tcp, smol))
+                .expect_err("invalid endpoint"),
+            ::smol::block_on(crate::r#async::CameraSession::connect(&udp, smol))
+                .expect_err("invalid endpoint"),
+        ] {
+            assert!(matches!(error, Error::InvalidAddress { .. }), "{error:?}");
         }
     }
 
@@ -452,95 +365,37 @@ mod facades {
     async fn every_async_ip_connector_derives_identity_from_its_transport() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
         let address = listener.local_addr().expect("address").to_string();
-        let config = TransportConfig::for_serial();
+        let endpoint = NetworkEndpoint::parse(&address, None).expect("endpoint");
+        let config = SERIAL_BOUNDS;
         let tokio = TokioRuntime::from_current().expect("Tokio runtime");
         let smol = SmolRuntime::new();
         macro_rules! check {
             ($transport:expr, $identity:expr) => {{
                 let transport = $transport.expect("caller-selected I/O configuration");
                 assert_eq!(transport.identity(), $identity);
+                assert_eq!(transport.io_bounds(), &config);
             }};
         }
         check!(
-            tokio.connect_tcp(&address, config).await,
+            tokio
+                .connect_tcp(endpoint.clone(), TcpConnect::default(), config)
+                .await,
             crate::transport::TransportIdentity::Tcp
         );
         check!(
-            tokio.connect_udp(&address, config).await,
+            tokio
+                .connect_udp(endpoint.clone(), UdpConnect::default(), config)
+                .await,
             crate::transport::TransportIdentity::Udp
         );
         check!(
-            ::smol::block_on(smol.connect_tcp(&address, config)),
+            ::smol::block_on(smol.connect_tcp(endpoint.clone(), TcpConnect::default(), config)),
             crate::transport::TransportIdentity::Tcp
         );
         check!(
-            ::smol::block_on(smol.connect_udp(&address, config)),
+            ::smol::block_on(smol.connect_udp(endpoint, UdpConnect::default(), config)),
             crate::transport::TransportIdentity::Udp
         );
-        check!(
-            tokio_adapters::TcpTransport::connect_with_config(&address, config).await,
-            crate::transport::TransportIdentity::Tcp
-        );
-        check!(
-            tokio_adapters::UdpTransport::connect_with_config(&address, config).await,
-            crate::transport::TransportIdentity::Udp
-        );
-        check!(
-            ::smol::block_on(smol::TcpTransport::connect_with_config(&address, config)),
-            crate::transport::TransportIdentity::Tcp
-        );
-        check!(
-            ::smol::block_on(smol::UdpTransport::connect_with_config(&address, config)),
-            crate::transport::TransportIdentity::Udp
-        );
-    }
-
-    #[tokio::test]
-    async fn async_direct_connectors_use_the_transport_defaults() {
-        use crate::transport::AddressingMode;
-
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
-        let peer = UdpSocket::bind("127.0.0.1:0").expect("bind UDP peer");
-        let tcp_address = listener.local_addr().expect("address").to_string();
-        let udp_address = peer.local_addr().expect("address").to_string();
-
-        let tcp = tokio_adapters::TcpTransport::connect(&tcp_address)
-            .await
-            .expect("Tokio TCP connects");
-        let udp = tokio_adapters::UdpTransport::connect(&udp_address)
-            .await
-            .expect("Tokio UDP connects");
-        assert_eq!(
-            tcp.transport_config().as_config(),
-            &TransportConfig::for_tcp()
-        );
-        assert_eq!(
-            udp.transport_config().as_config(),
-            &TransportConfig::for_udp()
-        );
-        assert_eq!(tcp.identity().addressing(), AddressingMode::Ip);
-        assert_eq!(udp.identity().addressing(), AddressingMode::Ip);
-
-        let (smol_tcp, smol_udp) = ::smol::block_on(async {
-            (
-                smol::TcpTransport::connect(&tcp_address)
-                    .await
-                    .expect("smol TCP connects"),
-                smol::UdpTransport::connect(&udp_address)
-                    .await
-                    .expect("smol UDP connects"),
-            )
-        });
-        assert_eq!(
-            smol_tcp.transport_config().as_config(),
-            &TransportConfig::for_tcp()
-        );
-        assert_eq!(
-            smol_udp.transport_config().as_config(),
-            &TransportConfig::for_udp()
-        );
-        assert_eq!(smol_tcp.identity().addressing(), AddressingMode::Ip);
-        assert_eq!(smol_udp.identity().addressing(), AddressingMode::Ip);
     }
 
     /// #798: an unresolvable host was `InvalidAddress` on the blocking
@@ -551,6 +406,9 @@ mod facades {
         // RFC 6761 reserves `.invalid`; it never resolves.
         const HOST: &str = "grafton-visca.invalid:5678";
 
+        let endpoint = NetworkEndpoint::parse(HOST, None).expect("endpoint");
+        let tcp = TcpConnect::default();
+        let udp = UdpConnect::default();
         let tokio_runtime = TokioRuntime::from_current().expect("Tokio runtime");
         let smol_runtime = SmolRuntime::new();
         let errors: Vec<(&str, Error)> = vec![
@@ -558,7 +416,8 @@ mod facades {
                 "blocking TCP",
                 crate::transport::blocking::Tcp::connect_with_config(
                     HOST,
-                    TransportConfig::for_tcp(),
+                    TcpConnect::default(),
+                    TCP_BOUNDS,
                 )
                 .expect_err("unresolvable"),
             ),
@@ -566,32 +425,33 @@ mod facades {
                 "blocking UDP",
                 crate::transport::blocking::Udp::connect_with_config(
                     HOST,
-                    TransportConfig::for_udp(),
+                    UdpConnect::default(),
+                    UDP_BOUNDS,
                 )
                 .expect_err("unresolvable"),
             ),
             (
                 "Tokio TCP",
                 tokio_runtime
-                    .connect_tcp(HOST, TransportConfig::for_tcp())
+                    .connect_tcp(endpoint.clone(), tcp, TCP_BOUNDS)
                     .await
                     .expect_err("unresolvable"),
             ),
             (
                 "Tokio UDP",
                 tokio_runtime
-                    .connect_udp(HOST, TransportConfig::for_udp())
+                    .connect_udp(endpoint.clone(), udp, UDP_BOUNDS)
                     .await
                     .expect_err("unresolvable"),
             ),
             (
                 "smol TCP",
-                ::smol::block_on(smol_runtime.connect_tcp(HOST, TransportConfig::for_tcp()))
+                ::smol::block_on(smol_runtime.connect_tcp(endpoint.clone(), tcp, TCP_BOUNDS))
                     .expect_err("unresolvable"),
             ),
             (
                 "smol UDP",
-                ::smol::block_on(smol_runtime.connect_udp(HOST, TransportConfig::for_udp()))
+                ::smol::block_on(smol_runtime.connect_udp(endpoint.clone(), udp, UDP_BOUNDS))
                     .expect_err("unresolvable"),
             ),
         ];
@@ -637,7 +497,7 @@ mod facades {
     feature = "runtime-smol"
 ))]
 mod udp_address_selection {
-    use crate::transport::TransportConfig;
+    use super::{UdpConnect, UDP_BOUNDS};
     use std::{net::UdpSocket, time::Duration};
 
     fn peer() -> (UdpSocket, String) {
@@ -667,7 +527,8 @@ mod udp_address_selection {
         let (peer, endpoint) = peer();
         let mut socket = crate::transport::blocking::Udp::connect_with_config(
             &endpoint,
-            TransportConfig::for_udp(),
+            UdpConnect::default(),
+            UDP_BOUNDS,
         )
         .expect("UDP setup");
         socket
@@ -679,14 +540,20 @@ mod udp_address_selection {
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn tokio_udp_localhost_reaches_the_ipv4_camera() {
-        use crate::transport::AsyncTransport;
+        use crate::{
+            runtime::{Runtime, TokioRuntime},
+            transport::{AsyncTransport, NetworkEndpoint},
+        };
         let (peer, endpoint) = peer();
-        let mut socket = crate::transport::tokio::UdpTransport::connect_with_config(
-            &endpoint,
-            TransportConfig::for_udp(),
-        )
-        .await
-        .expect("UDP setup");
+        let mut socket = TokioRuntime::from_current()
+            .expect("Tokio runtime")
+            .connect_udp(
+                NetworkEndpoint::parse(&endpoint, None).expect("endpoint"),
+                UdpConnect::default(),
+                UDP_BOUNDS,
+            )
+            .await
+            .expect("UDP setup");
         socket.send(&[0x81, 0xff]).await.expect("send");
         received(peer);
     }
@@ -694,15 +561,20 @@ mod udp_address_selection {
     #[cfg(feature = "runtime-smol")]
     #[test]
     fn smol_udp_localhost_reaches_the_ipv4_camera() {
-        use crate::transport::AsyncTransport;
+        use crate::{
+            runtime::{Runtime, SmolRuntime},
+            transport::{AsyncTransport, NetworkEndpoint},
+        };
         ::smol::block_on(async {
             let (peer, endpoint) = peer();
-            let mut socket = crate::transport::smol::UdpTransport::connect_with_config(
-                &endpoint,
-                TransportConfig::for_udp(),
-            )
-            .await
-            .expect("UDP setup");
+            let mut socket = SmolRuntime::new()
+                .connect_udp(
+                    NetworkEndpoint::parse(&endpoint, None).expect("endpoint"),
+                    UdpConnect::default(),
+                    UDP_BOUNDS,
+                )
+                .await
+                .expect("UDP setup");
             socket.send(&[0x81, 0xff]).await.expect("send");
             received(peer);
         });

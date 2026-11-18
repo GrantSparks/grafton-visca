@@ -21,9 +21,7 @@ use crate::{
         FrameSequence, RequestContext, RetryPolicy, TimeoutPolicy,
     },
     target::TargetSlot,
-    transport::{
-        AddressingMode, HasTransportConfig, SendSemantics, TransportConfig, TransportIdentity,
-    },
+    transport::{AddressingMode, HasTransportConfig, IoBounds, SendSemantics, TransportIdentity},
     CameraId, Error, OperationalTuning, ProfileSpec, ViscaSocket,
 };
 
@@ -62,7 +60,7 @@ trait ProbeDriver: RetainedStreamInput {
 // terminal delivery and recursive effect draining use the production owner.
 #[derive(Debug)]
 struct ProbeTransport {
-    config: crate::transport::ValidatedTransportConfig,
+    config: IoBounds,
     semantics: SendSemantics,
     metadata: Option<TransmissionMeta>,
     writes: usize,
@@ -77,7 +75,7 @@ impl HasTransportConfig for ProbeTransport {
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -138,11 +136,11 @@ impl ProbeIo {
 impl TurnProbe {
     pub(crate) fn new(
         profile: &ProfileSpec,
-        config: TransportConfig,
+        config: IoBounds,
         semantics: SendSemantics,
     ) -> Result<Self, Error> {
         let driver = ProbeTransport {
-            config: config.validated()?,
+            config,
             semantics,
             metadata: None,
             writes: 0,
@@ -159,8 +157,9 @@ impl TurnProbe {
         let now = Instant::now();
         let state = OwnerState::new(policy, now)?;
         let (handle, ends) = OwnerHandleCore::new(&state);
-        let wire = EncodedMessage::encode(crate::command::zoom::Stop::MAX_SIZE, |buffer| {
-            crate::command::zoom::Stop.write_into(CameraId::CAMERA_1, buffer)
+        let (wire, ()) = EncodedMessage::encode(crate::command::zoom::Stop::MAX_SIZE, |buffer| {
+            let written = crate::command::zoom::Stop.write_into(CameraId::CAMERA_1, buffer)?;
+            Ok((written, ()))
         })?;
         Ok(Self {
             shell: ProbeShell {
@@ -212,16 +211,11 @@ impl TurnProbe {
                 initial_backoff: Duration::from_millis(u64::from(retry)),
                 maximum_backoff: Duration::from_millis(u64::from(retry)),
                 total_budget: None,
-                ack_timeout: false,
-                completion_timeout: false,
-                inquiry_timeout: false,
-                buffer_full: retry,
-                movement_not_executable: false,
-                builtin_inquiry_syntax: false,
             },
             control: ControlPolicy::default(),
         };
         let request = RuntimeRequest::Command {
+            not_executable: false,
             wire: Arc::clone(&self.wire),
             context,
             reply_shape: CommandReply::AckThenCompletion,
@@ -414,8 +408,7 @@ mod tests {
         for id in crate::profiles::ProfileId::all() {
             let profile = id.spec().unwrap();
             for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
-                let mut probe =
-                    TurnProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+                let mut probe = TurnProbe::new(&profile, IoBounds::default(), semantics).unwrap();
                 probe.stage_command().unwrap();
                 probe.command_turn().unwrap();
                 if probe.shell.core.state.engine.envelope_kind() == EnvelopeKind::Sony {
@@ -432,12 +425,8 @@ mod tests {
     #[test]
     fn probe_pacing_reads_the_retuned_engine() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
-        let mut probe = TurnProbe::new(
-            &profile,
-            TransportConfig::default(),
-            SendSemantics::Datagram,
-        )
-        .unwrap();
+        let mut probe =
+            TurnProbe::new(&profile, IoBounds::default(), SendSemantics::Datagram).unwrap();
         let spacing = profile.timing().command_spacing() + Duration::from_millis(23);
         let tuning = OperationalTuning::new().with_command_spacing(spacing);
         let tuning = crate::session_config::ValidatedTuning::validate(tuning, [&profile]).unwrap();

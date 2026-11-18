@@ -217,7 +217,7 @@ mod async_single_camera {
         profiles::PtzOpticsG2,
         r#async::CameraSession,
         runtime::{Executor, Runtime},
-        transport::{AddressingMode, TransportConfig},
+        transport::AddressingMode,
         Error,
     };
 
@@ -272,28 +272,17 @@ mod async_single_camera {
 
     #[allow(refining_impl_trait_reachable)]
     impl<E: Executor> Executor for EchoRuntime<E> {
-        type Join<T>
-            = E::Join<T>
-        where
-            T: Send + 'static;
-        type Detach = E::Detach;
-
         type Timer = E::Timer;
 
         fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
             self.inner.timer(deadline)
         }
 
-        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+        fn spawn_detached<F>(&self, fut: F)
         where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
+            F: Future<Output = ()> + Send + 'static,
         {
-            self.inner.spawn_with_detach(fut)
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            self.inner.block_on(fut)
+            self.inner.spawn_detached(fut);
         }
 
         fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
@@ -312,21 +301,33 @@ mod async_single_camera {
         type SerialTransport = std::convert::Infallible;
 
         #[allow(clippy::manual_async_fn)]
-        fn connect_tcp<'a>(
-            &'a self,
-            address: &'a str,
-            _config: TransportConfig,
-        ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
-            async move { self.take_transport(address) }
+        fn connect_tcp(
+            &self,
+            endpoint: grafton_visca::transport::NetworkEndpoint,
+            _options: grafton_visca::transport::TcpConnect,
+            _io_bounds: grafton_visca::transport::IoBounds,
+        ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + '_ {
+            async move { self.take_transport(&endpoint.to_string()) }
         }
 
         #[allow(clippy::manual_async_fn)]
-        fn connect_udp<'a>(
-            &'a self,
-            address: &'a str,
-            _config: TransportConfig,
-        ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
-            async move { self.take_transport(address) }
+        fn connect_udp(
+            &self,
+            endpoint: grafton_visca::transport::NetworkEndpoint,
+            _options: grafton_visca::transport::UdpConnect,
+            _io_bounds: grafton_visca::transport::IoBounds,
+        ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + '_ {
+            async move { self.take_transport(&endpoint.to_string()) }
+        }
+
+        #[cfg(feature = "transport-serial-tokio")]
+        #[allow(clippy::manual_async_fn)]
+        fn connect_serial(
+            &self,
+            _config: grafton_visca::transport::SerialConfig,
+            _io_bounds: grafton_visca::transport::IoBounds,
+        ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
+            async { Err(std::io::Error::from(std::io::ErrorKind::Unsupported).into()) }
         }
     }
 

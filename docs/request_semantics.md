@@ -237,9 +237,9 @@ inquiries retain the index under both decoder entry points (#974).
 | `NdiQuality` | Plain | Set `StreamingNdiQuality` |
 | `UsbAudioOn` | Plain | — |
 | `UsbAudioOff` | Plain | — |
-| `AddressSet` | Plain | — |
-| `InterfaceClear` | Plain | — |
-| `CommandCancel` | Plain | — |
+| `AddressSet` | OwnerOnly | — |
+| `InterfaceClear` | OwnerOnly | — |
+| `CommandCancel` | OwnerOnly | — |
 | `SettingsSave` | Plain | — |
 | `MotionSyncMode` | Plain | Set `MotionSyncEnabled` |
 | `MotionSyncPreset` | Plain | Set `MotionSyncSpeed` |
@@ -298,18 +298,15 @@ inquiries retain the index under both decoder entry points (#974).
 | `WhiteBalancePreset` | Plain | — |
 <!-- END LEDGER DECISIONS -->
 
-The three owner-only rows are deliberately absent from
-`request::builtin`. Address assignment and interface clear require exclusive
-ownership of a serial bus before target registration; a target-scoped
-`execute` call cannot represent that authority. Socket cancellation is emitted
-only from an operation handle, after the owner has correlated that exact
-operation to the camera-assigned socket; letting a caller construct a generic
-socket cancel could cancel unrelated work. The raw escape hatch enforces this
-too — its wire validation rejects the socket-cancel (`8x 2y ff`) and per-camera
-interface-clear (`8x 01 00 01 ff`) shapes at construction, and the broadcast
-address-set form is refused by the target-address check during preparation — so
-no `execute`/`inquire`/`submit` path, typed or raw, can emit an owner-only
-primitive.
+The ledger classifies Address Set, I/F Clear and Command Cancel as `OwnerOnly`.
+These rows generate no `Request` or noun method. The serial handshake issues
+Address Set and I/F Clear while it owns the bus exclusively. The session owner
+correlates an operation to its camera-assigned socket before sending a cancel.
+
+Raw construction requires an individual address (`0x81..=0x87`), a message
+body, and the `0xff` terminator. It refuses broadcast frames, socket cancel
+(`8x 2y ff`), and per-camera I/F Clear (`8x 01 00 01 ff`). Preparation checks
+the same grammar for every request and verifies the selected target address.
 
 ### Raw reply shape
 

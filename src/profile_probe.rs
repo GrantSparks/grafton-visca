@@ -355,7 +355,6 @@ macro_rules! probe_surfaces {
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
-        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
         fn surfaces(_target: &TargetRegistration, metadata: &BuiltinInquiryMetadata) -> Vec<String> {
             use crate::{command, types};
@@ -539,8 +538,8 @@ mod tests {
         blocking::Session,
         config::SessionConfig,
         transport::{
-            AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-            TransportConfig, TransportIdentity,
+            AddressingMode, BlockingTransport, HasTransportConfig, IoBounds, ReceiveOutcome,
+            SendSemantics, TransportIdentity,
         },
     };
     use std::{
@@ -556,7 +555,7 @@ mod tests {
         ready: flume::Receiver<Vec<u8>>,
         deliver: flume::Sender<Vec<u8>>,
         sent: Arc<Mutex<Vec<Vec<u8>>>>,
-        config: crate::transport::ValidatedTransportConfig,
+        config: IoBounds,
     }
 
     impl ProbeScriptedTransport {
@@ -567,9 +566,7 @@ mod tests {
                 ready,
                 deliver,
                 sent: Arc::new(Mutex::new(Vec::new())),
-                config: TransportConfig::for_udp()
-                    .validated()
-                    .expect("valid UDP defaults"),
+                config: IoBounds::UDP_DEFAULT,
             }
         }
     }
@@ -582,7 +579,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
+        fn io_bounds(&self) -> &IoBounds {
             &self.config
         }
     }
@@ -915,8 +912,9 @@ mod tests {
                 ProbeSettings::new("/dev/not-opened", selected, Some("serial"), None, None)
             }
             .expect("transport plan for each built-in");
-            assert!(!settings.config.serial_startup().address_set());
-            assert!(!settings.config.serial_startup().interface_clear());
+            if let TransportOptions::Serial { config, .. } = settings.config.transport() {
+                assert_eq!(config.startup(), crate::transport::SerialStartup::default());
+            }
             assert!(!settings
                 .config
                 .validated_session_config()

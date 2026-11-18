@@ -17,7 +17,7 @@ use grafton_visca::{
         PtzOpticsG3, SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
     },
     request::Request,
-    types::{CameraId, Degrees, PanSpeed, TiltSpeed},
+    types::{Degrees, PanSpeed, TiltSpeed},
 };
 
 /// Which way an increasing raw word moves the camera.
@@ -141,11 +141,7 @@ fn positive_degrees_are_right_and_up_for_every_built_in_profile() {
             .pan_tilt_coordinates()
             .expect("absolute pan/tilt conversion")
             .wire_codec();
-        let request = grafton_visca::command::pan_tilt::Absolute::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                row.spec.clone(),
-            ),
+        let request = grafton_visca::command::pan_tilt::Absolute::new(
             grafton_visca::types::PanTiltPosition {
                 pan: Degrees::new(45.0).expect("valid degrees"),
                 tilt: Degrees::new(45.0).expect("valid degrees"),
@@ -154,12 +150,15 @@ fn positive_degrees_are_right_and_up_for_every_built_in_profile() {
                 pan: PanSpeed::new(1).expect("pan speed"),
                 tilt: TiltSpeed::new(1).expect("tilt speed"),
             },
-        )
-        .unwrap_or_else(|error| panic!("{:?}: +45°/+45° must encode: {error}", row.id));
+        );
         let mut frame = vec![0_u8; grafton_visca::command::pan_tilt::Absolute::MAX_SIZE];
-        let written = request
-            .write_into(CameraId::CAMERA_1, &mut frame)
-            .expect("absolute position frame");
+        let target = grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            row.spec.clone(),
+        );
+        let written = target
+            .encode(&request, &mut frame)
+            .unwrap_or_else(|error| panic!("{:?}: +45°/+45° must encode: {error}", row.id));
         frame.truncate(written);
 
         let (pan, tilt) = raw_words(&frame, codec);

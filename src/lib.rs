@@ -3,6 +3,7 @@
 //! Rust library for VISCA over IP protocol to control PTZ cameras.
 
 #![forbid(unsafe_code)]
+#![cfg_attr(not(test), deny(unused_crate_dependencies))]
 // The generated noun/surface ledger is deliberately exhaustive and uses
 // continuation-style collectors.  Keep a modest budget for its expansion.
 #![recursion_limit = "512"]
@@ -228,17 +229,14 @@
 //!
 //! ## Submission priority
 //!
-//! [`crate::request::ControlClass`] is the request-owned intrinsic class; [`crate::request::SubmissionClass`]
-//! is the caller's ordinary-traffic QoS. The owner
+//! [`crate::request::SubmissionClass`] selects ordinary scheduling priority. The owner
 //! dispatches ready work from the highest occupied class first and FIFO within
 //! a class, so the class only decides which **queued** request is written next;
 //! it never interrupts, cancels, or reorders a request already on the wire.
 //!
-//! Every request classifies itself — ordinary control traffic is
-//! [`crate::request::ControlClass::Normal`], direct movement is [`crate::request::ControlClass::User`], and the
-//! typed stops and cancels are [`crate::request::ControlClass::Urgent`] so an emergency stop
-//! preempts queued work with no extra ceremony. `SubmissionClass` deliberately
-//! has no urgent variant: caller QoS cannot create or demote the safety lane.
+//! Ordinary control traffic uses [`crate::request::SubmissionClass::Normal`] and
+//! direct movement uses [`crate::request::SubmissionClass::User`]. Typed STOPs
+//! and owner-issued cancellation use the urgent lane independently of caller QoS.
 //! Two camera-view routes select ordinary submission QoS:
 //!
 //! - Per handle: `set_submission_class(Some(class))` on a camera view, its
@@ -492,16 +490,18 @@
 //! fn configured() -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::{
 //!         config::CameraConfig, profiles::PtzOpticsG2, runtime::SmolRuntime,
-//!         transport::TcpKeepaliveConfig, transport::TransportConfig,
+//!         transport::{BufferConfig, IoBounds, TcpConnect, TcpKeepaliveConfig},
 //!     };
 //!     use std::time::Duration;
 //!
 //!     smol::block_on(async {
-//!         let config =
-//!             CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!                 .with_transport_config(TransportConfig::for_tcp().with_tcp_keepalive(Some(
-//!                     TcpKeepaliveConfig::new(Duration::from_secs(30)),
-//!                 )));
+//!         let config = CameraConfig::<PtzOpticsG2>::tcp_configured(
+//!             "192.168.0.110",
+//!             TcpConnect::default().with_keepalive(Some(
+//!                 TcpKeepaliveConfig::new(Duration::from_secs(30)),
+//!             ))?,
+//!             IoBounds::default().with_buffer_config(BufferConfig::for_tcp())?,
+//!         );
 //!
 //!         let session =
 //!             grafton_visca::r#async::CameraSession::connect(&config, SmolRuntime::new()).await?;
@@ -626,20 +626,20 @@
 //! datagram fitted. A transport never allocates per frame. Zero bytes means
 //! the peer closed the connection; an idle timeout is *no data*, not a fault. A
 //! transport also declares its stream/datagram send semantics and its
-//! [`transport::ValidatedTransportConfig`], which is what
+//! [`transport::IoBounds`], which is what
 //! [`transport::HasTransportConfig`] carries.
 //!
 //! ```rust
 //! use grafton_visca::Error;
 //! use grafton_visca::{
 //!     transport::BlockingTransport, transport::HasTransportConfig, transport::ReceiveOutcome,
-//!     transport::SendSemantics, transport::ValidatedTransportConfig,
+//!     transport::SendSemantics, transport::IoBounds,
 //! };
 //! use std::time::Duration;
 //!
 //! struct MyTransport {
 //!     // Your transport state, plus the configuration the runtime reads.
-//!     config: ValidatedTransportConfig,
+//!     config: IoBounds,
 //! }
 //!
 //! impl BlockingTransport for MyTransport {
@@ -670,7 +670,7 @@
 //!         }
 //!     }
 //!
-//!     fn transport_config(&self) -> &ValidatedTransportConfig {
+//!     fn io_bounds(&self) -> &IoBounds {
 //!         &self.config
 //!     }
 //! }
@@ -992,6 +992,11 @@
 
 extern crate self as grafton_visca;
 
+// Enabling the executor through `async` lets the runtime-free async testkit
+// use it without linking an executor into blocking-only `test-utils` builds.
+#[cfg(all(feature = "async", not(feature = "test-utils")))]
+use async_executor as _;
+
 pub use grafton_visca_macros::{value, value_enum, ViscaInquiry};
 
 /// Implementation details used by the value attributes and inquiry derive.
@@ -1097,8 +1102,14 @@ pub(crate) use crate::{
 pub mod error;
 pub use error::{Error, Result};
 pub(crate) mod macros;
+#[path = "tuning.rs"]
+mod operational_tuning;
 mod profile_selection;
-mod tuning;
+
+/// Checked owner retry tuning inputs.
+pub mod tuning {
+    pub use crate::operational_tuning::RetryLimit;
+}
 
 /// The single row table behind all three noun facades.
 pub(crate) mod noun_table;
@@ -1172,7 +1183,7 @@ pub mod raw;
 mod position_inquiries;
 mod requests;
 pub(crate) use requests::{
-    AffectedAxes, ControlClass, Inquiry, OperationCommand, PayloadShape, Request, ResponseDecoder,
+    AffectedAxes, Inquiry, OperationCommand, PayloadShape, Request, ResponseDecoder,
     SubmissionClass,
 };
 
@@ -1245,9 +1256,9 @@ pub mod r#async {
 /// Connection and owner configuration values.
 pub mod config {
     pub use crate::camera::{CameraConfig, TransportKind, TransportOptions};
+    pub use crate::operational_tuning::OperationalTuning;
     pub use crate::session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
     pub use crate::target_registration::{MountPosition, TargetRegistration};
-    pub use crate::tuning::OperationalTuning;
 }
 
 // The module documents itself: an outer doc here would make rustdoc resolve
@@ -1265,13 +1276,13 @@ pub mod prelude;
 #[path = "profile.rs"]
 pub mod profiles;
 
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) use operational_tuning::OperationalTuning;
 pub(crate) use profiles::{
     CompileTimeProfile, PanTiltCoordinateConversion, ProfileEnvelope, ProfileSpec,
 };
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) use profiles::{ProfileTiming, TransportCompatibility};
-#[cfg(any(feature = "blocking", feature = "async"))]
-pub(crate) use tuning::OperationalTuning;
 
 pub(crate) mod protocol;
 

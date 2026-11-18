@@ -50,8 +50,9 @@ fn assert_anonymous_socket_union(engine: &ProtocolEngine) {
     engine.assert_invariants().unwrap();
 }
 
-#[test]
-fn socketless_ack_after_an_ambiguous_completion_preserves_every_possible_execution() {
+/// One ambiguous completion and a crossing STOP leave two executions
+/// physically outstanding, with no attributable socket.
+pub(super) fn engine_with_ambiguous_executions() -> (ProtocolEngine, Instant) {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
     let first = executing(&mut engine, 1, now);
@@ -73,48 +74,65 @@ fn socketless_ack_after_an_ambiguous_completion_preserves_every_possible_executi
     assert_eq!(engine.state(), SessionState::Running);
     assert_anonymous_socket_union(&engine);
 
-    // Neither the still-executing second command nor the STOP can give a
-    // later command an Applied verdict through a forgotten execution.
-    let (write, successor) = admit(&mut engine, 4, urgent_command(1), later);
-    send_ok(&mut engine, &write, None, later);
-    let acked = socketless_ack(&mut engine, later);
-    assert!(matches!(
-        terminal_failure(&acked, successor),
-        Some(Error::UnsequencedCommandUnconfirmed)
-    ));
-    assert!(terminal_id(&socketless_done(&mut engine, later)).is_none());
+    (engine, later)
+}
+
+#[test]
+fn socketless_ack_after_an_ambiguous_completion_preserves_every_possible_execution() {
+    let (mut engine, at) = engine_with_ambiguous_executions();
+    assert!(terminal_id(&socketless_done(&mut engine, at)).is_none());
     assert_anonymous_socket_union(&engine);
 
-    // Named evidence recovers one exact physical socket without reviving a
-    // guessed predecessor or poisoning the healthy default-policy session.
-    let (write, exact) = admit(&mut engine, 5, urgent_command(1), later);
-    send_ok(&mut engine, &write, None, later);
-    engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        later,
-    );
-    assert_eq!(socket_of(&engine, exact), Some(ViscaSocket::S1));
-    let completed = engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::Completion {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        later,
-    );
-    assert!(matches!(
-        terminal_outcome(&completed, exact),
-        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
-    ));
+    assert!(terminal_id(&socketless_done(&mut engine, at)).is_none());
+    assert_eq!(engine.raw_socket_hold_count(camera(1)), 0);
     engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn a_socketless_camera_recovers_after_all_ambiguous_executions_end() {
+    let (mut engine, at) = engine_with_ambiguous_executions();
+    for _ in 0..2 {
+        assert!(terminal_id(&socketless_done(&mut engine, at)).is_none());
+    }
+    assert_eq!(engine.raw_socket_hold_count(camera(1)), 0);
+    for ticket in 4..14 {
+        let id = executing(&mut engine, ticket, at);
+        let completed = socketless_done(&mut engine, at);
+        assert!(
+            matches!(
+                terminal_outcome(&completed, id),
+                Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+            ),
+            "{completed:?}"
+        );
+    }
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn a_one_socket_dispatch_limit_preserves_two_physical_executions() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    engine
+        .retune(
+            Duration::ZERO,
+            Duration::ZERO,
+            PerTarget::from_fn(|target| (target == camera(1)).then_some(CommandSocketCount::ONE)),
+            now,
+        )
+        .unwrap();
+    executing(&mut engine, 1, now);
+    let (stop, later) = crossing_stop(&mut engine, now);
+    assert!(matches!(
+        terminal_failure(&socketless_ack(&mut engine, later), stop),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_anonymous_socket_union(&engine);
+
+    assert!(terminal_id(&socketless_done(&mut engine, later)).is_none());
+    assert_anonymous_socket_union(&engine);
+    assert!(terminal_id(&socketless_done(&mut engine, later)).is_none());
+    assert_eq!(engine.raw_socket_hold_count(camera(1)), 0);
 }
 
 #[test]

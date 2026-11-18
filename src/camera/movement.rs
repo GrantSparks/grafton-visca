@@ -13,33 +13,103 @@ use crate::AffectedAxes;
 #[non_exhaustive]
 pub struct MovementTolerance {
     /// Pan/tilt tolerance in raw VISCA units.
-    pub pan_tilt: i32,
+    pan_tilt: u32,
     /// Zoom tolerance in raw VISCA units.
-    pub zoom: u16,
+    zoom: u16,
     /// Focus tolerance in raw VISCA units.
-    pub focus: u16,
+    focus: u16,
     /// Iris tolerance in raw VISCA units.
-    pub iris: u16,
+    iris: u16,
     /// ND-filter tolerance in raw VISCA units.
-    pub nd_filter: u16,
+    nd_filter: u16,
+}
+
+impl MovementTolerance {
+    /// Default tolerance in raw units for each axis.
+    pub const DEFAULT: Self = Self {
+        pan_tilt: 2,
+        zoom: 10,
+        focus: 5,
+        iris: 0,
+        nd_filter: 0,
+    };
+
+    /// Returns the pan/tilt tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn pan_tilt(&self) -> u32 {
+        self.pan_tilt
+    }
+
+    /// Replaces the pan/tilt tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn with_pan_tilt(mut self, tolerance: u32) -> Self {
+        self.pan_tilt = tolerance;
+        self
+    }
+
+    /// Returns the zoom tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn zoom(&self) -> u16 {
+        self.zoom
+    }
+
+    /// Replaces the zoom tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn with_zoom(mut self, tolerance: u16) -> Self {
+        self.zoom = tolerance;
+        self
+    }
+
+    /// Returns the focus tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn focus(&self) -> u16 {
+        self.focus
+    }
+
+    /// Replaces the focus tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn with_focus(mut self, tolerance: u16) -> Self {
+        self.focus = tolerance;
+        self
+    }
+
+    /// Returns the iris tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn iris(&self) -> u16 {
+        self.iris
+    }
+
+    /// Replaces the iris tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn with_iris(mut self, tolerance: u16) -> Self {
+        self.iris = tolerance;
+        self
+    }
+
+    /// Returns the ND-filter tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn nd_filter(&self) -> u16 {
+        self.nd_filter
+    }
+
+    /// Replaces the ND-filter tolerance in raw VISCA units.
+    #[must_use]
+    pub const fn with_nd_filter(mut self, tolerance: u16) -> Self {
+        self.nd_filter = tolerance;
+        self
+    }
 }
 
 impl Default for MovementTolerance {
     fn default() -> Self {
-        Self {
-            pan_tilt: 2,
-            zoom: 10,
-            focus: 5,
-            iris: 0,
-            nd_filter: 0,
-        }
+        Self::DEFAULT
     }
 }
 
 /// Exact axes, tolerance, and observation window for one movement observation.
 ///
 /// `is_moving` reads one complete position snapshot, waits until at least
-/// [`window`](Self::window) has elapsed on the owner clock since that snapshot
+/// [`window()`](Self::window()) has elapsed on the owner clock since that snapshot
 /// was received, and then reads a second snapshot. It reports movement when
 /// any selected axis changed by more than its tolerance between the two.
 ///
@@ -56,21 +126,47 @@ impl Default for MovementTolerance {
 ///
 /// The type is `#[non_exhaustive]`: build it with [`crate::types::MotionQuery::new`],
 /// [`Default`] or [`From<AffectedAxes>`], then the `with_*` methods.
+/// A zero window is refused before I/O and during deserialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!try_from))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "serde", serde(try_from = "MotionQueryData"))]
 #[non_exhaustive]
 pub struct MotionQuery {
     /// Axes to sample. Unselected axes are never queried.
-    pub axes: AffectedAxes,
+    axes: AffectedAxes,
     /// Maximum stable delta for each selected axis.
-    pub tolerance: MovementTolerance,
+    tolerance: MovementTolerance,
     /// Minimum owner-clock time between the end of the first snapshot and the
     /// start of the second. Must be greater than zero.
     #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number, nanos: number }"))]
-    pub window: Duration,
+    window: Duration,
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MotionQueryData {
+    axes: AffectedAxes,
+    tolerance: MovementTolerance,
+    window: Duration,
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<MotionQueryData> for MotionQuery {
+    type Error = crate::Error;
+
+    fn try_from(data: MotionQueryData) -> crate::Result<Self> {
+        let query = Self {
+            axes: data.axes,
+            tolerance: data.tolerance,
+            window: data.window,
+        };
+        query.validate()?;
+        Ok(query)
+    }
 }
 
 impl MotionQuery {
@@ -82,15 +178,39 @@ impl MotionQuery {
     pub const fn new(axes: AffectedAxes) -> Self {
         Self {
             axes,
-            tolerance: MovementTolerance {
-                pan_tilt: 2,
-                zoom: 10,
-                focus: 5,
-                iris: 0,
-                nd_filter: 0,
-            },
+            tolerance: MovementTolerance::DEFAULT,
             window: Self::DEFAULT_WINDOW,
         }
+    }
+
+    /// Returns the selected axes. Unselected axes are never queried.
+    #[must_use]
+    pub const fn axes(&self) -> AffectedAxes {
+        self.axes
+    }
+
+    /// Returns the maximum stable delta for each selected axis.
+    #[must_use]
+    pub const fn tolerance(&self) -> MovementTolerance {
+        self.tolerance
+    }
+
+    /// Returns the minimum owner-clock time between the two snapshots.
+    #[must_use]
+    pub const fn window(&self) -> Duration {
+        self.window
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async", feature = "serde", test))]
+    pub(crate) fn validate(&self) -> crate::Result<()> {
+        if self.window.is_zero() {
+            return Err(crate::Error::InvalidParameter {
+                parameter: "MotionQuery::window",
+                value: "0ns".into(),
+                reason: "a movement observation needs a positive window".into(),
+            });
+        }
+        Ok(())
     }
 
     /// Replaces the movement tolerance.
@@ -104,7 +224,7 @@ impl MotionQuery {
     ///
     /// A zero window is rejected with [`Error::InvalidParameter`] before any
     /// inquiry is sent: two back-to-back samples cannot establish movement
-    /// evidence over a positive duration.
+    /// evidence over a positive duration. Deserialization enforces the same rule.
     ///
     /// [`Error::InvalidParameter`]: crate::Error::InvalidParameter
     #[must_use]
@@ -226,14 +346,8 @@ impl IdleWait {
         Self {
             axes,
             timeout,
-            tolerance: MovementTolerance {
-                pan_tilt: 2,
-                zoom: 10,
-                focus: 5,
-                iris: 0,
-                nd_filter: 0,
-            },
-            interval: Duration::from_millis(100),
+            tolerance: MovementTolerance::DEFAULT,
+            interval: MotionQuery::DEFAULT_WINDOW,
         }
     }
 
@@ -405,7 +519,7 @@ mod tests {
             assert_eq!(wait.axes, axes);
             assert_eq!(wait.timeout, timeout);
             assert_eq!(wait.tolerance, MovementTolerance::default());
-            assert_eq!(wait.interval, Duration::from_millis(100));
+            assert_eq!(wait.interval, MotionQuery::DEFAULT_WINDOW);
         }
     }
 
@@ -487,8 +601,59 @@ mod tests {
     }
 
     #[test]
+    fn movement_observation_uses_shared_tolerance_and_interval_defaults() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM);
+        let wait = IdleWait::new(AffectedAxes::ZOOM, Duration::from_secs(1));
+        assert_eq!(MovementTolerance::default(), MovementTolerance::DEFAULT);
+        assert_eq!(query.tolerance(), MovementTolerance::DEFAULT);
+        assert_eq!(wait.tolerance(), MovementTolerance::DEFAULT);
+        assert_eq!(query.window(), MotionQuery::DEFAULT_WINDOW);
+        assert_eq!(wait.interval(), MotionQuery::DEFAULT_WINDOW);
+    }
+
+    #[test]
+    fn motion_query_requires_a_positive_window() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM)
+            .with_tolerance(MovementTolerance::DEFAULT.with_zoom(1))
+            .with_window(Duration::ZERO);
+        assert_eq!(query.axes(), AffectedAxes::ZOOM);
+        assert_eq!(query.tolerance().zoom(), 1);
+        assert_eq!(query.window(), Duration::ZERO);
+        assert!(matches!(
+            query.validate(),
+            Err(crate::Error::InvalidParameter {
+                parameter: "MotionQuery::window",
+                ..
+            })
+        ));
+        assert!(query
+            .with_window(Duration::from_nanos(1))
+            .validate()
+            .is_ok());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn motion_query_deserializes_only_positive_windows_and_unsigned_tolerances(
+    ) -> serde_json::Result<()> {
+        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_millis(25));
+        let mut json = serde_json::to_value(query)?;
+        assert_eq!(serde_json::from_value::<MotionQuery>(json.clone())?, query);
+        json["tolerance"]["pan_tilt"] = serde_json::json!(-2);
+        assert!(serde_json::from_value::<MotionQuery>(json).is_err());
+
+        let query = query.with_window(Duration::ZERO);
+        let expected = query.validate().map_err(|error| error.to_string());
+        let deserialized = serde_json::from_value::<MotionQuery>(serde_json::to_value(query)?)
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        assert_eq!(deserialized, expected);
+        Ok(())
+    }
+
+    #[test]
     fn motion_query_default_and_conversion_select_movement_axes() {
-        assert_eq!(MotionQuery::default().axes, AffectedAxes::MOVEMENT);
+        assert_eq!(MotionQuery::default().axes(), AffectedAxes::MOVEMENT);
         assert_eq!(
             MotionQuery::from(AffectedAxes::FOCUS),
             MotionQuery::new(AffectedAxes::FOCUS)

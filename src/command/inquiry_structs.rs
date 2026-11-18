@@ -3314,9 +3314,8 @@ mod wire_decoder_regression_tests {
                 "{kind:?}"
             );
         }
-        // BRC-H900 gain codes through 0x19 are representable; the decoder
-        // must distinguish that expanded wire domain from corrupt values.
-        for (payload, expected) in [([0, 0, 1, 0], 0x10), ([0, 0, 1, 9], 0x19)] {
+        // Gain replies preserve both digits of the two-nibble register.
+        for (payload, expected) in [([0, 0, 1, 0], 0x10), ([0, 0, 0x0f, 0x0f], 0xff)] {
             assert_eq!(
                 GainInquiry.decoder().decode(&payload).unwrap().value(),
                 expected
@@ -3324,11 +3323,8 @@ mod wire_decoder_regression_tests {
         }
         // Canonical parsing and typed accessors share the checked table values.
         for error in [
-            GainInquiry.decoder().decode(&[0, 0, 1, 0x0A]).unwrap_err(),
-            IrisInquiry
-                .decoder()
-                .decode(&[0, 0, 0x0F, 0x0F])
-                .unwrap_err(),
+            GainInquiry.decoder().decode(&[0, 1, 0, 0]).unwrap_err(),
+            IrisInquiry.decoder().decode(&[1, 0, 0, 0]).unwrap_err(),
             HueInquiry.decoder().decode(&[0, 0, 0, 0x0F]).unwrap_err(),
         ] {
             assert_eq!(error.kind(), crate::ErrorKind::Protocol);

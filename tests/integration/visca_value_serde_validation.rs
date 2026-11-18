@@ -77,10 +77,10 @@ mod serde_validation {
     #[test]
     fn public_visca_value_representatives_revalidate_deserialized_scalars() {
         let gain_min: GainLevel = serde_json::from_str("0").expect("minimum gain");
-        let gain_max: GainLevel = serde_json::from_str("25").expect("maximum gain");
+        let gain_max: GainLevel = serde_json::from_str("255").expect("maximum gain");
         assert_eq!(gain_min.value(), 0);
-        assert_eq!(gain_max.value(), 25);
-        assert!(serde_json::from_str::<GainLevel>("26").is_err());
+        assert_eq!(gain_max.value(), 255);
+        assert!(serde_json::from_str::<GainLevel>("256").is_err());
 
         let zoom_min: ZoomPosition = serde_json::from_str("0").expect("minimum zoom");
         let zoom_max: ZoomPosition = serde_json::from_str("32767").expect("maximum zoom");
@@ -316,7 +316,7 @@ mod serde_validation {
         let nested = serde_json::to_value(schemars::schema_for!(ScalarDomainSchemaContainer))
             .expect("nested scalar schemas");
         let instance = serde_json::to_value(ScalarDomainSchemaContainer {
-            gain: GainLevel::new(25).expect("maximum gain"),
+            gain: GainLevel::new(255).expect("maximum gain"),
             compensation: ExposureCompensationLevel::new(-7).expect("minimum compensation"),
             kelvin: Kelvin::new(2000).expect("minimum Kelvin"),
             unknown_effect: UnknownPictureEffect::new(254).expect("extension effect"),
@@ -325,7 +325,7 @@ mod serde_validation {
         assert_eq!(
             instance,
             serde_json::json!({
-                "gain": 25, "compensation": -7, "kelvin": 2000, "unknown_effect": 254
+                "gain": 255, "compensation": -7, "kelvin": 2000, "unknown_effect": 254
             })
         );
         for (field, definition) in [
@@ -345,7 +345,7 @@ mod serde_validation {
             nested["$defs"]["GainLevel"].clone(),
         ] {
             assert_eq!(schema["minimum"], 0);
-            assert_eq!(schema["maximum"], 25);
+            assert_eq!(schema["maximum"], 255);
             assert_schema_integer_domain::<GainLevel>(&schema, -1..=256, |input| {
                 u8::try_from(input).is_ok_and(|value| GainLevel::new(value).is_ok())
             });

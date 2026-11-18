@@ -20,6 +20,7 @@
 
 #![cfg(all(feature = "test-utils", feature = "blocking"))]
 
+use grafton_visca::tuning::RetryLimit;
 use grafton_visca_test_support::{profile_fixtures, retry_requests};
 
 use std::time::Duration;
@@ -73,7 +74,7 @@ fn tuned_open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
     let probe = transport.clone();
     let config = session_config().with_tuning(
         OperationalTuning::new()
-            .with_retry_limit(1)
+            .with_retry_limit(RetryLimit::new(1).expect("valid retry limit"))
             .with_retry_budget(Duration::from_secs(30)),
     );
     let session = Session::open(transport, &config).expect("owner session");

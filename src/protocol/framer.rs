@@ -263,10 +263,6 @@ pub(crate) trait Framer: private::Sealed {
             self.visit_next_frame(|frame| Bytes::copy_from_slice(frame.bytes()))
         })
     }
-    #[cfg(all(test, feature = "blocking"))]
-    fn drain_on_eof(&mut self) -> Option<Result<Bytes, Self::Rejection>> {
-        self.visit_next_frame(|frame| Bytes::copy_from_slice(frame.bytes()))
-    }
 }
 
 /// Raw VISCA frames end at their terminating `FF` byte.

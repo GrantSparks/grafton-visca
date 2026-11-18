@@ -18,7 +18,7 @@ use grafton_visca::{
     error::{Certainty, FailureStage},
     operation::{AppliedOnly, Targeted},
     profiles::ProfileSpec,
-    transport::{AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressingMode, IoBounds, SendSemantics},
     types::ZoomPosition,
     Error,
 };
@@ -70,7 +70,7 @@ fn stream_wire(camera: &FakeCamera) -> BlockingWire {
 
 /// The camera's stream wire on a serial bus.
 fn serial_stream_wire(camera: &FakeCamera) -> BlockingWire {
-    let config = TransportConfig::default();
+    let config = IoBounds::default();
 
     camera
         .blocking_wire()

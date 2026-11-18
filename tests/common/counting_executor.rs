@@ -18,12 +18,6 @@ pub(crate) struct CountingExecutor<E> {
 }
 
 impl<E: Executor> Executor for CountingExecutor<E> {
-    type Join<T>
-        = <E as Executor>::Join<T>
-    where
-        T: Send + 'static;
-    type Detach = <E as Executor>::Detach;
-
     type Timer = E::Timer;
 
     fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
@@ -31,17 +25,12 @@ impl<E: Executor> Executor for CountingExecutor<E> {
         self.inner.timer(deadline)
     }
 
-    fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
+    fn spawn_detached<F>(&self, future: F)
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
         self.spawned.fetch_add(1, Ordering::SeqCst);
-        self.inner.spawn_with_detach(future)
-    }
-
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        self.inner.block_on(future)
+        self.inner.spawn_detached(future);
     }
 
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {

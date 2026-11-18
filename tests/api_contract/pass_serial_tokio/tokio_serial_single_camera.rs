@@ -8,7 +8,7 @@
 
 use grafton_visca::{
     config::CameraConfig, profiles::PtzOpticsG2, r#async::CameraSession, runtime::TokioRuntime,
-    transport::TransportConfig, Error,
+    Error,
 };
 
 async fn one_liner_serial_camera(runtime: TokioRuntime) -> Result<(), Error> {
@@ -26,8 +26,7 @@ async fn one_liner_serial_camera(runtime: TokioRuntime) -> Result<(), Error> {
 }
 
 async fn configured_serial_camera(runtime: TokioRuntime) -> Result<(), Error> {
-    let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600)
-        .with_transport_config(TransportConfig::for_serial());
+    let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600);
     let session: CameraSession<PtzOpticsG2> = CameraSession::connect(&config, runtime).await?;
 
     let camera = session.camera();

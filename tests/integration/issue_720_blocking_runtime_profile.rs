@@ -20,11 +20,7 @@ fn runtime_power_profile() -> ProfileSpec {
         Capabilities::runtime_baseline("Issue 720 runtime camera", 1).expect("baseline");
     capabilities.power = Some(grafton_visca::capabilities::PowerCaps {
         status_query: grafton_visca::capabilities::PowerStatusQuery::Standard,
-        on_time: Duration::from_secs(1),
-        standby: None,
-        wake_on_lan: false,
-        retains_settings: false,
-        home_on_up: false,
+        standby: false,
     });
 
     let timing = ProfileTiming::builder()

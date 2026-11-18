@@ -4,7 +4,7 @@
 
 #![cfg(test)]
 
-use crate::command::surface::RowGate;
+use crate::command::{self, semantics::BuiltinCommand, surface::RowGate};
 use crate::noun_table::noun_table;
 
 /// Public completion shape of one generated method.
@@ -52,12 +52,68 @@ pub(crate) struct NounRow {
     pub(crate) gate_markers: &'static [&'static str],
     /// Runtime gate generated from the same header and complete refining list.
     pub(crate) gate: RowGate,
+    /// Ledger rows used to derive targeted settlement requirements.
+    settlement_rows: &'static [BuiltinCommand],
     /// Authored method documentation.
     pub(crate) docs: &'static str,
     /// Generated completion wording, shared with facade rustdoc.
     pub(crate) completion_doc: &'static str,
     /// Public request identifier carried by a protocol row, if present.
     pub(crate) command: Option<&'static str>,
+}
+
+impl NounRow {
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn settlement_marker(&self) -> Option<&'static str> {
+        use crate::command::{
+            semantics::{BuiltinAxisSelection, BuiltinRequestClass},
+            surface::DomainGate,
+        };
+        use crate::AffectedAxes;
+
+        match (self.gate, self.settlement_rows.first()?.classification()) {
+            (
+                RowGate::Domain(DomainGate::PanTilt),
+                BuiltinRequestClass::Targeted {
+                    axes: BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
+                },
+            ) => Some("HasPanTiltSettlement"),
+            (
+                RowGate::Domain(DomainGate::Focus),
+                BuiltinRequestClass::Targeted {
+                    axes: BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
+                },
+            ) => Some("HasFocusSettlement"),
+            (
+                RowGate::Domain(DomainGate::Presets),
+                BuiltinRequestClass::Targeted {
+                    axes: BuiltinAxisSelection::ProfilePresetRecall,
+                },
+            ) => Some("HasPresetRecallSettlement"),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn permits(&self, profile: &crate::ProfileSpec) -> bool {
+        if self.settlement_rows.is_empty() {
+            self.gate.validate(profile, "documentation").is_ok()
+        } else {
+            self.settlement_rows.iter().any(|&command| {
+                self.gate
+                    .validate_command(command, profile, "documentation")
+                    .is_ok()
+            })
+        }
+    }
+}
+
+macro_rules! settlement_rows {
+    (targeted, $request:ty) => {
+        <$request as crate::command::semantics::BuiltinRequestContract>::LEDGER_ROWS
+    };
+    ($kind:ident, $request:ty) => {
+        &[]
+    };
 }
 
 macro_rules! noun_kind {
@@ -155,7 +211,6 @@ macro_rules! project_noun_rows {
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
-        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
         const NOUN_ROWS: &[NounRow] = &[
             $($(
@@ -169,6 +224,7 @@ macro_rules! project_noun_rows {
                     return_type: noun_return_type!($kind; $ret),
                     gate_markers: noun_gate_markers!($base; [$($gate $($extra)*)?]),
                     gate: crate::command::surface::noun_row_gate!([$($gate $(, $extra)*)?], $base),
+                    settlement_rows: settlement_rows!($kind, $ret),
                     docs: concat!($($row_doc, "\n",)*),
                     completion_doc: crate::noun_table::completion_doc!($kind),
                     command: noun_command!([$($command)?]),
@@ -204,6 +260,7 @@ macro_rules! project_motion_rows {
                 return_type: stringify!($ret),
                 gate_markers: &[],
                 gate: RowGate::Always,
+                settlement_rows: &[],
                 docs: concat!($($row_doc, "\n",)*),
                 completion_doc: "Returns the owner's motion-safety or observation result.",
                 command: None,

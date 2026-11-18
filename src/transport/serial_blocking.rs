@@ -13,14 +13,12 @@ use crate::{
     timeout::Deadline,
     transport::{
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
-        builder::ValidatedTransportConfig,
         serial::{
             handshake::{Action, SerialStartup, StartupTiming},
             open_failed, port_builder, set_device_timeout, Config as SerialConfig, DevicePort,
             SERIAL_PORT_CLOSED,
         },
-        stream_read, AddressedBus, BlockingTransport, HasTransportConfig, ReceiveOutcome,
-        ValidatedSerialConfig,
+        stream_read, AddressedBus, BlockingTransport, HasTransportConfig, IoBounds, ReceiveOutcome,
     },
 };
 
@@ -31,7 +29,7 @@ use crate::{
 pub struct SerialTransport {
     port: Box<dyn serialport::SerialPort + Send>,
     config: SerialConfig,
-    transport_config: ValidatedTransportConfig,
+    io_bounds: IoBounds,
     addressed_bus: Option<AddressedBus>,
 }
 
@@ -45,35 +43,17 @@ impl std::fmt::Debug for SerialTransport {
 }
 
 impl SerialTransport {
-    /// Open the configured port and perform the requested startup.
-    ///
-    /// The configuration is validated before the device is opened. Opening
-    /// writes nothing to the bus unless [`SerialConfig::startup`] requests
-    /// Address Set or I/F Clear.
-    ///
-    /// # Errors
-    ///
-    /// [`crate::Error::InvalidRequest`] for an invalid configuration,
-    /// [`crate::Error::ConnectionFailed`] when the port cannot be opened (including
-    /// when another process holds it), and the startup errors documented on
-    /// [`crate::transport::serial`].
-    #[cfg(test)]
-    pub fn new(config: SerialConfig) -> Result<Self> {
-        Self::open_validated(config.validated()?)
-    }
-
-    pub(crate) fn open_validated(config: ValidatedSerialConfig) -> Result<Self> {
-        let (config, transport_config) = config.into_parts();
+    pub(crate) fn open(config: SerialConfig, io_bounds: IoBounds) -> Result<Self> {
         let mut port = port_builder(&config)
             .open()
             .map_err(|error| open_failed(&config, error))?;
-        let addressed_bus = perform_startup(&mut *port, &config, StartupTiming::VISCA)?
+        let addressed_bus = perform_startup(&mut *port, &config, io_bounds, StartupTiming::VISCA)?
             .map(|cameras| AddressedBus::new(config.port.clone(), cameras));
 
         Ok(Self {
             port,
             config,
-            transport_config,
+            io_bounds,
             addressed_bus,
         })
     }
@@ -84,35 +64,35 @@ impl SerialTransport {
 fn perform_startup(
     port: &mut DevicePort,
     config: &SerialConfig,
+    io_bounds: IoBounds,
     timing: StartupTiming,
 ) -> Result<Option<u8>> {
-    let mut startup = SerialStartup::new(config, timing)?;
+    let mut startup = SerialStartup::new(config, io_bounds, timing)?;
     let mut buffer = vec![0; startup.read_capacity()];
     loop {
         match startup.next(Instant::now()) {
-            Action::Write { frame, timeout } => {
-                let written = Deadline::after(Instant::now(), timeout, "write_timeout").and_then(
-                    |deadline| {
+            Action::Write(write) => {
+                let written = Deadline::after(Instant::now(), write.timeout, "write_timeout")
+                    .and_then(|deadline| {
                         write_all_bounded(
                             port,
                             set_device_timeout,
-                            frame,
+                            write.frame(),
                             deadline,
                             TimedIo::SerialDevice,
                         )
-                    },
-                );
-                startup.wrote(written);
+                    });
+                write.complete(written);
             }
-            Action::Read { timeout } => {
+            Action::Read(read_action) => {
                 let read = read_once_bounded(
                     port,
                     set_device_timeout,
                     &mut buffer,
-                    timeout,
+                    read_action.timeout,
                     TimedIo::SerialDevice,
                 );
-                startup.read(read.map(|read| &buffer[..read]));
+                read_action.complete(read.map(|read| &buffer[..read]));
             }
             Action::Sleep(duration) => std::thread::sleep(duration),
             Action::DiscardInput => port
@@ -130,8 +110,8 @@ impl HasTransportConfig for SerialTransport {
         }
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
-        &self.transport_config
+    fn io_bounds(&self) -> &IoBounds {
+        &self.io_bounds
     }
 }
 
@@ -497,11 +477,11 @@ mod tests {
     /// Helper to create a SerialTransport with a test port directly.
     fn create_test_transport(port: TestSerialPort) -> SerialTransport {
         let config = SerialConfig::new("/dev/test");
-        let transport_config = config.transport_config().validated().unwrap();
+        let io_bounds = default_bounds();
         SerialTransport {
             port: Box::new(port),
             config,
-            transport_config,
+            io_bounds,
             addressed_bus: None,
         }
     }
@@ -529,90 +509,23 @@ mod tests {
         }
     }
 
-    /// An Address Set startup whose read timeout matches the fake port's.
-    fn address_set(read_timeout: Duration, write_timeout: Duration) -> SerialConfig {
-        SerialConfig::new("/dev/test")
-            .with_startup(Startup::default().with_address_set(true))
-            .with_read_timeout(read_timeout)
-            .with_write_timeout(write_timeout)
+    fn address_set_config() -> SerialConfig {
+        SerialConfig::new("/dev/test").with_startup(Startup::default().with_address_set(true))
     }
 
-    #[test]
-    fn test_serial_config_default() {
-        let config = SerialConfig::default();
-        assert_eq!(config.baud_rate, 9600);
-        assert!(!config.startup.address_set);
-        assert!(!config.startup.interface_clear);
-        assert_eq!(config.buffer_config, BufferConfig::for_serial());
+    fn bounds(read: Duration, write: Duration) -> IoBounds {
+        IoBounds::new(read, write, BufferConfig::for_serial()).expect("serial bounds")
     }
 
-    #[test]
-    fn invalid_buffer_bounds_fail_before_serial_device_open() {
-        let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
-            .with_buffer_config(BufferConfig {
-                recv_buffer_size: 65,
-                max_buffer_size: 64,
-            });
-
-        let result = SerialTransport::new(config);
-
-        assert!(matches!(
-            result,
-            Err(Error::InvalidRequest { reason: actual })
-                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
-        ));
-    }
-
-    #[test]
-    fn excessive_buffer_sizes_fail_before_serial_device_open() {
-        for (recv_buffer_size, max_buffer_size) in [
-            (
-                BufferConfig::MAX_RECV_BUFFER_SIZE + 1,
-                BufferConfig::MAX_RETENTION_SIZE,
-            ),
-            (
-                BufferConfig::MIN_RECV_BUFFER_SIZE,
-                BufferConfig::MAX_RETENTION_SIZE + 1,
-            ),
-            (usize::MAX, usize::MAX),
-        ] {
-            let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
-                .with_buffer_config(BufferConfig {
-                    recv_buffer_size,
-                    max_buffer_size,
-                });
-            assert!(matches!(
-                SerialTransport::new(config),
-                Err(Error::InvalidRequest { .. })
-            ));
-        }
-    }
-
-    #[test]
-    fn zero_io_timeouts_fail_before_serial_device_open() {
-        for (config, message) in [
-            (
-                SerialConfig::new("grafton-visca-zero-read-timeout-serial-device")
-                    .with_read_timeout(Duration::ZERO),
-                "transport read timeout must be non-zero",
-            ),
-            (
-                SerialConfig::new("grafton-visca-zero-write-timeout-serial-device")
-                    .with_write_timeout(Duration::ZERO),
-                "transport write timeout must be non-zero",
-            ),
-        ] {
-            assert!(matches!(
-                SerialTransport::new(config),
-                Err(Error::InvalidRequest { reason: actual }) if actual.as_ref() == message
-            ));
-        }
+    fn default_bounds() -> IoBounds {
+        IoBounds::SERIAL_DEFAULT
     }
 
     #[test]
     fn an_absent_port_is_a_connection_failure_naming_the_port() {
         let config = SerialConfig::new("/dev/grafton-visca-absent-serial-device");
-        let error = SerialTransport::new(config).expect_err("an absent port cannot open");
+        let error = SerialTransport::open(config, default_bounds())
+            .expect_err("an absent port cannot open");
         assert!(matches!(
             error,
             Error::ConnectionFailed { ref addr, ref source }
@@ -630,7 +543,8 @@ mod tests {
 
         perform_startup(
             &mut port,
-            &address_set(configured_read_timeout, Duration::from_millis(7)),
+            &address_set_config(),
+            bounds(configured_read_timeout, Duration::from_millis(7)),
             timing(Duration::from_secs(1)),
         )
         .expect("an interrupted handshake write retries in place");
@@ -645,7 +559,8 @@ mod tests {
         ]);
         perform_startup(
             &mut port,
-            &address_set(Duration::from_millis(50), Duration::from_millis(50)),
+            &address_set_config(),
+            bounds(Duration::from_millis(50), Duration::from_millis(50)),
             timing(Duration::from_secs(1)),
         )
         .expect("the reply follows the signal interruption");
@@ -688,7 +603,8 @@ mod tests {
 
         let result = perform_startup(
             &mut port,
-            &address_set(configured_read_timeout, Duration::from_secs(1)),
+            &address_set_config(),
+            bounds(configured_read_timeout, Duration::from_secs(1)),
             timing(Duration::from_millis(50)),
         );
 
@@ -718,7 +634,8 @@ mod tests {
         // handling alone.
         perform_startup(
             &mut port,
-            &address_set(configured_read_timeout, Duration::from_millis(7)),
+            &address_set_config(),
+            bounds(configured_read_timeout, Duration::from_millis(7)),
             timing(Duration::from_secs(1)),
         )
         .expect("Address Set resynchronizes past the oversized noise frame");
@@ -743,7 +660,8 @@ mod tests {
 
         perform_startup(
             &mut port,
-            &address_set(configured_read_timeout, configured_write_timeout),
+            &address_set_config(),
+            bounds(configured_read_timeout, configured_write_timeout),
             timing(attempt_timeout),
         )
         .expect("Address Set succeeds");
@@ -768,7 +686,8 @@ mod tests {
 
         let result = perform_startup(
             &mut port,
-            &address_set(configured_read_timeout, Duration::from_millis(7)),
+            &address_set_config(),
+            bounds(configured_read_timeout, Duration::from_millis(7)),
             timing(Duration::ZERO),
         );
 
@@ -786,7 +705,8 @@ mod tests {
             .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
         perform_startup(
             &mut address_port,
-            &address_set(configured_timeout, Duration::from_millis(7)),
+            &address_set_config(),
+            bounds(configured_timeout, Duration::from_millis(7)),
             StartupTiming::VISCA,
         )
         .expect("Address Set succeeds");
@@ -798,6 +718,7 @@ mod tests {
             &mut clear_port,
             &SerialConfig::new("/dev/test")
                 .with_startup(Startup::default().with_interface_clear(true)),
+            default_bounds(),
             StartupTiming::VISCA,
         )
         .expect("I/F Clear succeeds");
@@ -881,7 +802,12 @@ mod tests {
                 .with_read_steps(reads)
                 .with_write_steps(writes);
 
-            let result = perform_startup(&mut port, &scenario.config, scenarios::TIMING);
+            let result = perform_startup(
+                &mut port,
+                &scenario.config,
+                default_bounds(),
+                scenarios::TIMING,
+            );
 
             scenarios::check(&scenario, &result);
             if matches!(scenario.outcome, scenarios::Outcome::Closed) {
@@ -936,9 +862,12 @@ mod tests {
                 master
             });
 
-            let config = CameraConfig::<PtzOpticsG2>::serial(path.clone(), 9_600)
-                .with_camera_id(camera.try_into().expect("individual camera"))
-                .with_serial_startup(Startup::default().with_address_set(true));
+            let config = CameraConfig::<PtzOpticsG2>::serial_configured(
+                SerialConfig::new(path.clone())
+                    .with_startup(Startup::default().with_address_set(true)),
+                default_bounds(),
+            )
+            .with_camera_id(camera.try_into().expect("individual camera"));
             let result = crate::blocking::CameraSession::connect(&config);
             let _master = bus.join().expect("bus thread");
             drop(slave);
@@ -1078,13 +1007,12 @@ mod tests {
         let path = slave.name().expect("pseudo-terminal path");
         let config = SerialConfig::new(path.clone());
 
-        let first = SerialTransport::new(config.clone()).expect("first opener succeeds");
-        assert_eq!(
-            first.transport_config().as_config(),
-            &config.transport_config()
-        );
+        let first =
+            SerialTransport::open(config.clone(), default_bounds()).expect("first opener succeeds");
+        assert_eq!(first.io_bounds(), &default_bounds());
 
-        let second = SerialTransport::new(config).expect_err("the port is held exclusively");
+        let second = SerialTransport::open(config, default_bounds())
+            .expect_err("the port is held exclusively");
         assert!(matches!(
             second,
             Error::ConnectionFailed { ref addr, .. } if *addr == path

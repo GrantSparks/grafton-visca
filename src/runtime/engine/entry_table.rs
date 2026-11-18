@@ -12,9 +12,9 @@ use std::{
 use smallvec::SmallVec;
 
 use super::{
-    AdmissionSlot, AttemptFacts, CorrelationKind, CorrelationOwner, Entry, ExecutingCancellation,
-    Lane, Lifecycle, RequestId, RequestedCancellation, ResolvingCancellation, RuntimeRequest,
-    SendingReply, SequenceRecord, TargetSlot, TransmissionId, TransmissionMeta, ViscaSocket,
+    AttemptFacts, CorrelationKind, CorrelationOwner, Entry, ExecutingCancellation, Lane, Lifecycle,
+    RequestId, RequestedCancellation, ResolvingCancellation, RuntimeRequest, SendingReply,
+    SequenceRecord, TargetSlot, TransmissionId, TransmissionMeta, ViscaSocket,
 };
 use crate::target::PerTarget;
 
@@ -126,12 +126,6 @@ impl EntryPlacement {
             _ => Self::Active(to),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct AdmissionFacts {
-    pub(super) submitted_at: Instant,
-    pub(super) slot: AdmissionSlot,
 }
 
 /// Successors which cannot install a socket identity.
@@ -427,29 +421,20 @@ impl EntryTable {
             .map_or(&[], SmallVec::as_slice)
     }
 
-    pub(super) fn admit(
-        &mut self,
-        id: RequestId,
-        request: RuntimeRequest,
-        facts: AdmissionFacts,
-    ) -> bool {
-        if self.entries.contains_key(&id) {
-            return false;
-        }
+    pub(super) fn admit(&mut self, id: RequestId, request: RuntimeRequest, submitted_at: Instant) {
+        debug_assert!(!self.entries.contains_key(&id));
         let entry = Entry {
             request,
             lifecycle: EntryPlacement::Active(Lifecycle::Ready {
                 previous_attempt: None,
             }),
-            submitted_at: facts.submitted_at,
+            submitted_at,
             prior: None,
             sequences: SequenceSlots::default(),
-            slot: facts.slot,
         };
         let indexed = IndexFacts::of(&entry);
         self.entries.insert(id, entry);
         self.add_indexes(id, &indexed);
-        true
     }
 
     pub(super) fn claim_socket(

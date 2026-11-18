@@ -41,26 +41,14 @@ crate::command::nouns::forward_inquiry!(ClearImagePositionInquiry, crate::comman
 /// Drives toward telephoto at a speed resolved against the target's zoom range.
 #[derive(Debug, Clone, Copy)]
 pub struct TeleVariable {
-    preview: Option<builtin::ZoomDrive>,
     speed: Speed<ZoomSpeed>,
 }
 impl TeleVariable {
     /// Captures a speed to resolve against the receiving camera during preparation.
     pub fn new(speed: impl Into<Speed<ZoomSpeed>>) -> Self {
         Self {
-            preview: None,
             speed: speed.into(),
         }
-    }
-
-    /// Creates a movement intent with a preview for direct encoding.
-    pub fn for_target(
-        target: &TargetRegistration,
-        speed: impl Into<Speed<ZoomSpeed>>,
-    ) -> crate::Result<Self> {
-        let mut request = Self::new(speed);
-        request.preview = Some(request.lower(target)?);
-        Ok(request)
     }
 
     fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::ZoomDrive> {
@@ -87,26 +75,14 @@ crate::command::nouns::movement_intent!(
 /// Drives toward wide angle at a speed resolved against the target's zoom range.
 #[derive(Debug, Clone, Copy)]
 pub struct WideVariable {
-    preview: Option<builtin::ZoomDrive>,
     speed: Speed<ZoomSpeed>,
 }
 impl WideVariable {
     /// Captures a speed to resolve against the receiving camera during preparation.
     pub fn new(speed: impl Into<Speed<ZoomSpeed>>) -> Self {
         Self {
-            preview: None,
             speed: speed.into(),
         }
-    }
-
-    /// Creates a movement intent with a preview for direct encoding.
-    pub fn for_target(
-        target: &TargetRegistration,
-        speed: impl Into<Speed<ZoomSpeed>>,
-    ) -> crate::Result<Self> {
-        let mut request = Self::new(speed);
-        request.preview = Some(request.lower(target)?);
-        Ok(request)
     }
 
     fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::ZoomDrive> {
@@ -370,10 +346,8 @@ impl crate::Inquiry for NormalizedInquiry {
             zoom.optical_max,
             zoom.digital_max,
         )?;
-        Ok(crate::ResponseDecoder::with_inline_context(
-            [u64::from(maximum), 0],
-            decode_normalized,
-        ))
+        let range = crate::capabilities::CapabilityRange::<u16>::new(0, maximum)?;
+        Ok(crate::ResponseDecoder::normalized_zoom(range))
     }
     #[allow(private_interfaces)]
     fn builtin_inquiry_syntax_retry(
@@ -387,16 +361,6 @@ impl crate::Inquiry for NormalizedInquiry {
     }
 }
 
-fn decode_normalized(context: [u64; 2], payload: &[u8]) -> crate::Result<UnitInterval> {
-    let position = crate::Inquiry::decoder(&crate::command::ZoomPositionInquiry).decode(payload)?;
-    // Only this module constructs the inline context, from a checked u16 maximum.
-    #[allow(clippy::cast_possible_truncation)]
-    let maximum = context[0] as u16;
-    crate::capabilities::CapabilityRange::<u16>::new(0, maximum)?
-        .normalize(position.value())
-        .map_err(|error| crate::command::inquiry_structs::reply_value_error(error, payload))
-}
-
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
@@ -405,7 +369,7 @@ mod tests {
         capabilities::{CapabilityRange, TypedSupportSet, TypedSupportSurface},
         profiles::{ProfileId, ProfileSpec},
         types::SpeedLevel,
-        CameraId, Inquiry, Request,
+        Inquiry, Request,
     };
 
     fn target(digital_permission: bool) -> TargetRegistration {
@@ -568,19 +532,15 @@ mod tests {
             Err(Error::FeatureNotSupported { .. })
         ));
         let target = target(true);
-        let slow =
-            TeleVariable::for_target(&target, SpeedLevel::Slowest).expect("minimum coarse speed");
-        let fast =
-            WideVariable::for_target(&target, SpeedLevel::Fastest).expect("maximum coarse speed");
+        let slow = TeleVariable::new(SpeedLevel::Slowest);
+        let fast = WideVariable::new(SpeedLevel::Fastest);
         let mut buffer = [0; 6];
-        slow.write_into(CameraId::CAMERA_1, &mut buffer)
-            .expect("tele encoding");
+        target.encode(&slow, &mut buffer).expect("tele encoding");
         assert_eq!(buffer, [0x81, 1, 4, 7, 0x22, 0xff]);
-        fast.write_into(CameraId::CAMERA_1, &mut buffer)
-            .expect("wide encoding");
+        target.encode(&fast, &mut buffer).expect("wide encoding");
         assert_eq!(buffer, [0x81, 1, 4, 7, 0x35, 0xff]);
         assert!(matches!(
-            TeleVariable::for_target(&target, ZoomSpeed::MAX),
+            target.encode(&TeleVariable::new(ZoomSpeed::MAX), &mut buffer),
             Err(Error::ParameterOutOfRange { .. })
         ));
     }

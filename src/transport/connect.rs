@@ -44,20 +44,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(any(test, feature = "runtime-tokio", feature = "runtime-smol"))]
-use crate::transport::{NetworkEndpoint, TransportConfig, ValidatedTransportConfig};
 use crate::{timeout::Deadline, Error, Result};
-
-/// Validate `config` and canonicalize `address` before any connector I/O.
-#[cfg(any(test, feature = "runtime-tokio", feature = "runtime-smol"))]
-pub(crate) fn preflight(
-    address: &str,
-    config: TransportConfig,
-) -> Result<(NetworkEndpoint, ValidatedTransportConfig)> {
-    let config = config.validated()?;
-    let endpoint = NetworkEndpoint::parse(address, None)?;
-    Ok((endpoint, config))
-}
 
 /// The single budget for resolving and connecting one endpoint.
 pub(crate) fn connect_deadline(now: Instant, connect_timeout: Duration) -> Result<Deadline> {

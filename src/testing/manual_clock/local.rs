@@ -1,9 +1,8 @@
-//! Runtime-free scheduling and task results on the owner's one manual clock.
+//! Runtime-free scheduling on the owner's one manual clock.
 
 use std::{
     fmt,
     future::Future,
-    panic::{catch_unwind, AssertUnwindSafe},
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -14,12 +13,12 @@ use std::{
 };
 
 use super::{Bell, ManualClock, ManualClockTimer, Source};
-use crate::executor::{ExecError, Executor};
+use crate::executor::Executor;
 
 /// The runtime-free scheduling backend selected by `ManualClockExecutor::local`.
 ///
 /// It uses the same manual clock as its wrapping executor and drives tasks only
-/// while that executor's `run_until` or `block_on` is running.
+/// while that executor's `run_until` is running.
 #[derive(Clone)]
 pub struct LocalExecutor {
     clock: ManualClock,
@@ -41,71 +40,23 @@ impl LocalExecutor {
             scheduler: Arc::new(async_executor::Executor::new()),
         }
     }
-}
 
-/// A detached task's join future. Panics and lost runtime tasks return errors.
-pub struct TaskJoin<T: 'static> {
-    result: flume::r#async::RecvFut<'static, Result<T, ExecError>>,
-}
-
-impl<T: 'static> fmt::Debug for TaskJoin<T> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("TaskJoin")
-            .field("result", &self.result)
-            .finish()
-    }
-}
-
-impl<T: 'static> TaskJoin<T> {
-    pub(super) fn new(receiver: flume::Receiver<Result<T, ExecError>>) -> Self {
-        Self {
-            result: receiver.into_recv_async(),
-        }
-    }
-}
-
-impl<T: 'static> Future for TaskJoin<T> {
-    type Output = Result<T, ExecError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.get_mut().result).poll(cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(ExecError::TaskFailed(
-                "task ended without a result".into(),
-            ))),
-        }
-    }
-}
-
-/// Catch task-body panics at the poll boundary; never catch the caller's driver.
-pub(super) struct TaskOutcome<F>(Pin<Box<F>>);
-
-impl<F> TaskOutcome<F> {
-    pub(super) fn new(future: F) -> Self {
-        Self(Box::pin(future))
-    }
-}
-
-impl<F: Future> Future for TaskOutcome<F> {
-    type Output = Result<F::Output, ExecError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match catch_unwind(AssertUnwindSafe(|| self.get_mut().0.as_mut().poll(cx))) {
-            Ok(Poll::Ready(value)) => Poll::Ready(Ok(value)),
-            Ok(Poll::Pending) => Poll::Pending,
-            Err(payload) => {
-                let message = payload
-                    .downcast_ref::<String>()
-                    .cloned()
-                    .or_else(|| {
-                        payload
-                            .downcast_ref::<&str>()
-                            .map(|message| (*message).to_owned())
-                    })
-                    .unwrap_or_else(|| "task panicked with a non-string payload".to_owned());
-                Poll::Ready(Err(ExecError::TaskFailed(message)))
+    pub(super) fn block_on<F: Future>(&self, future: F) -> F::Output {
+        let _participant = self.clock.enter();
+        let (notify, notified) = flume::bounded(1);
+        let notify = Arc::new(Notify {
+            sender: notify,
+            ready: AtomicBool::new(true),
+        });
+        let mut driver = Driver {
+            future: Box::pin(self.scheduler.run(future)),
+            waker: Waker::from(Arc::clone(&notify)),
+            notified,
+            notify,
+        };
+        loop {
+            if let Some(value) = self.clock.wait_on(None, &mut driver) {
+                return value;
             }
         }
     }
@@ -168,50 +119,17 @@ impl<F: Future> Source<F::Output> for Driver<F> {
 }
 
 impl Executor for LocalExecutor {
-    type Join<T>
-        = TaskJoin<T>
-    where
-        T: Send + 'static;
-    type Detach = ();
     type Timer = ManualClockTimer;
 
     fn timer(&self, deadline: Instant) -> Self::Timer {
         self.clock.timer_at(deadline)
     }
 
-    fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
+    fn spawn_detached<F>(&self, future: F)
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        let (result, receiver) = flume::bounded(1);
-        self.scheduler
-            .spawn(async move {
-                let value = TaskOutcome::new(future).await;
-                let _ = result.send(value);
-            })
-            .detach();
-        (TaskJoin::new(receiver), ())
-    }
-
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        let _participant = self.clock.enter();
-        let (notify, notified) = flume::bounded(1);
-        let notify = Arc::new(Notify {
-            sender: notify,
-            ready: AtomicBool::new(true),
-        });
-        let mut driver = Driver {
-            future: Box::pin(self.scheduler.run(future)),
-            waker: Waker::from(Arc::clone(&notify)),
-            notified,
-            notify,
-        };
-        loop {
-            if let Some(value) = self.clock.wait_on(None, &mut driver) {
-                return value;
-            }
-        }
+        self.scheduler.spawn(future).detach();
     }
 
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {

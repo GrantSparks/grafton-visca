@@ -3,7 +3,7 @@
 crate::camera::profiles::profile_registry::builtin_profile_registry!(
     crate::camera::profiles::profile_registry::reexport_builtin_profiles
 );
-pub use crate::camera::profiles::{ProfileGroup, ProfileId};
+pub use crate::camera::profiles::ProfileId;
 pub use crate::profile_selection::{
     AnyProfile, CameraProfile, ProfileSelection, TypedProfileSelection,
 };
@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::tuning::OperationalTuning;
+use crate::config::OperationalTuning;
 
 use crate::{capabilities, AffectedAxes, Error, Result};
 
@@ -638,17 +638,13 @@ impl ProfileTiming {
     /// this window may extend but never shorten the command's completion
     /// deadline.
     ///
-    /// On a raw-VISCA stream transport it also bounds how long a camera's next
-    /// inquiries wait for a timed-out inquiry's reply, which the stream still
-    /// owes. After it, they (and user `CompletionOnly` raw commands to that
-    /// camera) fail unwritten with [`Error::InquiryCorrelationLost`] until the
-    /// owed reply arrives or a new session is opened, because a later
-    /// unidentifiable reply could otherwise be returned as another inquiry's
-    /// data. Commands and stops to that camera are still sent, but its
-    /// socketless error frames stay filtered, so a command rejected with one
-    /// ends [`Error::UnsequencedCommandUnconfirmed`]; inquiry-based observation
-    /// of that camera (settlement polling, `is_moving`, `wait_until_idle`)
-    /// fails.
+    /// On raw-VISCA streams, this bounds the wait for an owed inquiry reply
+    /// when another inquiry has an overlapping payload declaration. Once the
+    /// window expires, overlapping inquiries fail unwritten with
+    /// [`Error::InquiryCorrelationLost`]. Disjoint inquiries can continue
+    /// and settle older debts by write order. An owed `CompletionOnly` reply
+    /// holds all inquiries to that camera. See the
+    /// [raw stream correlation ledger](https://github.com/GrantSparks/grafton-visca/blob/main/docs/architecture_2_0.md#the-raw-byte-stream-correlation-ledger).
     #[must_use]
     pub const fn ambiguity_timeout(self) -> Duration {
         self.ambiguity_timeout
@@ -859,7 +855,8 @@ impl ProfileTimingBuilder {
 
 /// Base retry count every request's per-category retry budget is derived
 /// from. [`crate::config::OperationalTuning::with_retry_limit`] may only lower it.
-pub(crate) const DEFAULT_RETRY_BASE: u32 = 3;
+#[cfg(any(feature = "async", feature = "blocking", test))]
+pub(crate) const DEFAULT_RETRY_BASE: u32 = crate::tuning::RetryLimit::MAX.value() as u32;
 
 /// Smallest first retry backoff.
 const MINIMUM_INITIAL_RETRY_BACKOFF: Duration = Duration::from_millis(50);
@@ -926,6 +923,8 @@ pub struct ProfileSpec {
     facts: ProfileFacts,
     #[cfg_attr(feature = "serde", serde(skip))]
     position_speeds: Option<crate::types::PositionSpeeds>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    settlement_axes: Option<AffectedAxes>,
 }
 
 /// Every protocol fact of one profile.
@@ -1157,6 +1156,16 @@ impl ProfileSpec {
                 "compile-time domain set must match the present capability records",
             ));
         }
+        if P::SETTLEMENT_SUPPORT.is_some_and(|declared| declared != profile.settlement_support()) {
+            return Err(invalid_profile_fields(
+                &[
+                    "CompileTimeProfile::SETTLEMENT_SUPPORT",
+                    "position_inquiries",
+                    "supports_operation_complete",
+                ],
+                "compile-time settlement support must match the profile specification",
+            ));
+        }
         if profile.transports().transport_set() != P::TRANSPORTS {
             return Err(invalid_profile_fields(
                 &["CompileTimeProfile::TRANSPORTS", "transports"],
@@ -1168,7 +1177,7 @@ impl ProfileSpec {
 
     /// The only constructor: every spec has passed validation.
     pub(crate) fn from_facts(facts: ProfileFacts) -> Result<Self> {
-        let facts = facts.validate()?;
+        let (facts, settlement_axes) = facts.validate()?;
         let position_speeds = match &facts.capabilities.pan_tilt {
             Some(domain) => crate::types::PositionSpeeds::from_domain(domain)?,
             None => None,
@@ -1176,6 +1185,7 @@ impl ProfileSpec {
         let profile = Self {
             facts,
             position_speeds,
+            settlement_axes,
         };
         profile.validate_stop_paths()?;
         Ok(profile)
@@ -1280,7 +1290,6 @@ impl ProfileSpec {
     /// position commands need seventeen, selected by their coordinate codec.
     /// This is the crate's supported framing capacity, not a vendor-wide
     /// maximum inferred from one model's command list.
-    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn maximum_request_bytes(&self) -> usize {
         match self.envelope() {
             ProfileEnvelope::RawVisca => crate::raw::MAX_BYTES,
@@ -1316,6 +1325,24 @@ impl ProfileSpec {
         self.facts.supports_operation_complete
     }
 
+    /// Returns the axes that targeted operations can settle.
+    ///
+    /// Exact operation completion can settle any axis admitted by its
+    /// capability gate. Otherwise the available position inquiries establish
+    /// the axes. Returns `None` when neither source is available.
+    #[must_use]
+    pub const fn settlement_axes(&self) -> Option<AffectedAxes> {
+        self.settlement_axes
+    }
+
+    fn settlement_support(&self) -> capabilities::SettlementSupport {
+        capabilities::SettlementSupport::from_axes(
+            capabilities::DomainSet::from_capabilities(self.capabilities()),
+            self.settlement_axes(),
+            self.preset_recall_axes(),
+        )
+    }
+
     /// Returns whether transmitted commands permit protocol cancellation.
     #[must_use]
     pub const fn supports_command_cancel(&self) -> bool {
@@ -1346,18 +1373,9 @@ impl ProfileSpec {
     /// contains their complete selection.
     #[must_use]
     pub fn supports_axes(&self, axes: AffectedAxes) -> bool {
-        let caps = &self.facts.capabilities;
-        (!axes.contains(AffectedAxes::PAN_TILT) || caps.pan_tilt.is_some())
-            && (!axes.contains(AffectedAxes::ZOOM) || caps.zoom.is_some())
-            && (!axes.contains(AffectedAxes::FOCUS) || caps.focus.is_some())
-            && (!axes.contains(AffectedAxes::IRIS)
-                || caps
-                    .exposure
-                    .as_ref()
-                    .is_some_and(|domain| domain.iris_range.is_some())
-                || caps.supports(capabilities::TypedSupportSurface::IrisSteps))
-            && (!axes.contains(AffectedAxes::ND_FILTER)
-                || caps.supports(capabilities::TypedSupportSurface::NdFilter))
+        self.facts
+            .supported_axes()
+            .is_some_and(|supported| supported.contains(axes))
     }
 
     /// Fully validated STOP paths, with one encoding per independent axis set.
@@ -1475,18 +1493,6 @@ impl ProfileSpec {
                 ).into() });
             }
         }
-        if tuning
-            .retry_limit()
-            .is_some_and(|limit| limit > DEFAULT_RETRY_BASE)
-        {
-            return Err(Error::InvalidRequest {
-                reason: format!(
-                    "operational retry limit cannot exceed the default base retry count \
-                     of {DEFAULT_RETRY_BASE}"
-                )
-                .into(),
-            });
-        }
         // Each request can raise the profile floor, so checking the ordering
         // here also proves it for the bounds lowered during preparation.
         let floor = RetryBounds::for_request(
@@ -1543,7 +1549,30 @@ impl ProfileSpec {
 }
 
 impl ProfileFacts {
-    fn validate(mut self) -> Result<Self> {
+    fn supported_axes(&self) -> Option<AffectedAxes> {
+        let caps = &self.capabilities;
+        AffectedAxes::new_with_iris_nd(
+            caps.pan_tilt.is_some(),
+            caps.zoom.is_some(),
+            caps.focus.is_some(),
+            caps.exposure
+                .as_ref()
+                .is_some_and(|domain| domain.iris_range.is_some())
+                || caps.supports(capabilities::TypedSupportSurface::IrisSteps),
+            caps.supports(capabilities::TypedSupportSurface::NdFilter),
+        )
+        .ok()
+    }
+
+    fn settlement_axes(&self) -> Option<AffectedAxes> {
+        if self.supports_operation_complete {
+            self.supported_axes()
+        } else {
+            self.position_inquiries
+        }
+    }
+
+    fn validate(mut self) -> Result<(Self, Option<AffectedAxes>)> {
         if self.transports.tcp_port == Some(0) || self.transports.udp_port == Some(0) {
             return Err(invalid_profile_fields(
                 &["transports.tcp_port", "transports.udp_port"],
@@ -1649,7 +1678,7 @@ impl ProfileFacts {
                 ));
             }
         }
-        if self.capabilities.inquiry_support == capabilities::InquirySupport::None {
+        if !self.capabilities.inquiries {
             let inquiries = self
                 .capabilities
                 .typed_support
@@ -1659,7 +1688,7 @@ impl ProfileFacts {
                 .collect::<Vec<_>>();
             if !inquiries.is_empty() {
                 return Err(invalid_profile_fields(
-                    &["capabilities.typed_support", "capabilities.inquiry_support"],
+                    &["capabilities.typed_support", "capabilities.inquiries"],
                     format_args!(
                         "inquiry-only typed support {} requires profile inquiry support",
                         inquiries.join(", ")
@@ -1687,20 +1716,9 @@ impl ProfileFacts {
         }
         let caps = &self.capabilities;
         let queries = self.position_inquiries;
-        let required_for_settlement = |axes: AffectedAxes| {
-            if caps
-                .pan_tilt
-                .is_some_and(|domain| domain.geometry.is_none())
-            {
-                AffectedAxes::from_bits(axes.bits() & !AffectedAxes::PAN_TILT.bits()).ok()
-            } else {
-                Some(axes)
-            }
-        };
-        let can_query = |axis| queries.is_some_and(|available| available.contains(axis));
-        if caps.inquiry_support == capabilities::InquirySupport::None && queries.is_some() {
+        if !caps.inquiries && queries.is_some() {
             return Err(invalid_profile_fields(
-                &["position_inquiries", "capabilities.inquiry_support"],
+                &["position_inquiries", "capabilities.inquiries"],
                 "position inquiries require profile inquiry support",
             ));
         }
@@ -1714,57 +1732,48 @@ impl ProfileFacts {
                 "position inquiry support names an axis whose settlement inquiry is not permitted",
             ));
         }
-        if !self.supports_operation_complete {
-            use crate::command::{
-                semantics::{BuiltinAxisSelection, BuiltinCommand, BuiltinRequestClass},
-                surface::row_gate,
-            };
-            let targeted_axes = BuiltinCommand::ALL
-                .iter()
-                .filter_map(|command| match command.classification() {
-                    BuiltinRequestClass::Targeted {
-                        axes: BuiltinAxisSelection::Exact(axes),
-                    } if row_gate(*command).permits(caps) => required_for_settlement(axes),
-                    _ => None,
-                })
-                .fold(None, |all: Option<AffectedAxes>, axes| {
-                    Some(all.map_or(axes, |all| all.union(axes)))
-                });
-            if targeted_axes.is_some_and(|axes| !can_query(axes)) {
+        use crate::command::{
+            semantics::{BuiltinCommand, BuiltinRequestClass},
+            surface::{permits_settlement, row_gate},
+        };
+        let settlement_axes = self.settlement_axes();
+        let recall_axes = caps.presets.as_ref().map(|presets| presets.recall_axes);
+        for &command in BuiltinCommand::ALL {
+            let gate = row_gate(command);
+            if matches!(
+                command.classification(),
+                BuiltinRequestClass::Targeted { .. }
+            ) && gate.requires_typed_support()
+                && gate.permits(caps)
+                && !permits_settlement(command, settlement_axes, recall_axes)
+            {
                 return Err(invalid_profile_fields(
                     &["supports_operation_complete", "position_inquiries"],
-                    "a profile without exact completion needs inquiries for every targeted axis",
+                    "a granted targeted surface needs settlement for every affected axis",
                 ));
             }
         }
-        if let Some(axes) = caps
-            .presets
-            .as_ref()
-            .and_then(|presets| required_for_settlement(presets.recall_axes))
-        {
-            if !crate::position_inquiries::permits(caps, axes) {
-                return Err(invalid_profile_fields(
-                    &[
-                        "capabilities.presets.recall_axes",
-                        "capabilities",
-                        "capabilities.typed_support",
-                    ],
-                    "preset recall must name axes whose settlement inquiries are permitted",
-                ));
-            }
-            if !self.supports_operation_complete && !can_query(axes) {
-                return Err(invalid_profile_fields(
-                    &[
-                        "supports_operation_complete",
-                        "position_inquiries",
-                        "capabilities.presets.recall_axes",
-                    ],
-                    "a profile without exact completion needs every preset-recall position inquiry",
-                ));
-            }
+        if recall_axes.is_some_and(|axes| {
+            !self
+                .supported_axes()
+                .is_some_and(|supported| supported.contains(axes))
+                || (axes.contains(AffectedAxes::IRIS)
+                    && !crate::position_inquiries::permits(caps, AffectedAxes::IRIS))
+        }) {
+            // Recall describes physical effects even if this profile cannot
+            // settle those effects. Iris still needs its canonical grant
+            // because an iris register alone grants no iris family.
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.presets.recall_axes",
+                    "capabilities",
+                    "capabilities.typed_support",
+                ],
+                "preset recall requires supported axes and permission for the iris position inquiry",
+            ));
         }
 
-        Ok(self)
+        Ok((self, settlement_axes))
     }
 }
 
@@ -1772,7 +1781,7 @@ impl ProfileFacts {
 ///
 /// Implementations build their facts through the same [`ProfileSpecBuilder`]
 /// used by custom runtime profiles, or delegate to a built-in [`crate::profiles::ProfileId::spec`].
-/// `TYPED_SUPPORT`, `DOMAINS`, `TRANSPORTS` and `ID` must agree with the returned specification;
+/// `TYPED_SUPPORT`, `DOMAINS`, `TRANSPORTS`, `ID` and any declared `SETTLEMENT_SUPPORT` must agree with the returned specification;
 /// [`crate::profiles::ProfileSpec::from_compile_time`] checks that contract before registration.
 /// Support marker implementations remain separate evidence-backed claims.
 ///
@@ -1786,6 +1795,11 @@ pub trait CompileTimeProfile {
 
     /// The exact set of permitted standard transports.
     const TRANSPORTS: capabilities::TransportSet;
+
+    /// Declares the targeted families the profile can settle.
+    ///
+    /// A profile without this declaration cannot implement settlement markers.
+    const SETTLEMENT_SUPPORT: Option<capabilities::SettlementSupport> = None;
 
     /// Built-in identity, or `None` for a downstream/custom profile.
     const ID: Option<ProfileId>;
@@ -1950,10 +1964,10 @@ impl ProfileSpecBuilder {
         self
     }
 
-    /// Sets the overall inquiry support level.
+    /// Sets whether the camera answers VISCA inquiries.
     #[must_use]
-    pub fn inquiry_support(mut self, support: capabilities::InquirySupport) -> Self {
-        self.capabilities.inquiry_support = support;
+    pub fn inquiries(mut self, supported: bool) -> Self {
+        self.capabilities.inquiries = supported;
         self
     }
 
@@ -2047,8 +2061,6 @@ mod tests {
             }),
             pan_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
             tilt_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
-            simultaneous: true,
-            preset_recovery_time: Duration::ZERO,
             variable_speed: false,
             motion_sync_speed_range: None,
         });
@@ -2077,13 +2089,9 @@ mod tests {
             recall_speed_range: Some(
                 CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
             ),
-            tour: false,
-            thumbnail: false,
-            recall_delay: Duration::ZERO,
-            names: None,
         });
         caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::PanTiltPositioning);
-        caps.inquiry_support = capabilities::InquirySupport::Partial;
+        caps.inquiries = true;
         caps
     }
     fn runtime_builder(mut capabilities: Capabilities) -> ProfileSpecBuilder {
@@ -2241,6 +2249,36 @@ mod tests {
             }
         }
 
+        struct WrongSettlement;
+        impl CompileTimeProfile for WrongSettlement {
+            const ID: Option<ProfileId> = CommunityProfile::ID;
+            const TYPED_SUPPORT: TypedSupportSet =
+                <CommunityProfile as CompileTimeProfile>::TYPED_SUPPORT;
+            const DOMAINS: capabilities::DomainSet =
+                <CommunityProfile as CompileTimeProfile>::DOMAINS;
+            const TRANSPORTS: capabilities::TransportSet =
+                <CommunityProfile as CompileTimeProfile>::TRANSPORTS;
+            const SETTLEMENT_SUPPORT: Option<capabilities::SettlementSupport> =
+                Some(capabilities::SettlementSupport::from_axes(
+                    <Self as CompileTimeProfile>::DOMAINS,
+                    None,
+                    None,
+                ));
+
+            fn spec() -> Result<ProfileSpec> {
+                CommunityProfile::spec()
+            }
+        }
+
+        let settlement_error = ProfileSpec::from_compile_time::<WrongSettlement>()
+            .expect_err("declared settlement must match the profile");
+        assert!(
+            settlement_error
+                .to_string()
+                .contains("CompileTimeProfile::SETTLEMENT_SUPPORT"),
+            "{settlement_error}"
+        );
+
         let domain_error = ProfileSpec::from_compile_time::<WrongDomains>()
             .expect_err("declared domains must match the present capability records");
         assert!(
@@ -2339,6 +2377,7 @@ mod tests {
         // Bypass identity validation to isolate the precise gate/source
         // mismatch. The same check runs in from_facts before publishing a spec.
         let forged = ProfileSpec {
+            settlement_axes: facts.settlement_axes(),
             facts: facts.clone(),
             position_speeds: None,
         };
@@ -2358,6 +2397,7 @@ mod tests {
                     StopCommand::Fr7ZoomHighResolutionStop.row()).feature()));
         facts.capabilities.profile_id = None;
         let custom = ProfileSpec {
+            settlement_axes: facts.settlement_axes(),
             facts,
             position_speeds: None,
         };
@@ -2967,33 +3007,15 @@ mod tests {
         let profile = runtime_builder(valid_runtime_capabilities())
             .build()
             .expect("valid runtime profile");
-        for limit in 0..=DEFAULT_RETRY_BASE {
-            assert!(profile
-                .validate_tuning(OperationalTuning::new().with_retry_limit(limit))
-                .is_ok());
+        for count in 0..=crate::tuning::RetryLimit::MAX.value() {
+            let limit = crate::tuning::RetryLimit::new(count).expect("valid retry limit");
+            let tuning = OperationalTuning::new().with_retry_limit(limit);
+            assert!(profile.validate_tuning(tuning).is_ok());
             assert_eq!(
-                OperationalTuning::new()
-                    .with_retry_limit(limit)
-                    .reduce_retry_base(DEFAULT_RETRY_BASE),
-                limit
+                tuning.reduce_retry_base(DEFAULT_RETRY_BASE),
+                u32::from(count)
             );
         }
-        let error = invalid_request_message(
-            profile
-                .validate_tuning(OperationalTuning::new().with_retry_limit(DEFAULT_RETRY_BASE + 1)),
-        )
-        .expect("a raised retry limit must be rejected");
-        assert!(
-            error.contains("cannot exceed the default base retry count"),
-            "{error}"
-        );
-        // Even unvalidated, an override never raises the base.
-        assert_eq!(
-            OperationalTuning::new()
-                .with_retry_limit(32)
-                .reduce_retry_base(DEFAULT_RETRY_BASE),
-            DEFAULT_RETRY_BASE
-        );
     }
 
     #[test]
@@ -3580,23 +3602,18 @@ mod tests {
             .to_string();
         for field in [
             "capabilities.typed_support",
-            "capabilities.inquiry_support",
+            "capabilities.inquiries",
             "VersionInquiry",
         ] {
             assert!(error.contains(field), "{error}");
         }
-        for support in [
-            capabilities::InquirySupport::Partial,
-            capabilities::InquirySupport::Full,
-        ] {
-            caps.inquiry_support = support;
-            assert!(caps
-                .surface_metadata(TypedSupportSurface::VersionInquiry)
-                .permits());
-            conservative_runtime_builder(caps.clone())
-                .build()
-                .expect("inquiry support");
-        }
+        caps.inquiries = true;
+        assert!(caps
+            .surface_metadata(TypedSupportSurface::VersionInquiry)
+            .permits());
+        conservative_runtime_builder(caps)
+            .build()
+            .expect("inquiry support");
     }
 
     #[test]
@@ -3614,7 +3631,7 @@ mod tests {
             TypedSupportSurface::DirectZoom,
             TypedSupportSurface::DigitalZoomRange,
         ]);
-        assert_eq!(caps.inquiry_support, capabilities::InquirySupport::None);
+        assert!(!caps.inquiries);
         assert!(caps
             .surface_metadata(TypedSupportSurface::DigitalZoomRange)
             .permits());
@@ -3634,7 +3651,7 @@ mod tests {
     fn discovery_requires_inquiry_support_for_every_inquiry_only_grant() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
         let mut caps = profile.capabilities().clone();
-        caps.inquiry_support = capabilities::InquirySupport::None;
+        caps.inquiries = false;
         for surface in caps.typed_support.iter() {
             if crate::command::surface::is_inquiry_only_surface(surface) {
                 assert!(!caps.surface_metadata(surface).permits(), "{surface:?}");
@@ -3648,18 +3665,17 @@ mod tests {
     fn persisted_inquiry_only_grants_cannot_disable_profile_inquiry_support() {
         let mut caps = Capabilities::runtime_baseline("Version fixture", 1).expect("baseline");
         caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::VersionInquiry);
-        caps.inquiry_support = capabilities::InquirySupport::Full;
+        caps.inquiries = true;
         let profile = conservative_runtime_builder(caps)
             .build()
             .expect("valid inquiries");
         let mut json = serde_json::to_value(profile).expect("serialize");
-        json["capabilities"]["inquiry_support"] =
-            serde_json::to_value(capabilities::InquirySupport::None).expect("none");
+        json["capabilities"]["inquiries"] = serde_json::Value::Bool(false);
         let error = serde_json::from_value::<ProfileSpec>(json)
             .expect_err("contradictory persisted spec")
             .to_string();
         assert!(error.contains("capabilities.typed_support"), "{error}");
-        assert!(error.contains("capabilities.inquiry_support"), "{error}");
+        assert!(error.contains("capabilities.inquiries"), "{error}");
     }
 
     #[test]
@@ -3718,11 +3734,7 @@ mod tests {
         let mut caps = Capabilities::runtime_baseline("Power camera", 1).expect("baseline");
         caps.power = Some(PowerCaps {
             status_query: crate::capabilities::PowerStatusQuery::Standard,
-            on_time: Duration::from_millis(750),
-            standby: Some(Duration::from_millis(250)),
-            wake_on_lan: true,
-            retains_settings: true,
-            home_on_up: false,
+            standby: true,
         });
         let profile = conservative_runtime_builder(caps)
             .build()
@@ -3744,6 +3756,58 @@ mod tests {
             builder = builder.encoding(selection);
         }
         builder
+    }
+
+    #[test]
+    fn settlement_axes_follow_exact_completion_or_validated_inquiries() {
+        let generic = ProfileId::GenericVisca.spec().expect("generic profile");
+        assert_eq!(
+            generic.settlement_axes(),
+            Some(AffectedAxes::ZOOM | AffectedAxes::FOCUS | AffectedAxes::IRIS)
+        );
+        for id in ProfileId::all() {
+            let profile = id.spec().expect("built-in profile");
+            if profile.supports_operation_complete() {
+                assert_eq!(
+                    profile.settlement_axes(),
+                    Some(AffectedAxes::MOVEMENT | AffectedAxes::IRIS)
+                );
+            }
+        }
+
+        let mut caps = Capabilities::runtime_baseline("Pan and tilt only", 1).expect("baseline");
+        caps.pan_tilt = generic.capabilities().pan_tilt;
+        let profile = conservative_runtime_builder(caps.clone())
+            .build()
+            .expect("pan/tilt without geometry or polling");
+        assert_eq!(profile.settlement_axes(), None);
+        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
+        assert!(matches!(
+            crate::Request::validate_for_target(&crate::command::pan_tilt::Home, &target),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+
+        let completing = conservative_runtime_builder(caps)
+            .supports_operation_complete(true)
+            .build()
+            .expect("exact completion without geometry");
+        assert_eq!(completing.settlement_axes(), Some(AffectedAxes::PAN_TILT));
+        let target =
+            crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, completing);
+        crate::Request::validate_for_target(&crate::command::pan_tilt::Home, &target)
+            .expect("home supported");
+    }
+
+    #[test]
+    fn direct_zoom_grant_requires_zoom_settlement() {
+        let built_in = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
+        let mut caps = Capabilities::runtime_baseline("Zoom camera", 1).expect("baseline");
+        caps.zoom = built_in.capabilities().zoom;
+        caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
+        let error = conservative_runtime_builder(caps)
+            .build()
+            .expect_err("no zoom settlement");
+        assert!(error.to_string().contains("position_inquiries"));
     }
 
     #[test]
@@ -3829,6 +3893,7 @@ mod tests {
             let target = crate::TargetRegistration::from_profile(
                 crate::target::TargetSlot::CAMERA_1,
                 ProfileSpec {
+                    settlement_axes: facts.settlement_axes(),
                     facts: facts.clone(),
                     position_speeds: None,
                 },
@@ -4079,11 +4144,6 @@ mod tests {
                 recall_axes: AffectedAxes::PAN_TILT,
                 ..base.capabilities().presets.expect("presets")
             }));
-        assert_identity_mismatch!("capabilities", |builder: ProfileSpecBuilder| builder
-            .pan_tilt(PanTiltCaps {
-                simultaneous: !base.capabilities().pan_tilt.expect("pan/tilt").simultaneous,
-                ..base.capabilities().pan_tilt.expect("pan/tilt")
-            }));
         assert_identity_mismatch!("position_inquiries", |builder: ProfileSpecBuilder| builder
             .position_inquiries(altered_position_inquiries));
     }
@@ -4135,12 +4195,10 @@ mod tests {
             .retain(|mode| *mode != crate::WhiteBalanceMode::ColorTemperature);
         assert!(copy_builder(&base, caps).build().is_err());
         let mut caps = custom();
-        let speed = caps.exposure.as_ref().expect("exposure").shutter_speeds[0];
-        caps.exposure
-            .as_mut()
-            .expect("exposure")
-            .shutter_speeds
-            .push(speed);
+        let shutter = caps.exposure.as_mut().expect("exposure");
+        let speed =
+            capabilities::ShutterSpeedEntry::new(crate::units::ExposureTime::reciprocal(60), 1);
+        shutter.shutter_speeds.extend([speed, speed]);
         assert!(copy_builder(&base, caps).build().is_err());
     }
 
@@ -4153,12 +4211,8 @@ mod tests {
             caps
         };
         let mut caps = custom();
-        caps.exposure.as_mut().expect("exposure").gain_range =
-            Some(CapabilityRange::<u8>::new(0, 255).expect("valid capability bounds"));
-        assert!(copy_builder(&base, caps).build().is_err());
-        let mut caps = custom();
         caps.exposure.as_mut().expect("exposure").iris_range = Some(
-            crate::capabilities::CapabilityDomain::<u16>::new(0, 255, &[][..])
+            crate::capabilities::CapabilityDomain::<u16>::new(0, 256, &[][..])
                 .expect("valid capability bounds"),
         );
         assert!(copy_builder(&base, caps).build().is_err());

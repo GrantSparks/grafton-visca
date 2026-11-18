@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 
 use super::TypedSupportSurface as S;
-use super::{profile_metadata::InquirySupport, TypedSupportSet, TypedSupportSurface};
+use super::{TypedSupportSet, TypedSupportSurface};
 use crate::WhiteBalanceMode;
 
 /// Keep the explicit-rule set and its executable rules in one declaration.
@@ -17,7 +17,7 @@ macro_rules! surface_metadata_rules {
         rules { $($pattern:pat => $value:expr),+ $(,)? }) => {
         /// Relates a typed permission to the facts required to prepare it.
         pub(crate) fn surface_metadata(&$this, $surface: TypedSupportSurface) -> SurfaceMetadata {
-            if $this.inquiry_support == InquirySupport::None
+            if !$this.inquiries
                 && crate::command::surface::is_inquiry_only_surface($surface)
             {
                 return SurfaceMetadata::ParentDomain(false);
@@ -145,8 +145,9 @@ pub struct Capabilities {
     )]
     #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub menu: Option<super::MenuCaps>,
-    /// Profile-wide inquiry availability.
-    pub inquiry_support: InquirySupport,
+    /// Whether the camera answers VISCA inquiries. Individual typed inquiries
+    /// also require their own capability grants.
+    pub inquiries: bool,
     /// Optional typed API permissions; metadata is not fallback permission.
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<TypedSupportSurface>"))]
     pub typed_support: TypedSupportSet,
@@ -185,7 +186,7 @@ impl Capabilities {
             presets: None,
             power: None,
             menu: None,
-            inquiry_support: InquirySupport::None,
+            inquiries: false,
             typed_support: TypedSupportSet::empty(),
         })
     }
@@ -241,7 +242,7 @@ impl Capabilities {
                 Dedicated(white_balance.is_some_and(|domain| domain.one_push))
             },
             S::ColorTemperature => Dedicated(white_balance.is_some_and(|domain| {
-                domain.color_temp_range.is_some()
+                !domain.color_temperature_steps.is_empty()
                     && domain.modes.contains(&WhiteBalanceMode::ColorTemperature)
             })),
             S::RgbGain => Dedicated(white_balance.is_some_and(|domain| domain.rgb_gain.is_some())),
@@ -283,10 +284,10 @@ impl Capabilities {
             S::PowerStandby => Dedicated(
                 self.power
                     .as_ref()
-                    .is_some_and(|domain| domain.standby.is_some()),
+                    .is_some_and(|domain| domain.standby),
             ),
             S::DirectShutter => {
-                ParentDomain(exposure.is_some_and(|domain| !domain.shutter_speeds.is_empty()))
+                ParentDomain(exposure.is_some_and(|domain| domain.shutter_codes.is_some()))
             },
             S::NoiseReduction2DMode => {
                 ParentDomain(image.is_some() && self.supports(S::NoiseReduction2D))
@@ -336,23 +337,41 @@ impl Capabilities {
         exposure: crate::units::ExposureTime,
     ) -> Result<crate::types::ShutterSpeed, crate::Error> {
         let entry = self
-            .exposure
-            .as_ref()
-            .and_then(|domain| {
-                domain
-                    .shutter_speeds
-                    .iter()
-                    .find(|speed| speed.exposure == exposure)
-            })
+            .shutter_time_table()?
+            .iter()
+            .find(|entry| entry.exposure == exposure)
             .ok_or_else(|| crate::Error::InvalidParameter {
                 parameter: "shutter speed",
                 value: Cow::Owned(exposure.to_string()),
-                reason: Cow::Owned(format!(
-                    "{} has no shutter-table entry for this exposure time",
-                    self.model_name
-                )),
+                reason: Cow::Borrowed("exposure time is not in the profile's shutter table"),
             })?;
         crate::types::ShutterSpeed::new(entry.value)
+    }
+
+    /// Returns the exact exposure time for a code in the profile's shutter time table.
+    pub fn exposure_time_for(
+        &self,
+        speed: crate::types::ShutterSpeed,
+    ) -> Result<crate::units::ExposureTime, crate::Error> {
+        self.shutter_time_table()?
+            .iter()
+            .find(|entry| entry.value == speed.value())
+            .map(|entry| entry.exposure)
+            .ok_or_else(|| crate::Error::InvalidParameter {
+                parameter: "shutter speed",
+                value: Cow::Owned(speed.to_string()),
+                reason: Cow::Borrowed("code is not in the profile's shutter time table"),
+            })
+    }
+
+    fn shutter_time_table(&self) -> Result<&[super::ShutterSpeedEntry], crate::Error> {
+        self.exposure
+            .as_ref()
+            .map(|domain| domain.shutter_speeds.as_slice())
+            .filter(|table| !table.is_empty())
+            .ok_or(crate::Error::FeatureNotSupported {
+                feature: "shutter time table",
+            })
     }
 
     /// Formats the present domains and their main numeric limits.
@@ -709,7 +728,7 @@ mod tests {
             caps.exposure
                 .as_ref()
                 .and_then(|domain| domain.iris_range.clone()),
-            Some(CapabilityDomain::<u16>::new(0, 12, &[][..]).expect("valid capability bounds"))
+            Some(CapabilityDomain::<u16>::new(0, 255, &[][..]).expect("valid capability bounds"))
         );
         assert_eq!(
             caps.exposure
@@ -734,7 +753,6 @@ mod tests {
         );
 
         assert_eq!(caps.presets.as_ref().expect("presets").highest, 127);
-        assert!(!caps.presets.as_ref().is_some_and(|domain| domain.tour));
         assert!(!caps.supports(TypedSupportSurface::NdFilter));
         assert_eq!(
             caps.pan_tilt
@@ -752,7 +770,7 @@ mod tests {
             caps.exposure
                 .as_ref()
                 .and_then(|domain| domain.brightness_range.clone()),
-            Some(CapabilityDomain::<u8>::new(0, 17, &[][..]).expect("valid capability bounds"))
+            Some(CapabilityDomain::<u8>::new(0, 255, &[][..]).expect("valid capability bounds"))
         );
         assert!(caps.image.is_some());
         assert_eq!(
@@ -813,7 +831,6 @@ mod tests {
         assert_eq!(transports.udp_port(), Some(52381));
 
         assert_eq!(caps.presets.as_ref().expect("presets").highest, 99);
-        assert!(!caps.presets.as_ref().is_some_and(|domain| domain.tour));
         assert!(!caps.focus.as_ref().is_some_and(|domain| domain.one_push));
         assert!(caps.focus.as_ref().expect("focus").zones.is_empty());
         assert!(!caps
@@ -852,7 +869,7 @@ mod tests {
         assert_eq!(
             caps.white_balance
                 .as_ref()
-                .and_then(|domain| domain.color_temp_range)
+                .and_then(super::super::WhiteBalanceCaps::color_temperature_range)
                 .map(|range| range.as_inclusive()),
             None
         );
@@ -1116,7 +1133,9 @@ mod tests {
         ] {
             let white = caps.white_balance.as_ref().expect("white balance");
             assert_eq!(
-                white.color_temp_range.map(|range| range.as_inclusive()),
+                white
+                    .color_temperature_range()
+                    .map(|range| range.as_inclusive()),
                 Some(2500..=8000)
             );
             assert_eq!(white.modes.len(), 6);
@@ -1131,7 +1150,7 @@ mod tests {
             profile_capabilities::<SonyFr7>(),
         ] {
             let white = caps.white_balance.as_ref().expect("white balance");
-            assert_eq!(white.color_temp_range, None, "{}", caps.model_name);
+            assert_eq!(white.color_temperature_range(), None, "{}", caps.model_name);
             assert!(
                 !white.modes.contains(&WhiteBalanceMode::ColorTemperature),
                 "{}",
@@ -1606,17 +1625,19 @@ mod ts_contract_tests {
     }
 
     #[test]
-    fn duration_and_shared_table_fields_follow_their_serialized_shapes() {
+    fn standby_and_shared_table_fields_follow_their_serialized_shapes() {
         let config = ts_rs::Config::default();
-        for declaration in [
-            <crate::capabilities::PanTiltCaps as ts_rs::TS>::decl(&config),
-            <crate::capabilities::PresetCaps as ts_rs::TS>::decl(&config),
-            <crate::capabilities::PowerCaps as ts_rs::TS>::decl(&config),
-        ] {
-            assert!(declaration.contains("secs: number"), "{declaration}");
-            assert!(declaration.contains("nanos: number"), "{declaration}");
-            assert!(!declaration.contains("Duration"), "{declaration}");
-        }
+        let power = <crate::capabilities::PowerCaps as ts_rs::TS>::decl(&config);
+        assert!(power.contains("standby: boolean"), "{power}");
+        let exposure = <crate::capabilities::ExposureCaps as ts_rs::TS>::decl(&config);
+        assert!(
+            exposure.contains("shutter_codes: CapabilityDomain<number> | null"),
+            "{exposure}"
+        );
+        assert!(
+            exposure.contains("shutter_speeds: Array<ShutterSpeedEntry>"),
+            "{exposure}"
+        );
         let white_balance = <crate::capabilities::WhiteBalanceCaps as ts_rs::TS>::decl(&config);
         assert!(
             white_balance.contains("color_temperature_steps: Array<number>"),

@@ -237,7 +237,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
             | "executing/cancel requested"
             | "executing/cancel sending"
             | "executing/observation failed" => {
-                let (at, action) = lifecycle.due_action(None, Certainty::Unconfirmed).unwrap();
+                let (at, action) = lifecycle.due_action(None).unwrap();
                 assert_eq!(Some(at), window, "{name}: completion due window");
                 if name == "executing" {
                     assert!(matches!(
@@ -270,7 +270,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
                 }
             }
             "resolving/awaiting terminal" => {
-                let (at, action) = lifecycle.due_action(None, Certainty::Unconfirmed).unwrap();
+                let (at, action) = lifecycle.due_action(None).unwrap();
                 assert_eq!(at, observation, "the observer expires before the terminal");
                 assert!(matches!(
                     action,
@@ -279,7 +279,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
                 ));
                 let mut observed = lifecycle;
                 observed.close_observer();
-                let (at, action) = observed.due_action(None, Certainty::Unconfirmed).unwrap();
+                let (at, action) = observed.due_action(None).unwrap();
                 assert_eq!(
                     Some(at),
                     window,
@@ -293,7 +293,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
                 ));
             }
             "resolving/requested" | "resolving/sending" | "resolving/observation failed" => {
-                let (at, action) = lifecycle.due_action(None, Certainty::Unconfirmed).unwrap();
+                let (at, action) = lifecycle.due_action(None).unwrap();
                 assert_eq!(Some(at), window, "{name}: terminal resolution window");
                 assert!(matches!(
                     action,
@@ -378,7 +378,7 @@ fn predicates_cover_phase_cancellation_pairs_and_sending_families() {
         }),
     ] {
         assert_eq!(lifecycle.response_window_end(), Some(deadline), "an earlier cancel window or later observer deadline cannot replace the response window");
-        let (at, action) = lifecycle.due_action(None, Certainty::Unconfirmed).unwrap();
+        let (at, action) = lifecycle.due_action(None).unwrap();
         assert_eq!(
             at, deadline,
             "an earlier ambiguity window must not advance due work"
@@ -450,20 +450,13 @@ fn reachable_request_classes_keep_stop_gates_and_physical_pacing() {
             ("inquiry", inquiry(1), false, false),
         ] {
             let mut engine = engine(envelope, transport);
-            engine.targets[camera(1)]
-                .policy
-                .as_mut()
-                .unwrap()
-                .control_reserve = 1;
             request.context_mut().motion = Some(MotionEffect {
                 axes: crate::AffectedAxes::ZOOM,
             });
             request.context_mut().submission_order = 1;
             request.context_mut().control.minimum_spacing = Duration::from_millis(20);
             let turn = engine.begin_input_turn(start);
-            let id = engine
-                .admit_in_turn(&turn, request, AdmissionSlot::Ordinary)
-                .unwrap();
+            let id = engine.admit_in_turn(&turn, request).unwrap();
             engine.pacing.last_command = Some(start + Duration::from_millis(1));
             engine.pacing.last_inquiry = Some(start + Duration::from_millis(5));
             let entry = engine.entry(id).unwrap();
@@ -489,13 +482,6 @@ fn reachable_request_classes_keep_stop_gates_and_physical_pacing() {
             assert_eq!(
                 engine.candidate_send_at(entry),
                 start + Duration::from_millis(if stop { 21 } else { 25 }),
-                "{name}"
-            );
-            assert_eq!(
-                engine
-                    .admission_slot_available(&entry.request, AdmissionSlot::ControlReserve)
-                    .is_ok(),
-                stop,
                 "{name}"
             );
             engine.targets[camera(1)].motion_fences[1] = 1;

@@ -157,93 +157,19 @@ fn built_in_profile_and_transport_inventory_is_closed() {
         (Some(5678), Some(1259), true),
     ];
     for (profile, (tcp, udp, serial)) in ProfileId::all().iter().zip(expected) {
-        assert_eq!(profile.default_tcp_port(), tcp, "{profile:?} TCP drift");
-        assert_eq!(profile.default_udp_port(), udp, "{profile:?} UDP drift");
+        let transports = profile.spec().expect("registered profile").transports();
+        assert_eq!(transports.tcp_port(), tcp, "{profile:?} TCP drift");
+        assert_eq!(transports.udp_port(), udp, "{profile:?} UDP drift");
         assert_eq!(
-            profile
-                .spec()
-                .expect("registered profile")
-                .transports()
-                .supports_serial(),
+            transports.supports_serial(),
             serial,
             "{profile:?} serial drift"
-        );
-        assert_eq!(
-            profile
-                .spec()
-                .expect("registered profile")
-                .transports()
-                .tcp_port()
-                .is_some(),
-            tcp.is_some()
-        );
-        assert_eq!(
-            profile
-                .spec()
-                .expect("registered profile")
-                .transports()
-                .udp_port()
-                .is_some(),
-            udp.is_some()
         );
     }
 }
 
 #[test]
-fn built_in_group_and_vendor_inventory_is_closed() {
-    use grafton_visca::{capabilities::InquirySupport, profiles::ProfileGroup};
-
-    let expected = [
-        (
-            ProfileGroup::GenericVisca,
-            &[
-                ProfileId::GenericVisca,
-                ProfileId::SonyBrc300,
-                ProfileId::SonyEviH100,
-                ProfileId::NearusBrc300,
-            ][..],
-            (false, false, true, false),
-            InquirySupport::Partial,
-        ),
-        (
-            ProfileGroup::PtzOptics,
-            &[
-                ProfileId::PtzOpticsG2,
-                ProfileId::PtzOpticsG3,
-                ProfileId::PtzOptics30x,
-            ][..],
-            (true, true, true, false),
-            InquirySupport::Full,
-        ),
-        (
-            ProfileGroup::SonyProfessional,
-            &[ProfileId::SonyFr7, ProfileId::SonyBrcH900][..],
-            (false, true, false, true),
-            InquirySupport::Full,
-        ),
-    ];
-    for (group, members, (tcp, udp, serial, sony), inquiry) in expected {
-        assert_eq!(group.profiles(), members, "{group:?} membership");
-        for member in members {
-            assert_eq!(member.profile_group(), group, "{member:?} group");
-        }
-        assert_eq!(
-            (
-                group.supports_tcp(),
-                group.supports_udp(),
-                group.supports_serial(),
-                group.uses_sony_encapsulation()
-            ),
-            (tcp, udp, serial, sony),
-            "{group:?} transport facts"
-        );
-        assert_eq!(
-            group.inquiry_support(),
-            inquiry,
-            "{group:?} inquiry support"
-        );
-    }
-
+fn built_in_vendor_inventory_is_closed() {
     let vendors: Vec<_> = ProfileId::all()
         .iter()
         .map(|profile| profile.vendor())
@@ -480,12 +406,11 @@ fn test_utility_inventory_compiles_in_the_selected_mode() {
     #[cfg(feature = "async")]
     {
         use grafton_visca::testing::testkit::{
-            LocalExecutor, ManualClockExecutor, ManualClockTimer, ScriptedTransport, TaskJoin,
+            LocalExecutor, ManualClockExecutor, ManualClockTimer, ScriptedTransport,
         };
         let _: PhantomData<ManualClockExecutor> = PhantomData;
         let _: PhantomData<ManualClockTimer> = PhantomData;
         let _: PhantomData<LocalExecutor> = PhantomData;
-        let _: PhantomData<TaskJoin<()>> = PhantomData;
         let _: PhantomData<ScriptedTransport> = PhantomData;
     }
 

@@ -10,13 +10,12 @@
 //! - `MotionSyncMode` and `MotionSyncSpeed` - PtzOptics specific (firmware 1.1.6+)
 //!   These features coordinate pan, tilt, and zoom movements for smoother preset recalls.
 
+use crate::{command::bytes::constants::system, macros::consolidated::visca_command};
+
+#[cfg(any(feature = "async", feature = "blocking", test))]
 use crate::{
-    command::{
-        bytes::{constants::system, write_frame},
-        encode::WireEncode,
-    },
+    command::{bytes::write_frame, encode::WireEncode},
     error::Error,
-    macros::consolidated::visca_command,
     wire::WireValue,
     CameraId, ViscaSocket,
 };
@@ -26,20 +25,18 @@ use crate::{
 /// This is used during initial setup of VISCA cameras on a serial bus.
 /// Note: This is a broadcast command that affects all cameras on the bus.
 #[derive(Debug, Copy, Clone)]
+#[cfg(any(test, feature = "transport-serial", feature = "transport-serial-tokio"))]
 pub(crate) struct AddressSetCommand;
 
+#[cfg(any(test, feature = "transport-serial", feature = "transport-serial-tokio"))]
 impl AddressSetCommand {
     /// Create a new address set command.
-    #[cfg(any(
-        test,
-        feature = "transport-serial-tokio",
-        all(feature = "blocking", feature = "transport-serial")
-    ))]
     pub fn new() -> Self {
         AddressSetCommand
     }
 }
 
+#[cfg(any(test, feature = "transport-serial", feature = "transport-serial-tokio"))]
 impl WireEncode for AddressSetCommand {
     fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         write_frame(CameraId::BROADCAST, &[&system::ADDRESS_SET], buffer)
@@ -51,20 +48,18 @@ impl WireEncode for AddressSetCommand {
 /// This resets the command buffer and clears any pending commands.
 /// Note: This is a broadcast command that affects all cameras on the bus.
 #[derive(Debug, Copy, Clone)]
+#[cfg(any(test, feature = "transport-serial", feature = "transport-serial-tokio"))]
 pub(crate) struct InterfaceClearCommand;
 
+#[cfg(any(test, feature = "transport-serial", feature = "transport-serial-tokio"))]
 impl InterfaceClearCommand {
     /// Create a new interface clear command.
-    #[cfg(any(
-        test,
-        feature = "transport-serial-tokio",
-        all(feature = "blocking", feature = "transport-serial")
-    ))]
     pub fn new() -> Self {
         InterfaceClearCommand
     }
 }
 
+#[cfg(any(test, feature = "transport-serial", feature = "transport-serial-tokio"))]
 impl WireEncode for InterfaceClearCommand {
     fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         write_frame(CameraId::BROADCAST, &[&system::INTERFACE_CLEAR], buffer)
@@ -75,10 +70,12 @@ impl WireEncode for InterfaceClearCommand {
 ///
 /// This cancels any in-progress commands on the specified socket.
 #[derive(Debug, Copy, Clone)]
+#[cfg(any(feature = "async", feature = "blocking", test))]
 pub(crate) struct CommandCancelCommand {
     socket: ViscaSocket,
 }
 
+#[cfg(any(feature = "async", feature = "blocking", test))]
 impl WireEncode for CommandCancelCommand {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         write_frame(
@@ -89,9 +86,13 @@ impl WireEncode for CommandCancelCommand {
     }
 }
 
+#[cfg(any(feature = "async", feature = "blocking", test))]
 impl CommandCancelCommand {
+    /// The address, socket cancel opcode and terminator.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) const MAX_SIZE: usize = 3;
+
     /// Create a new command cancel command.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub fn new(socket: ViscaSocket) -> Self {
         Self { socket }
     }

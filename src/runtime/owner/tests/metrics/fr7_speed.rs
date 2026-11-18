@@ -1,6 +1,7 @@
 //! A queued speed prerequisite is checked after older mode effects commit.
 
 use super::*;
+use crate::tuning::RetryLimit;
 use crate::{
     command::{PanTiltSpeedMode, SetVariableSpeedMode},
     completion::AppliedOnly,
@@ -309,7 +310,10 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
     );
 
     let now = initial + Duration::from_secs(1);
-    let request = drive_request(&registration, OperationalTuning::new().with_retry_limit(1));
+    let request = drive_request(
+        &registration,
+        OperationalTuning::new().with_retry_limit(RetryLimit::new(1).expect("valid retry limit")),
+    );
     let observer = sent(&mut state, request, Some(2), now);
     // The drive may have reached the camera, but it has not acknowledged.
     // A second Sony slot can process a mode change while that reply is lost.

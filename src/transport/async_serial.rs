@@ -6,7 +6,7 @@
 use crate::{
     transport::{
         async_io::{AsyncReadExt, AsyncWriteExt},
-        builder::{TransportConfig, ValidatedTransportConfig},
+        builder::IoBounds,
         serial::SERIAL_PORT_CLOSED,
         stream_read, AddressedBus, AsyncTransport, HasTransportConfig, ReceiveOutcome,
     },
@@ -24,7 +24,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Serial<S: AsyncReadExt + AsyncWriteExt> {
     pub(crate) stream: S,
-    config: ValidatedTransportConfig,
+    config: IoBounds,
     addressed_bus: Option<AddressedBus>,
 }
 
@@ -34,7 +34,7 @@ impl<S: AsyncReadExt + AsyncWriteExt> Serial<S> {
     /// The stream should already be configured and connected to the serial port.
     /// Any initialization (I/F Clear, Address Set) should be performed by the
     /// runtime-specific connector before constructing this transport.
-    pub fn new(stream: S, config: ValidatedTransportConfig) -> Self {
+    pub(crate) fn new(stream: S, config: IoBounds) -> Self {
         Self {
             stream,
             config,
@@ -46,11 +46,6 @@ impl<S: AsyncReadExt + AsyncWriteExt> Serial<S> {
     pub(crate) fn with_addressed_bus(mut self, addressed_bus: Option<AddressedBus>) -> Self {
         self.addressed_bus = addressed_bus;
         self
-    }
-
-    /// Get the transport configuration.
-    pub fn config(&self) -> &TransportConfig {
-        self.config.as_config()
     }
 }
 
@@ -75,7 +70,7 @@ impl<S: AsyncReadExt + AsyncWriteExt> HasTransportConfig for Serial<S> {
         }
     }
 
-    fn transport_config(&self) -> &ValidatedTransportConfig {
+    fn io_bounds(&self) -> &IoBounds {
         &self.config
     }
 }
@@ -86,12 +81,11 @@ mod tests {
     use super::*;
 
     #[derive(Default)]
-    struct FlushCountingIo {
+    struct RecordingIo {
         writes: Vec<Vec<u8>>,
-        flush_calls: usize,
     }
 
-    impl AsyncReadExt for FlushCountingIo {
+    impl AsyncReadExt for RecordingIo {
         async fn read<'a>(&'a mut self, _buf: &'a mut [u8]) -> Result<usize, Error> {
             Err(Error::ConnectionClosed {
                 source: Some(std::sync::Arc::new(Error::from(std::io::Error::new(
@@ -102,26 +96,16 @@ mod tests {
         }
     }
 
-    impl AsyncWriteExt for FlushCountingIo {
+    impl AsyncWriteExt for RecordingIo {
         async fn write_all<'a>(&'a mut self, bytes: &'a [u8]) -> Result<(), Error> {
             self.writes.push(bytes.to_vec());
-            Ok(())
-        }
-
-        async fn flush(&mut self) -> Result<(), Error> {
-            self.flush_calls += 1;
             Ok(())
         }
     }
 
     #[tokio::test]
-    async fn command_submission_never_flushes_a_serial_device() {
-        let mut transport = Serial::new(
-            FlushCountingIo::default(),
-            TransportConfig::for_serial()
-                .validated()
-                .expect("valid connector test configuration"),
-        );
+    async fn command_submission_writes_the_complete_frame() {
+        let mut transport = Serial::new(RecordingIo::default(), IoBounds::SERIAL_DEFAULT);
         let command = [0x81, 0x01, 0x04, 0x00, 0xFF];
 
         transport
@@ -130,6 +114,5 @@ mod tests {
             .expect("the fake accepts a serial write");
 
         assert_eq!(transport.stream.writes, [command]);
-        assert_eq!(transport.stream.flush_calls, 0);
     }
 }

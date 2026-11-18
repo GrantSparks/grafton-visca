@@ -107,28 +107,6 @@ fn built_in_commands_end_with_the_exported_terminator() {
         grafton_visca::command::pan_tilt::Reset,
         grafton_visca::command::zoom::Tele,
         grafton_visca::command::zoom::Wide,
-        grafton_visca::command::zoom::TeleVariable::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                    grafton_visca::profiles::PtzOpticsG2,
-                >()
-                .expect("source profile")
-            ),
-            ZoomSpeed::new(5).expect("zoom speed")
-        )
-        .expect("profile-aware request"),
-        grafton_visca::command::zoom::WideVariable::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                    grafton_visca::profiles::PtzOpticsG2,
-                >()
-                .expect("source profile")
-            ),
-            ZoomSpeed::ZERO
-        )
-        .expect("profile-aware request"),
         grafton_visca::command::zoom::Stop,
         grafton_visca::command::focus::Infinity,
         grafton_visca::command::focus::Stop,
@@ -138,6 +116,21 @@ fn built_in_commands_end_with_the_exported_terminator() {
             PresetNumber::new(3).expect("preset 3 is valid")
         ),
     );
+    let target = grafton_visca::config::TargetRegistration::new(
+        grafton_visca::types::IndividualCameraId::CAMERA_1,
+        grafton_visca::profiles::ProfileSpec::from_compile_time::<
+            grafton_visca::profiles::PtzOpticsG2,
+        >()
+        .expect("source profile"),
+    );
+    let tele =
+        grafton_visca::command::zoom::TeleVariable::new(ZoomSpeed::new(5).expect("zoom speed"));
+    let wide = grafton_visca::command::zoom::WideVariable::new(ZoomSpeed::ZERO);
+    let mut bytes = [0; 64];
+    let len = target.encode(&tele, &mut bytes).expect("tele frame");
+    assert_terminated("variable zoom tele", &bytes[..len]);
+    let len = target.encode(&wide, &mut bytes).expect("wide frame");
+    assert_terminated("variable zoom wide", &bytes[..len]);
 }
 
 /// A legal final data byte may itself be `0xFF`; the encoder must append a

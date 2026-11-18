@@ -139,9 +139,7 @@ impl Documentation {
                 .map(|profile| {
                     let count = methods
                         .iter()
-                        .filter(|method| {
-                            method.gate.validate(&profile.spec, "documentation").is_ok()
-                        })
+                        .filter(|method| method.permits(&profile.spec))
                         .count();
                     format!("`{}`: {count}/{}", profile.name, methods.len())
                 })
@@ -183,7 +181,7 @@ impl Documentation {
                 row.noun,
                 row.method,
                 escape_cell(row.return_type),
-                self.profile_names(|profile| row.gate.validate(profile, "documentation").is_ok()),
+                self.profile_names(|profile| row.permits(profile)),
             );
         }
         output
@@ -394,6 +392,7 @@ fn ledger_decisions(rows: &[(BuiltinCommand, BuiltinRequestClass)]) -> String {
     for &(row, class) in rows {
         let kind = match class {
             BuiltinRequestClass::Plain { .. } => "Plain".into(),
+            BuiltinRequestClass::OwnerOnly => "OwnerOnly".into(),
             BuiltinRequestClass::Targeted { axes: selection } => {
                 format!("Targeted — {}", axes(selection))
             }

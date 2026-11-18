@@ -15,7 +15,7 @@ use grafton_visca::{
     config::SessionConfig,
     profiles::{ProfileSpec, PtzOpticsG2},
     r#async::Session,
-    runtime::{ExecError, Executor},
+    runtime::Executor,
     transport::AddressingMode,
 };
 
@@ -42,46 +42,17 @@ impl grafton_visca::runtime::ResettableTimer for ThreadTimer {
 }
 
 impl Executor for ThreadExecutor {
-    type Join<T>
-        = Pin<Box<dyn Future<Output = std::result::Result<T, ExecError>> + Send + 'static>>
-    where
-        T: Send + 'static;
-
-    type Detach = ();
-
     type Timer = ThreadTimer;
 
     fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
         ThreadTimer(async_io::Timer::at(deadline))
     }
 
-    fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
+    fn spawn_detached<F>(&self, future: F)
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        let (result_tx, result_rx) = flume::bounded(1);
-        let spawn_error_tx = result_tx.clone();
-        let spawn_result = std::thread::Builder::new()
-            .name("grafton-visca-runtime-neutral-test".to_owned())
-            .spawn(move || {
-                let _ = result_tx.send(Ok(pollster::block_on(future)));
-            });
-        if let Err(error) = spawn_result {
-            let _ = spawn_error_tx.send(Err(ExecError::TaskFailed(error.to_string())));
-        }
-
-        let join = async move {
-            result_rx
-                .recv_async()
-                .await
-                .map_err(|error| ExecError::JoinFailed(error.to_string()))?
-        };
-        (Box::pin(join), ())
-    }
-
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        pollster::block_on(future)
+        std::thread::spawn(move || pollster::block_on(future));
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -95,25 +66,24 @@ impl Executor for ThreadExecutor {
 #[test]
 fn caller_owned_session_opens_and_closes_on_a_custom_executor() {
     let executor = ThreadExecutor;
-    executor
-        .block_on(async move {
-            let expected_profile = ProfileSpec::from_compile_time::<PtzOpticsG2>()?;
-            let session = Session::open(
-                FakeCamera::silent()
-                    .async_wire()
-                    .with_addressing(AddressingMode::Ip),
-                &SessionConfig::from_compile_time::<PtzOpticsG2>()?,
-                executor,
-            )
-            .await?;
-            let camera = session
-                .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?;
-            assert_eq!(
-                camera.target(),
-                grafton_visca::types::IndividualCameraId::CAMERA_1
-            );
-            assert_eq!(camera.profile(), &expected_profile);
-            session.close().await
-        })
-        .expect("runtime-neutral caller-owned session closes");
+    pollster::block_on(async move {
+        let expected_profile = ProfileSpec::from_compile_time::<PtzOpticsG2>()?;
+        let session = Session::open(
+            FakeCamera::silent()
+                .async_wire()
+                .with_addressing(AddressingMode::Ip),
+            &SessionConfig::from_compile_time::<PtzOpticsG2>()?,
+            executor,
+        )
+        .await?;
+        let camera =
+            session.camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)?;
+        assert_eq!(
+            camera.target(),
+            grafton_visca::types::IndividualCameraId::CAMERA_1
+        );
+        assert_eq!(camera.profile(), &expected_profile);
+        session.close().await
+    })
+    .expect("runtime-neutral caller-owned session closes");
 }

@@ -1,8 +1,8 @@
 //! Camera profile implementations generated from the built-in profile registry.
 //!
 //! Public profile types remain ordinary zero-sized Rust structs. Their metadata,
-//! runtime capability constants, typed support markers, profile IDs, profile
-//! groups, evidence notes, and invariant tests are emitted from
+//! runtime capability constants, typed support markers, profile IDs, evidence
+//! notes, and invariant tests are emitted from
 //! `profile_registry`.
 
 pub(crate) mod profile_constants {
@@ -19,29 +19,6 @@ pub(crate) mod profile_constants {
     const fn entry(denominator: u32, value: u8) -> ShutterSpeedEntry {
         ShutterSpeedEntry::new(ExposureTime::reciprocal(denominator), value)
     }
-
-    /// PTZOptics G2-family shutter codes. The source register in
-    /// `docs/visca_reference.md` documents only `pq = Shutter Position`, not
-    /// this code-to-time table; it is retained as shipped, unsourced.
-    pub const PTZ_OPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[
-        entry(30, 0x01),
-        entry(60, 0x02),
-        entry(90, 0x03),
-        entry(100, 0x04),
-        entry(125, 0x05),
-        entry(180, 0x06),
-        entry(250, 0x07),
-        entry(350, 0x08),
-        entry(500, 0x09),
-        entry(725, 0x0A),
-        entry(1000, 0x0B),
-        entry(1500, 0x0C),
-        entry(2000, 0x0D),
-        entry(3000, 0x0E),
-        entry(4000, 0x0F),
-        entry(6000, 0x10),
-        entry(10000, 0x11),
-    ];
 
     /// Sony EVI-H100 shutter codes (R8, VISCA Command Setting Values,
     /// exposure control 1/2, 60/30 mode column).
@@ -261,16 +238,6 @@ mod tests {
                 .and_then(|exposure| caps.shutter_speed_for(exposure).ok())
                 .map(|s| s.value())
         };
-        let g2 = ProfileId::PtzOpticsG2
-            .spec()
-            .expect("profile")
-            .capabilities()
-            .clone();
-        assert_eq!(code(&g2, 1, 60), Some(0x02));
-        assert_eq!(code(&g2, 1, 1000), Some(0x0B));
-        assert_eq!(code(&g2, 2, 120), Some(0x02));
-        assert_eq!(code(&g2, 1, 0), None);
-
         let evi = ProfileId::SonyEviH100
             .spec()
             .expect("profile")
@@ -314,7 +281,7 @@ mod tests {
             assert_eq!(code(&caps, 1, 10000), Some(0x15), "{}", caps.model_name);
             assert_eq!(code(&caps, 1, 1), None, "{}", caps.model_name);
         }
-        // No sourced table: no typed shutter code at all.
+        // FR7 and BRC-H900 withhold their direct shutter codes and times.
         for caps in [
             ProfileId::SonyFr7
                 .spec()
@@ -351,95 +318,8 @@ mod tests {
 
     #[test]
     fn test_profile_metadata() {
-        assert_eq!(ProfileId::PtzOpticsG2.display_name(), "PtzOptics G2");
-        assert_eq!(ProfileId::SonyFr7.display_name(), "Sony FR7");
-    }
-
-    /// Every profile belongs to exactly the group that lists it. The literal
-    /// membership is pinned once, in the closed inventory of
-    /// `tests/integration/issue_548_supported_surface_inventory.rs`.
-    #[test]
-    fn every_profile_is_listed_by_exactly_its_group() {
-        for profile in ProfileId::all() {
-            let group = profile.profile_group();
-            assert!(
-                group.profiles().contains(profile),
-                "{profile:?} not in {group:?}"
-            );
-        }
-        let listed: usize = [
-            ProfileGroup::GenericVisca,
-            ProfileGroup::PtzOptics,
-            ProfileGroup::SonyProfessional,
-        ]
-        .iter()
-        .map(|group| group.profiles().len())
-        .sum();
-        assert_eq!(listed, ProfileId::all().len());
-    }
-
-    #[test]
-    fn test_profile_group_display() {
-        assert_eq!(ProfileGroup::GenericVisca.display_name(), "Generic VISCA");
-        assert_eq!(ProfileGroup::PtzOptics.display_name(), "PtzOptics Series");
-        assert_eq!(
-            ProfileGroup::SonyProfessional.display_name(),
-            "Sony Professional"
-        );
-
-        assert_eq!(format!("{}", ProfileGroup::GenericVisca), "Generic VISCA");
-        assert_eq!(format!("{}", ProfileGroup::PtzOptics), "PtzOptics Series");
-    }
-
-    /// A group reports a transport or envelope fact only when every member
-    /// has it, and its weakest member's inquiry support.
-    #[test]
-    fn group_facts_hold_for_every_member() {
-        for group in [
-            ProfileGroup::GenericVisca,
-            ProfileGroup::PtzOptics,
-            ProfileGroup::SonyProfessional,
-        ] {
-            let members = group.profiles();
-            assert_eq!(
-                group.supports_tcp(),
-                members.iter().all(|id| id
-                    .transport_compatibility()
-                    .supports(crate::transport::StandardTransport::Tcp))
-            );
-            assert_eq!(
-                group.supports_udp(),
-                members.iter().all(|id| id
-                    .transport_compatibility()
-                    .supports(crate::transport::StandardTransport::Udp))
-            );
-            assert_eq!(
-                group.supports_serial(),
-                members
-                    .iter()
-                    .all(|id| id.transport_compatibility().supports_serial())
-            );
-            assert_eq!(
-                group.uses_sony_encapsulation(),
-                members.iter().all(ProfileId::uses_sony_encapsulation)
-            );
-            for member in members {
-                assert!(
-                    !matches!(
-                        (group.inquiry_support(), member.inquiry_support()),
-                        (
-                            crate::capabilities::InquirySupport::Full,
-                            crate::capabilities::InquirySupport::Partial
-                        ) | (
-                            crate::capabilities::InquirySupport::Full
-                                | crate::capabilities::InquirySupport::Partial,
-                            crate::capabilities::InquirySupport::None
-                        )
-                    ),
-                    "{group:?} reports more inquiry support than {member:?}"
-                );
-            }
-        }
+        assert_eq!(ProfileId::PtzOpticsG2.to_string(), "PtzOptics G2");
+        assert_eq!(ProfileId::SonyFr7.to_string(), "Sony FR7");
     }
 
     #[test]
@@ -453,11 +333,9 @@ mod tests {
                     || transports.supports_serial(),
                 "{profile:?} has no transport"
             );
-            if profile.uses_sony_encapsulation() {
+            if spec.envelope() == crate::ProfileEnvelope::SonyEncapsulated {
                 assert!(transports.tcp_port().is_none() && !transports.supports_serial());
             }
-            assert_eq!(profile.default_tcp_port(), transports.tcp_port());
-            assert_eq!(profile.default_udp_port(), transports.udp_port());
         }
     }
 
@@ -482,10 +360,6 @@ mod tests {
                 id
             );
         }
-        assert_eq!(
-            serde_json::to_value(ProfileGroup::PtzOptics).expect("group"),
-            "ptzoptics"
-        );
     }
 
     #[test]
@@ -501,19 +375,5 @@ mod tests {
 
         let desc = ProfileId::GenericVisca.description();
         assert!(desc.contains("Conservative"));
-    }
-
-    #[test]
-    fn test_profile_encapsulation_consistency() {
-        for profile in ProfileId::all() {
-            let group = profile.profile_group();
-            assert_eq!(
-                profile.uses_sony_encapsulation(),
-                group.uses_sony_encapsulation(),
-                "Profile {:?} and group {:?} encapsulation mismatch",
-                profile,
-                group
-            );
-        }
     }
 }

@@ -520,10 +520,11 @@ fn cases() -> Vec<Case> {
         ),
         case!(
             UnsupportedTransport,
-            "",
+            "built-in or custom profile",
             Error::UnsupportedTransport {
-                profile: crate::camera::profiles::ProfileId::SonyFr7,
-                transport: crate::camera::TransportKind::Tcp
+                model: Cow::Borrowed("Sony FR7"),
+                profile: Some(crate::profiles::ProfileId::SonyFr7),
+                transport: crate::transport::StandardTransport::Tcp
             },
             Unsupported,
             None,

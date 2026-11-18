@@ -552,7 +552,7 @@ pub(super) enum ControlBoundary {
     Snapshot(flume::Sender<OwnerSnapshot>),
     Metrics(flume::Sender<Result<crate::observability::MetricsSnapshot, Error>>),
     SubscribeDiagnostics {
-        capacity: usize,
+        capacity: crate::observability::DiagnosticCapacity,
         reply: flume::Sender<Result<DiagnosticSubscription, Error>>,
     },
     /// Installs new session tuning on the live owner (#631).

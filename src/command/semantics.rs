@@ -16,8 +16,9 @@
 //! * [`BuiltinRequestClass::Targeted`] is reserved for a meaningful physical
 //!   end state;
 //! * [`BuiltinRequestClass::AppliedOnly`] is used when actuation has no
-//!   meaningful settled target; and
+//!   meaningful settled target.
 //! * configuration, mode selection, and stored-state edits are plain.
+//! * wire primitives emitted by a session owner have no request contract.
 //!
 //! Operation axes are [`crate::types::AffectedAxes`]. Iris and ND filter are
 //! included because their commands physically reposition a lens/filter and
@@ -93,13 +94,15 @@ impl AppliedStateEffectRequirement {
     }
 }
 
-/// Semantic class of one built-in request.
+/// Semantic class of one built-in command ledger row.
 ///
 /// Operation variants carry their exact non-empty axis selection directly in
 /// the enum.  It is therefore impossible for a ledger row to represent an
 /// operation without affected axes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum BuiltinRequestClass {
+    /// A wire primitive emitted exclusively by the owner.
+    OwnerOnly,
     /// Configuration, mode, persistence, and stored-state edit.
     Plain {
         /// Closed cache requirement, when this is a write-only state edit.
@@ -131,7 +134,7 @@ impl BuiltinRequestClass {
     #[must_use]
     pub(crate) const fn completion(self) -> Option<BuiltinCompletionClass> {
         match self {
-            Self::Plain { .. } => None,
+            Self::Plain { .. } | Self::OwnerOnly => None,
             Self::Targeted { .. } => Some(BuiltinCompletionClass::Targeted),
             Self::AppliedOnly { .. } => Some(BuiltinCompletionClass::AppliedOnly),
         }
@@ -142,7 +145,7 @@ impl BuiltinRequestClass {
     #[must_use]
     pub(crate) const fn axes(self) -> Option<BuiltinAxisSelection> {
         match self {
-            Self::Plain { .. } => None,
+            Self::Plain { .. } | Self::OwnerOnly => None,
             Self::Targeted { axes } | Self::AppliedOnly { axes, .. } => Some(axes),
         }
     }
@@ -151,6 +154,7 @@ impl BuiltinRequestClass {
     #[must_use]
     pub(crate) const fn kind(self) -> BuiltinRequestKind {
         match self {
+            Self::OwnerOnly => BuiltinRequestKind::OwnerOnly,
             Self::Plain { .. } => BuiltinRequestKind::Plain,
             Self::Targeted { .. } => BuiltinRequestKind::Targeted,
             Self::AppliedOnly { .. } => BuiltinRequestKind::AppliedOnly,
@@ -195,7 +199,7 @@ impl BuiltinRequestClass {
     pub(crate) const fn state_effect(self) -> Option<AppliedStateEffectRequirement> {
         match self {
             Self::Plain { state_effect } => state_effect,
-            Self::Targeted { .. } | Self::AppliedOnly { .. } => None,
+            Self::Targeted { .. } | Self::AppliedOnly { .. } | Self::OwnerOnly => None,
         }
     }
 }
@@ -211,10 +215,12 @@ pub(crate) enum BuiltinCompletionClass {
 }
 
 /// The request kind of one ledger row: the closed `Request::Class` a typed
-/// request serving it must declare, and the kind a noun-table row spells as
-/// `plain`, `applied` or `targeted`.
+/// request serving it must declare. The noun table uses `plain`, `applied`,
+/// or `targeted`. Owner-only rows have no corresponding request class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum BuiltinRequestKind {
+    /// No typed request or noun method.
+    OwnerOnly,
     /// `request::PlainClass`.
     Plain,
     /// `request::OperationClass<operation::AppliedOnly>`.
@@ -254,6 +260,14 @@ pub(crate) trait BuiltinRequestContract: crate::Request<Class: BuiltinClassMarke
     /// Checked policy facts shared by const selector checks and Request lowering.
     const POLICY: crate::request::builtin_policy::BuiltinPolicy;
 
+    /// Only a reviewed STOP ledger row carries reserved admission.
+    const ADMISSION: crate::request::policy::CommandAdmission =
+        if Self::LEDGER_ROW.classification().is_stop() {
+            crate::request::policy::CommandAdmission::Stop
+        } else {
+            crate::request::policy::CommandAdmission::Ordinary(Self::POLICY.class)
+        };
+
     /// Exact value-selected row, exposed only to the literal wire inventory.
     #[cfg(test)]
     fn selected_ledger_row(&self) -> BuiltinCommand {
@@ -281,7 +295,7 @@ pub(crate) trait BuiltinRequestContract: crate::Request<Class: BuiltinClassMarke
     const CLASS_MATCHES_ROW: () = assert!(
         Self::LEDGER_ROW.classification().kind() as u8
             == <Self::Class as BuiltinClassMarker>::KIND as u8,
-        "request class disagrees with its ledger row",
+        "request class disagrees with its ledger row (owner-only rows have no request class)",
     );
 }
 
@@ -315,7 +329,7 @@ pub(crate) trait LedgerState {
 /// The closed semantic ledger: one row per built-in command, in protocol
 /// order.
 ///
-/// `plain`, `plain(Set(<key>))`, `plain(Clear(<key>))`,
+/// `owner_only`, `plain`, `plain(Set(<key>))`, `plain(Clear(<key>))`,
 /// `targeted(<axes>)`,
 /// `targeted(profile_preset_recall)`, `applied(<axes>)` and
 /// `applied_stop(<axes>)` are the only row forms; `<key>` names a [`crate::state_cache::StateKey`] and `<axes>` an
@@ -365,8 +379,7 @@ macro_rules! stop_command_ledger {
 
 macro_rules! builtin_command_ledger {
     ($( $(#[$meta:meta])* $command:ident => { class: $class:ident $(($($effect:tt)*))?, packet: $packet:expr, source: $source:expr } ),+ $(,)?) => {
-        /// Every built-in command request that must be audited before typed
-        /// conversion; generated from `builtin_command_ledger!`.
+        /// Every built-in command with a reviewed ledger row.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub(crate) enum BuiltinCommand {
             $( $(#[$meta])* $command, )+
@@ -375,9 +388,7 @@ macro_rules! builtin_command_ledger {
         stop_command_ledger!(@scan [] $($command => $class $(($($effect)*))?,)+);
 
         $(
-            impl LedgerState for LedgerRow<{ BuiltinCommand::$command as usize }> {
-                type State = ledger_state!($class $(($($effect)*))?);
-            }
+            impl_ledger_state!($command, $class $(($($effect)*))?);
             const _: () = {
                 if $source.is_sourced() {
                     let packet: Option<crate::source_evidence::PacketPattern> = $packet;
@@ -415,6 +426,16 @@ macro_rules! builtin_command_ledger {
     };
 }
 
+/// Request-bearing rows carry a type-level state projection.
+macro_rules! impl_ledger_state {
+    ($command:ident, owner_only) => {};
+    ($command:ident, $class:ident $(($($effect:tt)*))?) => {
+        impl LedgerState for LedgerRow<{ BuiltinCommand::$command as usize }> {
+            type State = ledger_state!($class $(($($effect)*))?);
+        }
+    };
+}
+
 /// Selects a projection type from the same tokens that classify the row.
 macro_rules! ledger_state {
     (plain(Set($key:ident))) => {
@@ -430,6 +451,9 @@ macro_rules! ledger_state {
 
 /// Expands one ledger row form into its [`BuiltinRequestClass`].
 macro_rules! ledger_class {
+    (owner_only) => {
+        BuiltinRequestClass::OwnerOnly
+    };
     (plain) => {
         BuiltinRequestClass::Plain { state_effect: None }
     };
@@ -468,7 +492,7 @@ macro_rules! ledger_class {
         compile_error!(concat!(
             "unknown ledger class `",
             stringify!($($row)*),
-            "`; expected plain, plain(Set(<StateKey>)), plain(Clear(<StateKey>)), ",
+            "`; expected owner_only, plain, plain(Set(<StateKey>)), plain(Clear(<StateKey>)), ",
             "targeted(<AXES>), ",
             "targeted(profile_preset_recall), applied(<AXES>) or applied_stop(<AXES>)"
         ))
@@ -644,9 +668,9 @@ builtin_command_ledger! {
     UsbAudioOn => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::streaming::USB_AUDIO).then(&[2], &[0xFF])), source: crate::source_evidence::source!([(R1, "r1-usbaudioon-command")]) },
     UsbAudioOff => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::streaming::USB_AUDIO).then(&[3], &[0xFF])), source: crate::source_evidence::source!([(R1, "r1-usbaudiooff-command")]) },
     // System.
-    AddressSet => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::system::ADDRESS_SET)), source: crate::source_evidence::source!([(R8, "r8-addressset-command"), (R12, "r12-addressset-command"), (R21, "r21-addressset-command"), (R11, "r11-addressset-command")]) },
-    InterfaceClear => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::system::INTERFACE_CLEAR)), source: crate::source_evidence::source!([(R1, "r1-interfaceclear-command"), (R14, "r14-interfaceclear-command"), (R7, "r7-interfaceclear-command"), (R11, "r11-interfaceclear-command"), (R8, "r8-interfaceclear-command"), (R12, "r12-interfaceclear-command"), (R21, "r21-interfaceclear-command")]) },
-    CommandCancel => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&[]).then(&[crate::command::bytes::constants::system::COMMAND_CANCEL], &[0xF0])), source: crate::source_evidence::source!([(R1, "r1-commandcancel-command"), (R14, "r14-commandcancel-command"), (R7, "r7-commandcancel-command"), (R11, "r11-commandcancel-command"), (R8, "r8-commandcancel-command"), (R12, "r12-commandcancel-command"), (R21, "r21-commandcancel-command")]) },
+    AddressSet => { class: owner_only, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::system::ADDRESS_SET)), source: crate::source_evidence::source!([(R8, "r8-addressset-command"), (R12, "r12-addressset-command"), (R21, "r21-addressset-command"), (R11, "r11-addressset-command")]) },
+    InterfaceClear => { class: owner_only, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::system::INTERFACE_CLEAR)), source: crate::source_evidence::source!([(R1, "r1-interfaceclear-command"), (R14, "r14-interfaceclear-command"), (R7, "r7-interfaceclear-command"), (R11, "r11-interfaceclear-command"), (R8, "r8-interfaceclear-command"), (R12, "r12-interfaceclear-command"), (R21, "r21-interfaceclear-command")]) },
+    CommandCancel => { class: owner_only, packet: Some(crate::source_evidence::PacketPattern::exact(&[]).then(&[crate::command::bytes::constants::system::COMMAND_CANCEL], &[0xF0])), source: crate::source_evidence::source!([(R1, "r1-commandcancel-command"), (R14, "r14-commandcancel-command"), (R7, "r7-commandcancel-command"), (R11, "r11-commandcancel-command"), (R8, "r8-commandcancel-command"), (R12, "r12-commandcancel-command"), (R21, "r21-commandcancel-command")]) },
     SettingsSave => { class: plain, packet: Some(crate::source_evidence::PacketPattern::exact(&crate::command::bytes::constants::system::SETTINGS_SAVE)), source: crate::source_evidence::source!([(R1, "r1-settingssave-command"), (R10, "r10-settingssave-command")]) },
     // Motion-related configuration. The speed command retains its historical
     // protocol row identity; its exact applied value is now cached because no
@@ -760,8 +784,9 @@ mod tests {
         for command in BuiltinCommand::ALL {
             assert!(seen.insert(*command), "duplicate ledger row: {command:?}");
             let class = command.classification();
-            if command.is_plain() {
+            if command.is_plain() || matches!(class, BuiltinRequestClass::OwnerOnly) {
                 assert!(class.axes().is_none());
+                assert!(command.completion().is_none());
             } else {
                 assert!(
                     command.completion().is_some(),
@@ -786,7 +811,7 @@ mod tests {
                         assert!(axes.is_single() || axes.axis_count() > 1);
                     }
                 }
-                BuiltinRequestClass::Plain { .. } => {}
+                BuiltinRequestClass::Plain { .. } | BuiltinRequestClass::OwnerOnly => {}
             }
         }
         assert_eq!(
@@ -962,7 +987,7 @@ mod tests {
             assert_eq!(R::POLICY.timeout, timeout, "{command:?} timeout class");
             assert_eq!(R::POLICY.retry, retry, "{command:?} retry class");
             assert_eq!(
-                matches!(R::POLICY.class, crate::ControlClass::Urgent),
+                matches!(R::ADMISSION, crate::request::policy::CommandAdmission::Stop),
                 command.classification().is_stop(),
                 "{command:?} urgent admission authority",
             );

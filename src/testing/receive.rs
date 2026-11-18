@@ -1,7 +1,7 @@
 //! Production receive, decode and batch recycling without transport I/O.
 
 use crate::{
-    transport::{SendSemantics, TransportConfig},
+    transport::{IoBounds, SendSemantics},
     ProfileSpec, Result,
 };
 
@@ -13,11 +13,7 @@ pub struct ReceiveProbe {
 
 impl ReceiveProbe {
     /// Build the same bounded framing and batch storage an owner uses.
-    pub fn new(
-        profile: &ProfileSpec,
-        config: TransportConfig,
-        semantics: SendSemantics,
-    ) -> Result<Self> {
+    pub fn new(profile: &ProfileSpec, config: IoBounds, semantics: SendSemantics) -> Result<Self> {
         Ok(Self {
             inner: crate::runtime::owner::ReceiveProbe::new(profile, config, semantics)?,
         })

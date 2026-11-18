@@ -64,7 +64,7 @@ default = ["blocking"]
 # Each facade feature also enables the matching feature of the unpublished
 # integration-test helper crate (a dev-dependency), so the helpers a test build
 # compiles follow the facade under test.
-blocking = ["grafton-visca-test-support/blocking"]
+blocking = ["dep:flume", "dep:socket2", "grafton-visca-test-support/blocking"]
 # Runtime-agnostic async support. Runtime features add their adapter while
 # applications may also enable the independent blocking facade.
 #
@@ -75,24 +75,25 @@ blocking = ["grafton-visca-test-support/blocking"]
 # dependency-boundary gate enforces (`blocking,test-utils` must stay clean).
 async = [
     "dep:futures-lite",
-    "dep:async-lock",
+    "dep:flume",
+    "flume/async",
     "dep:async-executor",
     "grafton-visca-test-support/async",
 ]
 
 # Runtime features imply the canonical async facade.
-runtime-tokio = ["async", "dep:tokio"]
-runtime-smol = ["async", "dep:smol", "dep:async-executor", "dep:async-io", "dep:libc"]
+runtime-tokio = ["async", "dep:tokio", "dep:socket2"]
+runtime-smol = ["async", "dep:smol", "dep:async-io", "dep:libc", "dep:socket2"]
 
 # Transport features
-transport-serial = ["blocking", "dep:serialport"]
+transport-serial = ["blocking", "dep:serialport", "dep:tracing"]
 # `serialport` is already linked through `tokio-serial`; naming it lets the
 # blocking and Tokio serial transports open ports through one shared builder.
-transport-serial-tokio = ["dep:tokio-serial", "dep:serialport", "runtime-tokio"]
+transport-serial-tokio = ["dep:tokio-serial", "dep:serialport", "dep:tracing", "runtime-tokio"]
 
-# Serialization features
-serde = ["dep:serde", "dep:serde_json"]
-schemars = ["serde", "dep:schemars"]
+# JSON-specific library helpers are used only when building schemas.
+serde = ["dep:serde"]
+schemars = ["serde", "dep:schemars", "dep:serde_json"]
 ts-rs = ["serde", "dep:ts-rs"]
 
 # Internal features
@@ -109,10 +110,10 @@ test-utils = ["grafton-visca-test-support/test-utils"]
 
 [dependencies]
 bytes = "1.11"
-flume = "0.12"
+flume = { version = "0.12", optional = true, default-features = false, features = ["select"] }
 smallvec = { version = "1.15", features = ["const_generics"] }
 grafton-visca-macros = { path = "grafton-visca-macros", version = "=2.0.0" }
-tracing = "0.1"
+tracing = { version = "0.1", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"], optional = true }
 serde_json = { version = "1.0", optional = true }
 schemars = { version = "1.2", optional = true }
@@ -136,7 +137,6 @@ tokio = { version = "1.52", features = [
 async-executor = { version = "1.14.0", optional = true }
 futures-lite = { version = "2.6", optional = true }
 smol = { version = "2.0", optional = true }
-async-lock = { version = "3.4", optional = true }
 async-io = { version = "2.6", optional = true }
 
 [target.'cfg(unix)'.dependencies]
@@ -146,7 +146,7 @@ libc = { version = "0.2", optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 # OS socket option support for TCP keepalive, TTL, and TCP_NODELAY.
-socket2 = "0.6"
+socket2 = { version = "0.6", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.52", features = ["full", "test-util"] }
@@ -156,8 +156,7 @@ futures-lite = "2.6"
 pollster = "0.4"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 proptest = "1.11.0"
-# Used directly by integration tests; already the optional `serde` feature's
-# JSON crate.
+# Used by tests, doctests and the profile-spec example with or without schemas.
 serde_json = "1.0"
 # The integration tests' shared helpers: an unpublished workspace member,
 # stripped from the published manifest with every other path-only
@@ -231,9 +230,6 @@ required-features = ["blocking"]
 [[example]]
 name = "transport_builder_demo"
 required-features = ["blocking"]
-
-[[example]]
-name = "validate_ae_commands"
 
 [[example]]
 name = "cancellation"

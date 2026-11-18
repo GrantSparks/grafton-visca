@@ -6,6 +6,7 @@
     feature = "runtime-smol"
 ))]
 
+use grafton_visca::observability::DiagnosticCapacity;
 use grafton_visca_test_support::fake_camera;
 
 use fake_camera::FakeCamera;
@@ -15,7 +16,7 @@ use grafton_visca::{config::SessionConfig, observability::MetricsSnapshot, profi
 use grafton_visca::{
     error::ErrorKind,
     observability::{DiagnosticEvent, DiagnosticOutcome},
-    transport::{AddressingMode, SendSemantics, TransportConfig},
+    transport::{AddressingMode, IoBounds, SendSemantics},
     types::WideDynamicRangeLevel,
     Error,
 };
@@ -53,8 +54,8 @@ fn probe_camera(serial: bool, fail_send: bool) -> FakeCamera {
 /// The transport configuration of a probe: serial addressing for a serial
 /// camera, the default otherwise.
 #[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
-fn probe_config(_serial: bool) -> TransportConfig {
-    TransportConfig::default()
+fn probe_config(_serial: bool) -> IoBounds {
+    IoBounds::default()
 }
 
 /// A serial camera sends as a stream; otherwise as datagrams.
@@ -213,7 +214,9 @@ mod blocking_observability {
             assert_unknown(&cache, StateKey::ExposureWideDynamicRange);
             assert_metrics_shape(session.metrics().unwrap());
 
-            let diagnostics = session.subscribe_diagnostics(128).unwrap();
+            let diagnostics = session
+                .subscribe_diagnostics(DiagnosticCapacity::MAX)
+                .unwrap();
             assert!(diagnostics.try_recv().is_none());
             let applied = WideDynamicRangeLevel::new(4).unwrap();
             camera.exposure().set_wide_dynamic_range(applied).unwrap();
@@ -279,7 +282,9 @@ mod blocking_observability {
         );
         assert_unknown(&second_view, StateKey::StreamingMulticast);
 
-        let diagnostics = session.subscribe_diagnostics(16).unwrap();
+        let diagnostics = session
+            .subscribe_diagnostics(DiagnosticCapacity::new(16).expect("diagnostic capacity"))
+            .unwrap();
         let mut operation = first.submit(&grafton_visca::command::zoom::Tele).unwrap();
         operation.applied().unwrap();
         session.metrics().unwrap();
@@ -393,20 +398,35 @@ mod tokio_observability {
     async fn metrics_and_subscription_bounds_and_slow_subscriber() {
         let session = session().await;
         assert_metrics_shape(session.metrics().await.unwrap());
-        assert!(session.subscribe_diagnostics(0).await.is_err());
-        assert!(session.subscribe_diagnostics(129).await.is_err());
         let mut subscriptions = Vec::new();
         for _ in 0..4 {
-            subscriptions.push(session.subscribe_diagnostics(1).await.unwrap());
+            subscriptions.push(
+                session
+                    .subscribe_diagnostics(DiagnosticCapacity::MIN)
+                    .await
+                    .unwrap(),
+            );
         }
-        assert!(session.subscribe_diagnostics(1).await.is_err());
+        assert!(session
+            .subscribe_diagnostics(DiagnosticCapacity::MIN)
+            .await
+            .is_err());
         drop(subscriptions.pop());
-        let _reclaimed = session.subscribe_diagnostics(1).await.unwrap();
+        let _reclaimed = session
+            .subscribe_diagnostics(DiagnosticCapacity::MIN)
+            .await
+            .unwrap();
         drop(subscriptions);
         drop(_reclaimed);
 
-        let slow = session.subscribe_diagnostics(1).await.unwrap();
-        let fast = session.subscribe_diagnostics(16).await.unwrap();
+        let slow = session
+            .subscribe_diagnostics(DiagnosticCapacity::MIN)
+            .await
+            .unwrap();
+        let fast = session
+            .subscribe_diagnostics(DiagnosticCapacity::new(16).expect("diagnostic capacity"))
+            .await
+            .unwrap();
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
@@ -426,7 +446,10 @@ mod tokio_observability {
     #[tokio::test]
     async fn public_events_are_sanitized_and_shutdown_rejects_work() {
         let session = session().await;
-        let diagnostics = session.subscribe_diagnostics(16).await.unwrap();
+        let diagnostics = session
+            .subscribe_diagnostics(DiagnosticCapacity::new(16).expect("diagnostic capacity"))
+            .await
+            .unwrap();
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
@@ -454,7 +477,10 @@ mod tokio_observability {
     #[tokio::test]
     async fn empty_subscription_disconnects_after_shutdown() {
         let session = session().await;
-        let subscription = session.subscribe_diagnostics(1).await.unwrap();
+        let subscription = session
+            .subscribe_diagnostics(DiagnosticCapacity::MIN)
+            .await
+            .unwrap();
         session.shutdown().unwrap();
         let mut disconnected = false;
         for _ in 0..2 {
@@ -484,7 +510,10 @@ mod tokio_observability {
             )
             .unwrap();
         let cache = camera.state_cache();
-        let diagnostics = session.subscribe_diagnostics(128).await.unwrap();
+        let diagnostics = session
+            .subscribe_diagnostics(DiagnosticCapacity::MAX)
+            .await
+            .unwrap();
         let applied = WideDynamicRangeLevel::new(4).unwrap();
         camera
             .exposure()
@@ -606,9 +635,10 @@ mod smol_observability {
             .await
             .unwrap();
             assert_metrics_shape(session.metrics().await.unwrap());
-            assert!(session.subscribe_diagnostics(0).await.is_err());
-            assert!(session.subscribe_diagnostics(129).await.is_err());
-            let subscription = session.subscribe_diagnostics(1).await.unwrap();
+            let subscription = session
+                .subscribe_diagnostics(DiagnosticCapacity::MIN)
+                .await
+                .unwrap();
             session
                 .camera::<grafton_visca::profiles::PtzOpticsG2>(
                     grafton_visca::types::IndividualCameraId::CAMERA_1,

@@ -75,6 +75,30 @@ pub(crate) use noun_inquire;
 
 /// Proves a static marker's runtime bit at the method's monomorphization.
 macro_rules! assert_profile_gate {
+    (@marker $profile:ident, HasPanTiltSettlement) => {
+        $crate::noun_facade::assert_profile_gate!(@settlement $profile, pan_tilt)
+    };
+    (@marker $profile:ident, HasFocusSettlement) => {
+        $crate::noun_facade::assert_profile_gate!(@settlement $profile, focus)
+    };
+    (@marker $profile:ident, HasPresetRecallSettlement) => {
+        $crate::noun_facade::assert_profile_gate!(@settlement $profile, preset_recall)
+    };
+    (@settlement $profile:ident, $check:ident) => {
+        const {
+            // DOMAINS is Some for every compile-time profile, even when its
+            // settlement declaration was omitted.
+            if <$profile as $crate::profiles::CameraProfile>::DOMAINS.is_some() {
+                assert!(
+                    matches!(
+                        <$profile as $crate::profiles::CameraProfile>::SETTLEMENT_SUPPORT,
+                        Some(proof) if proof.$check(),
+                    ),
+                    "profile settlement marker requires its settlement declaration",
+                );
+            }
+        }
+    };
     (@marker $profile:ident, $marker:ident) => {
         const {
             if let Some(supported) = <$profile as $crate::profiles::CameraProfile>::TYPED_SUPPORT {
@@ -292,7 +316,6 @@ macro_rules! static_noun_facade {
                     $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
-        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
         $(
             $crate::noun_facade::static_noun_facade!(@accessor $gate $accessor $getter $doc {

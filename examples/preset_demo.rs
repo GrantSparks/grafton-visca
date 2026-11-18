@@ -30,7 +30,12 @@ fn arguments() -> Result<(String, String, u8), io::Error> {
     let address = values
         .next()
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
-        .unwrap_or_else(|| "192.168.0.110".to_string());
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "pass a camera address or set VISCA_CAMERA_ADDR",
+            )
+        })?;
     let action = values.next().unwrap_or_else(|| "recall".to_string());
     let number = values
         .next()

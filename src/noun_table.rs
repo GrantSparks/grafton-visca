@@ -4,8 +4,8 @@
 //! retain their protocol-granular ledger identities privately. Facades,
 //! convention metadata and runtime gate projections all consume this table.
 //!
-//! `checked` handles a fallible value constructor; `with_target` performs
-//! profile-dependent lowering before admission. Unit requests are unit values.
+//! `checked` handles a fallible value constructor. Target-dependent requests
+//! capture intent here and lower it before admission. Unit requests are unit values.
 //! Each noun header declares its accessor, getter, display title, gate and documentation.
 //! Mark a parameter `#[into] name: Type` to accept `impl Into<Type>` in both
 //! facades; its request expression receives the converted `Type`. Other table
@@ -180,10 +180,10 @@ macro_rules! noun_table {
             inquiry [PositionInquiry] position() -> types::PanTiltPosition where HasPanTiltPositioning
                 = [with_decoder [command::pan_tilt::PositionInquiry] => crate::ResponseDecoder::for_pan_tilt_position];
             /// Moves the pan/tilt mechanism to its home position.
-            targeted [Home] home() -> command::pan_tilt::Home
+            targeted [Home] home() -> command::pan_tilt::Home where HasPanTiltSettlement
                 = [command::pan_tilt::Home];
             /// Resets the pan/tilt mechanism.
-            targeted [Reset] reset() -> command::pan_tilt::Reset
+            targeted [Reset] reset() -> command::pan_tilt::Reset where HasPanTiltSettlement
                 = [command::pan_tilt::Reset];
             /// Drives in the selected direction at coarse or exact pan/tilt speeds. The target profile supplies the
             /// allowed speed ranges; send `stop()` to end continuous motion.
@@ -195,7 +195,7 @@ macro_rules! noun_table {
                 = [command::pan_tilt::Drive::new(direction, speed)];
             /// Stops pan/tilt movement using profile-safe stop speeds.
             applied [Stop] stop() -> command::pan_tilt::Stop
-                = [with_target |target| command::pan_tilt::Stop::for_target(target)];
+                = [command::pan_tilt::Stop];
             /// Moves to an absolute position in degrees within the target profile's coordinate limits. Coarse speed
             /// levels are lowered through that profile; exact speeds retain their checked axis values.
             ///
@@ -230,14 +230,14 @@ macro_rules! noun_table {
             /// `PanTiltCoordinateConversion` maps its profile's `PanTiltGeometry::pan_range`
             /// and mount-selected `tilt_ranges` into degree limits.
             plain [SetLimit] set_limit(corner: types::PanTiltLimitCorner, position: types::PanTiltPosition) -> command::pan_tilt::SetLimit where HasPanTiltPositioning
-                = [with_target |target| command::pan_tilt::SetLimit::for_target(target, corner, position)];
+                = [command::pan_tilt::SetLimit::new(corner, position)];
             /// Clears one pan/tilt movement-limit corner.
             ///
             /// `PanTiltLimitCorner` selects the documented upper-right or lower-left
             /// corner. This clears that corner's configured position bound; it does not
             /// move the camera or take a new numeric position.
             plain [ClearLimit] clear_limit(corner: types::PanTiltLimitCorner) -> command::pan_tilt::ClearLimit where HasPanTiltPositioning
-                = [with_target |target| command::pan_tilt::ClearLimit::for_target(target, corner)];
+                = [command::pan_tilt::ClearLimit::new(corner)];
             /// Selects the documented pan/tilt speed-step range: normal 24-step or extended 50-step control (R7
             /// pan/tilt speed-step command).
             ///
@@ -297,7 +297,7 @@ macro_rules! noun_table {
             /// Positions are `FocusPosition` codes in the four-nibble union
             /// `0x0000..=0xFFFF`, not distances in metres. The selected profile's
             /// `FocusCaps::range` supplies the supported domain.
-            targeted [SetPosition] set_position(position: types::FocusPosition) -> command::focus::SetPosition
+            targeted [SetPosition] set_position(position: types::FocusPosition) -> command::focus::SetPosition where HasFocusSettlement
                 = [command::focus::SetPosition::new(position)];
             /// Triggers one-push autofocus.
             applied [OnePush] one_push() -> command::focus::OnePush where HasOnePushFocus
@@ -394,13 +394,13 @@ macro_rules! noun_table {
             /// `PresetNumber` is a zero-based memory-slot index. Its supported domain is
             /// `0..=PresetCaps::highest` on the selected profile; constructing a value
             /// within the type's wider union does not establish camera support.
-            targeted [Recall] recall(preset: types::PresetNumber) -> command::presets::Recall
+            targeted [Recall] recall(preset: types::PresetNumber) -> command::presets::Recall where HasPresetRecallSettlement
                 = [command::presets::Recall::new(preset)];
             /// Sets the speed level for later preset recalls without starting a recall. The target profile selects
             /// the encoding and range: PTZOptics uses levels `1..=24` (R1 command table), while FR7 common speed
             /// uses `1..=50` (R7 p. 19). These are speed levels rather than degrees per second.
             plain [SetRecallSpeed] set_recall_speed(speed: types::PresetSpeed) -> command::presets::SetRecallSpeed where HasPresetRecallSpeed
-                = [with_target |target| command::presets::SetRecallSpeed::selected_for_target(target, speed)];
+                = [command::presets::SetRecallSpeed::new(speed)];
             /// Stores the current camera state in a preset slot. The registered profile's preset domain validates
             /// the zero-based number before I/O.
             ///
@@ -484,42 +484,42 @@ macro_rules! noun_table {
                 = [command::exposure::SetMode::new(mode)];
             /// Returns the shutter speed.
             ///
-            /// `ShutterSpeed` is a protocol table code, not a duration. The selected
-            /// profile's `ExposureCaps::shutter_speeds` table defines supported codes and
-            /// their `ExposureTime` values in seconds; one step requests the adjacent
-            /// camera setting, not a fixed time delta.
+            /// `ShutterSpeed` is a protocol code. The selected profile's
+            /// `ExposureCaps::shutter_codes` defines direct positioning values.
+            /// `ExposureCaps::shutter_speeds` maps those values to times where sourced.
+            /// A step moves to the adjacent camera setting.
             inquiry [ShutterInquiry] shutter() -> types::ShutterSpeed where HasShutter
                 = [command::exposure::ShutterInquiry];
             /// Restores the camera's shutter default.
             ///
-            /// `ShutterSpeed` is a protocol table code, not a duration. The selected
-            /// profile's `ExposureCaps::shutter_speeds` table defines supported codes and
-            /// their `ExposureTime` values in seconds; one step requests the adjacent
-            /// camera setting, not a fixed time delta.
+            /// `ShutterSpeed` is a protocol code. The selected profile's
+            /// `ExposureCaps::shutter_codes` defines direct positioning values.
+            /// `ExposureCaps::shutter_speeds` maps those values to times where sourced.
+            /// A step moves to the adjacent camera setting.
             plain [ShutterReset] shutter_reset() -> command::exposure::ShutterReset where HasShutter
                 = [command::exposure::ShutterReset];
             /// Increases shutter speed by one camera-defined step.
             ///
-            /// `ShutterSpeed` is a protocol table code, not a duration. The selected
-            /// profile's `ExposureCaps::shutter_speeds` table defines supported codes and
-            /// their `ExposureTime` values in seconds; one step requests the adjacent
-            /// camera setting, not a fixed time delta.
+            /// `ShutterSpeed` is a protocol code. The selected profile's
+            /// `ExposureCaps::shutter_codes` defines direct positioning values.
+            /// `ExposureCaps::shutter_speeds` maps those values to times where sourced.
+            /// A step moves to the adjacent camera setting.
             plain [ShutterUp] shutter_up() -> command::exposure::ShutterUp where HasShutter
                 = [command::exposure::ShutterUp];
             /// Decreases shutter speed by one camera-defined step.
             ///
-            /// `ShutterSpeed` is a protocol table code, not a duration. The selected
-            /// profile's `ExposureCaps::shutter_speeds` table defines supported codes and
-            /// their `ExposureTime` values in seconds; one step requests the adjacent
-            /// camera setting, not a fixed time delta.
+            /// `ShutterSpeed` is a protocol code. The selected profile's
+            /// `ExposureCaps::shutter_codes` defines direct positioning values.
+            /// `ExposureCaps::shutter_speeds` maps those values to times where sourced.
+            /// A step moves to the adjacent camera setting.
             plain [ShutterDown] shutter_down() -> command::exposure::ShutterDown where HasShutter
                 = [command::exposure::ShutterDown];
             /// Sets an explicit shutter speed.
             ///
-            /// `ShutterSpeed` is a protocol table code, not a duration. The selected
-            /// profile's `ExposureCaps::shutter_speeds` table defines supported codes and
-            /// their `ExposureTime` values in seconds; one step requests the adjacent
-            /// camera setting, not a fixed time delta.
+            /// `ShutterSpeed` is a protocol code. The selected profile's
+            /// `ExposureCaps::shutter_codes` defines direct positioning values.
+            /// `ExposureCaps::shutter_speeds` maps those values to times where sourced.
+            /// A step moves to the adjacent camera setting.
             plain [SetShutter] set_shutter(speed: types::ShutterSpeed) -> command::exposure::SetShutter where HasDirectShutter
                 = [command::exposure::SetShutter::new(speed)];
             /// Returns the exposure compensation value.
@@ -1658,10 +1658,6 @@ macro_rules! noun_table {
             plain [SetUsbAudio] set_usb_audio(enabled: bool) -> command::streaming::SetUsbAudio where HasUsbAudio
                 = [command::streaming::SetUsbAudio::new(enabled)];
 
-            @exceptions;
-            broadcast [AddressSet] address_set -> command::system_wire::AddressSetCommand;
-            broadcast [InterfaceClear] interface_clear -> command::system_wire::InterfaceClearCommand;
-            internal [CommandCancel] cancel_command -> command::system_wire::CommandCancelCommand;
         }
     };
 }
@@ -1706,7 +1702,7 @@ macro_rules! motion_table {
             fn stop_all(&self) -> crate::operation::HaltReport => stop_all_motion();
 
             /// Reports whether two protocol position samples, separated by at
-            /// least [`crate::types::MotionQuery::window`](types::MotionQuery::window),
+            /// least [`MotionQuery::window()`](crate::types::MotionQuery::window()),
             /// indicate movement on the selected axes.
             ///
             /// [`crate::types::MotionQuery::default()`](types::MotionQuery::default)
@@ -1775,7 +1771,6 @@ macro_rules! reexport_nouns {
                     $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
-        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
         $crate::noun_table::reexport_nouns!(@use $path $([$accessor])*);
     };

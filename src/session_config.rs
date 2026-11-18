@@ -225,8 +225,6 @@ pub struct SessionConfig {
     targets: PerTarget<Option<Arc<crate::TargetRegistration>>>,
     policy: SessionPolicy,
     transport: crate::camera::config::TransportOptions,
-    transport_config: Option<crate::transport::TransportConfig>,
-    serial_startup: crate::transport::SerialStartup,
 }
 
 impl SessionConfig {
@@ -327,51 +325,6 @@ impl SessionConfig {
         self.transport = transport;
         self
     }
-    /// Returns explicit transport settings, or `None` for the transport defaults.
-    pub const fn transport_config(&self) -> Option<crate::transport::TransportConfig> {
-        self.transport_config
-    }
-    /// Selects explicit transport timeout and buffer settings.
-    #[must_use]
-    pub const fn with_transport_config(
-        mut self,
-        config: crate::transport::TransportConfig,
-    ) -> Self {
-        self.transport_config = Some(config);
-        self
-    }
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) const fn with_optional_transport_config(
-        mut self,
-        config: Option<crate::transport::TransportConfig>,
-    ) -> Self {
-        self.transport_config = config;
-        self
-    }
-    /// Returns the optional serial startup writes; the default writes nothing.
-    pub const fn serial_startup(&self) -> crate::transport::SerialStartup {
-        self.serial_startup
-    }
-    /// Selects optional serial Address Set and I/F Clear startup writes.
-    #[must_use]
-    pub const fn with_serial_startup(mut self, startup: crate::transport::SerialStartup) -> Self {
-        self.serial_startup = startup;
-        self
-    }
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn serial_config(
-        &self,
-        port: &str,
-        baud_rate: u32,
-    ) -> Result<crate::transport::ValidatedSerialConfig> {
-        crate::camera::config::serial_device_config(
-            port,
-            baud_rate,
-            self.transport_config,
-            self.serial_startup,
-        )
-    }
-
     session_policy_accessors!();
 
     /// The session policy this configuration carries.
@@ -499,8 +452,6 @@ impl Default for SessionConfig {
             targets: PerTarget::default(),
             policy: SessionPolicy::DEFAULT,
             transport: crate::camera::config::TransportOptions::Custom,
-            transport_config: None,
-            serial_startup: crate::transport::SerialStartup::default(),
         }
     }
 }
@@ -509,26 +460,36 @@ impl Default for SessionConfig {
 impl SessionConfig {
     pub(crate) fn connection_plan(&self) -> Result<crate::camera::config::ConnectionPlan> {
         use crate::camera::config::{
-            ConnectionPlan, ConnectionTransport, NetworkConnection, TransportOptions,
+            ConnectionPlan, ConnectionTransport, NetworkConnection, NetworkConnector,
+            TransportOptions,
         };
-        use crate::transport::{NetworkTransport, TransportConfig};
         let session_config = self.clone().validated()?;
         crate::camera::config::validate_selected_transport(&session_config, &self.transport)?;
-        let (kind, address, configured_default) = match &self.transport {
-            TransportOptions::Tcp { address } => (
-                NetworkTransport::Tcp,
+        let (connector, address, io_bounds) = match &self.transport {
+            TransportOptions::Tcp {
+                address,
+                connect,
+                io_bounds,
+            } => (
+                NetworkConnector::Tcp(*connect),
                 address.as_str(),
-                TransportConfig::for_tcp(),
+                *io_bounds,
             ),
-            TransportOptions::Udp { address } => (
-                NetworkTransport::Udp,
+            TransportOptions::Udp {
+                address,
+                connect,
+                io_bounds,
+            } => (
+                NetworkConnector::Udp(*connect),
                 address.as_str(),
-                TransportConfig::for_udp(),
+                *io_bounds,
             ),
-            TransportOptions::Serial { port, baud_rate } => {
-                let serial = self.serial_config(port, *baud_rate)?;
+            TransportOptions::Serial { config, io_bounds } => {
                 return Ok(ConnectionPlan {
-                    transport: ConnectionTransport::Serial(serial),
+                    transport: ConnectionTransport::Serial {
+                        config: config.clone(),
+                        io_bounds: *io_bounds,
+                    },
                     session_config,
                 });
             }
@@ -542,17 +503,13 @@ impl SessionConfig {
         let default_port = session_config
             .sole_target()
             .and_then(|target| session_config.profile(target))
-            .and_then(|profile| profile.transports().default_port(kind));
-        let transport_config = self
-            .transport_config
-            .unwrap_or(configured_default)
-            .validated()?;
+            .and_then(|profile| profile.transports().default_port(connector.kind()));
         let endpoint = crate::transport::NetworkEndpoint::parse(address, default_port)?;
         Ok(ConnectionPlan {
             transport: ConnectionTransport::Network(NetworkConnection {
-                kind,
+                connector,
                 endpoint,
-                transport_config,
+                io_bounds,
             }),
             session_config,
         })
@@ -585,8 +542,6 @@ struct SessionConfigData {
     targets: Vec<SessionTargetData>,
     policy: SessionPolicy,
     transport: crate::camera::config::TransportOptions,
-    transport_config: Option<crate::transport::TransportConfig>,
-    serial_startup: crate::transport::SerialStartup,
 }
 
 #[cfg(feature = "serde")]
@@ -610,8 +565,6 @@ impl serde::Serialize for SessionConfig {
                 targets,
                 policy: self.policy,
                 transport: self.transport.clone(),
-                transport_config: self.transport_config,
-                serial_startup: self.serial_startup,
             },
             serializer,
         )
@@ -628,8 +581,6 @@ impl<'de> serde::Deserialize<'de> for SessionConfig {
             targets: PerTarget::default(),
             policy: data.policy,
             transport: data.transport,
-            transport_config: data.transport_config,
-            serial_startup: data.serial_startup,
         };
         for target in data.targets {
             config = config
@@ -667,22 +618,12 @@ impl ValidatedSessionConfig {
     pub(crate) fn validate_for_transport(
         &self,
         identity: crate::transport::TransportIdentity<'_>,
-    ) -> Result<()> {
-        for profile in self.0.targets.iter().filter_map(|(_, registration)| {
-            registration
-                .as_deref()
-                .map(crate::TargetRegistration::profile)
-        }) {
+    ) -> Result<crate::runtime::owner::ValidatedRouting> {
+        let profiles = self.profile_registry();
+        for profile in profiles.iter().filter_map(|(_, profile)| *profile) {
             crate::runtime::owner::validate_profile_transport(profile, identity)?;
         }
-        crate::runtime::owner::validate_profile_registry_topology(
-            &PerTarget::from_fn(|target| {
-                self.0.targets[target]
-                    .as_deref()
-                    .map(crate::TargetRegistration::profile)
-            }),
-            identity,
-        )
+        crate::runtime::owner::validate_profile_registry_topology(&profiles, identity)
     }
 
     /// Validates the registry against an opened transport before any protocol
@@ -693,18 +634,21 @@ impl ValidatedSessionConfig {
     /// the bus, so the open fails with [`Error::CameraNotAddressed`] naming the
     /// port, missing camera and reported count. Cameras beyond the registered
     /// ones are allowed.
-    pub(crate) fn validate_opened_transport<T>(&self, transport: &T) -> Result<()>
+    pub(crate) fn validate_opened_transport<T>(
+        &self,
+        transport: &T,
+    ) -> Result<crate::runtime::owner::ValidatedRouting>
     where
         T: crate::transport::HasTransportConfig + ?Sized,
     {
         let identity = transport.identity();
-        self.validate_for_transport(identity)?;
+        let routing = self.validate_for_transport(identity)?;
         let Some(bus) = identity.addressed_bus() else {
-            return Ok(());
+            return Ok(routing);
         };
         let addressed = bus.cameras;
         match self.0.targets().find(|target| target.value() > addressed) {
-            None => Ok(()),
+            None => Ok(routing),
             Some(missing) => Err(Error::CameraNotAddressed {
                 port: bus.port.clone().into(),
                 camera: missing,
