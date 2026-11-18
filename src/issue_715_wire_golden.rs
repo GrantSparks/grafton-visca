@@ -212,7 +212,7 @@ wire_cases! {
     PanTilt => |value| match value {
         PanTilt::Home => static_request_identity::<builtin::PanTiltHome>(),
         PanTilt::Reset => static_request_identity::<builtin::PanTiltReset>(),
-        PanTilt::Move { direction: PanTiltDirection::Stop, .. } => static_request_identity::<builtin::PanTiltStop>(),
+        PanTilt::Stop { .. } => static_request_identity::<builtin::PanTiltStop>(),
         PanTilt::Move { .. } => static_request_identity::<builtin::PanTiltDrive>(),
         PanTilt::AbsolutePosition { .. } => static_request_identity::<builtin::PanTiltAbsolute>(),
         PanTilt::RelativePosition { .. } => static_request_identity::<builtin::PanTiltRelative>(),
@@ -477,7 +477,6 @@ pub(crate) fn rows() -> Vec<String> {
         ("UpRight", PanTiltDirection::UpRight),
         ("DownLeft", PanTiltDirection::DownLeft),
         ("DownRight", PanTiltDirection::DownRight),
-        ("Stop", PanTiltDirection::Stop),
     ] {
         rowr!(
             o,
@@ -489,6 +488,14 @@ pub(crate) fn rows() -> Vec<String> {
             })
         );
     }
+    rowr!(
+        o,
+        "PanTilt::Move[Stop,18,14]",
+        Ok(PanTilt::Stop {
+            pan_speed: ps(0x18)?,
+            tilt_speed: ts(0x14)?,
+        })
+    );
     for (p, t) in [(0u8, 0u8), (1, 1), (0x18, 0x18), (0x19, 0x14), (0x18, 0x15)] {
         rowr!(
             o,
@@ -1514,10 +1521,10 @@ fn golden_inventory_rejects_a_valid_frame_under_the_wrong_focus_row() {
 }
 
 fn assert_golden(actual: &str) {
-    grafton_visca_test_support::bless_or_assert(
+    crate::test_support::generated::bless_or_assert(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/issue_715_wire_golden.txt"
+            "/testdata/issue_715_wire_golden.txt"
         ),
         None,
         actual,
@@ -1581,7 +1588,7 @@ pub(crate) fn admitted_command_source<C: BuiltinRequestContract>(
         .validate(
             row.source(),
             &format!("command.{row:?}"),
-            Some(&format!("{model:?}")),
+            Some(model),
             Some(&pattern.to_string()),
             None,
         )
@@ -1600,6 +1607,9 @@ pub(crate) fn admitted_inquiry_source<Q: nouns::NounInquiryContract>(
     index: &crate::source_evidence::checked::Index<'_>,
 ) -> Option<Vec<u8>> {
     crate::Request::validate_for_target(request, target).ok()?;
+    // A profile-bound decoder can refuse an otherwise valid wire request.
+    // Keep the independent packet oracle for requests whose decoder binds.
+    crate::Inquiry::decoder_for_profile(request, target.profile()).ok()?;
     let mut matching = BUILTIN_INQUIRIES
         .iter()
         .filter(|metadata| metadata.kind == Q::KIND && metadata.source == Q::SOURCE);
@@ -1637,7 +1647,7 @@ pub(crate) fn admitted_inquiry_source<Q: nouns::NounInquiryContract>(
         .validate(
             Q::SOURCE,
             metadata.name,
-            Some(&format!("{model:?}")),
+            Some(model),
             Some(&pattern.to_string()),
             polarity,
         )
@@ -1668,7 +1678,7 @@ fn admitted_frame<R: crate::Request>(request: &R, target: &crate::TargetRegistra
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) fn has_literal_frame(frame: &[u8]) -> bool {
     let encoded = hex(frame);
-    include_str!("../tests/fixtures/issue_715_wire_golden.txt")
+    include_str!("../testdata/issue_715_wire_golden.txt")
         .lines()
         .filter_map(|line| line.split_once('\t'))
         .any(|(_, literal)| literal == encoded)
@@ -1900,6 +1910,9 @@ fn unsigned_target() -> crate::TargetRegistration {
         .pan_tilt
         .as_mut()
         .expect("pan/tilt")
+        .geometry
+        .as_mut()
+        .expect("geometry")
         .coordinates = crate::PanTiltCoordinateConversion::new(
         crate::capabilities::CoordinateSystem::UnsignedCentered,
         crate::capabilities::PanTiltWireCodec::StandardVisca,

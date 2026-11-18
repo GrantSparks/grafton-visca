@@ -32,9 +32,9 @@ use super::WriteOutcome;
 use crate::Error;
 
 use super::boundary::{
-    AdmissionBoundary, AdmissionClaim, AdmissionRejectionIngress, BoundaryReceivers,
-    CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle, OwnerSnapshot,
-    PreAdmissionRejection, RetainedBoundary,
+    AdmissionBoundary, AdmissionRejection, AdmissionRejectionIngress, AdmissionReplySink,
+    BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle,
+    OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
 };
 use super::turn::{
     Disposition, NonBoundarySelected, OwnerCoordinator, ReceiveClass, Selected, SelectedInput,
@@ -297,8 +297,8 @@ impl OwnerShellCore {
             self.state.raw_correlation_releases_due(now),
             || {
                 matches!(
-                    driver.retained().map(|input| input.evidence),
-                    Some(super::RetainedEvidence::Complete)
+                    driver.retained().and_then(|input| input.evidence()),
+                    Some(super::RawPrefixEvidence::Complete)
                 )
             },
         );
@@ -424,44 +424,38 @@ impl OwnerShellCore {
                 self.terminate(ShutdownReason::Explicit, selected_at)
             }
             OwnerEvent::Cancellation(CancellationBoundary::Halt(halt)) => {
-                match halt.validity.claim_for_admission(selected_at) {
-                    AdmissionClaim::Claimed { remaining } => {
-                        match self.lifecycle.fence_order(
-                            &self.state.motion,
-                            halt.prepared.target,
-                            halt.prepared.axes,
-                        ) {
-                            Ok(cutoff) => {
-                                let (turn, effects) =
-                                    self.state.begin_halt(&halt.prepared, cutoff, selected_at);
-                                TurnStep::Drive {
-                                    effects,
-                                    then: Resume(Continuation::AdmitHalt {
-                                        turn,
-                                        halt,
-                                        cutoff,
-                                        remaining,
-                                    }),
-                                }
-                            }
-                            Err(error) => {
-                                let _ = halt.reply.try_send(Err(error));
-                                TurnStep::Done(TurnOutcome::Continue)
-                            }
+                let accepted = halt
+                    .claim
+                    .claim(&halt.reply, selected_at)
+                    .and_then(|remaining| {
+                        self.lifecycle
+                            .fence_order(
+                                &self.state.motion,
+                                halt.prepared.target,
+                                halt.prepared.axes,
+                            )
+                            .map(|cutoff| (cutoff, remaining))
+                            .map_err(|error| AdmissionRejection {
+                                error,
+                                record: true,
+                            })
+                    });
+                match accepted {
+                    Ok((cutoff, remaining)) => {
+                        let (turn, effects) =
+                            self.state.begin_halt(&halt.prepared, cutoff, selected_at);
+                        TurnStep::Drive {
+                            effects,
+                            then: Resume(Continuation::AdmitHalt {
+                                turn,
+                                halt,
+                                cutoff,
+                                remaining,
+                            }),
                         }
                     }
-                    claim @ (AdmissionClaim::ExpiredHere | AdmissionClaim::ExpiredElsewhere) => {
-                        let error = Error::admission_timeout();
-                        if matches!(claim, AdmissionClaim::ExpiredHere) {
-                            for _ in halt.prepared.requests.iter().flatten() {
-                                self.state.record_admission_rejection(
-                                    halt.prepared.target,
-                                    super::Lane::Command,
-                                    &error,
-                                );
-                            }
-                        }
-                        let _ = halt.reply.try_send(Err(error));
+                    Err(rejection) => {
+                        halt.reject(&mut self.state, rejection);
                         TurnStep::Done(TurnOutcome::Continue)
                     }
                 }
@@ -522,7 +516,7 @@ impl OwnerShellCore {
                 let (receipt, effects) = self.state.accept_halt(
                     turn,
                     halt.prepared,
-                    halt.validity.deadline(),
+                    halt.claim.deadline(),
                     cutoff,
                     remaining,
                 );
@@ -727,20 +721,12 @@ impl OwnerShellCore {
                 return TurnStep::Done(TurnOutcome::Continue);
             }
             match self.state.resolve_retained_raw_input(driver, now) {
-                Ok(RawReleaseResolution::Advance) => {}
-                Ok(RawReleaseResolution::AwaitInputUntil(deadline)) => {
+                RawReleaseResolution::Advance => {}
+                RawReleaseResolution::AwaitInputUntil(deadline) => {
                     self.coordinator
                         .release_mut()
                         .wait_for_input_until(deadline);
                     return TurnStep::Done(TurnOutcome::ContinueBuffered);
-                }
-                Err(error) => {
-                    return self.terminate(
-                        ShutdownReason::FramingFailure {
-                            cause: Arc::new(error),
-                        },
-                        now,
-                    );
                 }
             }
         }
@@ -933,7 +919,7 @@ impl OwnerShellCore {
             }
             RetainedBoundary::Cancellation(cancellation) => {
                 if let CancellationBoundary::Cancel { request, reply } = &cancellation {
-                    if !state.is_active(request.id) {
+                    if !state.is_active(request.id.request_id()) {
                         let _ = reply.try_send(Ok(()));
                         return;
                     }
@@ -983,8 +969,18 @@ impl OwnerShellCore {
         };
         let (request, permit, observer, reply) = admission.into_parts();
         let turn = self.state.begin_input_turn(accepted_at);
-        let verdict = self.state.admit_in_turn(&turn, request, permit, observer);
-        let _ = reply.try_send(verdict);
+        match reply {
+            AdmissionReplySink::Request(reply) => {
+                let verdict = self.state.admit_in_turn(&turn, request, permit, observer);
+                let _ = reply.try_send(verdict);
+            }
+            AdmissionReplySink::Operation { motion, reply } => {
+                let verdict = self
+                    .state
+                    .admit_operation_in_turn(&turn, request, motion, permit, observer);
+                let _ = reply.try_send(verdict);
+            }
+        }
         TurnStep::Drive {
             effects: self.state.finish_input_turn(turn, EngineTurn::Complete),
             then: Resume::done(TurnOutcome::Continue),
@@ -1557,7 +1553,7 @@ mod tests {
                     requests: [None, None, None],
                     budget: Duration::from_secs(1),
                 },
-                validity: AdmissionValidity::until(Instant::now() + Duration::from_secs(1)),
+                claim: AdmissionValidity::until(Instant::now() + Duration::from_secs(1)).into(),
                 reply,
             }))
             .unwrap();
@@ -1698,6 +1694,39 @@ mod tests {
     }
 
     #[test]
+    fn halt_fence_refused_by_shutdown_records_each_stop() {
+        use super::super::{boundary::AdmissionValidity, halt::HaltBoundary};
+
+        let now = Instant::now();
+        let (handle, mut core) = owner();
+        let (reply, receiver) = flume::bounded(1);
+        let halt = CancellationBoundary::Halt(HaltBoundary {
+            prepared: crate::prepared::PreparedHalt {
+                target: TargetSlot::CAMERA_1,
+                axes: Some(crate::AffectedAxes::MOVEMENT),
+                requests: [
+                    Some(Ok(declared_request(true).into())),
+                    Some(Ok(declared_request(true).into())),
+                    None,
+                ],
+                budget: Duration::from_secs(1),
+            },
+            claim: AdmissionValidity::until(now + Duration::from_secs(1)).into(),
+            reply,
+        });
+        handle.shutdown().unwrap();
+        let step = core.handle(OwnerEvent::Cancellation(halt), &mut Datagrams, now, false);
+        assert!(matches!(step, TurnStep::Done(TurnOutcome::Continue)));
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            Err(Error::RuntimeShutdown)
+        ));
+        assert_eq!(core.state.metrics().admission_rejected, 2);
+        assert_eq!(core.state.metrics().admitted, 0);
+        assert_eq!(core.state.metrics().writes, 0);
+    }
+
+    #[test]
     fn saturated_halt_boundary_counts_each_expired_stop_and_its_diagnostic_once() {
         use super::super::{boundary::AdmissionValidity, halt::HaltBoundary};
         let now = Instant::now();
@@ -1734,7 +1763,7 @@ mod tests {
                         ],
                         budget: Duration::from_millis(10),
                     },
-                    validity,
+                    claim: validity.into(),
                     reply,
                 }))
                 .unwrap();
@@ -1765,7 +1794,7 @@ mod tests {
         assert_eq!(core.state.metrics().admitted, 0);
         assert_eq!(core.state.metrics().writes, 0);
         assert_eq!(diagnostics.events().iter().filter(|event| matches!(event,
-            DiagnosticEvent::AdmissionRejected { target: crate::CameraId::CAMERA_1, error, .. }
+            DiagnosticEvent::AdmissionRejected { target: crate::IndividualCameraId::CAMERA_1, error, .. }
                 if *error == Error::admission_timeout().kind()
         )).count(), capacity * 2);
     }
@@ -1825,7 +1854,7 @@ mod tests {
                     requests: [None, Some(Ok(declared_request(true).into())), None],
                     budget: Duration::from_secs(1),
                 },
-                validity: AdmissionValidity::until(deadline),
+                claim: AdmissionValidity::until(deadline).into(),
                 reply,
             }))
             .unwrap();

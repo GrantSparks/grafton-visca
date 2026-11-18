@@ -71,6 +71,7 @@ macro_rules! state_key_ledger {
                 pub(crate) struct $key;
 
                 impl crate::request::builtin_contract::StateValue for $key {
+                    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
                     const KEY: StateKey = StateKey::$key;
                     type Value = $value;
 
@@ -183,8 +184,6 @@ state_key_ledger! {
     PanTiltSpeedMode(crate::types::PanTiltSpeedMode) => PanTiltState::speed_mode,
     /// Returns the last applied tally mode, including flashing.
     TallyMode(crate::types::TallyMode) => TallyState::mode,
-    /// Returns the last applied combined flip mode; a single-axis change leaves it unknown.
-    ImageFlipMode(crate::types::ImageFlipMode) => ImageState::flip_mode,
     /// Returns the last applied synchronized-motion speed.
     MotionSyncSpeed(crate::types::MotionSyncSpeed) => MotionSyncState::speed,
     /// Returns the last applied wide-dynamic-range level.
@@ -288,7 +287,7 @@ impl StateCache {
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PanTiltLimitUpdate {
     corner: crate::command::PanTiltLimitCorner,
-    position: Option<crate::camera::PanTiltUnits>,
+    position: Option<crate::types::PanTiltPosition>,
 }
 
 impl PanTiltLimitUpdate {
@@ -296,7 +295,7 @@ impl PanTiltLimitUpdate {
     #[must_use]
     pub const fn set(
         corner: crate::command::PanTiltLimitCorner,
-        position: crate::camera::PanTiltUnits,
+        position: crate::types::PanTiltPosition,
     ) -> Self {
         Self {
             corner,
@@ -319,9 +318,9 @@ impl PanTiltLimitUpdate {
         self.corner
     }
 
-    /// Returns the raw limit position, or `None` when the corner was cleared.
+    /// Returns the limit position in applied degrees, or `None` for a clear.
     #[must_use]
-    pub const fn position(self) -> Option<crate::camera::PanTiltUnits> {
+    pub const fn position(self) -> Option<crate::types::PanTiltPosition> {
         self.position
     }
 
@@ -339,15 +338,18 @@ mod tests;
 #[cfg(all(test, feature = "serde"))]
 mod portable_data_tests {
     use super::*;
-    use crate::types::{PanTiltLimitCorner, PanTiltUnits};
+    use crate::types::{PanTiltLimitCorner, PanTiltPosition};
 
     #[test]
     fn cached_updates_distinguish_a_position_from_an_explicit_clear(
-    ) -> Result<(), serde_json::Error> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         for (update, position) in [
             (
-                PanTiltLimitUpdate::set(PanTiltLimitCorner::UpRight, PanTiltUnits::new(-12, 34)),
-                serde_json::json!({"pan": -12, "tilt": 34}),
+                PanTiltLimitUpdate::set(
+                    PanTiltLimitCorner::UpRight,
+                    PanTiltPosition::from_degrees(-12.25, 34.5)?,
+                ),
+                serde_json::json!({"pan": -12.25, "tilt": 34.5}),
             ),
             (
                 PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight),
@@ -384,10 +386,11 @@ mod portable_data_tests {
     fn snapshot_schema_and_typescript_keep_typed_values() {
         let schema = schemars::schema_for!(PanTiltLimitUpdate);
         assert_eq!(schema.as_value()["additionalProperties"], false);
+        assert!(schema.as_value()["$defs"]["PanTiltPosition"].is_object());
         let config = ts_rs::Config::default();
         assert_eq!(
             <PanTiltLimitUpdate as ts_rs::TS>::decl(&config),
-            "type PanTiltLimitUpdate = { corner: PanTiltLimitCorner, position: PanTiltUnits | null, };"
+            "type PanTiltLimitUpdate = { corner: PanTiltLimitCorner, position: PanTiltPosition | null, };"
         );
         let declaration = <KnownState as ts_rs::TS>::decl(&config);
         assert!(declaration.contains("\"tally_mode\": TallyMode"));

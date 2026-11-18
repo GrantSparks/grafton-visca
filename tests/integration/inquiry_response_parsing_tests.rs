@@ -2,7 +2,7 @@
 
 use grafton_visca::{
     command::{exposure, focus, image, pan_tilt, power, tally, white_balance, zoom},
-    profiles::{GenericVisca, ProfileSpec, SonyFr7},
+    profiles::{GenericVisca, ProfileSpec, PtzOpticsG2, SonyFr7},
     request::Inquiry,
     types::{AutoWhiteBalanceSensitivity, ImageFlipMode, WhiteBalanceMode},
     wire::{Nibbles, Payload, Response, WireValue},
@@ -63,6 +63,7 @@ fn sony_fr7_profile_path_advertises_and_decodes_atw() {
     assert_eq!(
         white_balance::ModeInquiry
             .decoder_for_profile(&fr7)
+            .expect("profile-bound decoder")
             .decode(payload(&[0x90, 0x50, 0x04, 0xff]).expect("frame"))
             .expect("FR7 ATW"),
         WhiteBalanceMode::Atw
@@ -82,8 +83,10 @@ fn test_parse_power_inquiry_responses() {
 #[test]
 fn test_parse_pan_tilt_position_inquiry() {
     let profile =
-        ProfileSpec::from_compile_time::<GenericVisca>().expect("standard coordinate profile");
-    let decoder = pan_tilt::PositionInquiry.decoder_for_profile(&profile);
+        ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("standard coordinate profile");
+    let decoder = pan_tilt::PositionInquiry
+        .decoder_for_profile(&profile)
+        .expect("profile-bound decoder");
     let standard = [0x90, 0x50, 0, 1, 2, 3, 0, 4, 5, 6, 0xff];
     let position = decoder
         .decode(payload(&standard).expect("frame"))
@@ -365,11 +368,12 @@ fn test_error_handling() {
         decode(power::StatusInquiry, &[0x90, 0x50, 2]).is_err(),
         "missing terminator"
     );
-    let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("profile");
+    let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile");
     let short = [0x90, 0x50, 0, 1, 0xff];
     assert!(
         pan_tilt::PositionInquiry
             .decoder_for_profile(&profile)
+            .expect("profile-bound decoder")
             .decode(payload(&short).expect("well-formed frame"))
             .is_err(),
         "insufficient coordinate data"

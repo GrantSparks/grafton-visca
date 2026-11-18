@@ -228,13 +228,21 @@ a typed view. These conversions retain the same owner, cache and transport.
 
 ## Standard transport and profile matrix
 
-The default network ports are profile facts, not global constants:
+The selected profile supplies the default network ports.
 
-| Profile family | Envelope | TCP | UDP | Serial |
-| --- | --- | ---: | ---: | --- |
-| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` | Raw VISCA | 5678 | 1259 | Supported |
-| `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` | Raw VISCA | 5678 | 1259 | Supported |
-| `SonyFr7`, `SonyBrcH900` | Sony encapsulated VISCA | — | 52381 | Not a standard path |
+<!-- BEGIN GENERATED PROFILE TRANSPORTS -->
+| Profile | TCP default | UDP default | Serial | Envelope |
+| --- | --- | --- | --- | --- |
+| `PtzOpticsG2` | 5678 | 1259 | yes | `RawVisca` |
+| `PtzOpticsG3` | 5678 | 1259 | yes | `RawVisca` |
+| `PtzOptics30x` | 5678 | 1259 | yes | `RawVisca` |
+| `SonyFr7` | n/a | 52381 | no | `SonyEncapsulated` |
+| `SonyBrcH900` | n/a | 52381 | no | `SonyEncapsulated` |
+| `SonyEviH100` | n/a | n/a | yes | `RawVisca` |
+| `SonyBrc300` | n/a | n/a | yes | `RawVisca` |
+| `NearusBrc300` | n/a | n/a | yes | `RawVisca` |
+| `GenericVisca` | 5678 | 1259 | yes | `RawVisca` |
+<!-- END GENERATED PROFILE TRANSPORTS -->
 
 An explicit `host:port` overrides a network default. Bracket IPv6 when an
 explicit port is present, for example `[2001:db8::1]:5678`. A profile/transport
@@ -245,11 +253,10 @@ Standard TCP, UDP, and Sony multi-target configurations are rejected before a
 socket is created. Heterogeneous profiles are admitted only for a compatible
 raw serial/custom transport; the custom transport must preserve framing and
 response attribution. A caller-owned transport that reports a standard kind is
-validated against the profile transport registry. A truly custom transport
-that reports no standard kind (`None`) may bypass only the standard
-profile/transport pair matrix as an intentional BYO escape hatch; it still
-undergoes target-registry, envelope, addressing/topology, pacing, framing,
-buffer, and bounded-owner validation.
+validated against the profile transport registry. A caller-owned adapter can declare
+`TransportIdentity::Custom { semantics, addressing }` to use the custom
+transport path. The session still validates target registration, envelope,
+addressing, pacing, framing, buffer limits, and owner capacity.
 
 A raw command declared `RawReplyShape::CompletionOnly` answers with no ACK and
 no socket, so it is exclusive on its camera: it starts only when nothing else
@@ -320,10 +327,10 @@ duration; the owner cannot preempt arbitrary synchronous code. The blocking
 worker reads in slices of at most 10 ms, so a read that overruns its duration
 delays every STOP, cancellation, and `close` by the overrun. Zero advertised
 read/write timeouts are rejected at construction. A standard-kind caller-owned
-transport is checked against the profile transport registry; one that reports
-no standard kind (`None`) may bypass only that standard profile/transport pair matrix. The
-custom path still undergoes target-registry, envelope, addressing/topology,
-pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
+transport is checked against the profile transport registry. A transport
+declaring `TransportIdentity::Custom { semantics, addressing }` uses the custom
+path, with validation of target registration, envelope, addressing, pacing,
+framing, buffer limits, and owner capacity. A runtime-neutral async
 executor must provide coherent spawn, sleep, reusable timers, and clock behavior
 from one runtime. Async construction uses the crate's operation-first deadline
 race. Dropping a built-in connect future cancels its pending connector work. `raw::InquiryRequest::new` uses the inquiry lifecycle's fixed
@@ -453,9 +460,10 @@ hardware, so an error path leaves movement running until something else ends
 it; see the scoped stop-on-exit guard in
 [`migration_2_0.md`](migration_2_0.md#drop-never-stops-hardware).
 
-On the async facade, dropping an `execute`, `inquire`, or `submit` future before
-its owner admission prevents the request from being written, including work
-queued behind another write or a raw-correlation release gate. The owner drops
+On the async facade, dropping an `execute`, `inquire`, `submit`, or
+`motion().stop_all()` future before its owner admission prevents the request
+from being written, including work queued behind another write or a
+raw-correlation release gate. An abandoned halt leaves other motion eligible. The owner drops
 the abandoned boundary and restores its admission capacity. Admission and the
 reply happen in one synchronous owner turn: dropping after admission detaches
 observation, even if the caller has not yet received the handle. It does not

@@ -39,13 +39,19 @@ lives in `config::CameraConfig<P>`.
 
 ### Transports
 
-| Transport | Supported 2.0 contract | Automated validation |
-| --------- | ---------------------- | -------------------- |
-| TCP | Blocking, Tokio, and smol owner sessions through `CameraSession::connect` and `config::CameraConfig` | Runtime matrix above |
-| UDP | Blocking, Tokio, and smol owner sessions through `CameraSession::connect` and `config::CameraConfig` | Runtime matrix above |
-| Blocking serial | RS-232/422 through `transport-serial` and `blocking::Session` | Serial feature matrix |
-| Tokio serial | Tokio serial through `transport-serial-tokio` and `Session` | Tokio serial feature matrix |
-| Custom transports | Caller-owned `BlockingTransport`/`AsyncTransport` with `Session::open` | Custom transport contract tests |
+<!-- BEGIN GENERATED PROFILE TRANSPORTS -->
+| Profile | TCP default | UDP default | Serial | Envelope |
+| --- | --- | --- | --- | --- |
+| `PtzOpticsG2` | 5678 | 1259 | yes | `RawVisca` |
+| `PtzOpticsG3` | 5678 | 1259 | yes | `RawVisca` |
+| `PtzOptics30x` | 5678 | 1259 | yes | `RawVisca` |
+| `SonyFr7` | n/a | 52381 | no | `SonyEncapsulated` |
+| `SonyBrcH900` | n/a | 52381 | no | `SonyEncapsulated` |
+| `SonyEviH100` | n/a | n/a | yes | `RawVisca` |
+| `SonyBrc300` | n/a | n/a | yes | `RawVisca` |
+| `NearusBrc300` | n/a | n/a | yes | `RawVisca` |
+| `GenericVisca` | 5678 | 1259 | yes | `RawVisca` |
+<!-- END GENERATED PROFILE TRANSPORTS -->
 
 ### Profiles
 
@@ -156,6 +162,7 @@ custom integrations.
 | `MenuDisplayInquiry` | `HasMenuDisplayInquiry` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900` |
 | `DirectShutter` | `HasDirectShutter` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `PowerStandby` | `HasPowerStandby` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100` |
+| `PanTiltPositioning` | `HasPanTiltPositioning` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
 <!-- END PROFILE SUPPORT SURFACES -->
 
 The Sony FR7 tally row refers to the source-backed red/green tally controls and
@@ -193,7 +200,7 @@ for the method requirements, built-in restrictions, and custom profile opt-in.
 
 | Runtime domain | Owning facts |
 | --- | --- |
-| `pan_tilt: Option<PanTiltCaps>` | Raw bounds, conversion, nominal endpoint policy, speed ranges and mount-selected tilt limits |
+| `pan_tilt: Option<PanTiltCaps>` | Speed ranges and optional degree geometry with raw bounds, conversion and mount-selected tilt limits |
 | `zoom: Option<ZoomCaps>` | Optical maximum, optional digital maximum, speed range and lens ratio |
 | `focus`, `exposure`, `white_balance`, `image` | Each domain's sourced numeric ranges and inventories |
 | `presets: Option<PresetCaps>` | Highest memory number, exact recall axes and optional nonzero name length |
@@ -210,7 +217,7 @@ regenerated when upgrading from the flat capability record.
 | `power()` | `PtzOpticsG2`: 3/3; `PtzOpticsG3`: 3/3; `PtzOptics30x`: 3/3; `SonyFr7`: 3/3; `SonyBrcH900`: 3/3; `SonyEviH100`: 3/3; `SonyBrc300`: 2/3; `NearusBrc300`: 2/3; `GenericVisca`: 2/3 |
 | `zoom()` | `PtzOpticsG2`: 9/14; `PtzOpticsG3`: 9/14; `PtzOptics30x`: 9/14; `SonyFr7`: 13/14; `SonyBrcH900`: 6/14; `SonyEviH100`: 10/14; `SonyBrc300`: 10/14; `NearusBrc300`: 10/14; `GenericVisca`: 6/14 |
 | `system()` | `PtzOpticsG2`: 1/2; `PtzOpticsG3`: 1/2; `PtzOptics30x`: 1/2; `SonyFr7`: 1/2; `SonyBrcH900`: 1/2; `SonyEviH100`: 1/2; `SonyBrc300`: 1/2; `NearusBrc300`: 1/2; `GenericVisca`: 1/2 |
-| `pan_tilt()` | `PtzOpticsG2`: 9/10; `PtzOpticsG3`: 9/10; `PtzOptics30x`: 9/10; `SonyFr7`: 10/10; `SonyBrcH900`: 9/10; `SonyEviH100`: 9/10; `SonyBrc300`: 9/10; `NearusBrc300`: 9/10; `GenericVisca`: 9/10 |
+| `pan_tilt()` | `PtzOpticsG2`: 9/10; `PtzOpticsG3`: 9/10; `PtzOptics30x`: 9/10; `SonyFr7`: 10/10; `SonyBrcH900`: 9/10; `SonyEviH100`: 9/10; `SonyBrc300`: 9/10; `NearusBrc300`: 9/10; `GenericVisca`: 4/10 |
 | `focus()` | `PtzOpticsG2`: 13/22; `PtzOpticsG3`: 12/22; `PtzOptics30x`: 13/22; `SonyFr7`: 12/22; `SonyBrcH900`: 11/22; `SonyEviH100`: 14/22; `SonyBrc300`: 12/22; `NearusBrc300`: 12/22; `GenericVisca`: 12/22 |
 | `presets()` | `PtzOpticsG2`: 4/13; `PtzOpticsG3`: 4/13; `PtzOptics30x`: 4/13; `SonyFr7`: 13/13; `SonyBrcH900`: 1/13; `SonyEviH100`: 3/13; `SonyBrc300`: 3/13; `NearusBrc300`: 3/13; `GenericVisca`: 3/13 |
 | `exposure()` | `PtzOpticsG2`: 36/49; `PtzOpticsG3`: 36/49; `PtzOptics30x`: 36/49; `SonyFr7`: 14/49; `SonyBrcH900`: 16/49; `SonyEviH100`: 32/49; `SonyBrc300`: 32/49; `NearusBrc300`: 32/49; `GenericVisca`: 17/49 |
@@ -292,7 +299,7 @@ matrix fit together.
 | `serde` | Stable serialization/deserialization for public value and configuration types |
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
-| `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ManualClock` and `ClockParticipant` with either facade, `ScriptedTransport`, `LocalExecutor` and `ManualClockExecutor` with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
+| `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{ScriptedTransportIdentity, Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ManualClock` and `ClockParticipant` with either facade, `ScriptedTransport`, `LocalExecutor` and `ManualClockExecutor` with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
 
 ### Feature-union checks
 

@@ -17,7 +17,7 @@ use grafton_visca::{
     profiles::PtzOpticsG2,
     r#async::Session,
     runtime::Executor,
-    transport::{AsyncTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
+    transport::{AsyncTransport, HasTransportConfig, ReceiveOutcome, ValidatedTransportConfig},
     Error,
 };
 
@@ -29,7 +29,7 @@ use fake_camera::FakeCamera;
 /// the public session facade.
 #[derive(Debug)]
 struct GatedCloseTransport {
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
     receive_started: flume::Sender<()>,
     release_eof: flume::Receiver<()>,
     dropped: flume::Sender<()>,
@@ -43,7 +43,7 @@ impl HasTransportConfig for GatedCloseTransport {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }
@@ -117,7 +117,7 @@ async fn close_reports_transport_winner<E: Executor>(executor: E) {
     let (release_eof_tx, release_eof_rx) = flume::bounded(1);
     let (dropped_tx, dropped_rx) = flume::bounded(1);
     let transport = GatedCloseTransport {
-        config: TransportConfig::default(),
+        config: ValidatedTransportConfig::default(),
         receive_started: receive_started_tx,
         release_eof: release_eof_rx,
         dropped: dropped_tx,

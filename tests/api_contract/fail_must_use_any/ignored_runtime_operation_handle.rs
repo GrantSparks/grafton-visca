@@ -4,6 +4,7 @@ use grafton_visca::{profiles::AnyProfile, r#async::Camera};
 
 async fn ignore_runtime_operation_handle(camera: &Camera<AnyProfile>) {
     camera
+    //~^ "Operation` that must be used"
         .pan_tilt()
         .home()
         .await
@@ -13,5 +14,3 @@ async fn ignore_runtime_operation_handle(camera: &Camera<AnyProfile>) {
 fn main() {
     let _ = ignore_runtime_operation_handle;
 }
-
-//~ "Operation` that must be used"

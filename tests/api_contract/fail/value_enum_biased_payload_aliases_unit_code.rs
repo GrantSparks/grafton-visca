@@ -2,6 +2,7 @@
 struct Extension(i8);
 
 #[grafton_visca::value_enum]
+//~^ E0080 "value_enum payload domain contains a unit wire code"
 enum Overlapping {
     #[cfg(all())]
     Unknown(Extension),
@@ -10,6 +11,3 @@ enum Overlapping {
 }
 
 fn main() {}
-
-//~ E0080
-//~ "value_enum payload domain contains a unit wire code"

@@ -545,6 +545,7 @@ fn both_native_camera_cores_have_the_same_methods_and_forwarding_contract() {
         [
             "execute",
             "inquire",
+            "inquire_with_decoder",
             "is_moving",
             "profile",
             "registration",

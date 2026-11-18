@@ -354,7 +354,7 @@ fn cases() -> Vec<Case> {
         case!(
             ControlReserveExhausted,
             "",
-            Error::control_reserve_exhausted(crate::CameraId::CAMERA_1, 1),
+            Error::control_reserve_exhausted(crate::IndividualCameraId::CAMERA_1, 1),
             BufferFull,
             None,
             capacity
@@ -363,7 +363,7 @@ fn cases() -> Vec<Case> {
             InquiryShapeCapacityExhausted,
             "",
             Error::InquiryShapeCapacityExhausted {
-                camera: crate::CameraId::CAMERA_1,
+                camera: crate::IndividualCameraId::CAMERA_1,
                 capacity: 16,
             },
             BufferFull,
@@ -439,7 +439,7 @@ fn cases() -> Vec<Case> {
         case!(
             InquiryCorrelationLost,
             "lane latched",
-            Error::inquiry_correlation_lost(crate::CameraId::CAMERA_1),
+            Error::inquiry_correlation_lost(crate::IndividualCameraId::CAMERA_1),
             NotExecutable,
             context(Terminal, NotAccepted),
             Abandon
@@ -447,7 +447,7 @@ fn cases() -> Vec<Case> {
         case!(
             CommandCorrelationLost,
             "lane latched",
-            Error::command_correlation_lost(crate::CameraId::CAMERA_1),
+            Error::command_correlation_lost(crate::IndividualCameraId::CAMERA_1),
             NotExecutable,
             context(Terminal, NotAccepted),
             Abandon
@@ -505,14 +505,6 @@ fn cases() -> Vec<Case> {
             "",
             Error::response_too_large(1),
             Protocol,
-            None,
-            Abandon
-        ),
-        case!(
-            InquiryNotCancellable,
-            "",
-            Error::InquiryNotCancellable,
-            InvalidParameter,
             None,
             Abandon
         ),
@@ -675,7 +667,7 @@ fn every_wrapper_preserves_the_characterized_classification() {
     }
     assert_eq!(
         rendered.lines().collect::<Vec<_>>(),
-        include_str!("../tests/fixtures/issue_1015_error_classification.txt")
+        include_str!("../testdata/issue_1015_error_classification.txt")
             .lines()
             .collect::<Vec<_>>(),
     );
@@ -683,7 +675,7 @@ fn every_wrapper_preserves_the_characterized_classification() {
 
 #[test]
 fn every_public_variant_has_one_checked_recovery_contract() {
-    let source = grafton_visca_test_support::source_scan::production_code(include_str!("error.rs"));
+    let source = crate::test_support::source_scan::production_code(include_str!("error.rs"));
     let body = source
         .split_once("pub enum Error {")
         .expect("Error declaration")
@@ -795,7 +787,7 @@ fn caller_deadlines_are_exact_and_query_normalization_preserves_other_failures()
     }
     for error in [
         Error::InquiryShapeCapacityExhausted {
-            camera: crate::CameraId::CAMERA_1,
+            camera: crate::IndividualCameraId::CAMERA_1,
             capacity: 16,
         },
         Error::settlement_superseded(OperationId::from_raw(1), crate::AffectedAxes::ZOOM),
@@ -934,7 +926,6 @@ fn cached_cancellation_keeps_canonical_operation_and_session_outcomes_exact() {
         Error::CancellationUnconfirmed,
         Error::UnsequencedCommandUnconfirmed,
         Error::CancellationNotSupported,
-        Error::InquiryNotCancellable,
         Error::OwnerTerminated,
         Error::RuntimeShutdown,
         Error::timeout(FailureStage::CancellationAttempt, Certainty::StillLive),
@@ -1030,7 +1021,7 @@ fn terminal_wrappers_preserve_permanent_sources_through_context() {
     for source in [
         Error::MaxRetriesExceeded,
         Error::InquiryShapeCapacityExhausted {
-            camera: crate::CameraId::CAMERA_1,
+            camera: crate::IndividualCameraId::CAMERA_1,
             capacity: 16,
         },
     ] {
@@ -1152,7 +1143,7 @@ fn rendered_display_contract() -> String {
 fn every_error_display_matches_the_prior_derived_literal_golden() {
     assert_eq!(
         rendered_display_contract().lines().collect::<Vec<_>>(),
-        include_str!("../tests/fixtures/issue_993_error_display_golden.txt")
+        include_str!("../testdata/issue_993_error_display_golden.txt")
             .lines()
             .collect::<Vec<_>>(),
     );

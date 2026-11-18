@@ -11,8 +11,7 @@ fn assert_send_sync<T: Send + Sync>() {}
 fn assert_send<T: Send>(_: &T) {}
 
 async fn applied_only(mut handle: Operation<AppliedOnly>) -> Result<(), Error> {
-    let id: OperationId = handle.id();
-    let _ = id.get();
+    let _: OperationId = handle.id();
     handle.applied_with_timeout(Duration::from_secs(1)).await
 }
 

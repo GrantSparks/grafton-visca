@@ -9,10 +9,7 @@ fn main() {
     let camera = camera.as_ref().unwrap();
 
     let _ = camera.white_balance().color_temperature_mode();
+    //~^ E0599 "no method named `color_temperature_mode`"
     let _ = camera.white_balance().color_temperature();
+    //~^ E0277 "camera profile `grafton_visca::profiles::SonyBrcH900` does not support `grafton_visca::capabilities::gate::ColorTemperatureInquiry`"
 }
-
-//~ E0277
-//~ E0599
-//~ "camera profile `grafton_visca::profiles::SonyBrcH900` does not support `grafton_visca::capabilities::gate::ColorTemperatureInquiry`"
-//~ "no method named `color_temperature_mode`"

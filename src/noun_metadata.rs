@@ -102,7 +102,7 @@ macro_rules! inquiry_request_type {
     (checked $($request:tt)*) => {
         inquiry_request_type!($($request)*)
     };
-    (mapped [$($request:tt)*] |$reply:ident, $profile:ident| $mapping:expr) => {
+    (with_decoder [$($request:tt)*] => $decoder:path) => {
         inquiry_request_type!($($request)*)
     };
     (@path [$($path:tt)*]) => { stringify!($($path)*) };
@@ -282,8 +282,7 @@ mod tests {
         );
         assert_eq!(
             inquiry_request_type!(
-                mapped[command::pan_tilt::PositionInquiry] | reply,
-                profile | profile.to_degrees(reply)
+                with_decoder [command::pan_tilt::PositionInquiry] => custom_decoder
             ),
             "command :: pan_tilt :: PositionInquiry"
         );
@@ -293,7 +292,7 @@ mod tests {
     fn target_bound_query_factories_project_the_request_type() {
         assert_eq!(
             inquiry_request_type!(
-                with_target | target | command::zoom::NormalizedInquiry::for_target(target, domain)
+                with_target | _target | command::zoom::NormalizedInquiry::new(domain)
             ),
             "command :: zoom :: NormalizedInquiry"
         );

@@ -1,9 +1,6 @@
 //! Private unit checks of the generated API contract.
 //!
-//! The library includes this file and invokes `api_convention_tests!`; keeping
-//! the test definitions inside that macro grants access to private metadata
-//! without introducing a public testing API. Its module in the Cargo integration
-//! target contains no executed tests; the checks run in the library unit suite.
+//! These checks use private metadata from the production noun inventory.
 
 #![allow(unused_macros, unused_imports)]
 
@@ -171,17 +168,26 @@ macro_rules! api_convention_tests {
                     let noun = key.noun_name();
                     let property = key.property_name();
                     assert_eq!(format!("{key:?}"), format!("{}{}", camel_case(noun), camel_case(property)), "cache key no longer mirrors its noun/property");
-                    if noun == "pan_tilt" && property == "limit" {
-                        // Set and clear share a corner-local aggregate rather
-                        // than a single scalar property value.
-                        assert_eq!(canonical_type(key.value_type_name()), "PanTiltLimitUpdate");
-                        assert_eq!(find(noun, "set_limit").arguments.len(), 2);
-                        assert_eq!(find(noun, "clear_limit").arguments.len(), 1);
-                        continue;
-                    }
                     let setter_name = format!("set_{property}");
                     let setter = find(noun, &setter_name);
-                    assert_eq!(canonical_type(property_argument(setter, None).ty), canonical_type(key.value_type_name()), "cache/setter type mismatch for {key:?}");
+                    if *key == crate::state_cache::StateKey::PanTiltLimit {
+                        fn value_type<T>(_: Option<T>) -> &'static str {
+                            std::any::type_name::<T>().rsplit("::").next().expect("value type")
+                        }
+                        let update = crate::state_cache::PanTiltLimitUpdate::clear(crate::types::PanTiltLimitCorner::UpRight);
+                        let [corner, position] = setter.arguments else {
+                            panic!("set_limit must take a corner and a position");
+                        };
+                        let [clear_corner] = find(noun, "clear_limit").arguments else {
+                            panic!("clear_limit must take a corner");
+                        };
+                        assert_eq!(canonical_type(key.value_type_name()), "PanTiltLimitUpdate");
+                        assert_eq!(canonical_type(corner.ty), value_type(Some(update.corner())));
+                        assert_eq!(canonical_type(clear_corner.ty), value_type(Some(update.corner())));
+                        assert_eq!(canonical_type(position.ty), value_type(update.position()));
+                    } else {
+                        assert_eq!(canonical_type(property_argument(setter, None).ty), canonical_type(key.value_type_name()), "cache/setter type mismatch for {key:?}");
+                    }
                 }
             }
 

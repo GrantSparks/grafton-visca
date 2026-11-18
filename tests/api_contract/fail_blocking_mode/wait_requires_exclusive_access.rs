@@ -4,11 +4,9 @@ use grafton_visca::{blocking::Operation, operation::Targeted};
 // so one handle is never observed by two waits at once.
 fn shared_wait(handle: &Operation<Targeted>) {
     let _ = handle.settled();
+    //~^ E0596 "cannot borrow `*handle` as mutable, as it is behind a `&` reference"
 }
 
 fn main() {
     let _ = shared_wait;
 }
-
-//~ E0596
-//~ "cannot borrow `*handle` as mutable, as it is behind a `&` reference"

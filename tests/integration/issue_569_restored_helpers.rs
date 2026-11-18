@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 use grafton_visca::{
     blocking::Session,
     config::SessionConfig,
-    profiles::{ProfileSpec, PtzOpticsG2, SonyEviH100, SonyFr7},
+    profiles::{ProfileSpec, PtzOpticsG2, SonyBrc300, SonyEviH100, SonyFr7},
     types::{
-        AffectedAxes, Degrees, ImageFlipMode, MotionQuery, MotionSyncSpeed, NdFilterMode,
-        NdiQuality, PanSpeed, PanTiltDirection, PanTiltLimitCorner, PanTiltSpeedMode, PresetSpeed,
+        AffectedAxes, Degrees, MotionQuery, MotionSyncSpeed, NdFilterMode, NdiQuality, PanSpeed,
+        PanTiltDirection, PanTiltLimitCorner, PanTiltPosition, PanTiltSpeedMode, PresetSpeed,
         TiltSpeed, UnitInterval, ZoomDomain, ZoomPosition,
     },
     Error,
@@ -484,38 +484,18 @@ fn typed_cameras_expose_their_runtime_capability_inventory() {
 }
 
 #[test]
-fn typed_cache_getters_decode_the_combined_flip_pair() {
-    let (session, _fake) = ptz_session();
-    let camera = session
-        .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
-        .expect("camera");
-    let cache = camera.state_cache();
-
-    assert_eq!(cache.image().flip_mode(), None);
-
-    camera
-        .image()
-        .set_flip_mode(ImageFlipMode::Both)
-        .expect("combined flip");
-    assert_eq!(cache.image().flip_mode(), Some(ImageFlipMode::Both));
-
-    camera
-        .image()
-        .set_flip_mode(ImageFlipMode::Horizontal)
-        .expect("combined flip");
-    assert_eq!(cache.image().flip_mode(), Some(ImageFlipMode::Horizontal));
-
-    // A single-axis opcode moves one axis and leaves the other unknown, so the
-    // complete pair stops being known rather than going stale.
-    camera.image().set_flip(true).expect("separate flip");
-    assert_eq!(cache.image().flip_mode(), None);
-
-    session.shutdown().expect("shutdown");
-}
-
-#[test]
 fn typed_cache_getters_decode_pan_tilt_limit_updates() {
-    let (session, fake) = ptz_session();
+    let fake = FakeCamera::visca(|request, answer| {
+        if request == [0x81, 0x09, 0x06, 0x12, 0xFF] {
+            // The upper-right limit below writes pan 0x0510 and tilt 0x01B0.
+            answer.reply(frames::inquiry_reply(&[0, 5, 1, 0, 0, 1, 0xB, 0]));
+        } else {
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
+        }
+    });
+    let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+    let session =
+        Session::open(fake.blocking_wire(), &SessionConfig::new(profile)).expect("session");
     let camera = session
         .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
         .expect("camera");
@@ -544,23 +524,17 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
     assert_eq!(update.corner(), PanTiltLimitCorner::DownLeft);
     assert!(!update.is_cleared());
     assert_eq!(
-        update.position().map(|position| position.raw_values()),
-        Some((0, 0))
+        update.position(),
+        Some(PanTiltPosition::from_degrees(0.0, 0.0).unwrap())
     );
 
     // The origin is the one point where both axes agree and both signs vanish,
     // so it cannot see a swapped, dropped, or truncated axis. Probe a corner
-    // whose two axes differ: 90 degrees of pan and 30 of tilt, converted by the
-    // profile's own degrees-to-units factors.
+    // whose two axes differ and round when converted to wire units.
+    let requested = PanTiltPosition::from_degrees(90.01, 30.01).unwrap();
     camera
         .pan_tilt()
-        .set_limit(
-            PanTiltLimitCorner::UpRight,
-            grafton_visca::types::PanTiltPosition {
-                pan: Degrees::new(90.0).expect("finite degrees"),
-                tilt: Degrees::new(30.0).expect("finite degrees"),
-            },
-        )
+        .set_limit(PanTiltLimitCorner::UpRight, requested)
         .expect("limit set");
     assert_eq!(
         fake.take_only_payload(),
@@ -572,12 +546,13 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
     let update = cache.pan_tilt().limit().expect("recorded limit update");
     assert_eq!(update.corner(), PanTiltLimitCorner::UpRight);
     assert!(!update.is_cleared());
-    let (pan, tilt) = update
-        .position()
-        .expect("a limit set records a position")
-        .raw_values();
-    assert_ne!(pan, tilt, "the probe must be able to see swapped axes");
-    assert_eq!((pan, tilt), (1296, 432));
+    let applied = update.position().expect("a limit set records a position");
+    assert_ne!(
+        applied, requested,
+        "the cache records the quantized position"
+    );
+    assert_eq!(applied, camera.pan_tilt().position().expect("position"));
+    assert_eq!(fake.take_only_payload(), [0x81, 0x09, 0x06, 0x12, 0xFF]);
 
     camera
         .pan_tilt()
@@ -616,6 +591,54 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
 
 /// PTZOptics tally-mode candidates are a distinct, unevidenced family from the
 /// FR7 red/green tally commands and must fail before transport I/O.
+#[test]
+fn brc300_limit_cache_round_trips_degrees_through_a_negative_pan_scale() {
+    // Signed 20-bit pan -9360 is 0xFDB70. Tilt +3120 is 0x0C30.
+    let encoded = [0xF, 0xD, 0xB, 7, 0, 0, 0xC, 3, 0];
+    let fake = FakeCamera::visca(move |request, answer| {
+        if request == [0x81, 0x09, 0x06, 0x12, 0xFF] {
+            answer.reply(frames::inquiry_reply(&encoded));
+        } else {
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
+        }
+    });
+    let profile = ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300 profile");
+    let session =
+        Session::open(fake.blocking_wire(), &SessionConfig::new(profile)).expect("session");
+    let camera = session
+        .camera::<SonyBrc300>(grafton_visca::types::IndividualCameraId::CAMERA_1)
+        .expect("camera");
+    let cache = camera.state_cache();
+    let corner = PanTiltLimitCorner::UpRight;
+    let requested = PanTiltPosition::from_degrees(45.001, 15.001).unwrap();
+    camera
+        .pan_tilt()
+        .set_limit(corner, requested)
+        .expect("limit set");
+    let wire = fake.take_only_payload();
+    assert_eq!(wire[6..15], encoded);
+    let update = cache.pan_tilt().limit().expect("recorded limit");
+    let applied = update.position().expect("recorded position");
+    assert_eq!(update.corner(), corner);
+    assert_eq!(applied, PanTiltPosition::from_degrees(45.0, 15.0).unwrap());
+    assert_eq!(camera.pan_tilt().position().expect("position"), applied);
+    let _ = fake.take_only_payload();
+
+    camera
+        .pan_tilt()
+        .set_limit(update.corner(), applied)
+        .expect("limit round trip");
+    assert_eq!(fake.take_only_payload(), wire);
+    camera.pan_tilt().clear_limit(corner).expect("limit clear");
+    assert_eq!(
+        cache.pan_tilt().limit(),
+        Some(grafton_visca::state_cache::PanTiltLimitUpdate::clear(
+            corner
+        ))
+    );
+    session.shutdown().expect("shutdown");
+}
+
 #[test]
 fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
     let (session, fake) = fr7_session();

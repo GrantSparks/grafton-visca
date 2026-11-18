@@ -15,6 +15,9 @@ pub(super) struct CompletionLearning {
     pub(super) socket_capacity_seen: Option<crate::CommandSocketCount>,
     pub(super) completion_sockets: CompletionSockets,
     pub(super) pending_socketless_completions: Option<PendingSocketlessCompletions>,
+    /// Owners a completion dropped as ambiguous could have finished. Exact
+    /// evidence can end or replace those owners before the next socketless ACK.
+    pub(super) dropped_completion_owners: [Option<RequestId>; 2],
 }
 
 #[derive(Debug)]

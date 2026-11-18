@@ -14,15 +14,14 @@ pub struct Recall {
     preset: types::PresetNumber,
 }
 impl Recall {
-    /// Checks the recall against the target and captures its exact motion axes.
-    pub fn for_target(
-        target: &TargetRegistration,
-        preset: types::PresetNumber,
-    ) -> crate::Result<Self> {
-        let inner = builtin::PresetRecall::for_profile(preset, target.profile())?;
-        let request = Self { inner, preset };
-        request.validate_for_target(target)?;
-        Ok(request)
+    /// Creates a recall intent. Preparation selects the receiving camera's
+    /// motion axes and checks its preset range.
+    #[must_use]
+    pub const fn new(preset: types::PresetNumber) -> Self {
+        Self {
+            inner: builtin::PresetRecall::new(preset),
+            preset,
+        }
     }
 
     /// Returns the requested preset.

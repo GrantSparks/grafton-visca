@@ -122,10 +122,11 @@ pub(crate) mod datagram;
 mod entry_point_tests;
 pub(crate) mod envelope;
 mod kind;
-pub(crate) use kind::{NetworkTransport, StandardTransport};
+pub(crate) use kind::NetworkTransport;
+pub use kind::StandardTransport;
 #[path = "serial/config.rs"]
 pub(crate) mod serial_config;
-pub use serial_config::{SerialConfig, SerialStartup};
+pub use serial_config::{SerialConfig, SerialStartup, ValidatedSerialConfig};
 
 #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
 pub(crate) mod serial;
@@ -145,14 +146,18 @@ pub(crate) mod socket_options;
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 pub mod tokio;
 
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub use address::NetworkEndpoint;
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
 pub use blocking_transport::{
     AddressedBus, BlockingTransport, HasTransportConfig, TransportIdentity,
 };
 pub use buffer::BufferConfig;
-pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig};
+pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig, ValidatedTransportConfig};
 pub use datagram::ReceiveOutcome;
+#[doc(hidden)]
+pub use datagram::ScriptedReceive;
 pub use envelope::{Envelope, FrameMeta, RawVisca, SonyEncapsulated};
 
 /// The one end-of-stream rule shared by the built-in byte-stream transports.

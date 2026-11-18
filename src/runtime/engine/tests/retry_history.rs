@@ -186,7 +186,7 @@ fn terminal_paths_and_cache_agree_for_every_reachable_prior_history() {
                         .unwrap()
                 }
                 3 => engine.advance(now + Duration::from_millis(200)),
-                4 => engine.handle(Input::Cancel { id }, now + Duration::from_millis(50)),
+                4 => engine.handle(engine.cancel_input(id), now + Duration::from_millis(50)),
                 _ => {
                     let mut at = now;
                     loop {
@@ -220,7 +220,9 @@ fn terminal_paths_and_cache_agree_for_every_reachable_prior_history() {
                 assert!(effects.iter().any(|effect| matches!(
                     effect,
                     Effect::CancellationObservation {
-                        observation: CancellationObservation::Cancelled,
+                        observation: CancellationObservation::Concluded(
+                            CancellationConclusion::Cancelled
+                        ),
                         ..
                     }
                 )));
@@ -239,8 +241,8 @@ fn terminal_paths_and_cache_agree_for_every_reachable_prior_history() {
                         assert!(effects.iter().any(|effect| matches!(
                             effect,
                             Effect::CancellationObservation {
-                                observation: CancellationObservation::Failed(
-                                    Error::CancellationUnconfirmed
+                                observation: CancellationObservation::Concluded(
+                                    CancellationConclusion::Failed(crate::ErrorKind::Unconfirmed)
                                 ),
                                 ..
                             }
@@ -513,7 +515,7 @@ fn sequence_slots_keep_the_request_sequence_across_retries_and_cancellation() {
         ),
         now,
     );
-    let cancellation = engine.handle(Input::Cancel { id }, now);
+    let cancellation = engine.handle(engine.cancel_input(id), now);
     let (transmission, request, _) = cancel_transmit(&cancellation);
     engine.handle(
         Input::TransmissionFinished {
@@ -526,7 +528,7 @@ fn sequence_slots_keep_the_request_sequence_across_retries_and_cancellation() {
         now,
     );
     for _ in 0..3 {
-        let duplicate = engine.handle(Input::Cancel { id }, now);
+        let duplicate = engine.handle(engine.cancel_input(id), now);
         assert!(duplicate
             .iter()
             .all(|effect| !matches!(effect, Effect::Transmit { .. })));
@@ -549,7 +551,7 @@ fn rejection_during_cancellation_cannot_erase_the_prior_lost_ack() {
     };
     let write = dispatch(&mut engine, id, now);
     send_ok(&mut engine, &write, Some(0x1001), at);
-    engine.handle(Input::Cancel { id }, at);
+    engine.handle(engine.cancel_input(id), at);
     let effects = engine.handle(
         frame(
             1,

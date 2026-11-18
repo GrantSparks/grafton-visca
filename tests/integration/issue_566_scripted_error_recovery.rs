@@ -39,6 +39,12 @@ use grafton_visca::{
 use profile_fixtures::{session_config, NonDefaultCompileTimeProfile};
 use retry_requests::{MovementCommand, StandardCommand};
 
+const CUSTOM_IP_STREAM: grafton_visca::testing::testkit::ScriptedTransportIdentity =
+    grafton_visca::testing::testkit::ScriptedTransportIdentity::Custom {
+        semantics: grafton_visca::transport::SendSemantics::Stream,
+        addressing: grafton_visca::transport::AddressingMode::Ip,
+    };
+
 /// The exact bytes a zoom-position inquiry puts on the wire for camera 1.
 const ZOOM_POSITION_INQUIRY: [u8; 5] = [0x81, 0x09, 0x04, 0x47, 0xff];
 
@@ -49,7 +55,7 @@ const ZOOM_POSITION_INQUIRY: [u8; 5] = [0x81, 0x09, 0x04, 0x47, 0xff];
 const TUNED_QUICK_WRITES: usize = 4;
 
 fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
-    let transport = ScriptedBlockingTransport::new(steps);
+    let transport = ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, steps);
     let probe = transport.clone();
     let session = Session::open(transport, &session_config()).expect("owner session");
     (session, probe)
@@ -63,13 +69,11 @@ fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
 /// budget is lengthened, so the budget can never be what ends a scenario about
 /// the attempt count.
 fn tuned_open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
-    let transport = ScriptedBlockingTransport::new(steps);
+    let transport = ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, steps);
     let probe = transport.clone();
     let config = session_config().with_tuning(
         OperationalTuning::new()
             .with_retry_limit(1)
-            .with_initial_retry_backoff(Duration::from_millis(50))
-            .with_maximum_retry_backoff(Duration::from_millis(500))
             .with_retry_budget(Duration::from_secs(30)),
     );
     let session = Session::open(transport, &config).expect("owner session");
@@ -322,4 +326,105 @@ fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
     );
     assert_eq!(probe.sent().len(), TUNED_QUICK_WRITES);
     session.shutdown().expect("owner shutdown");
+}
+
+#[test]
+fn scripted_fr7_udp_discards_a_bad_datagram() {
+    use grafton_visca::{
+        config::SessionConfig, profiles::SonyFr7, testing::testkit::ScriptedTransportIdentity,
+        types::IndividualCameraId,
+    };
+
+    let step = Step::every_send(std::sync::Arc::new(|bytes| {
+        let mut ack = vec![0x01, 0x11, 0, 3];
+        ack.extend_from_slice(&bytes[4..8]);
+        let mut completion = ack.clone();
+        ack.extend_from_slice(&[0x90, 0x41, 0xff]);
+        completion.extend_from_slice(&[0x90, 0x51, 0xff]);
+        vec![vec![0, 0], ack, completion]
+    }));
+    let transport = ScriptedBlockingTransport::new(ScriptedTransportIdentity::Udp, [step]);
+    let config = SessionConfig::from_compile_time::<SonyFr7>().expect("FR7 config");
+    let session = Session::open(transport, &config).expect("scripted UDP session");
+    let camera = session
+        .camera::<SonyFr7>(IndividualCameraId::CAMERA_1)
+        .expect("camera");
+    camera
+        .zoom()
+        .stop()
+        .expect("STOP submitted")
+        .applied()
+        .expect("malformed datagram does not poison UDP");
+    camera
+        .zoom()
+        .stop()
+        .expect("STOP submitted")
+        .applied()
+        .expect("persistent reply also serves a second command");
+    session.close().expect("close");
+}
+
+#[test]
+fn scripted_serial_bus_can_register_two_targets() {
+    use grafton_visca::{
+        config::SessionConfig,
+        profiles::{GenericVisca, ProfileSpec},
+        testing::testkit::ScriptedTransportIdentity,
+        transport::AddressedBus,
+        types::IndividualCameraId,
+    };
+
+    let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("Generic profile");
+    let config = SessionConfig::for_target(IndividualCameraId::CAMERA_1, profile.clone())
+        .with_target(IndividualCameraId::CAMERA_2, profile)
+        .expect("two targets");
+    let transport = ScriptedBlockingTransport::new(
+        ScriptedTransportIdentity::Serial {
+            bus: Some(AddressedBus::new("/dev/scripted", 2)),
+        },
+        [Step::on_send(
+            None,
+            vec![vec![0xa0, 0x41, 0xff], vec![0xa0, 0x51, 0xff]],
+        )],
+    );
+    let session = Session::open(transport, &config).expect("serial session");
+    session
+        .camera::<GenericVisca>(IndividualCameraId::CAMERA_2)
+        .expect("camera 2")
+        .zoom()
+        .stop()
+        .expect("STOP submitted")
+        .applied()
+        .expect("target 2 accepts its own reply");
+    session.close().expect("close");
+}
+
+#[test]
+fn scripted_stream_chunk_larger_than_the_receive_buffer_keeps_its_tail() {
+    use grafton_visca::{
+        config::SessionConfig, profiles::GenericVisca, testing::testkit::ScriptedTransportIdentity,
+        types::IndividualCameraId,
+    };
+
+    let mut chunk = vec![0x90, 0x41, 0xff];
+    for _ in 0..42 {
+        chunk.extend_from_slice(&[0x90, 0x38, 0xff]);
+    }
+    chunk.extend_from_slice(&[0x90, 0x51, 0xff]);
+    assert_eq!(chunk.len(), 132);
+    let transport = ScriptedBlockingTransport::new(
+        ScriptedTransportIdentity::Tcp,
+        [Step::on_send(None, vec![chunk])],
+    );
+    let config = SessionConfig::from_compile_time::<GenericVisca>().expect("Generic config");
+    let session = Session::open(transport, &config).expect("scripted stream session");
+    session
+        .camera::<GenericVisca>(IndividualCameraId::CAMERA_1)
+        .expect("camera")
+        .zoom()
+        .stop()
+        .expect("STOP submitted")
+        .applied()
+        .expect("completion appears in the second read");
+    session.close().expect("close");
 }

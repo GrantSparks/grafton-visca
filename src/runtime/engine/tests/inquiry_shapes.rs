@@ -688,7 +688,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
         assert!(effects.iter().any(|effect| matches!(effect,
             Effect::AdmissionRejected {
                 error: Error::InquiryShapeCapacityExhausted { camera: seen, capacity }, ..
-            } if *seen == camera(target).camera() && *capacity == classes)));
+            } if *seen == camera(target).individual_camera() && *capacity == classes)));
         assert!(!effects
             .iter()
             .any(|effect| matches!(effect, Effect::Admitted { .. } | Effect::Transmit { .. })));

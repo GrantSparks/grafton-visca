@@ -23,7 +23,5 @@ fn requires_operation<O: OperationCommand<Targeted>>(_: O) {}
 
 fn main() {
     requires_operation(MissingAffectedAxes);
+    //~^ E0277 "MissingAffectedAxes: OperationCommand<"
 }
-
-//~ E0277
-//~ "MissingAffectedAxes: OperationCommand<"

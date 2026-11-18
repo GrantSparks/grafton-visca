@@ -12,19 +12,20 @@ use std::{collections::VecDeque, time::Duration};
 use grafton_visca::{
     blocking::Session, config::SessionConfig, operation::CancellationOutcome,
     profiles::ProfileSpec, profiles::SonyFr7, transport::BlockingTransport,
-    transport::HasTransportConfig, transport::ReceiveOutcome, transport::TransportConfig, Error,
+    transport::HasTransportConfig, transport::ReceiveOutcome, transport::ValidatedTransportConfig,
+    Error,
 };
 
 #[derive(Debug)]
 struct CancelCamera {
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
     replies: VecDeque<Vec<u8>>,
 }
 
 impl CancelCamera {
     fn new() -> Self {
         Self {
-            config: TransportConfig::default(),
+            config: ValidatedTransportConfig::default(),
             replies: VecDeque::new(),
         }
     }
@@ -54,7 +55,7 @@ impl HasTransportConfig for CancelCamera {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }

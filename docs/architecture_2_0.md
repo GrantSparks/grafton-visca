@@ -188,14 +188,13 @@ deadline.
 owner starts, and duplicate IDs, an eighth target, an empty registry, and
 profile/configuration conflicts are rejected before transport I/O.
 
-Public `CameraId` values cross individual-camera boundaries through the one
-private `TargetSlot::try_from` rule. A `TargetSlot` indexes `PerTarget<T>`, a
-fixed seven-slot table used by session registration, grouped engine state,
-stream-ledger state, owner registries and caches. Neither controller address 0
-nor broadcast occupies an inert slot. Request removal scrubs only its own
-target; broadcast Address Set and interface-clear maintenance remain explicit
-transport-lifecycle operations outside these tables. The public API continues
-to use `CameraId` (#853).
+Session targets, per-target errors, and diagnostic events carry
+`IndividualCameraId`. The owner uses `TargetSlot` to index `PerTarget<T>`, a
+fixed seven-slot table shared by session registration, grouped engine state,
+stream-ledger state, owner registries and caches. Request removal scrubs
+only its own target. Raw addressing uses `CameraId`, and broadcast Address Set
+and interface-clear maintenance remain explicit transport-lifecycle
+operations outside these tables.
 
 `CameraSession<P>::camera()` returns its single bound target. A `Session`
 selects every target explicitly with `camera::<P>(target)`, checking the complete
@@ -274,9 +273,10 @@ The construction and request path has a fixed order:
 4. Project `Camera<P>` or `Camera<AnyProfile>` views
    without creating a second owner, runtime, transport, or cache.
 5. Prepare each request against the selected target/profile and admit it to the
-   owner. Preparation invokes `Request::validate_for_target` before encoding;
-   crate-provided direct requests therefore return `FeatureNotSupported` for
-   an unsupported profile before owner admission or transport I/O. `write_into`
+   owner. Preparation invokes `Request::validate_for_target` and binds any
+   profile-dependent inquiry decoder before encoding. Built-in and derived
+   inquiries return `FeatureNotSupported` before owner admission or transport
+   I/O when the profile lacks the facts needed to decode their reply. `write_into`
    is only the profile-free encoding hook. Raw and other downstream requests
    remain explicit low-level extensions and may implement their own profile
    validation; preparation failures do not update state.
@@ -665,11 +665,11 @@ Either kind of ACK naming a socket the engine still indexes to an executing
 command proves that command's completion was lost: it ends unconfirmed and
 the socket is released (#721).
 A socketless ACK can use the first-free rule only while physical occupancy
-remains certain. An ambiguously retained completion, an unresolved completion
-from before socket learning, or an inert socket hold can mean the camera has
-already freed a socket still indexed locally. Such an ACK retains the union
-of possible sockets as anonymous holds instead of guessing. The possible
-sockets include earlier dispatched capacity and camera-proven socket keys,
+remains certain. A completion retained ambiguously or dropped while an
+indexed socket holder could have sent it, or an inert socket hold, can mean
+that the camera has already freed a socket still indexed locally. Such an ACK
+retains the union of possible sockets as anonymous holds instead of guessing.
+The possible sockets include earlier dispatched capacity and camera-proven socket keys,
 so lowering capacity cannot forget an older execution, while a one-socket
 session gains no phantom second hold. Existing socket owners and the newly
 accepted live request end unconfirmed through the usual
@@ -706,13 +706,14 @@ On a stream a pre-ACK command needs no time-bounded `PreAck` hold — its debt
 replaces it, entry by entry — so none is installed, including when a camera
 ACK displaces a stale socket owner or a held socket.
 
-A stream's `Socket` hold — for a command that ended while executing, whose
-owed ACK arrived late, or whose cancellation is unanswered — is likewise
-released by evidence, never by time: a frame naming the socket (the
-command's late completion or execution error, or its cancellation's
-`0x04`/`0x05`, which also pays the cancellation's debt) or a camera ACK
-naming the socket for another command. A stall can outlast any deadline, and
-until the camera has finished there, an error naming that socket is the held
+A stream's `Socket` hold covers a command that ended while executing or
+whose owed ACK arrived late. A frame naming the socket releases the hold:
+the command's late completion or execution error, or its cancellation's
+`0x04`/`0x05`, which also pays the cancellation's debt. A camera ACK naming
+the socket for another command also releases it. When the command ends by its own
+socket-naming frame, the ledger handles any outstanding cancellation reply
+through its debt and write order. A stall can outlast any deadline, and until
+the camera has finished there, an error naming that socket is the held
 command's. The hold takes no command capacity (a camera still busy there
 allocates the other socket or answers buffer-full). One residual has no
 evidence: if the held command's end produced no frame naming the socket (its
@@ -956,10 +957,10 @@ exceeding the frame count cannot become a malformed-datagram verdict on a stream
 The read
 boundary produces one closed verdict (frames, no progress, transient failure,
 or fatal failure), retaining original fatal causes. The shell executes that
-verdict without classifying OS errors again. Retained stream inspection is an
-infallible nonzero length and its evidence, including explicit non-raw input;
-only discarding can fail. By the same decoupling, a
-single stream read that decodes more than `frames_per_receive` frames stops at the limit and
+verdict without classifying OS errors again. Retained stream inspection and
+raw discard are infallible. Each raw discard consumes a nonzero byte span and
+retains any later input. The Sony framer supplies the decoded payload type
+and sequence with its validated frame span. A single stream read that decodes more than `frames_per_receive` frames stops at the limit and
 leaves the remaining complete frames buffered for the next receive (the framer
 retains bytes across reads, bounded by `max_buffer_size + recv_buffer_size`), rather than failing
 `ResponseTooLarge` over a large-but-valid burst. A single-target IP session,
@@ -986,8 +987,8 @@ keep the old correlation scope alive while the owner awaits input for one
 engine-owned grace interval: the lesser of the configured read timeout and 100
 ms (#713). A tail arriving inside that interval is decoded before release. If
 the deadline expires first, the orphan prefix is discarded, one malformed-frame
-diagnostic is recorded, and the session remains `Running`; only framer overflow
-or a decoder that cannot perform the requested discard poisons the stream.
+diagnostic is recorded, and the session remains `Running`. A framer overflow
+while reading the tail poisons the stream.
 
 ### Blocking worker and the urgent safety lane
 
@@ -1238,7 +1239,6 @@ an exhaustive halt preparation arm before the crate compiles (#999).
 | Cancel after a raw request has terminalized into a keyed hold | Return `Ignored(UnknownRequest)`. The hold is inert correlation state, not a cancellable request, and its deadline is unchanged. |
 | Cancel in `Executing` (supported target) | Record intent, emit one socket cancellation, and retain the original completion correlation through the command's completion deadline; cancellation ambiguity does not shorten exact socket correlation (#724). |
 | Cancel after transmission on a target without socket cancellation | The cancellation observation fails with `Error::CancellationNotSupported`; record no intent, send no frame, and leave the original request active. |
-| Cancel of an inquiry | The cancellation observation fails with `Error::InquiryNotCancelable`. |
 | Repeated cancel from the same handle | The owner observes the handle's one existing intent and gives the engine no second input (#777). |
 | Duplicate cancel reaching the engine | `Ignored(DuplicateCancellation)`. |
 | Successful cancel send | Transition to `AwaitingCancellationResolution` with `AwaitingTerminal`; wait for the original completion (`Completed`) or the protocol-cancel terminal (`Cancelled`) through the later of the retained completion and ambiguity deadlines. |
@@ -1561,7 +1561,7 @@ eager no-data or transient-fault read yields even when an incomplete frame is
 retained, so an already-due ACK deadline and shutdown remain selectable.
 
 <!-- BEGIN WRITE-ONLY STATE KEYS -->
-`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`, `ExposureWideDynamicRange`, `MotionSyncEnabled`.
+`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `MotionSyncSpeed`, `ExposureWideDynamicRange`, `MotionSyncEnabled`.
 <!-- END WRITE-ONLY STATE KEYS -->
 
 ## Request and motion semantics
@@ -1596,7 +1596,8 @@ after `applied` continues from it. Settlement proven by position polling is
 cached once proven; polling state is local to one wait, and a wait abandoned
 mid-proof restarts with a fresh two-sample proof. A fixed per-target/per-axis
 generation bank orders successful engine admissions against establishment of
-polled evidence under one lock. A later conflicting admission supersedes an
+polled evidence under one lock. Only operation receipts retain the generation
+stamp for their affected axes (#1059). A later conflicting admission supersedes an
 unfinished proof even if the new command is cancelled before writing. Rejected
 admissions do not advance generations. Evidence already cached and exact
 profile completion remain valid. Polling errors retain their source while
@@ -1617,11 +1618,13 @@ Cancellation is one intent per handle. The first `cancel` creates the
 cancellation slot and ships it with the request; a later `cancel` — after a
 timeout or a dropped call — finds the owner already holding that intent and
 observes it, so the wire carries at most one cancellation. A refusal
-(`CancellationNotSupported`, `InquiryNotCancelable`) installs no intent and leaves the
-handle observing. The verdict is terminal-first among outcomes delivered on time: once the
-terminal outcome is known at or before the observer deadline it decides (`Applied` is `Completed`, `Cancelled` is `Cancelled`, a
-failure is that error), whichever order the owner emitted the two slots in;
-only without an on-time terminal does an on-time cancellation-slot error answer.
+(`CancellationNotSupported`) installs no intent and leaves the handle observing. An on-time terminal decides the verdict: `Applied` is
+`Completed`, `Cancelled` is `Cancelled`, and a failure is the terminal error.
+An on-time cancellation-slot error can answer while the request is still live.
+The conclusion of a cancellation produces a diagnostic and resolves the
+request only through its terminal slot. The owner unit test
+`cancellation_conclusion_waits_for_the_terminal_error` polls the verdict between
+those two effects (#1036).
 Delivery timestamps use the injected owner clock, not inferred wire arrival.
 The owner passes each delivery instant explicitly; owner state holds no current instant.
 Position samples use this same inclusive delivery deadline: `settled()`,
@@ -1644,7 +1647,9 @@ explicit operation lifecycle. `motion().stop_all()`,
 camera-level motion safety/observation entry points. A dropped handle is not
 an automatic STOP; emergency stopping is an explicit STOP or motion operation.
 
-`stop_all()` is one bounded owner transaction returning `HaltReport`.
+`stop_all()` is one bounded owner transaction returning `HaltReport`. If the
+caller abandons the halt before the owner claims it, the owner rejects every
+prepared STOP before publishing a fence or entering the engine (#1037).
 Acceptance atomically samples the ingress cutoff and publishes the supported-axis
 fence against settlement establishment. Earlier declared queued motion is
 suppressed, including work still in the ingress lane; already-written lifecycle

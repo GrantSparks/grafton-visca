@@ -12,6 +12,7 @@ impl Request for InquiryWithCommandPolicy {
     const MAX_SIZE: usize = 3;
 
     fn policy(&self) -> CommandPolicy {
+    //~^ E0053 "method `policy` has an incompatible type for trait"
         CommandPolicy::new(
             CommandTimeoutClass::Quick,
             CommandRetryClass::Standard,
@@ -28,5 +29,3 @@ impl Request for InquiryWithCommandPolicy {
 fn main() {}
 
 // The sealed InquiryClass selects InquiryPolicy even for a downstream Request.
-//~ E0053
-//~ "method `policy` has an incompatible type for trait"

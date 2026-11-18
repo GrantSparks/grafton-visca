@@ -48,3 +48,45 @@ fn documented_downstream_pantilt_derive_compiles() {
         &features,
     );
 }
+
+#[cfg(feature = "blocking")]
+#[test]
+fn derived_pantilt_inquiry_requires_profile_framing_before_io() {
+    use grafton_visca::{
+        blocking::Session,
+        capabilities::{Capabilities, InquirySupport},
+        config::SessionConfig,
+        profiles::{AnyProfile, ProfileEnvelope, ProfileSpec, PtzOpticsG2},
+        types::{AffectedAxes, IndividualCameraId},
+        Error,
+    };
+    use grafton_visca_test_support::fake_camera::FakeCamera;
+
+    let baseline = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+    let mut capabilities = Capabilities::runtime_baseline("Zoom-only camera", 1).expect("target");
+    capabilities.zoom.clone_from(&baseline.capabilities().zoom);
+    let profile = ProfileSpec::builder(capabilities)
+        .transports(baseline.transports())
+        .envelope(ProfileEnvelope::RawVisca)
+        .timing(baseline.timing())
+        .maximum_command_sockets(baseline.maximum_command_sockets())
+        .supports_operation_complete(false)
+        .supports_command_cancel(false)
+        .position_inquiries(AffectedAxes::ZOOM)
+        .inquiry_support(InquirySupport::Partial)
+        .build()
+        .expect("zoom-only profile");
+
+    let fake = FakeCamera::silent();
+    let session =
+        Session::open(fake.blocking_wire(), &SessionConfig::new(profile)).expect("session");
+    let camera = session
+        .camera::<AnyProfile>(IndividualCameraId::CAMERA_1)
+        .expect("camera");
+    assert!(matches!(
+        camera.inquire(&StandardPanTiltProbeInquiry),
+        Err(Error::FeatureNotSupported { .. })
+    ));
+    assert!(fake.writes().is_empty());
+    session.shutdown().expect("owner shutdown");
+}

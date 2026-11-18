@@ -53,7 +53,7 @@ fn every_nested_persisted_object_refuses_unknown_keys() {
             .to_string();
         // TiltRanges is externally tagged: an extra key violates the
         // single-variant map shape before field validation runs.
-        let unknown_fact = if path == "/capabilities/pan_tilt/tilt_ranges" {
+        let unknown_fact = if path == "/capabilities/pan_tilt/geometry/tilt_ranges" {
             error.contains("expected map with a single key")
         } else {
             error.contains("unknown field")

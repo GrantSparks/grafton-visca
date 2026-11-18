@@ -30,8 +30,7 @@ fn drive_request(registration: &TargetRegistration, tuning: OperationalTuning) -
         PanTiltDirection::Right,
         PanSpeed::new(50).unwrap(),
         TiltSpeed::new(50).unwrap(),
-    )
-    .unwrap();
+    );
     prepare_operation::<AppliedOnly, _>(&fast, registration, tuning, ClassSelection::Request)
         .unwrap()
         .admit_with(|request, _, _, _| request.into_inner())
@@ -171,20 +170,30 @@ fn queued_mode_refusal(invalidate: bool) {
 fn a_non_fr7_codec_requires_the_confirmed_fine_mode_for_fast_drives() {
     let mut facts = crate::profiles::ProfileId::SonyFr7.raw_facts();
     facts.capabilities.profile_id = None;
-    facts.capabilities.pan_tilt.as_mut().unwrap().coordinates =
-        crate::PanTiltCoordinateConversion::new(
-            crate::capabilities::CoordinateSystem::SignedCentered,
-            crate::capabilities::PanTiltWireCodec::StandardVisca,
-            16.0,
-            16.0,
-        )
-        .unwrap();
+    facts
+        .capabilities
+        .pan_tilt
+        .as_mut()
+        .unwrap()
+        .geometry
+        .as_mut()
+        .unwrap()
+        .coordinates = crate::PanTiltCoordinateConversion::new(
+        crate::capabilities::CoordinateSystem::SignedCentered,
+        crate::capabilities::PanTiltWireCodec::StandardVisca,
+        16.0,
+        16.0,
+    )
+    .unwrap();
     let pan_tilt = facts.capabilities.pan_tilt.as_mut().unwrap();
-    pan_tilt.pan_range = crate::capabilities::CapabilityRange::<i32>::new(-160, 160)
-        .expect("valid capability bounds");
-    pan_tilt.tilt_ranges = crate::capabilities::TiltRanges::Single(
-        crate::capabilities::CapabilityRange::<i32>::new(-80, 80).expect("valid capability bounds"),
-    );
+    pan_tilt.geometry.as_mut().expect("geometry").pan_range =
+        crate::capabilities::CapabilityRange::<i32>::new(-160, 160)
+            .expect("valid capability bounds");
+    pan_tilt.geometry.as_mut().expect("geometry").tilt_ranges =
+        crate::capabilities::TiltRanges::Single(
+            crate::capabilities::CapabilityRange::<i32>::new(-80, 80)
+                .expect("valid capability bounds"),
+        );
     let registration = TargetRegistration::new(
         crate::IndividualCameraId::CAMERA_1,
         ProfileSpec::from_facts(facts).unwrap(),

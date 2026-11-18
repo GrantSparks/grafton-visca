@@ -112,7 +112,7 @@ async fn queued_cancel_at_shutdown_concludes_on_the_buffered_terminal_slot() {
     let _ = started.recv_async().await.unwrap();
     let cancel_handle = handle.clone();
     let cancel_task = tokio::spawn(async move {
-        let observer = cancel_handle.cancel_test(&operation).await;
+        let observer = cancel_handle.cancel_test(operation.command_id()).await;
         (observer, operation)
     });
     while handle.core.cancellations.is_empty() {
@@ -168,7 +168,7 @@ async fn stream_poison_resolves_active_and_drains_unstaged_boundary() {
     let actor_task = tokio::spawn(actor.run(harness.driver));
 
     let first = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), first.id);
+    assert_eq!(started.recv_async().await.unwrap(), first.id());
     let queued_handle = handle.clone();
     let queued = tokio::spawn(async move { queued_handle.submit(command()).await });
     while handle.core.permits.available() != 0 {
@@ -218,7 +218,7 @@ async fn a_stream_write_timeout_retains_the_same_io_source_as_blocking() {
     let gates = harness.gates.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver));
     let receipt = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+    assert_eq!(started.recv_async().await.unwrap(), receipt.id());
     let io_cause = Arc::new(std::io::Error::new(
         std::io::ErrorKind::TimedOut,
         "connection exhausted",
@@ -349,7 +349,7 @@ async fn active_cancellation_actor_disconnect_fails_closed() {
         .expect("admission must complete before the actor panic")
         .unwrap();
     assert_eq!(handle.snapshot().await.unwrap().active, 1);
-    let cancellation = handle.cancel_test(&receipt).await.unwrap();
+    let cancellation = handle.cancel_test(receipt.command_id()).await.unwrap();
     panic_signal.send_async(()).await.unwrap();
 
     // The cancellation concludes on the receipt's terminal slot, whose wait

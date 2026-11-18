@@ -625,7 +625,7 @@ impl ManualClock {
     ///     testing::testkit::ScriptedBlockingTransport,
     /// };
     /// let clock = ManualClock::new();
-    /// clock.open_blocking_session(ScriptedBlockingTransport::new(vec![]), SessionConfig::default());
+    /// clock.open_blocking_session(ScriptedBlockingTransport::new(grafton_visca::testing::testkit::ScriptedTransportIdentity::Tcp, vec![]), SessionConfig::default());
     /// ```
     pub fn open_blocking_session<T>(
         &self,
@@ -1475,7 +1475,10 @@ mod tests {
         let clock = ManualClock::new();
         let participant = clock.enter();
         let other = ManualClock::new();
-        let transport = crate::testing::testkit::ScriptedBlockingTransport::new(vec![]);
+        let transport = crate::testing::testkit::ScriptedBlockingTransport::new(
+            crate::testing::testkit::ScriptedTransportIdentity::Tcp,
+            vec![],
+        );
         let result =
             other.open_blocking_session(&participant, transport, crate::SessionConfig::default());
         assert!(matches!(result, Err(Error::InvalidRequest { .. })));

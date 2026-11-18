@@ -113,7 +113,7 @@ impl SonyHeader {
     }
 
     /// Decode header from bytes.
-    #[cfg(any(feature = "blocking", feature = "async", test))]
+    #[cfg(test)]
     #[inline]
     pub fn decode(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < Self::SIZE {

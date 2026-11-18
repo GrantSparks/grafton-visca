@@ -11,7 +11,7 @@ async fn abandoned_admission_matrix<R: Runtime>(runtime: R) {
     let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
     let client = async {
         let first = handle.submit(command()).await.unwrap();
-        assert_eq!(started.recv_async().await.unwrap(), first.id);
+        assert_eq!(started.recv_async().await.unwrap(), first.id());
 
         // Poll each public-class seam until it has queued its admission, then
         // abandon the future while the actor is blocked in the first write.
@@ -125,7 +125,7 @@ async fn timed_out_operation_before_admission_never_writes() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::CameraId::CAMERA_1,
+            target: crate::IndividualCameraId::CAMERA_1,
             lane: crate::observability::DiagnosticLane::Command,
             error: crate::ErrorKind::Cancelled,
         }]
@@ -147,7 +147,7 @@ async fn dropping_last_handle_does_not_write_abandoned_admissions() {
     let writes = Arc::clone(&harness.writes);
     let actor_task = tokio::spawn(actor.run(harness.driver));
     let first = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), first.id);
+    assert_eq!(started.recv_async().await.unwrap(), first.id());
     for request in [command(), inquiry(), command()] {
         let pending = handle.submit(request);
         let mut pending = std::pin::pin!(pending);
@@ -164,6 +164,163 @@ async fn dropping_last_handle_does_not_write_abandoned_admissions() {
     assert_eq!(writes.lock().unwrap().len(), 1);
     assert_eq!(snapshot.active, 0);
     drop(first);
+}
+
+#[cfg(feature = "runtime-tokio")]
+fn prepared_halt(profile: &crate::ProfileSpec) -> crate::prepared::PreparedHalt {
+    let tuning = crate::session_config::ValidatedTuning::validate(
+        crate::OperationalTuning::new(),
+        [profile],
+    )
+    .unwrap();
+    crate::prepared::prepare_halt(
+        &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile.clone()),
+        tuning,
+    )
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn abandoned_halt_never_fences_the_later_zoom() {
+    let (handle, actor) =
+        AsyncOwnerActor::new(policy(4), TokioRuntime::from_current().unwrap()).unwrap();
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
+    let prepared = prepared_halt(&profile);
+    let stops = prepared.requests.iter().flatten().count() as u64;
+    assert!(stops > 0);
+    {
+        let mut halt = std::pin::pin!(handle.halt(prepared, handle.now()));
+        assert!(future::poll_once(halt.as_mut()).await.is_none());
+    }
+    assert_eq!(handle.core.cancellations.len(), 1);
+    let mut zoom = std::pin::pin!(handle.submit_operation(prepared_zoom(&profile)));
+    assert!(future::poll_once(zoom.as_mut()).await.is_none());
+    assert_eq!(handle.core.admissions.len(), 1);
+
+    let harness = harness();
+    let actor_task = tokio::spawn(actor.run(harness.driver));
+    let mut operation = zoom.await.unwrap();
+    assert_eq!(
+        harness.started.recv_async().await.unwrap(),
+        operation.observation.id()
+    );
+    harness
+        .gates
+        .send_async(Ok(TransmissionMeta::Known))
+        .await
+        .unwrap();
+    harness
+        .frames
+        .send_async(batch(vec![ack(ViscaSocket::S1)]))
+        .await
+        .unwrap();
+    harness
+        .frames
+        .send_async(batch(vec![completion(ViscaSocket::S1)]))
+        .await
+        .unwrap();
+    operation.applied(None).await.unwrap();
+    let metrics = handle.metrics().await.unwrap();
+    assert_eq!(metrics.admitted, 1);
+    assert_eq!(metrics.admission_rejected, stops);
+    assert_eq!(metrics.dropped_observer_events, 0);
+    assert_eq!(metrics.writes, 1);
+    assert_eq!(harness.writes.lock().unwrap().len(), 1);
+    handle.shutdown().unwrap();
+    actor_task.await.unwrap();
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn dropping_last_handle_does_not_write_an_abandoned_halt() {
+    let (handle, actor) =
+        AsyncOwnerActor::new(policy(4), TokioRuntime::from_current().unwrap()).unwrap();
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
+    let prepared = prepared_halt(&profile);
+    let stops = prepared.requests.iter().flatten().count() as u64;
+    assert!(stops > 0);
+    {
+        let mut halt = std::pin::pin!(handle.halt(prepared, handle.now()));
+        assert!(future::poll_once(halt.as_mut()).await.is_none());
+    }
+    assert_eq!(handle.core.cancellations.len(), 1);
+    drop(handle);
+
+    let harness = harness();
+    let snapshot = actor.run(harness.driver).await;
+    assert_eq!(snapshot.metrics.admitted, 0);
+    assert_eq!(snapshot.metrics.admission_rejected, stops);
+    assert_eq!(snapshot.metrics.writes, 0);
+    assert_eq!(snapshot.metrics.dropped_observer_events, 0);
+    assert!(harness.writes.lock().unwrap().is_empty());
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn dropping_a_halt_after_acceptance_detaches_its_stops() {
+    let (handle, actor) =
+        AsyncOwnerActor::new(policy(4), TokioRuntime::from_current().unwrap()).unwrap();
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
+    let prepared = prepared_halt(&profile);
+    let stops = prepared.requests.iter().flatten().count();
+    assert!(stops > 0);
+    let harness = harness();
+    let actor_task = {
+        let mut halt = std::pin::pin!(handle.halt(prepared, handle.now()));
+        assert!(future::poll_once(halt.as_mut()).await.is_none());
+        let actor_task = tokio::spawn(actor.run(harness.driver));
+        harness.started.recv_async().await.unwrap();
+        actor_task
+    };
+    for index in 0..stops {
+        if index > 0 {
+            harness.started.recv_async().await.unwrap();
+        }
+        harness
+            .gates
+            .send_async(Ok(TransmissionMeta::Known))
+            .await
+            .unwrap();
+        harness
+            .frames
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        harness
+            .frames
+            .send_async(batch(vec![completion(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+    }
+    handle.shutdown().unwrap();
+    let snapshot = actor_task.await.unwrap();
+    assert_eq!(snapshot.metrics.admitted, stops as u64);
+    assert_eq!(snapshot.metrics.admission_rejected, 0);
+    assert_eq!(snapshot.metrics.dropped_observer_events, stops as u64);
+    assert_eq!(harness.writes.lock().unwrap().len(), stops);
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn halt_after_accepted_shutdown_is_rejected_at_the_handle() {
+    let (handle, actor) =
+        AsyncOwnerActor::new(policy(4), TokioRuntime::from_current().unwrap()).unwrap();
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().unwrap();
+    let prepared = prepared_halt(&profile);
+    let stops = prepared.requests.iter().flatten().count() as u64;
+    assert!(stops > 0);
+
+    handle.shutdown().unwrap();
+    assert!(matches!(
+        handle.halt(prepared, handle.now()).await,
+        Err(Error::RuntimeShutdown)
+    ));
+    assert!(handle.core.cancellations.is_empty());
+    let harness = harness();
+    let snapshot = actor.run(harness.driver).await;
+    assert_eq!(snapshot.metrics.admission_rejected, stops);
+    assert_eq!(snapshot.metrics.dropped_boundary_work, 0);
+    assert_eq!(snapshot.metrics.writes, 0);
 }
 
 use super::*;
@@ -249,7 +406,7 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
         .submit(command_with_ack_timeout(Duration::from_millis(10)))
         .await
         .unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), predecessor.id);
+    assert_eq!(started.recv_async().await.unwrap(), predecessor.id());
     gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
 
     let armed_ack_deadline = loop {
@@ -270,7 +427,7 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
     ));
 
     let stop = handle.submit(urgent_stop_command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), stop.id);
+    assert_eq!(started.recv_async().await.unwrap(), stop.id());
     assert_eq!(
         writes
             .lock()
@@ -359,7 +516,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::CameraId::CAMERA_1,
+            target: crate::IndividualCameraId::CAMERA_1,
             lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }],
@@ -378,7 +535,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
     // Reusing the only slot proves that no invisible pending admission is
     // retaining capacity after the caller saw `Timeout`.
     let receipt = handle.try_submit(inquiry()).unwrap().await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+    assert_eq!(started.recv_async().await.unwrap(), receipt.id());
     assert_eq!(writes.lock().unwrap().len(), 1);
     drop(receipt);
     gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
@@ -415,7 +572,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::CameraId::CAMERA_1,
+            target: crate::IndividualCameraId::CAMERA_1,
             lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
@@ -471,7 +628,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::CameraId::CAMERA_1,
+            target: crate::IndividualCameraId::CAMERA_1,
             lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
@@ -537,7 +694,7 @@ async fn async_admission_precedes_write_and_matches_blocking_terminal_trace() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+    assert_eq!(started.recv_async().await.unwrap(), receipt.id());
     assert_eq!(writes.lock().unwrap().len(), 1);
     gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
@@ -576,25 +733,25 @@ async fn capacity_rejection_is_pre_identity_and_cancel_full_waits_without_drop()
     let actor_task = tokio::spawn(actor.run(harness.driver));
 
     let first = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), first.id);
+    assert_eq!(started.recv_async().await.unwrap(), first.id());
     gates
         .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
         .await
         .unwrap();
     let second = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), second.id);
+    assert_eq!(started.recv_async().await.unwrap(), second.id());
     let error = handle.try_submit(command()).err().unwrap();
     assert!(matches!(error, Error::RuntimeQueueFull { capacity: 2 }));
 
     let cancel_handle = handle.clone();
     let first_cancel = tokio::spawn(async move {
-        let observer = cancel_handle.cancel_test(&first).await;
+        let observer = cancel_handle.cancel_test(first.command_id()).await;
         (observer, first)
     });
     tokio::task::yield_now().await;
     let cancel_handle = handle.clone();
     let mut second_cancel = tokio::spawn(async move {
-        let observer = cancel_handle.cancel_test(&second).await;
+        let observer = cancel_handle.cancel_test(second.command_id()).await;
         (observer, second)
     });
     assert!(
@@ -631,7 +788,7 @@ async fn ordinary_async_submit_is_fail_fast_at_capacity() {
     let actor_task = tokio::spawn(actor.run(harness.driver));
 
     let first = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), first.id);
+    assert_eq!(started.recv_async().await.unwrap(), first.id());
     let error = tokio::time::timeout(Duration::from_millis(20), handle.submit(command()))
         .await
         .expect("capacity failure must not register a waiter")
@@ -661,7 +818,7 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
     let diagnostics = handle.subscribe_diagnostics(16).await.unwrap();
 
     let first = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), first.id);
+    assert_eq!(started.recv_async().await.unwrap(), first.id());
     assert_eq!(writes.lock().unwrap().len(), 1);
 
     let error = tokio::time::timeout(Duration::from_millis(20), handle.submit(command()))
@@ -699,7 +856,7 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
     assert_eq!(
         rejected,
         DiagnosticEvent::AdmissionRejected {
-            target: crate::CameraId::CAMERA_1,
+            target: crate::IndividualCameraId::CAMERA_1,
             lane: crate::observability::DiagnosticLane::Command,
             error: crate::ErrorKind::BufferFull,
         }
@@ -742,7 +899,7 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::CameraId::CAMERA_1,
+            target: crate::IndividualCameraId::CAMERA_1,
             lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::BufferFull,
         }]
@@ -786,7 +943,7 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::CameraId::CAMERA_1,
+            target: crate::IndividualCameraId::CAMERA_1,
             lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::IoClosed,
         }],
@@ -820,7 +977,7 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::CameraId::CAMERA_1,
+            target: crate::IndividualCameraId::CAMERA_1,
             lane: crate::observability::DiagnosticLane::Command,
             error: crate::ErrorKind::IoClosed,
         }]
@@ -837,7 +994,7 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
     let frames = harness.frames.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver));
     let operation = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), operation.id);
+    assert_eq!(started.recv_async().await.unwrap(), operation.id());
     gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
@@ -845,7 +1002,7 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
         .unwrap();
     let cancel_handle = handle.clone();
     let cancel_task = tokio::spawn(async move {
-        let observer = cancel_handle.cancel_test(&operation).await;
+        let observer = cancel_handle.cancel_test(operation.command_id()).await;
         (observer, operation)
     });
     let _cancel_write = started.recv_async().await.unwrap();
@@ -890,7 +1047,7 @@ fn smol_actor_has_the_same_admit_write_terminal_order() {
         let task = smol::spawn(actor.run(harness.driver));
 
         let receipt = handle.submit(command()).await.unwrap();
-        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id());
         gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(batch(vec![ack(ViscaSocket::S1)]))
@@ -965,7 +1122,7 @@ async fn terminal_handle_work_and_metrics_are_stable<R: Executor>(runtime: R) {
     for _ in 0..8 {
         let (_observer, cell) = CancellationObserver::pair();
         let request = CancellationRequest {
-            id: operation.observation.id(),
+            id: operation.observation.command_id(),
             observer: cell,
         };
         let deadline = handle.deadline_after(Duration::from_secs(1)).unwrap();
@@ -1004,7 +1161,7 @@ async fn terminal_handle_work_and_metrics_are_stable<R: Executor>(runtime: R) {
         .try_send(
             super::super::super::boundary::CancellationBoundary::Cancel {
                 request: CancellationRequest {
-                    id: operation.observation.id(),
+                    id: operation.observation.command_id(),
                     observer: cell,
                 },
                 reply,
@@ -1084,7 +1241,7 @@ fn manual_clock_terminal_metrics_stay_identical_during_concurrent_cancellation_a
                 for index in 0..128 {
                     let (_observer, cell) = CancellationObserver::pair();
                     let request = CancellationRequest {
-                        id: operation.id,
+                        id: operation.command_id(),
                         observer: cell,
                     };
                     let deadline = handle.deadline_after(Duration::from_secs(1)).unwrap();

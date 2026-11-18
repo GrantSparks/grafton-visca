@@ -330,7 +330,8 @@ impl Fixture {
             );
         }
         if state == AwaitingCancellationResolution {
-            let cancel = checked_input(&mut engine, Input::Cancel { id }, now);
+            let input = engine.cancel_input(id);
+            let cancel = checked_input(&mut engine, input, now);
             transmission = cancel_transmit(&cancel).0;
             checked_input(
                 &mut engine,
@@ -389,7 +390,7 @@ impl Fixture {
                     },
                 )
             }
-            Action::Cancel => Input::Cancel { id: self.id },
+            Action::Cancel => self.engine.cancel_input(self.id),
             Action::Due => {
                 let entry = self.engine.entry(self.id).unwrap();
                 let due = match entry.phase() {
@@ -498,6 +499,9 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
             if state == Sending && !matches!(action, Action::WriteOk | Action::WriteFailed) {
                 continue; // A write result precedes every unrelated boundary input.
             }
+            if state == AwaitingReply && action == Action::Cancel {
+                continue; // Cancellation input requires an admitted command identity.
+            }
             let mut fixture = Fixture::new(state);
             let effects = fixture.apply(action);
             assert_expected(&fixture, &effects, EXPECTED[row][column]);
@@ -533,17 +537,15 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
                             1
                         );
                     }
-                    AwaitingCompletion | AwaitingReply => {
+                    AwaitingCompletion => {
                         assert!(effects.iter().any(|effect| matches!(
                             effect,
                             Effect::CancellationObservation {
                                 id,
-                                observation: CancellationObservation::Failed(error),
-                            } if *id == fixture.id && matches!(
-                                (state, error),
-                                (AwaitingReply, Error::InquiryNotCancellable)
-                                    | (AwaitingCompletion, Error::CancellationNotSupported)
-                            )
+                                observation: CancellationObservation::AttemptFailed(
+                                    Error::CancellationNotSupported,
+                                ),
+                            } if *id == fixture.id
                         )));
                         assert_eq!(
                             fixture.engine.entry(fixture.id).unwrap().cancellation(),
@@ -559,12 +561,13 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
                         assert!(cancel_transmit_optional(&effects).is_none());
                     }
                     Ready | Backoff => assert!(cancel_transmit_optional(&effects).is_none()),
+                    AwaitingReply => unreachable!("an inquiry has no command identity"),
                 }
             }
             cells += 1;
         }
     }
-    assert_eq!(cells, 65);
+    assert_eq!(cells, 64);
 }
 
 #[test]
@@ -618,7 +621,7 @@ fn sony_lost_ack_backoff_cancel_is_an_unconfirmed_terminal() {
     send_ok(&mut engine, &write, Some(0x1001), now);
     engine.advance(now + Duration::from_millis(20));
     assert!(matches!(phase_of(&engine, id), Some(Phase::Backoff { .. })));
-    let effects = engine.handle(Input::Cancel { id }, now + Duration::from_millis(20));
+    let effects = engine.handle(engine.cancel_input(id), now + Duration::from_millis(20));
     assert!(matches!(
         terminal_failure(&effects, id),
         Some(Error::CancellationUnconfirmed)

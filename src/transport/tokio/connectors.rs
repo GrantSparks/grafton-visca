@@ -108,7 +108,7 @@ impl NetDatagram for UdpSocket {
 /// awaited elsewhere.
 pub(crate) async fn connect_tcp_on(
     handle: &tokio::runtime::Handle,
-    address: String,
+    address: crate::transport::NetworkEndpoint,
     config: TcpConnectionConfig,
 ) -> Result<TokioTcpStream, Error> {
     connect_on(handle, "TCP", async move {
@@ -125,7 +125,7 @@ pub(crate) async fn connect_tcp_on(
 /// the ambient connector directly.
 pub(crate) async fn connect_udp_on(
     handle: &tokio::runtime::Handle,
-    address: String,
+    address: crate::transport::NetworkEndpoint,
     config: UdpSocketConfig,
 ) -> Result<UdpSocket, Error> {
     connect_on(handle, "UDP", async move {

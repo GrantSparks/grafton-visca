@@ -8,9 +8,7 @@ fn main() {
         [0x81, 0x09, 0x04, 0x00, 0xff],
         ResponseDecoder::from_fn(|_: &[u8]| Ok::<_, grafton_visca::Error>(0_u8)),
         CommandRetryClass::Movement,
+        //~^ E0308 "mismatched types"
         SubmissionClass::Normal,
     );
 }
-
-//~ E0308
-//~ "expected `InquiryRetryClass`, found `CommandRetryClass`"

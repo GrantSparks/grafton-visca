@@ -48,6 +48,11 @@ pub(crate) fn request_validation_count() -> usize {
 }
 
 #[cfg(test)]
+pub(crate) fn record_request_validation() {
+    REQUEST_VALIDATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+}
+
+#[cfg(test)]
 pub(crate) fn record_request_value_validation() {
     REQUEST_VALUE_VALIDATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
 }
@@ -247,7 +252,7 @@ macro_rules! builtin_request {
 
             fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
                 #[cfg(test)]
-                REQUEST_VALIDATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+                record_request_validation();
                 let row = builtin_request!(@row self $(, $value)?);
                 validate_row(row, target.profile())?;
                 <Self as BuiltinValidation>::validate_target(self, target)
@@ -299,6 +304,15 @@ pub(crate) fn validate_row(row: BuiltinCommand, profile: &crate::ProfileSpec) ->
     row_gate(row).validate(profile, feature)?;
     row.source().validate_for_profile(profile, feature)
 }
+pub(crate) fn validate_movement_row(
+    row: BuiltinCommand,
+    target: &crate::TargetRegistration,
+) -> crate::Result<()> {
+    #[cfg(test)]
+    record_request_validation();
+    validate_row(row, target.profile())
+}
+
 #[cfg(any(feature = "blocking", feature = "async"))]
 use super::builtin_contract::{BuiltinStateProjection, BuiltinStateValue};
 
@@ -322,6 +336,17 @@ where
 {
     #[cfg(test)]
     record_request_value_validation();
+    check_range(parameter, value, range)
+}
+
+fn check_range<T>(
+    parameter: &'static str,
+    value: T,
+    range: &crate::capabilities::CapabilityRange<T>,
+) -> Result<(), Error>
+where
+    T: Copy + PartialOrd + Into<i32>,
+{
     if value >= range.min() && value <= range.max() {
         Ok(())
     } else {
@@ -420,14 +445,26 @@ fn presets_facts(profile: &crate::ProfileSpec) -> Result<&crate::capabilities::P
         .ok_or(Error::FeatureNotSupported { feature: "presets" })
 }
 
+fn pan_tilt_geometry(
+    profile: &crate::ProfileSpec,
+) -> Result<&crate::capabilities::PanTiltGeometry, Error> {
+    profile
+        .pan_tilt_geometry()
+        .ok_or(Error::FeatureNotSupported {
+            feature: "degree-based pan/tilt positioning",
+        })
+}
+
 fn validate_pan_tilt_speed(
     profile: &crate::ProfileSpec,
     pan: PanSpeed,
     tilt: TiltSpeed,
 ) -> Result<(), Error> {
+    #[cfg(test)]
+    record_request_value_validation();
     let facts = pan_tilt_facts(profile)?;
-    require_in_range("pan speed", pan.value(), &facts.pan_speed)?;
-    require_in_range("tilt speed", tilt.value(), &facts.tilt_speed)
+    check_range("pan speed", pan.value(), &facts.pan_speed)?;
+    check_range("tilt speed", tilt.value(), &facts.tilt_speed)
 }
 
 /// Validates paired speeds for a position command whose profile may carry a
@@ -441,7 +478,7 @@ fn validate_pan_tilt_position_speed(
     let conversion = profile
         .pan_tilt_coordinates()
         .ok_or(Error::FeatureNotSupported {
-            feature: "pan/tilt coordinate conversion",
+            feature: "degree-based pan/tilt positioning",
         })?;
     PanTiltFraming::for_conversion(conversion).move_speeds(pan, tilt)
 }
@@ -451,7 +488,7 @@ fn validate_move_speeds(profile: &crate::ProfileSpec, speeds: MoveSpeeds) -> Res
     let (pan, tilt) = speeds.values();
     require_in_range("pan speed", pan, &facts.pan_speed)?;
     require_in_range("tilt speed", tilt, &facts.tilt_speed)?;
-    let current = PanTiltFraming::for_conversion(facts.coordinates)
+    let current = PanTiltFraming::for_conversion(pan_tilt_geometry(profile)?.coordinates)
         .move_speeds(PanSpeed::new(pan)?, TiltSpeed::new(tilt)?)?;
     if current != speeds {
         return Err(Error::InvalidRequest {
@@ -459,45 +496,6 @@ fn validate_move_speeds(profile: &crate::ProfileSpec, speeds: MoveSpeeds) -> Res
         });
     }
     Ok(())
-}
-
-/// Lowers one coarse position speed through the profile-owned position grammar.
-///
-/// Standard VISCA keeps [`crate::types::SpeedLevel`]'s asymmetric pan/tilt mapping. The
-/// profile still owns the usable maximum for each axis, so a coarse level such
-/// as [`crate::types::SpeedLevel::Fastest`] means that profile's fastest valid speed rather
-/// than an unconditional `24`/`20` pair. Sony BRC-300 position frames carry
-/// one `VV` byte, so both public speed wrappers deliberately receive one value
-/// from the intersection of the profile's pan and tilt ranges before the
-/// paired-speed validator runs.
-#[cfg(all(test, any(feature = "blocking", feature = "async")))]
-fn pan_tilt_position_speeds_from_level(
-    speed: SpeedLevel,
-    profile: &crate::ProfileSpec,
-) -> Result<(PanSpeed, TiltSpeed), Error> {
-    let facts = pan_tilt_facts(profile)?;
-    if facts.coordinates.wire_codec() == PanTiltWireCodec::SonyBrc300 {
-        let speed = speed.baseline_speeds().0.clamp(
-            facts.pan_speed.min().max(facts.tilt_speed.min()),
-            facts.pan_speed.max().min(facts.tilt_speed.max()),
-        );
-        Ok((PanSpeed::new(speed)?, TiltSpeed::new(speed)?))
-    } else {
-        Ok((
-            PanSpeed::new(
-                speed
-                    .baseline_speeds()
-                    .0
-                    .clamp(facts.pan_speed.min(), facts.pan_speed.max()),
-            )?,
-            TiltSpeed::new(
-                speed
-                    .baseline_speeds()
-                    .1
-                    .clamp(facts.tilt_speed.min(), facts.tilt_speed.max()),
-            )?,
-        ))
-    }
 }
 
 fn validate_power_state(profile: &crate::ProfileSpec, standby: bool) -> Result<(), Error> {
@@ -1054,7 +1052,7 @@ impl PreparedPanTiltPosition {
         let conversion = profile
             .pan_tilt_coordinates()
             .ok_or(Error::FeatureNotSupported {
-                feature: "pan/tilt coordinate conversion",
+                feature: "degree-based pan/tilt positioning",
             })?;
         let (pan, tilt) = target.convert_pan_tilt_degrees(pan.value(), tilt.value())?;
         Ok(Self {
@@ -1071,15 +1069,17 @@ impl PreparedPanTiltPosition {
                 reason: "pan/tilt request was converted for a different profile".into(),
             });
         }
-        require_in_range(
+        #[cfg(test)]
+        record_request_value_validation();
+        check_range(
             "pan position",
             self.pan,
-            &pan_tilt_facts(profile)?.pan_range,
+            &pan_tilt_geometry(profile)?.pan_range,
         )?;
-        require_in_range(
+        check_range(
             "tilt position",
             self.tilt,
-            &pan_tilt_facts(profile)?.tilt_ranges.range(self.mount),
+            &pan_tilt_geometry(profile)?.tilt_ranges.range(self.mount),
         )
     }
 }
@@ -1102,7 +1102,7 @@ impl PreparedPanTiltOffset {
         let conversion = profile
             .pan_tilt_coordinates()
             .ok_or(Error::FeatureNotSupported {
-                feature: "pan/tilt coordinate conversion",
+                feature: "degree-based pan/tilt positioning",
             })?;
         let (pan, tilt) = target.convert_pan_tilt_offset_degrees(pan.value(), tilt.value())?;
         target.validate_pan_tilt_offset(pan, tilt)?;
@@ -1669,22 +1669,18 @@ pub struct PanTiltDrive {
 }
 
 impl PanTiltDrive {
-    /// Creates a directional drive. STOP has its own structurally distinct type.
-    pub fn new(
+    /// Creates a directional drive.
+    #[must_use]
+    pub const fn new(
         direction: PanTiltDirection,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-    ) -> Result<Self, Error> {
-        if direction == PanTiltDirection::Stop {
-            return Err(Error::InvalidRequest {
-                reason: "use PanTiltStop for the stop operation".into(),
-            });
-        }
-        Ok(Self {
+    ) -> Self {
+        Self {
             direction,
             pan_speed,
             tilt_speed,
-        })
+        }
     }
 }
 
@@ -1720,8 +1716,7 @@ impl PanTiltStop {
 builtin_request! {
     PanTiltStop => PanTiltStop: AppliedOnly {
         size: 9,
-        wire: |value: &PanTiltStop| PanTilt::Move {
-            direction: PanTiltDirection::Stop,
+        wire: |value: &PanTiltStop| PanTilt::Stop {
             pan_speed: value.pan_speed,
             tilt_speed: value.tilt_speed,
         },
@@ -1761,8 +1756,8 @@ impl PanTiltAbsolute {
         speed: SpeedLevel,
         target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
-        let (pan_speed, tilt_speed) = pan_tilt_position_speeds_from_level(speed, target.profile())?;
-        Self::for_target(pan, tilt, pan_speed, tilt_speed, target)
+        let speed = target.profile().position_speeds()?.lower(speed);
+        Self::for_target(pan, tilt, speed.pan, speed.tilt, target)
     }
 }
 
@@ -1811,8 +1806,8 @@ impl PanTiltRelative {
         speed: SpeedLevel,
         target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
-        let (pan_speed, tilt_speed) = pan_tilt_position_speeds_from_level(speed, target.profile())?;
-        Self::for_target(pan, tilt, pan_speed, tilt_speed, target)
+        let speed = target.profile().position_speeds()?.lower(speed);
+        Self::for_target(pan, tilt, speed.pan, speed.tilt, target)
     }
 }
 
@@ -1833,6 +1828,7 @@ builtin_request! {
 pub struct PanTiltLimitSet {
     corner: PanTiltLimitCorner,
     position: PreparedPanTiltPosition,
+    applied_position: crate::types::PanTiltPosition,
 }
 
 impl PanTiltLimitSet {
@@ -1843,9 +1839,14 @@ impl PanTiltLimitSet {
         tilt: Degrees,
         target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
+        let position = PreparedPanTiltPosition::for_target(pan, tilt, target)?;
+        let applied_position = position
+            .conversion
+            .to_degrees(crate::types::PanTiltUnits::new(position.pan, position.tilt))?;
         Ok(Self {
             corner,
-            position: PreparedPanTiltPosition::for_target(pan, tilt, target)?,
+            position,
+            applied_position,
         })
     }
 }
@@ -1891,7 +1892,7 @@ impl PanTiltLimitClear {
         let conversion = profile
             .pan_tilt_coordinates()
             .ok_or(Error::FeatureNotSupported {
-                feature: "pan/tilt coordinate conversion",
+                feature: "degree-based pan/tilt positioning",
             })?;
         Ok(Self {
             corner,
@@ -1911,50 +1912,14 @@ builtin_request! {
 }
 
 /// Direct zoom target.
-///
-/// A target built from normalized input retains that input's domain until
-/// profile validation. This prevents a combined optical-plus-digital request
-/// whose mapped raw value happens to overlap the optical range from bypassing
-/// the combined-domain typed-support gate on the erased API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ZoomTarget(ZoomPosition, Option<crate::ZoomDomain>);
+pub struct ZoomTarget(ZoomPosition);
 
 impl ZoomTarget {
     /// Creates a direct zoom target.
     #[must_use]
     pub const fn new(position: ZoomPosition) -> Self {
-        Self(position, None)
-    }
-
-    /// Creates a direct zoom target from a normalized position.
-    ///
-    /// `0.0` is the wide end and `1.0` the telephoto end of the selected
-    /// domain. [`crate::types::ZoomDomain::Optical`] always normalizes across the profile's
-    /// documented optical range; [`crate::types::ZoomDomain::OpticalPlusDigital`] requires a
-    /// documented digital maximum and never falls back to the optical one.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the selected domain has no documented maximum for
-    /// `profile`, or when the mapped raw value is outside the VISCA zoom range.
-    ///
-    /// [`crate::types::ZoomDomain::Optical`]: crate::types::ZoomDomain::Optical
-    /// [`crate::types::ZoomDomain::OpticalPlusDigital`]: crate::types::ZoomDomain::OpticalPlusDigital
-    pub fn from_normalized(
-        position: crate::units::UnitInterval,
-        domain: crate::ZoomDomain,
-        profile: &crate::ProfileSpec,
-    ) -> Result<Self, Error> {
-        let zoom = zoom_facts(profile)?;
-        let optical_max = zoom.optical_max;
-        let digital_max = zoom.digital_max;
-        let target = crate::inquiry_conversions::zoom_from_normalized(
-            position,
-            domain,
-            optical_max,
-            digital_max,
-        )?;
-        Ok(Self(target, Some(domain)))
+        Self(position)
     }
 }
 
@@ -1963,6 +1928,28 @@ builtin_request! {
         size: 9,
         wire: |value: &ZoomTarget| Zoom::Position(value.0),
     };
+    crate::command::zoom::SetNormalized => ZoomPosition: Targeted {
+        size: 9,
+        target_wire: write_normalized_zoom_for_target,
+    };
+}
+
+impl WireEncode for crate::command::zoom::SetNormalized {
+    fn write_into(&self, _camera_id: CameraId, _buffer: &mut [u8]) -> Result<usize, Error> {
+        Err(Error::InvalidRequest {
+            reason: "normalized zoom encoding requires a target profile".into(),
+        })
+    }
+}
+
+fn write_normalized_zoom_for_target(
+    request: &crate::command::zoom::SetNormalized,
+    target: &crate::TargetRegistration,
+    buffer: &mut [u8],
+) -> Result<usize, Error> {
+    let position =
+        zoom_facts(target.profile())?.position_at(request.position(), request.domain())?;
+    ZoomTarget::new(position).write_into(target.target().into(), buffer)
 }
 
 /// Continuous zoom-drive direction and speed.
@@ -2267,18 +2254,13 @@ builtin_request! {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PresetRecall {
     preset: PresetNumber,
-    axes: AffectedAxes,
 }
 
 impl PresetRecall {
-    /// Creates a preset recall operation with profile-selected exact axes.
-    pub fn for_profile(preset: PresetNumber, profile: &crate::ProfileSpec) -> Result<Self, Error> {
-        let axes = profile
-            .preset_recall_axes()
-            .ok_or(Error::FeatureNotSupported {
-                feature: "preset recall",
-            })?;
-        Ok(Self { preset, axes })
+    /// Creates the preset intent without selecting a target's motion axes.
+    #[must_use]
+    pub const fn new(preset: PresetNumber) -> Self {
+        Self { preset }
     }
 }
 
@@ -2295,7 +2277,20 @@ builtin_request! {
 
 impl OperationCommand<completion::Targeted> for PresetRecall {
     fn affected_axes(&self) -> AffectedAxes {
-        self.axes
+        AffectedAxes::ALL
+    }
+
+    fn affected_axes_for_target(
+        &self,
+        target: &crate::TargetRegistration,
+        _authority: crate::requests::RequestContractAuthority,
+    ) -> Result<AffectedAxes, Error> {
+        target
+            .profile()
+            .preset_recall_axes()
+            .ok_or(Error::FeatureNotSupported {
+                feature: "preset recall",
+            })
     }
 }
 
@@ -2426,6 +2421,8 @@ impl BuiltinValidation for PanTiltLimitSet {
 
 impl BuiltinValidation for PanTiltLimitClear {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+        #[cfg(test)]
+        record_request_value_validation();
         if profile
             .pan_tilt_coordinates()
             .is_none_or(|conversion| conversion.wire_codec() != self.wire_codec)
@@ -2443,9 +2440,6 @@ impl BuiltinValidation for ZoomTarget {
         let capabilities = profile.capabilities();
         let zoom = zoom_facts(profile)?;
         let digital = capabilities.supports(TypedSupportSurface::DigitalZoomRange);
-        if self.1 == Some(crate::ZoomDomain::OpticalPlusDigital) {
-            require(digital, "optical-plus-digital zoom positioning")?;
-        }
         let maximum = if digital {
             zoom.digital_max.unwrap_or(zoom.optical_max)
         } else {
@@ -2455,6 +2449,20 @@ impl BuiltinValidation for ZoomTarget {
             "zoom position",
             self.0.value(),
             &crate::capabilities::CapabilityRange::<u16>::new(0, maximum)?,
+        )
+    }
+}
+
+impl BuiltinValidation for crate::command::zoom::SetNormalized {
+    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+        #[cfg(test)]
+        record_request_value_validation();
+        require(
+            self.domain() == crate::ZoomDomain::Optical
+                || profile
+                    .capabilities()
+                    .supports(TypedSupportSurface::DigitalZoomRange),
+            "optical-plus-digital zoom positioning",
         )
     }
 }
@@ -2556,14 +2564,7 @@ pub(crate) fn validate_preset(profile: &crate::ProfileSpec, preset: u8) -> Resul
 
 impl BuiltinValidation for PresetRecall {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_preset(profile, self.preset.value())?;
-        if profile.preset_recall_axes() == Some(self.axes) {
-            Ok(())
-        } else {
-            Err(Error::InvalidRequest {
-                reason: "preset recall was prepared for a different profile axis set".into(),
-            })
-        }
+        validate_preset(profile, self.preset.value())
     }
 }
 
@@ -2627,20 +2628,9 @@ impl BuiltinValidation for crate::command::tally_wire::TallyFlash {}
 
 // State keys and verbs come from the ledger; requests supply only typed values.
 #[cfg(any(feature = "blocking", feature = "async"))]
-impl BuiltinStateValue<crate::command::ImageFlipMode>
-    for crate::command::image_wire::ImageFlipCombinedCommand
-{
-    fn state_value(&self) -> crate::command::ImageFlipMode {
-        self.mode
-    }
-}
-#[cfg(any(feature = "blocking", feature = "async"))]
 impl BuiltinStateValue<crate::PanTiltLimitUpdate> for PanTiltLimitSet {
     fn state_value(&self) -> crate::PanTiltLimitUpdate {
-        crate::PanTiltLimitUpdate::set(
-            self.corner,
-            crate::camera::PanTiltUnits::new(self.position.pan, self.position.tilt),
-        )
+        crate::PanTiltLimitUpdate::set(self.corner, self.applied_position)
     }
 }
 #[cfg(any(feature = "blocking", feature = "async"))]
@@ -2846,7 +2836,7 @@ mod tests {
             )
             .expect("source-backed drive must prepare")
             .admit_with(|request, actual_axes, _, _| {
-                assert_eq!(actual_axes, axes);
+                assert_eq!(actual_axes.axes, axes);
                 request.wire().as_bytes().to_vec()
             })
         }
@@ -3041,10 +3031,24 @@ mod tests {
         let target =
             crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile.clone());
         for (pan, tilt) in [
-            (caps.pan_range.max() - caps.pan_range.min(), 0),
+            (
+                caps.geometry.expect("geometry").pan_range.max()
+                    - caps.geometry.expect("geometry").pan_range.min(),
+                0,
+            ),
             (
                 0,
-                caps.tilt_ranges.range(None).max() - caps.tilt_ranges.range(None).min(),
+                caps.geometry
+                    .expect("geometry")
+                    .tilt_ranges
+                    .range(None)
+                    .max()
+                    - caps
+                        .geometry
+                        .expect("geometry")
+                        .tilt_ranges
+                        .range(None)
+                        .min(),
             ),
         ] {
             target
@@ -3379,7 +3383,6 @@ mod tests {
         let evi = ProfileSpec::from_compile_time::<SonyEviH100>().expect("EVI profile");
         let brc300 = ProfileSpec::from_compile_time::<SonyBrc300>().expect("BRC-300 profile");
         let nearus = ProfileSpec::from_compile_time::<NearusBrc300>().expect("Nearus profile");
-        let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
 
         let standard_absolute = PanTiltAbsolute::for_target_speed_level(
             Degrees::new(10.0).expect("finite degrees"),
@@ -3427,7 +3430,7 @@ mod tests {
         );
 
         for profile in [
-            &standard, &g3, &thirty_x, &fr7, &h900, &evi, &brc300, &nearus, &generic,
+            &standard, &g3, &thirty_x, &fr7, &h900, &evi, &brc300, &nearus,
         ] {
             PanTiltAbsolute::for_target_speed_level(
                 Degrees::new(0.0).expect("finite degrees"),
@@ -3462,8 +3465,13 @@ mod tests {
         }
 
         assert_eq!(
-            pan_tilt_position_speeds_from_level(SpeedLevel::Fastest, &evi)
-                .expect("EVI-H100 fastest speed"),
+            {
+                let speed = evi
+                    .position_speeds()
+                    .expect("EVI-H100 position speeds")
+                    .lower(SpeedLevel::Fastest);
+                (speed.pan, speed.tilt)
+            },
             (
                 // R8: pan `01`..`18`, tilt `01`..`17`; `Fastest` tilt is 0x14.
                 PanSpeed::new(0x18).expect("EVI pan maximum"),
@@ -3471,8 +3479,13 @@ mod tests {
             )
         );
         assert_eq!(
-            pan_tilt_position_speeds_from_level(SpeedLevel::Fastest, &nearus)
-                .expect("Nearus fastest speed"),
+            {
+                let speed = nearus
+                    .position_speeds()
+                    .expect("Nearus position speeds")
+                    .lower(SpeedLevel::Fastest);
+                (speed.pan, speed.tilt)
+            },
             (
                 PanSpeed::new(0x18).expect("Nearus one-speed maximum (R21 `01`..`18h`)"),
                 TiltSpeed::new(0x18).expect("Nearus one-speed maximum (R21 `01`..`18h`)"),
@@ -3485,8 +3498,6 @@ mod tests {
     #[test]
     fn preset_and_direct_menu_value_domains_stay_terminated() {
         use crate::command::menu_wire::DirectMenuControl;
-
-        let fr7 = ProfileSpec::from_compile_time::<SonyFr7>().expect("FR7 profile");
 
         for number in 0..=u8::MAX {
             let preset = PresetNumber::new(number).expect("preset number in range");
@@ -3504,8 +3515,8 @@ mod tests {
                 );
             }
 
-            // Targeted operation: PresetRecall (needs the profile for its axes).
-            let recall = PresetRecall::for_profile(preset, &fr7).expect("FR7 preset recall");
+            // Recall wire bytes depend only on the preset number.
+            let recall = PresetRecall::new(preset);
             let recall_bytes = wire(&recall);
             assert_eq!(
                 recall_bytes.len(),
@@ -3570,11 +3581,14 @@ mod tests {
         )
         .expect("R7 highest preset reset");
         prepare_builtin_operation::<completion::Targeted, _>(
-            &PresetRecall::for_profile(highest, &fr7).expect("FR7 preset axes"),
+            &crate::command::presets::Recall::new(highest),
             &registration,
             OperationalTuning::new(),
         )
-        .expect("R7 highest preset recall");
+        .expect("R7 highest preset recall")
+        .admit_with(|_, axes, _, _| {
+            assert_eq!(Some(axes.axes), fr7.preset_recall_axes());
+        });
 
         for value in [100, 255] {
             let preset = PresetNumber::new(value).expect("global wire-value type");
@@ -3593,7 +3607,7 @@ mod tests {
                 )
                 .map(drop),
                 prepare_builtin_operation::<completion::Targeted, _>(
-                    &PresetRecall::for_profile(preset, &fr7).expect("FR7 preset axes"),
+                    &PresetRecall::new(preset),
                     &registration,
                     OperationalTuning::new(),
                 )
@@ -3706,7 +3720,6 @@ mod tests {
     #[test]
     fn every_write_only_state_command_has_an_exact_closed_projection() {
         use crate::command::semantics::BuiltinCommand as B;
-        use crate::StateKey as S;
 
         // Coverage comes from the closed ledger and generated request inventory,
         // not the value examples below. A newly stateful row participates here
@@ -3760,7 +3773,7 @@ mod tests {
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::PanTiltLimit(
                 crate::PanTiltLimitUpdate::set(
                     PanTiltLimitCorner::DownLeft,
-                    crate::camera::PanTiltUnits::new(0, 0)
+                    crate::types::PanTiltPosition::from_degrees(0.0, 0.0).expect("degrees")
                 )
             ))
         );
@@ -4032,53 +4045,6 @@ mod tests {
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::TallyMode(
                 crate::types::TallyMode::Flash
             ))
-        );
-
-        // The combined-flip opcode carries both axes, so it records the pair
-        // as `[horizontal, vertical]`. The single-axis opcodes move one axis
-        // and leave the other unknown, so they invalidate the same key.
-        for (name, mode) in [
-            ("combined flip off", crate::command::ImageFlipMode::Off),
-            (
-                "combined flip horizontal",
-                crate::command::ImageFlipMode::Horizontal,
-            ),
-            (
-                "combined flip vertical",
-                crate::command::ImageFlipMode::Vertical,
-            ),
-            ("combined flip both", crate::command::ImageFlipMode::Both),
-        ] {
-            assert_state_row(
-                name,
-                &crate::command::ImageFlipCombinedCommand::new(mode),
-                &ptz,
-                B::ImageFlipCombined,
-                crate::runtime::engine::AppliedStateProjection::set(
-                    crate::KnownState::ImageFlipMode(mode),
-                ),
-            );
-        }
-        row!(
-            "separate vertical flip",
-            ImageFlipCommand::new(true),
-            &ptz,
-            B::ImageFlipVertical,
-            crate::runtime::engine::AppliedStateProjection::invalidate(S::ImageFlipMode)
-        );
-        row!(
-            "separate horizontal mirror",
-            ImageMirrorCommand::new(true),
-            &ptz,
-            B::ImageFlipHorizontal,
-            crate::runtime::engine::AppliedStateProjection::invalidate(S::ImageFlipMode)
-        );
-        row!(
-            "separate horizontal mirror off",
-            ImageMirrorCommand::new(false),
-            &ptz,
-            B::ImageFlipHorizontalOff,
-            crate::runtime::engine::AppliedStateProjection::invalidate(S::ImageFlipMode)
         );
     }
 
@@ -4714,25 +4680,23 @@ mod tests {
         // These are explicit caller-owned runtime facts, not a digital-range
         // claim about any built-in model. Permission remains independently absent.
         capabilities.zoom.as_mut().expect("zoom domain").digital_max = Some(0x7000);
-        capabilities.typed_support =
-            crate::capabilities::TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
+        capabilities.typed_support = crate::capabilities::TypedSupportSet::from_surfaces(&[
+            TypedSupportSurface::DirectZoom,
+            TypedSupportSurface::PanTiltPositioning,
+        ]);
         let profile = runtime_profile_builder(&source, capabilities)
             .position_inquiries(AffectedAxes::MOVEMENT)
             .build()
             .expect("runtime partial profile");
 
         let midpoint = crate::units::UnitInterval::new(0.5).expect("unit interval midpoint");
-        let normalized =
-            ZoomTarget::from_normalized(midpoint, crate::ZoomDomain::OpticalPlusDigital, &profile)
-                .expect("documented digital maximum maps the midpoint");
+        let normalized = crate::command::zoom::SetNormalized::new(
+            midpoint,
+            crate::ZoomDomain::OpticalPlusDigital,
+        );
         // This custom combined midpoint is 0x3800, still inside its 0x4000
         // optical range. Keep that exact raw value as the direct control.
         let explicit = ZoomTarget::new(ZoomPosition::new(0x3800).expect("optical position"));
-        assert_eq!(wire(&normalized), wire(&explicit));
-        assert_ne!(
-            normalized, explicit,
-            "normalization provenance changes profile admissibility"
-        );
 
         prepare_builtin_operation::<completion::Targeted, _>(
             &explicit,

@@ -22,6 +22,12 @@ mod inquiry_budget {
         types::{AffectedAxes, MotionQuery},
     };
 
+    const CUSTOM_IP_STREAM: grafton_visca::testing::testkit::ScriptedTransportIdentity =
+        grafton_visca::testing::testkit::ScriptedTransportIdentity::Custom {
+            semantics: grafton_visca::transport::SendSemantics::Stream,
+            addressing: grafton_visca::transport::AddressingMode::Ip,
+        };
+
     fn config() -> SessionConfig {
         SessionConfig::from_compile_time::<PtzOpticsG2>()
             .expect("G2 profile")
@@ -55,7 +61,7 @@ mod inquiry_budget {
         let session = clock
             .open_blocking_session(
                 &participant,
-                ScriptedBlockingTransport::new(script()).on_clock(&clock),
+                ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, script()).on_clock(&clock),
                 config(),
             )
             .expect("virtual blocking session");
@@ -87,7 +93,8 @@ mod inquiry_budget {
             testing::testkit::ScriptedTransport,
         };
         let runtime = TokioRuntime::from_current().expect("Tokio runtime");
-        let transport = ScriptedTransport::new(script()).with_executor(runtime.clone());
+        let transport =
+            ScriptedTransport::new(CUSTOM_IP_STREAM, script()).with_executor(runtime.clone());
         let session = grafton_visca::r#async::Session::open(transport, &config(), runtime.clone())
             .await
             .expect("Tokio session");

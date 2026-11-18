@@ -17,14 +17,14 @@ fn main() {
 
     #[cfg(feature = "blocking")]
     {
-        let transport = ScriptedBlockingTransport::new(vec![step.clone()]);
+        let transport = ScriptedBlockingTransport::new(grafton_visca::testing::testkit::ScriptedTransportIdentity::Custom { semantics: grafton_visca::transport::SendSemantics::Stream, addressing: grafton_visca::transport::AddressingMode::Ip }, vec![step.clone()]);
         transport.add_response(helpers::complete(1));
         let _: Vec<Vec<u8>> = transport.sent();
     }
 
     #[cfg(feature = "async")]
     {
-        let transport = ScriptedTransport::new(vec![step]);
+        let transport = ScriptedTransport::new(grafton_visca::testing::testkit::ScriptedTransportIdentity::Custom { semantics: grafton_visca::transport::SendSemantics::Stream, addressing: grafton_visca::transport::AddressingMode::Ip }, vec![step]);
         transport.add_response(helpers::complete(1));
         let _: Vec<Vec<u8>> = transport.sent();
         fn accepts_transport<T: grafton_visca::transport::AsyncTransport>(_: &T) {}

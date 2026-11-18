@@ -4,6 +4,7 @@ use grafton_visca::{blocking::Camera, command::pan_tilt::Home, profiles::PtzOpti
 
 fn ignore_operation_handle(camera: &Camera<PtzOpticsG2>) {
     camera.submit(&Home).expect("submission");
+    //~^ "Operation` that must be used"
 }
 
 fn main() {
@@ -14,6 +15,3 @@ fn main() {
 // typed request — so it was rejected by `submit`'s `OperationCommand` bound
 // (E0277) and never reached the `#[must_use]` lint it exists to pin. The
 // submission now type-checks, and the dropped handle is the only error.
-
-//~ "Operation` that must be used"
-//~ "observe, cancel, or explicitly detach this operation"

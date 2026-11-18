@@ -1,10 +1,10 @@
 # shellcheck shell=bash
 #
 # The protocol engine's randomized, generated and exhaustive model tests, by
-# full libtest path. Sourced by `test-all-features.sh`.
+# full libtest path. Sourced by the feature matrix and standalone CI jobs.
 #
-# They are the expensive part of the library unit tests (about 90 CPU-seconds
-# per `--lib` run) and they cannot differ by facade configuration: the engine
+# They are the expensive part of the library unit tests and they cannot
+# differ by facade configuration: the engine
 # compiles only with a facade (`any(async, blocking)`), its production code in
 # `src/runtime/engine/` has no further `cfg(feature = ...)`, and the crate items
 # it uses (`protocol::framer`, `raw`, the error and ID types) are gated at most
@@ -26,3 +26,11 @@ readonly ENGINE_MODEL_TESTS=(
     "runtime::engine::tests::inquiry_shapes::randomized_stream_mixed_shapes_never_cross_bind"
     "runtime::engine::tests::inquiry_shapes::randomized_datagram_mixed_shapes_never_cross_bind"
 )
+
+# Test paths contain no whitespace, so callers can read the arguments into
+# an array with Bash's built-in read (including macOS's Bash 3).
+engine_model_skip_args() {
+    printf '%s' --exact
+    printf ' --skip %s' "${ENGINE_MODEL_TESTS[@]}"
+    printf '\n'
+}

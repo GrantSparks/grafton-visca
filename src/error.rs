@@ -67,7 +67,6 @@
 //! | `StreamPoisoned` | `IoClosed` | — | `ReopenSession` |
 //! | `InvalidCameraId` | `InvalidParameter` | — | `Abandon` |
 //! | `ResponseTooLarge` | `Protocol` | — | `Abandon` |
-//! | `InquiryNotCancellable` | `InvalidParameter` | — | `Abandon` |
 //! | `InvalidAddress` | `InvalidParameter` | — | `Abandon` |
 //! | `UnsupportedTransport` | `Unsupported` | — | `Abandon` |
 //! | `MissingRuntime` | `Unsupported` | — | `Abandon` |
@@ -611,7 +610,7 @@ pub enum Error {
     #[non_exhaustive]
     InquiryCorrelationLost {
         /// The camera whose raw inquiry lane is latched.
-        camera: crate::CameraId,
+        camera: crate::IndividualCameraId,
     },
 
     /// A raw-TCP (byte-stream) camera still owes the answer to an earlier
@@ -650,7 +649,7 @@ pub enum Error {
     #[non_exhaustive]
     CommandCorrelationLost {
         /// The camera whose raw command lane is latched.
-        camera: crate::CameraId,
+        camera: crate::IndividualCameraId,
     },
 
     /// The camera reported an error for a command it had already
@@ -709,7 +708,7 @@ pub enum Error {
     #[non_exhaustive]
     ControlReserveExhausted {
         /// The camera whose reserve is full.
-        target: crate::CameraId,
+        target: crate::IndividualCameraId,
         /// The size of that camera's reserve.
         reserve: usize,
     },
@@ -723,7 +722,7 @@ pub enum Error {
     #[non_exhaustive]
     InquiryShapeCapacityExhausted {
         /// The individual camera whose declaration set is full.
-        camera: crate::CameraId,
+        camera: crate::IndividualCameraId,
         /// The maximum number of tracked declarations for that target.
         capacity: usize,
     },
@@ -769,13 +768,6 @@ pub enum Error {
         max_size: usize,
     },
 
-    /// Cancellation was requested for an inquiry.
-    ///
-    /// Only operations that occupy a VISCA socket can be canceled. An inquiry
-    /// holds no socket and completes when its reply arrives, so canceling its
-    /// handle fails with this error; wait for the reply or drop the handle.
-    InquiryNotCancellable,
-
     /// Invalid network address format.
     #[non_exhaustive]
     InvalidAddress {
@@ -814,14 +806,28 @@ impl fmt::Display for Error {
             Self::ConnectionFailed { addr, source } => {
                 write!(f, "Connection failed to {addr}: {source}")
             }
-            Self::CameraNotAddressed { port, camera, addressed } => {
+            Self::CameraNotAddressed {
+                port,
+                camera,
+                addressed,
+            } => {
                 write!(f, "Camera {camera} was not addressed by Address Set on {port} (chain reported {addressed})")
             }
             Self::SerialChainTooLong { port, reported } => {
-                write!(f, "Serial chain on {port} reports {reported} devices; VISCA addresses at most 7")
+                write!(
+                    f,
+                    "Serial chain on {port} reports {reported} devices; VISCA addresses at most 7"
+                )
             }
             Self::ConnectionClosed { source, .. } => {
-                write!(f, "Connection closed{}", source.as_ref().map(|cause| format!(": {cause}")).unwrap_or_default())
+                write!(
+                    f,
+                    "Connection closed{}",
+                    source
+                        .as_ref()
+                        .map(|cause| format!(": {cause}"))
+                        .unwrap_or_default()
+                )
             }
             Self::CommandPending => f.write_str("Command acknowledged and pending completion"),
             Self::InvalidResponse { expected, actual } => {
@@ -839,7 +845,11 @@ impl fmt::Display for Error {
             Self::NoSocket => f.write_str("No socket available"),
             Self::CommandNotExecutable => f.write_str("Command is not executable"),
             Self::InvalidResponseFormat => f.write_str("Invalid response format"),
-            Self::InvalidResponseLength { expected, actual, payload_hex } => {
+            Self::InvalidResponseLength {
+                expected,
+                actual,
+                payload_hex,
+            } => {
                 write!(f, "Invalid response length: expected {expected} bytes, got {actual} (payload: {payload_hex})")
             }
             Self::UnexpectedResponseType => f.write_str("Unexpected response type"),
@@ -859,32 +869,66 @@ impl fmt::Display for Error {
             Self::InquiryFailed { source } => {
                 write!(f, "Inquiry failed: {source}")
             }
-            Self::InvalidParameter { parameter, value, reason } => {
-                write!(f, "Invalid parameter '{parameter}': {reason} (value: {value})")
+            Self::InvalidParameter {
+                parameter,
+                value,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "Invalid parameter '{parameter}': {reason} (value: {value})"
+                )
             }
             Self::BufferTooSmall { required, actual } => {
-                write!(f, "Buffer too small: required {required} bytes, but only {actual} available")
+                write!(
+                    f,
+                    "Buffer too small: required {required} bytes, but only {actual} available"
+                )
             }
-            Self::ParameterOutOfRange { parameter, value, min, max } => {
-                write!(f, "Parameter out of range: {parameter} = {value} (valid range: {min}..={max})")
+            Self::ParameterOutOfRange {
+                parameter,
+                min,
+                max,
+                value,
+            } => {
+                write!(
+                    f,
+                    "Parameter out of range: {parameter} = {value} (valid range: {min}..={max})"
+                )
             }
             Self::Timeout { context } => {
                 write!(f, "Operation timed out ({})", context.stage)
             }
             Self::ObservationTimeout { operation } => {
-                write!(f, "Wait for operation {operation} timed out; it is still running")
+                write!(
+                    f,
+                    "Wait for operation {operation} timed out; it is still running"
+                )
             }
             Self::MotionSuperseded { axes, context } => {
-                write!(f, "Motion on {axes:?} was superseded by an owner halt ({})", context.stage)
+                write!(
+                    f,
+                    "Motion on {axes:?} was superseded by an owner halt ({})",
+                    context.stage
+                )
             }
             Self::SettlementSuperseded { operation, axes } => {
-                write!(f, "Settlement of operation {operation} was superseded on {axes:?}")
+                write!(
+                    f,
+                    "Settlement of operation {operation} was superseded on {axes:?}"
+                )
             }
             Self::SettlementObservationFailed { operation, source } => {
-                write!(f, "Could not observe settlement of operation {operation}: {source}")
+                write!(
+                    f,
+                    "Could not observe settlement of operation {operation}: {source}"
+                )
             }
             Self::CancellationObservationFailed { source } => {
-                write!(f, "Could not resolve the recorded cancellation intent: {source}")
+                write!(
+                    f,
+                    "Could not resolve the recorded cancellation intent: {source}"
+                )
             }
             Self::MaxRetriesExceeded => f.write_str("Maximum retries exceeded"),
             Self::CancellationNotSupported => f.write_str("Operation not supported"),
@@ -892,51 +936,74 @@ impl fmt::Display for Error {
                 write!(f, "Invalid state: {reason}")
             }
             Self::RuntimeShutdown => f.write_str("Runtime has been shutdown"),
-            Self::OwnerTerminated => f.write_str("Session owner terminated without publishing a terminal result"),
+            Self::OwnerTerminated => {
+                f.write_str("Session owner terminated without publishing a terminal result")
+            }
             Self::DiagnosticSubscriberLimit { capacity } => {
-                write!(f, "Diagnostic subscriber limit reached ({capacity} subscribers)")
+                write!(
+                    f,
+                    "Diagnostic subscriber limit reached ({capacity} subscribers)"
+                )
             }
             Self::CancellationUnconfirmed => f.write_str("Cancellation could not be confirmed"),
-            Self::UnsequencedCommandUnconfirmed => f.write_str("Unsequenced command outcome could not be confirmed"),
+            Self::UnsequencedCommandUnconfirmed => {
+                f.write_str("Unsequenced command outcome could not be confirmed")
+            }
             Self::InquiryCorrelationLost { camera } => {
-                write!(f, "Raw inquiry correlation for {camera} is lost: an earlier inquiry's reply is still \
+                write!(f, "Raw inquiry correlation for camera {camera} is lost: an earlier inquiry's reply is still \
          owed by the stream, so this request was not sent; reopen the session to recover")
             }
             Self::CommandCorrelationLost { camera } => {
-                write!(f, "Raw command correlation for {camera} is lost: an earlier command's answer is still \
+                write!(f, "Raw command correlation for camera {camera} is lost: an earlier command's answer is still \
          owed by the stream, so this request was not sent; reopen the session to recover")
             }
             Self::CommandFailedAfterAck { source } => {
-                write!(f, "Camera reported an error after acknowledging the command: {source}")
+                write!(
+                    f,
+                    "Camera reported an error after acknowledging the command: {source}"
+                )
             }
             Self::RequestUnconfirmed { source } => {
                 write!(f, "Request outcome could not be confirmed: {source}")
             }
             Self::RuntimeIdentityExhausted => f.write_str("Runtime identity space exhausted"),
             Self::RuntimeQueueFull { capacity } => {
-                write!(f, "Runtime queue full: at capacity ({capacity} pending commands)")
+                write!(
+                    f,
+                    "Runtime queue full: at capacity ({capacity} pending commands)"
+                )
             }
             Self::ControlReserveExhausted { target, reserve } => {
-                write!(f, "Control reserve for camera {target} is full ({reserve} slots)")
+                write!(
+                    f,
+                    "Control reserve for camera {target} is full ({reserve} slots)"
+                )
             }
-            Self::InquiryShapeCapacityExhausted { camera, capacity, .. } => {
+            Self::InquiryShapeCapacityExhausted {
+                camera, capacity, ..
+            } => {
                 write!(f, "Raw inquiry payload-shape capacity exhausted for camera {camera} (maximum {capacity} tracked declarations)")
             }
             Self::StreamPoisoned { source, .. } => {
                 write!(f, "Stream transport poisoned: {source}")
             }
             Self::InvalidCameraId { id } => {
-                write!(f, "Invalid camera ID {id}: must be 1-7 for individual cameras or 8 for broadcast")
+                write!(
+                    f,
+                    "Invalid camera ID {id}: must be 1-7 for individual cameras or 8 for broadcast"
+                )
             }
             Self::ResponseTooLarge { max_size, .. } => {
                 write!(f, "Response too large: exceeds maximum of {max_size} bytes")
             }
-            Self::InquiryNotCancellable => f.write_str("Inquiries cannot be canceled: an inquiry holds no VISCA socket and completes with its reply"),
             Self::InvalidAddress { reason } => {
                 write!(f, "Invalid address: {reason}")
             }
             Self::UnsupportedTransport { profile, transport } => {
-                write!(f, "Profile {profile} does not support {transport} transport")
+                write!(
+                    f,
+                    "Profile {profile} does not support {transport} transport"
+                )
             }
             Self::MissingRuntime => f.write_str("No runtime configured for async operations"),
             Self::WithContext { context, source } => {
@@ -1004,7 +1071,6 @@ impl std::error::Error for Error {
             | Self::InquiryShapeCapacityExhausted { .. }
             | Self::InvalidCameraId { .. }
             | Self::ResponseTooLarge { .. }
-            | Self::InquiryNotCancellable
             | Self::InvalidAddress { .. }
             | Self::UnsupportedTransport { .. }
             | Self::MissingRuntime => None,
@@ -1407,14 +1473,14 @@ impl Error {
     /// Reports a camera whose raw inquiries cannot be correlated on this
     /// session.
     #[must_use]
-    pub const fn inquiry_correlation_lost(camera: crate::CameraId) -> Self {
+    pub const fn inquiry_correlation_lost(camera: crate::IndividualCameraId) -> Self {
         Self::InquiryCorrelationLost { camera }
     }
 
     /// Reports a camera whose raw commands cannot be correlated on this
     /// session until an owed answer arrives.
     #[must_use]
-    pub const fn command_correlation_lost(camera: crate::CameraId) -> Self {
+    pub const fn command_correlation_lost(camera: crate::IndividualCameraId) -> Self {
         Self::CommandCorrelationLost { camera }
     }
 
@@ -1442,7 +1508,10 @@ impl Error {
 
     /// Reports an exhausted urgent control reserve for one camera.
     #[must_use]
-    pub const fn control_reserve_exhausted(target: crate::CameraId, reserve: usize) -> Self {
+    pub const fn control_reserve_exhausted(
+        target: crate::IndividualCameraId,
+        reserve: usize,
+    ) -> Self {
         Self::ControlReserveExhausted { target, reserve }
     }
 
@@ -1546,7 +1615,6 @@ impl Error {
             | Self::InvalidRequest { .. }
             | Self::BufferTooSmall { .. }
             | Self::InvalidCameraId { .. }
-            | Self::InquiryNotCancellable
             | Self::InvalidAddress { .. } => INVALID_INPUT,
             Self::CommandBufferFull
             | Self::RuntimeQueueFull { .. }
@@ -1818,7 +1886,7 @@ impl Error {
     /// including possibly effective earlier attempts.
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn inquiry_shape_capacity_exhausted(
-        camera: crate::CameraId,
+        camera: crate::IndividualCameraId,
         capacity: usize,
     ) -> Self {
         Self::InquiryShapeCapacityExhausted { camera, capacity }

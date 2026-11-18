@@ -188,7 +188,7 @@ fn removing_any_current_key_is_refused_for_every_builtin_and_custom_spec() {
             let error = refusal(&shortened.to_string());
             // Externally tagged enums require their sole variant key rather
             // than reporting it as a missing struct field.
-            let missing_fact = if parent == "/capabilities/pan_tilt/tilt_ranges" {
+            let missing_fact = if parent == "/capabilities/pan_tilt/geometry/tilt_ranges" {
                 error.contains("expected value")
             } else if parent == "/encodings" {
                 // Encoding selections form a sparse map. Removing a granted

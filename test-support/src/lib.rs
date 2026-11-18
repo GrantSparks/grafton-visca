@@ -12,6 +12,7 @@
 //! `cfg(feature = ..)` checks read grafton-visca's own features.
 
 pub mod compile_fail;
+#[path = "../../src/test_support/generated.rs"]
 mod generated;
 pub use generated::bless_or_assert;
 #[cfg(any(feature = "blocking", feature = "async"))]
@@ -21,7 +22,9 @@ pub mod hardware;
 #[cfg(feature = "blocking")]
 pub mod hardware_rest;
 mod matrix;
+pub mod package_boundary;
 pub mod patterns;
 pub mod profile_fixtures;
 pub mod retry_requests;
+#[path = "../../src/test_support/source_scan.rs"]
 pub mod source_scan;

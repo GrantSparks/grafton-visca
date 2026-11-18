@@ -4,9 +4,7 @@
 
 fn main() {
     use grafton_visca::blocking::blocking_nouns::PowerAccessor;
+    //~^ E0603 "module `blocking_nouns` is private"
 
     let _ = core::any::TypeId::of::<PowerAccessor<'static, grafton_visca::profiles::PtzOpticsG2>>();
 }
-
-//~ E0603
-//~ "module `blocking_nouns` is private"

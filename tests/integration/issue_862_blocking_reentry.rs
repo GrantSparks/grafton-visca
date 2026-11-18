@@ -16,7 +16,7 @@ use grafton_visca::{
     config::SessionConfig,
     operation::AppliedOnly,
     profiles::GenericVisca,
-    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
+    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, ValidatedTransportConfig},
     Error,
 };
 
@@ -25,7 +25,7 @@ type Callback = Box<dyn FnOnce() + Send>;
 // Local fake: invoking user code inside native transport I/O is the behavior
 // under test; scripted peer replies cannot exercise worker-thread re-entry.
 struct ReenteringTransport {
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
     callbacks: flume::Receiver<Callback>,
     during_write: bool,
     dropped: Arc<AtomicBool>,
@@ -45,7 +45,7 @@ impl HasTransportConfig for ReenteringTransport {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }
@@ -79,7 +79,7 @@ fn callback_metrics(during_write: bool) {
     let dropped = Arc::new(AtomicBool::new(false));
     let session = Session::open(
         ReenteringTransport {
-            config: TransportConfig::default(),
+            config: ValidatedTransportConfig::default(),
             callbacks: receiver,
             during_write,
             dropped: Arc::clone(&dropped),

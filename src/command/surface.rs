@@ -5,7 +5,9 @@
 //! kind and source. Const evaluation proves exhaustive protocol coverage and
 //! compatible shared rows, then builds an indexed lookup for preparation.
 
-use crate::{capabilities::TypedSupportSet, noun_table::noun_table};
+use crate::{capabilities::TypedSupportSet, noun_table::noun_table, source_evidence::Source};
+
+pub(crate) use crate::capabilities::Domain as DomainGate;
 
 use super::semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind};
 
@@ -92,60 +94,6 @@ impl RowGate {
     }
 }
 
-/// The base-domain marker of a noun header's `[domain <Marker>]` gate.
-///
-/// There is one variant per domain inherited by a noun-table row, including
-/// domains whose every row also refines its gate with typed support.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum DomainGate {
-    /// `HasPower`.
-    Power,
-    /// `HasZoom`.
-    Zoom,
-    /// `HasPanTilt`.
-    PanTilt,
-    /// `HasFocus`.
-    Focus,
-    /// `HasWhiteBalance`.
-    WhiteBalance,
-    /// `HasPresets`.
-    Presets,
-    /// `HasMenu`.
-    Menu,
-    /// Exposure domain.
-    Exposure,
-    /// Image processing domain.
-    Image,
-}
-
-impl DomainGate {
-    /// Whether a runtime profile has the domain behind this marker.
-    ///
-    /// Domain presence is represented once in the validated capability records.
-    /// Optional method grants are checked independently by `RowGate`.
-    pub(crate) fn permits(self, profile: &crate::ProfileSpec) -> bool {
-        self.permits_capabilities(profile.capabilities())
-    }
-
-    /// Tests the domain while profile facts are still being validated.
-    pub(crate) fn permits_capabilities(
-        self,
-        capabilities: &crate::capabilities::Capabilities,
-    ) -> bool {
-        match self {
-            Self::Power => capabilities.power.is_some(),
-            Self::Zoom => capabilities.zoom.is_some(),
-            Self::PanTilt => capabilities.pan_tilt.is_some(),
-            Self::Focus => capabilities.focus.is_some(),
-            Self::WhiteBalance => capabilities.white_balance.is_some(),
-            Self::Presets => capabilities.presets.is_some(),
-            Self::Menu => capabilities.menu.is_some(),
-            Self::Exposure => capabilities.exposure.is_some(),
-            Self::Image => capabilities.image.is_some(),
-        }
-    }
-}
-
 /// The runtime gate of a built-in inquiry, generated from its noun-table row.
 ///
 /// The surface registry implements it for the request type of every
@@ -156,24 +104,6 @@ impl DomainGate {
 pub(crate) trait BuiltinInquiryGate {
     /// The inquiry row's gate.
     const GATE: RowGate;
-}
-
-/// Fixed domain requests require their original all-model evidence promise.
-/// Value families instead prove each admitted profile/value against its exact
-/// selected source row in the preparation-backed constructor inventory.
-const fn assert_domain_source(gate: RowGate, source: crate::source_evidence::Source) {
-    if matches!(gate, RowGate::Typed(_) | RowGate::DomainAndTyped(_, _)) {
-        return;
-    }
-    let models = crate::profiles::ProfileId::all();
-    let mut index = 0;
-    while index < models.len() {
-        assert!(
-            source.covers_model(Some(models[index])),
-            "a fixed domain or unconditional noun row requires evidence for every built-in profile"
-        );
-        index += 1;
-    }
 }
 
 /// Maps a base-domain marker to its [`DomainGate`].
@@ -347,7 +277,7 @@ macro_rules! exception_disposition {
 /// Extracts a canonical query type while preserving one request-expression source.
 /// Constructors and physical reply mapping do not change its request identity.
 macro_rules! query_type {
-    ($consumer:ident, [$($arguments:tt)*], [mapped [$($request:tt)*] |$reply:ident, $profile:ident| $mapping:expr]) => {
+    ($consumer:ident, [$($arguments:tt)*], [with_decoder [$($request:tt)*] => $decoder:path]) => {
         query_type! {$consumer, [$($arguments)*], [$($request)*]}
     };
     ($consumer:ident, [$($arguments:tt)*], [checked $($request:tt)*]) => {
@@ -372,10 +302,6 @@ macro_rules! implement_query_gate {
         impl BuiltinInquiryGate for $request {
             const GATE: RowGate = noun_row_gate!($gate, $base);
         }
-        const _: () = assert_domain_source(
-            noun_row_gate!($gate, $base),
-            <$request as crate::command::nouns::NounInquiryContract>::SOURCE,
-        );
     };
 }
 
@@ -388,6 +314,7 @@ macro_rules! inquiry_gate {
 
 #[derive(Clone, Copy)]
 struct CommandSurface {
+    name: &'static str,
     rows: &'static [BuiltinCommand],
     kind: BuiltinRequestKind,
     disposition: StaticSurfaceDisposition,
@@ -395,16 +322,19 @@ struct CommandSurface {
 
 #[derive(Clone, Copy)]
 struct QuerySurface {
+    name: &'static str,
+    source: Source,
     kind: crate::command::inquiry_structs::InquiryKind,
     gate: RowGate,
 }
 
 macro_rules! command_surface {
-    (inquiry, $noun:ident, $method:ident, $request:ty, $gate:tt, $base:tt) => {
+    (inquiry, $noun:ident, $key:ident, $method:ident, $request:ty, $gate:tt, $base:tt) => {
         None
     };
-    ($kind:ident, $noun:ident, $method:ident, $request:ty, $gate:tt, $base:tt) => {
+    ($kind:ident, $noun:ident, $key:ident, $method:ident, $request:ty, $gate:tt, $base:tt) => {
         Some(CommandSurface {
+            name: concat!(stringify!($noun), "::", stringify!($key)),
             rows: <$request as crate::command::semantics::BuiltinRequestContract>::LEDGER_ROWS,
             kind: registry_class!($kind),
             disposition: StaticSurfaceDisposition::Noun {
@@ -417,8 +347,10 @@ macro_rules! command_surface {
 }
 
 macro_rules! query_surface_entry {
-    ([$gate:tt $base:tt], $request:ty) => {
+    ([$gate:tt $base:tt $key:ident], $request:ty) => {
         Some(QuerySurface {
+            name: stringify!($key),
+            source: <$request as crate::command::nouns::NounInquiryContract>::SOURCE,
             kind: <$request as crate::command::nouns::NounInquiryContract>::KIND,
             gate: noun_row_gate!($gate, $base),
         })
@@ -430,7 +362,7 @@ macro_rules! query_surface {
     // wrapper gate is enforced separately; it cannot redefine the raw query.
     (inquiry [NormalizedInquiry] $request:tt $gate:tt $base:tt) => { None };
     (inquiry [$key:ident] $request:tt $gate:tt $base:tt) => {
-        query_type!(query_surface_entry, [$gate $base], $request)
+        query_type!(query_surface_entry, [$gate $base $key], $request)
     };
     ($kind:ident $key:tt $request:tt $gate:tt $base:tt) => { None };
 }
@@ -475,8 +407,9 @@ macro_rules! surface_registry {
         const COMMAND_SURFACES: &[Option<CommandSurface>] = {
             use crate::command;
             &[
-                $( $( command_surface!($kind, $noun, $method, $ret, [$($gate $(, $extra)*)?], $base), )* )*
+                $( $( command_surface!($kind, $noun, $key, $method, $ret, [$($gate $(, $extra)*)?], $base), )* )*
                 $( Some(CommandSurface {
+                    name: stringify!($excommand),
                     rows: &[BuiltinCommand::$excommand],
                     kind: BuiltinRequestKind::Plain,
                     disposition: exception_disposition!($exkind, stringify!($exmethod)),
@@ -513,6 +446,93 @@ macro_rules! surface_registry {
 
 noun_table!(surface_registry);
 
+#[derive(Clone, Copy)]
+struct FixedSource {
+    gate: RowGate,
+    row: &'static str,
+    source: Source,
+}
+
+/// Collect the fixed-domain and unconditional source promises once. Value
+/// families prove their exact selected ledger row independently.
+const fn fixed_sources() -> [Option<FixedSource>; COMMAND_SURFACES.len() + QUERY_SURFACES.len()] {
+    let mut sources = [None; COMMAND_SURFACES.len() + QUERY_SURFACES.len()];
+    let mut count = 0;
+    let mut index = 0;
+    while index < COMMAND_SURFACES.len() {
+        if let Some(CommandSurface {
+            rows: [row],
+            name,
+            disposition:
+                StaticSurfaceDisposition::Noun {
+                    gate: gate @ (RowGate::Always | RowGate::Domain(_)),
+                    ..
+                },
+            ..
+        }) = COMMAND_SURFACES[index]
+        {
+            sources[count] = Some(FixedSource {
+                gate,
+                row: name,
+                source: row.source(),
+            });
+            count += 1;
+        }
+        index += 1;
+    }
+    let mut query_index = 0;
+    while query_index < QUERY_SURFACES.len() {
+        if let Some(QuerySurface {
+            gate: gate @ (RowGate::Always | RowGate::Domain(_)),
+            name,
+            source,
+            ..
+        }) = QUERY_SURFACES[query_index]
+        {
+            sources[count] = Some(FixedSource {
+                gate,
+                row: name,
+                source,
+            });
+            count += 1;
+        }
+        query_index += 1;
+    }
+    sources
+}
+
+const fn first_uncovered_source(
+    profile: crate::profiles::ProfileId,
+    gate: RowGate,
+    sources: &[Option<FixedSource>],
+) -> Option<&'static str> {
+    let mut index = 0;
+    while index < sources.len() {
+        let Some(FixedSource {
+            gate: required,
+            row,
+            source,
+        }) = sources[index]
+        else {
+            break;
+        };
+        if required.same_as(gate) && !source.covers_model(Some(profile)) {
+            return Some(row);
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Check the promises of one gate for one profile implementing that gate.
+pub(crate) const fn uncovered_fixed_source(
+    profile: crate::profiles::ProfileId,
+    gate: RowGate,
+) -> Option<&'static str> {
+    const SOURCES: &[Option<FixedSource>] = &fixed_sources();
+    first_uncovered_source(profile, gate, SOURCES)
+}
+
 /// Compiles the protocol projection once; request preparation performs one
 /// indexed lookup rather than searching canonical methods at runtime.
 #[allow(clippy::panic)]
@@ -536,11 +556,6 @@ const fn build_surface_index() -> [StaticSurfaceEntry; BuiltinCommand::ALL.len()
                 let row = surface.rows[row_index];
                 let slot = row as usize;
                 let class = registry_class(row, surface.kind);
-                if let StaticSurfaceDisposition::Noun { gate, .. } = surface.disposition {
-                    if surface.rows.len() == 1 {
-                        assert_domain_source(gate, row.source());
-                    }
-                }
                 if covered[slot] {
                     // A convenience method may reuse a canonical packet only
                     // when its complete admission and lifecycle contracts agree.
@@ -774,6 +789,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fixed_source_checks_name_the_first_uncovered_row() {
+        let sources = [
+            Some(FixedSource {
+                gate: RowGate::Domain(DomainGate::Focus),
+                row: "Focus::Stop",
+                source: Source::Unsourced,
+            }),
+            Some(FixedSource {
+                gate: RowGate::Always,
+                row: "Always::Missing",
+                source: Source::Unsourced,
+            }),
+        ];
+        for profile in crate::profiles::ProfileId::all() {
+            assert_eq!(
+                first_uncovered_source(*profile, RowGate::Always, &sources),
+                Some("Always::Missing")
+            );
+            assert_eq!(
+                first_uncovered_source(*profile, RowGate::Domain(DomainGate::Focus), &sources),
+                Some("Focus::Stop")
+            );
+            assert_eq!(
+                first_uncovered_source(*profile, RowGate::Domain(DomainGate::Zoom), &sources),
+                None
+            );
+        }
+    }
+
+    #[test]
     fn surface_domains_are_derived_from_every_consuming_row() {
         use crate::capabilities::TypedSupportSurface as S;
         assert_eq!(
@@ -917,7 +962,7 @@ mod tests {
     }
 
     #[test]
-    fn query_type_projection_unwraps_fallible_and_mapped_construction() {
+    fn query_type_projection_unwraps_fallible_construction_and_custom_decoder() {
         use crate::command;
         macro_rules! name {
             ([], $request:ty) => {
@@ -929,11 +974,9 @@ mod tests {
                 name,
                 [],
                 [
-                    mapped[with_target
-                        | target
-                        | command::zoom::NormalizedInquiry::for_target(target, domain)]
-                        | reply,
-                    profile | Ok(reply)
+                    with_decoder [with_target |_target|
+                        command::zoom::NormalizedInquiry::new(domain)]
+                        => custom_decoder
                 ]
             ),
             std::any::type_name::<command::zoom::NormalizedInquiry>()

@@ -1,5 +1,5 @@
 //! Standalone release gate; reuse the integration gates' scanner without Cargo.
-#[path = "../../test-support/src/source_scan.rs"]
+#[path = "../../src/test_support/source_scan.rs"]
 mod source_scan;
 
 use std::{collections::BTreeSet, env, fs, path::Path, process::ExitCode};

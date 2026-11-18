@@ -20,6 +20,7 @@ mod builtin_policy {
 }
 // The generated builtin_request! policy constants evaluate this same checker.
 const POLICY: builtin_policy::BuiltinPolicy = builtin_policy::policy(
+//~^ E0080 "a STOP ledger row requires the quick standard urgent policy"
     true,
     true,
     Some((
@@ -31,5 +32,3 @@ const POLICY: builtin_policy::BuiltinPolicy = builtin_policy::policy(
 fn main() {
     let _ = POLICY;
 }
-//~ E0080
-//~ "a STOP ledger row requires the quick standard urgent policy"

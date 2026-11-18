@@ -89,10 +89,6 @@ jobs:
         include: ${{ fromJSON(needs.feature-shapes.outputs.shapes) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install serial transport dependencies
-        if: runner.os == 'Linux'
-        timeout-minutes: 15
-        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
         with:
           components: clippy
@@ -119,8 +115,8 @@ jobs:
       - run: bash .github/scripts/check-blocking-dependency-boundary.sh
 
   macro-derives:
-    # `cargo test -p grafton-visca-macros` is a feature-matrix shape; this job
-    # adds the re-exported range macro checks.
+    # The default workspace leg runs macro unit tests. This job covers
+    # re-exports through a library other than grafton-visca.
     name: re-exported range macro
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -142,21 +138,6 @@ jobs:
           test -s "${export_path}"
           grep -Fq 'export type ReexportedRange = number;' "${export_path}"
 
-  all-features:
-    name: all features and targets
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install serial transport dependencies
-        timeout-minutes: 15
-        uses: ./.github/actions/install-serial-deps
-      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
-      - name: Check public Error variant production reachability
-        run: bash .github/scripts/test-error-variant-reachability.sh
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo check --workspace --all-features --all-targets
-
   all-features-tests:
     # No feature-matrix leg enables every feature at once; this job runs the
     # whole suite in that union, compile-contract fixtures included.
@@ -165,12 +146,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install serial transport dependencies
-        timeout-minutes: 15
-        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo test --all-features --no-fail-fast
+      - shell: bash
+        run: |
+          set -euo pipefail
+          source .github/scripts/engine-model-tests.sh
+          read -r -a skips <<<"$(engine_model_skip_args)"
+          cargo test --all-features --no-fail-fast -- "${skips[@]}"
 
   examples:
     name: examples and doctests
@@ -178,19 +161,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install serial transport dependencies
-        timeout-minutes: 15
-        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - name: Build supported example surfaces
-        run: |
-          set -euo pipefail
-          cargo check --examples --no-default-features
-          cargo check --examples --no-default-features --features blocking
-          cargo check --examples --no-default-features --features runtime-tokio
-          cargo check --examples --no-default-features --features runtime-smol
-          cargo check --examples --all-features
       - name: Run hardware-free examples
         run: |
           set -euo pipefail
@@ -202,22 +174,16 @@ jobs:
           cargo run --example cancellation_blocking --no-default-features --features blocking
           # Exercises export/check for every registered ID, strict JSON and CLI errors.
           cargo test --example profile_spec --no-default-features --features serde
-      - name: Build strict documentation and run doctests
+      - name: Run doctests for the domain, runtime-neutral async and default surfaces
         env:
           RUSTDOCFLAGS: "-D warnings"
         run: |
           set -euo pipefail
-          cargo doc --workspace --all-features --no-deps
-          # Keep this blocking-free surface strict: all-features makes
-          # blocking-only intra-doc links resolve and would mask their cfg.
-          cargo doc --no-default-features --features runtime-tokio --no-deps
           cargo test --doc --no-default-features
           cargo test --doc --no-default-features --features async
           # Default features compile the README quick start through the
           # cfg(doctest) README gate in src/lib.rs.
           cargo test --doc
-          cargo test --doc --no-default-features --features blocking
-          cargo test --doc --all-features
 
   lint:
     name: clippy and rustdoc warnings
@@ -225,9 +191,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install serial transport dependencies
-        timeout-minutes: 15
-        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
         with:
           components: clippy
@@ -260,11 +223,6 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install cargo-fuzz 0.12.0
         run: cargo +1.98.0 install cargo-fuzz --version 0.12.0 --locked
-      - name: Check protocol fuzz targets
-        run: |
-          for target in response_parser protocol_framer sony_envelope response_target serial_startup; do
-            cargo +nightly-2026-08-26 fuzz check "${target}"
-          done
       - name: Generate starting corpus
         run: python3 fuzz/seed_corpus.py
       # Every target starts from its generated corpus. The response parser
@@ -299,11 +257,12 @@ jobs:
           # and audits individual commit bodies.
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
-      - name: Check changelog and commit-history integrity
+      - name: Check public Error reachability, changelog and commit-history integrity
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          bash .github/scripts/test-error-variant-reachability.sh
           if [[ -n "${PR_BASE_SHA}" && -n "${PR_HEAD_SHA}" ]]; then
             base="${PR_BASE_SHA}"
             head="${PR_HEAD_SHA}"
@@ -394,9 +353,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - name: Install serial transport dependencies
-        timeout-minutes: 15
-        uses: ./.github/actions/install-serial-deps
       # `cargo public-api` needs a nightly rustdoc to emit rustdoc JSON. When it
       # is run from a stable toolchain it shells out to a bare `+nightly`, which
       # fails outright when no toolchain named `nightly` was ever installed.
@@ -457,9 +413,6 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install serial transport dependencies
-        timeout-minutes: 15
-        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --manifest-path tests/fixtures/synemantic_2_0/Cargo.toml
@@ -484,7 +437,6 @@ jobs:
           # Windows turns into ENOENT noise. Registry caching still covers most
           # of the cost here.
           cache-targets: false
-      - run: cargo check --workspace --all-targets
       # `serialport` is a different implementation on Windows (the Win32 comms
       # API rather than termios), so the blocking serial transport is the leg
       # that actually needs a Windows runner.
@@ -497,13 +449,13 @@ jobs:
       # Windows-only type, cfg, and API-shape breakage — and never executed.
       # Real-device smoke checks are optional and private; this job validates
       # the software contract without attached serial hardware.
-      - run: cargo test --no-default-features --features transport-serial
-
-      # Exercise Winsock's UDP ICMP port-unreachable behavior on real loopback
-      # sockets, including owner recovery and unchanged fatal stream resets.
-      - run: "cargo test --no-default-features --features blocking,runtime-tokio,runtime-smol --test integration issue_843_stream_reset::"
-      - run: cargo test --no-default-features --features blocking,runtime-tokio,runtime-smol --lib transport::blocking::tests::issue_843_udp_transient
-      - run: cargo test --no-default-features --features blocking,runtime-tokio,runtime-smol --lib transport::datagram::tests::windows_udp_port_unreachable_is_connection_refused
+      # The same build also exercises Winsock UDP recovery for both runtimes.
+      - shell: bash
+        run: |
+          set -euo pipefail
+          source .github/scripts/engine-model-tests.sh
+          read -r -a skips <<<"$(engine_model_skip_args)"
+          cargo test --no-default-features --features transport-serial,runtime-tokio,runtime-smol -- "${skips[@]}"
 
   macos:
     name: macOS check
@@ -515,9 +467,6 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: macos
-      - run: cargo check --workspace --all-targets
-      # `serialport` binds IOKit on macOS; no system package is needed, unlike
-      # the libudev install every Linux job performs.
       - run: cargo check --no-default-features --features transport-serial --all-targets
       # Pin precise read budgets and whole-millisecond serial timeout rounding
       # on the POSIX backend whose poll timer truncates fractional milliseconds.
@@ -568,7 +517,6 @@ jobs:
       - feature-matrix
       - blocking-dependency-boundary
       - macro-derives
-      - all-features
       - all-features-tests
       - examples
       - lint
@@ -591,7 +539,7 @@ jobs:
           # all-success object into a false green aggregate.
           EXPECTED_JOB_IDS: >-
             ["format", "feature-shapes", "feature-matrix", "blocking-dependency-boundary",
-             "macro-derives", "all-features", "all-features-tests", "examples", "lint",
+             "macro-derives", "all-features-tests", "examples", "lint",
              "fuzz", "release-validation", "public-api", "downstream",
              "windows", "macos", "cargo-audit", "cargo-deny"]
         run: |

@@ -267,6 +267,9 @@ impl BlockingOwnerIo {
                 .cancellations
                 .try_recv()
                 .ok()
+                .inspect(|_| {
+                    let _ = receivers.halt_capacity.try_send(());
+                })
                 .map(|value| BoundaryPoll::Boundary(RetainedBoundary::Cancellation(value)))
                 .map_or(Poll::Pending, Poll::Ready),
             BoundarySource::Admission => match receivers.admissions.try_recv() {

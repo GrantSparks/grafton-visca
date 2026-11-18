@@ -41,10 +41,11 @@ PY
     base="$(git -C "${fixture}" rev-parse HEAD)"
 }
 
-# Commit an untagged dated 2.0.0-rc.1 section above the published 1.1.0 one
-# and make that commit the comparison base.
+# Commit an untagged dated section above the published 1.1.0 one and make that
+# commit the comparison base.
 add_unpublished_section() {
-    python3 - "${fixture}" <<'PY'
+    local version="${1:-2.0.0-rc.1}"
+    python3 - "${fixture}" "${version}" <<'PY'
 import pathlib
 import sys
 
@@ -52,7 +53,7 @@ path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
 path.write_text(
     path.read_text().replace(
         "## [1.1.0] - 2026-08-01\n",
-        "## [2.0.0-rc.1] - 2026-09-04\n\n- Prepared candidate record.\n\n"
+        f"## [{sys.argv[2]}] - 2026-09-04\n\n- Prepared candidate record.\n\n"
         "## [1.1.0] - 2026-08-01\n",
     )
 )
@@ -651,5 +652,59 @@ PY
 git -C "${fixture}" add CHANGELOG.md
 git -C "${fixture}" commit -q -m "docs: reorder release headings"
 expect_failure "published release history is immutable"
+
+# When a candidate section is re-cut, the tag points to the correction, not
+# to its comparison base. Verify the HEAD^ range both before and after tagging.
+for shape in direct squash merge; do
+    make_fixture "recut-${shape}"
+    add_unpublished_section 2.0.0
+    if [[ "${shape}" != direct ]]; then
+        git -C "${fixture}" switch -qc release-cut
+        python3 - "${fixture}/CHANGELOG.md" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace("## [2.0.0] - 2026-09-04\n\n", ""))
+PY
+        git -C "${fixture}" commit -qam "docs: restore candidate notes to Unreleased"
+    fi
+
+    python3 - "${fixture}/CHANGELOG.md" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text().replace("## [2.0.0] - 2026-09-04\n\n", "")
+path.write_text(text.replace("## [Unreleased]\n\n",
+                             "## [Unreleased]\n\n## [2.0.0] - 2026-09-05\n\n"))
+PY
+    git -C "${fixture}" commit -qam "docs: cut the completed release record"
+
+    if [[ "${shape}" != direct ]]; then
+        git -C "${fixture}" switch -qd "${base}"
+        if [[ "${shape}" == squash ]]; then
+            git -C "${fixture}" merge --squash -q release-cut
+            git -C "${fixture}" commit -qm "docs: fold notes and re-cut in a squash"
+        else
+            git -C "${fixture}" merge --no-ff -qm "Merge the corrected release cut" release-cut
+        fi
+    fi
+
+    base="$(git -C "${fixture}" rev-parse HEAD^)"
+    run_validator
+    git -C "${fixture}" tag -am "Release 2.0.0" v2.0.0
+    run_validator
+    base="$(git -C "${fixture}" rev-parse HEAD)"
+    python3 - "${fixture}/CHANGELOG.md" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace("- Prepared candidate record.", "- Changed after release."))
+PY
+    git -C "${fixture}" commit -qam "docs: attempt to edit the published record"
+    expect_failure "published release history is immutable"
+done
 
 echo "change-record validator regression checks passed"

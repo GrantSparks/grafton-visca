@@ -17,6 +17,7 @@ use std::{
 };
 
 use crate::{
+    runtime::engine::MotionEffect,
     target::{PerTarget, TargetSlot},
     Error,
 };
@@ -26,9 +27,9 @@ use super::OwnerMetrics;
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 use super::SessionState;
 use super::{
-    AdmissionPermit, AdmissionPermitPool, Admitted, CancellationRequest, DiagnosticSubscription,
-    Lane, LaneRequest, LiveTuning, OwnerState, RuntimeRequest, TargetStateCache, TerminalLane,
-    TerminalObserver, TerminalSlot,
+    AdmissionPermit, AdmissionPermitPool, Admitted, AdmittedOperation, CancellationRequest,
+    CommandOutcome, DiagnosticSubscription, Lane, LaneRequest, LiveTuning, OwnerState,
+    RuntimeRequest, TargetStateCache, TerminalLane, TerminalObserver, TerminalSlot,
 };
 
 /// The one-way decision for an admission constrained by an outer deadline.
@@ -167,7 +168,7 @@ pub(super) struct PendingAdmission<T> {
     expiry: Option<AdmissionExpiry>,
 }
 
-impl<T: Clone> PendingAdmission<T> {
+impl<T: TerminalLane> PendingAdmission<T> {
     /// The receiver of the owner's admission reply.
     pub(super) fn reply(&self) -> &AdmissionReply {
         &self.reply
@@ -190,11 +191,61 @@ impl<T: Clone> PendingAdmission<T> {
         reply: Result<Result<Admitted, Error>, Error>,
         configured_timeout: std::time::Duration,
     ) -> Result<super::ReceiptCore<T>, Error> {
-        Ok(super::ReceiptCore::admitted(
-            reply??,
-            self.completion,
-            configured_timeout,
-        ))
+        super::ReceiptCore::admitted(reply??, self.completion, configured_timeout)
+    }
+}
+
+pub(super) type QueuedAdmission<T, R> = (TerminalObserver<T>, flume::Receiver<Result<R, Error>>);
+
+#[derive(Debug)]
+pub(super) enum AdmissionReplySink {
+    Request(flume::Sender<Result<Admitted, Error>>),
+    Operation {
+        motion: MotionEffect,
+        reply: flume::Sender<Result<AdmittedOperation, Error>>,
+    },
+}
+
+impl AdmissionReplySink {
+    #[cfg(all(test, any(feature = "blocking", feature = "test-utils")))]
+    #[allow(clippy::panic)]
+    pub(super) fn into_request(self) -> flume::Sender<Result<Admitted, Error>> {
+        match self {
+            Self::Request(reply) => reply,
+            Self::Operation { .. } => panic!("a plain request admission was expected"),
+        }
+    }
+
+    fn reject(self, error: Error) {
+        match self {
+            Self::Request(reply) => {
+                let _ = reply.try_send(Err(error));
+            }
+            Self::Operation { reply, .. } => {
+                let _ = reply.try_send(Err(error));
+            }
+        }
+    }
+}
+
+/// The common observation check can borrow either a sender directly or a
+/// request admission's typed reply.
+pub(super) trait BoundaryReply {
+    fn is_disconnected(&self) -> bool;
+}
+
+impl<T> BoundaryReply for flume::Sender<T> {
+    fn is_disconnected(&self) -> bool {
+        flume::Sender::is_disconnected(self)
+    }
+}
+
+impl BoundaryReply for AdmissionReplySink {
+    fn is_disconnected(&self) -> bool {
+        match self {
+            Self::Request(sender) => sender.is_disconnected(),
+            Self::Operation { reply: sender, .. } => sender.is_disconnected(),
+        }
     }
 }
 
@@ -203,7 +254,7 @@ pub(super) struct AdmissionBoundary {
     request: RuntimeRequest,
     permit: AdmissionPermit,
     observer: TerminalSlot,
-    reply: flume::Sender<Result<Admitted, Error>>,
+    reply: AdmissionReplySink,
     claim: AdmissionBoundaryClaim,
 }
 
@@ -219,7 +270,7 @@ pub(super) type AdmissionParts = (
     RuntimeRequest,
     AdmissionPermit,
     TerminalSlot,
-    flume::Sender<Result<Admitted, Error>>,
+    AdmissionReplySink,
 );
 
 impl AdmissionBoundary {
@@ -229,31 +280,14 @@ impl AdmissionBoundary {
 
     /// Claim the deadline race while the boundary still owns its permit.
     pub(super) fn claim_for_admission(&mut self, now: Instant) -> Result<(), AdmissionRejection> {
-        if self.reply.is_disconnected() {
-            // A caller-expired boundary has already reported its rejection.
-            let record = match &self.claim {
-                AdmissionBoundaryClaim::Pending(validity) => validity.expire_before_admission(),
-                AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => true,
-            };
-            return Err(AdmissionRejection {
-                error: Error::CommandCancelled,
-                record,
-            });
-        }
-        let validity = match &self.claim {
-            AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => return Ok(()),
-            AdmissionBoundaryClaim::Pending(validity) => validity,
-        };
-        match validity.claim_for_admission(now) {
-            AdmissionClaim::Claimed { .. } => {
+        match &self.claim {
+            AdmissionBoundaryClaim::Pending(claim) => {
+                claim.claim(&self.reply, now)?;
                 self.claim = AdmissionBoundaryClaim::Claimed;
                 Ok(())
             }
-            claim @ (AdmissionClaim::ExpiredHere | AdmissionClaim::ExpiredElsewhere) => {
-                Err(AdmissionRejection {
-                    error: Error::admission_timeout(),
-                    record: matches!(claim, AdmissionClaim::ExpiredHere),
-                })
+            AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => {
+                BoundaryClaim::ensure_observed(&self.reply, None)
             }
         }
     }
@@ -268,7 +302,7 @@ impl AdmissionBoundary {
             claim,
         } = self;
         drop(permit);
-        let _ = reply.try_send(Err(error));
+        reply.reject(error);
         // The admission answer remains authoritative over a dropped slot.
         drop(request);
         drop(observer);
@@ -287,9 +321,56 @@ enum AdmissionBoundaryClaim {
     /// No caller deadline constrains admission.
     Unbounded,
     /// The owner has not yet claimed the caller's bounded admission.
-    Pending(AdmissionValidity),
+    Pending(BoundaryClaim),
     /// The owner won the race before retaining the boundary behind raw input.
     Claimed,
+}
+
+/// The shared pre-admission claim for bounded submissions and halts.
+#[derive(Debug)]
+pub(super) struct BoundaryClaim(AdmissionValidity);
+
+impl From<AdmissionValidity> for BoundaryClaim {
+    fn from(validity: AdmissionValidity) -> Self {
+        Self(validity)
+    }
+}
+
+impl BoundaryClaim {
+    pub(super) const fn deadline(&self) -> Instant {
+        self.0.deadline()
+    }
+
+    fn ensure_observed(
+        reply: &impl BoundaryReply,
+        pending: Option<&Self>,
+    ) -> Result<(), AdmissionRejection> {
+        if reply.is_disconnected() {
+            // A caller-expired boundary already reported its rejection.
+            return Err(AdmissionRejection {
+                error: Error::CommandCancelled,
+                record: pending.is_none_or(|claim| claim.0.expire_before_admission()),
+            });
+        }
+        Ok(())
+    }
+
+    pub(super) fn claim(
+        &self,
+        reply: &impl BoundaryReply,
+        now: Instant,
+    ) -> Result<crate::runtime::engine::NonZeroDuration, AdmissionRejection> {
+        Self::ensure_observed(reply, Some(self))?;
+        match self.0.claim_for_admission(now) {
+            AdmissionClaim::Claimed { remaining } => Ok(remaining),
+            expired @ (AdmissionClaim::ExpiredHere | AdmissionClaim::ExpiredElsewhere) => {
+                Err(AdmissionRejection {
+                    error: Error::admission_timeout(),
+                    record: matches!(expired, AdmissionClaim::ExpiredHere),
+                })
+            }
+        }
+    }
 }
 
 /// A rejection that happened before a handle could allocate any owner-owned
@@ -637,7 +718,7 @@ impl OwnerLifecycle {
         // Lock order is ingress -> motion. No other path holds both, and no
         // I/O occurs here: enqueue and settlement commit see one acceptance.
         if let Some(axes) = axes {
-            motion.establish(target, axes, cutoff);
+            motion.fence(target, axes, cutoff);
         }
         Ok(cutoff)
     }
@@ -728,6 +809,8 @@ pub(super) fn missing_terminal_error() -> Error {
 pub(super) struct BoundaryReceivers {
     pub(super) shutdown: flume::Receiver<()>,
     pub(super) cancellations: flume::Receiver<CancellationBoundary>,
+    /// A dequeue may let a halt enqueue under the lifecycle lock.
+    pub(super) halt_capacity: flume::Sender<()>,
     pub(super) admissions: flume::Receiver<AdmissionBoundary>,
     pub(super) control: flume::Receiver<ControlBoundary>,
 }
@@ -753,6 +836,7 @@ pub(super) struct OwnerHandleCore {
     pub(super) admissions: flume::Sender<AdmissionBoundary>,
     admission_rejections: Arc<AdmissionRejectionIngress>,
     pub(super) cancellations: flume::Sender<CancellationBoundary>,
+    pub(super) halt_capacity: flume::Receiver<()>,
     pub(super) control: flume::Sender<ControlBoundary>,
     shutdown: flume::Sender<()>,
     /// Disconnects after owner teardown, including driver/transport drop.
@@ -779,6 +863,7 @@ impl OwnerHandleCore {
         let rejection_capacity = state.facts().limits.staged_diagnostics.get();
         let (admission_tx, admissions) = flume::bounded(boundary_capacity);
         let (cancellation_tx, cancellations) = flume::bounded(cancellation_capacity);
+        let (halt_capacity_tx, halt_capacity) = flume::bounded(1);
         let (control_tx, control) = flume::bounded(control_capacity);
         let (shutdown_tx, shutdown) = flume::bounded(1);
         let (alive, actor_alive) = flume::bounded(1);
@@ -790,6 +875,7 @@ impl OwnerHandleCore {
                 admissions: admission_tx,
                 admission_rejections: Arc::clone(&admission_rejections),
                 cancellations: cancellation_tx,
+                halt_capacity,
                 control: control_tx,
                 shutdown: shutdown_tx,
                 actor_alive,
@@ -801,6 +887,7 @@ impl OwnerHandleCore {
                 receivers: BoundaryReceivers {
                     shutdown,
                     cancellations,
+                    halt_capacity: halt_capacity_tx,
                     admissions,
                     control,
                 },
@@ -904,6 +991,32 @@ impl OwnerHandleCore {
         }
     }
 
+    /// Enqueue a halt in the same lifecycle critical section as an
+    /// admission. Return a still-owned halt on backpressure, so the handle
+    /// can wait for capacity without holding the lifecycle lock.
+    pub(super) fn try_enqueue_cancellation(
+        &self,
+        boundary: CancellationBoundary,
+    ) -> Result<Option<CancellationBoundary>, Error> {
+        let lifecycle = self.lifecycle.lock_open()?;
+        match self.cancellations.try_send(boundary) {
+            Ok(()) => Ok(None),
+            Err(flume::TrySendError::Full(boundary)) => Ok(Some(boundary)),
+            Err(flume::TrySendError::Disconnected(_)) => Err(lifecycle.disconnected_error()),
+        }
+    }
+
+    pub(super) fn enqueue_operation(
+        &self,
+        request: LaneRequest<CommandOutcome>,
+        motion: MotionEffect,
+    ) -> Result<QueuedAdmission<CommandOutcome, AdmittedOperation>, Error> {
+        self.enqueue_with_reply(request, None, |reply| AdmissionReplySink::Operation {
+            motion,
+            reply,
+        })
+    }
+
     /// Reserve a permit and enqueue one admission, returning the request's
     /// terminal observer and the receiver of the owner's admission reply.
     /// Every failure happens before an observer or engine ID is created and
@@ -913,7 +1026,16 @@ impl OwnerHandleCore {
         request: impl Into<LaneRequest<T>>,
         validity: Option<AdmissionValidity>,
     ) -> Result<(TerminalObserver<T>, AdmissionReply), Error> {
-        let request = request.into().into_inner();
+        self.enqueue_with_reply(request.into(), validity, AdmissionReplySink::Request)
+    }
+
+    fn enqueue_with_reply<T: TerminalLane, R>(
+        &self,
+        request: LaneRequest<T>,
+        validity: Option<AdmissionValidity>,
+        reply_kind: impl FnOnce(flume::Sender<Result<R, Error>>) -> AdmissionReplySink,
+    ) -> Result<QueuedAdmission<T, R>, Error> {
+        let request = request.into_inner();
         let target = request.context().target;
         let lane = request.lane();
         if let Some(error) = self.admission_rejection() {
@@ -950,11 +1072,10 @@ impl OwnerHandleCore {
             request,
             permit,
             observer,
-            reply,
-            claim: validity.map_or(
-                AdmissionBoundaryClaim::Unbounded,
-                AdmissionBoundaryClaim::Pending,
-            ),
+            reply: reply_kind(reply),
+            claim: validity.map_or(AdmissionBoundaryClaim::Unbounded, |validity| {
+                AdmissionBoundaryClaim::Pending(validity.into())
+            }),
         };
         match self.admissions.try_send(boundary) {
             Ok(()) => Ok((completion, admission)),
@@ -1097,12 +1218,12 @@ pub(super) mod tests {
             panic!("waiter admission must still be pending");
         };
         assert_eq!(validity.deadline(), selected_at);
-        assert_eq!(
-            validity.claim_for_admission(selected_at),
-            AdmissionClaim::ExpiredHere,
+        let rejection = validity.claim(&admission.reply, selected_at).unwrap_err();
+        assert!(
+            rejection.record,
             "the caller must not have expired this admission"
         );
-        let error = Error::admission_timeout();
+        let error = rejection.error;
         state.record_admission_rejection(
             admission.request().context().target,
             admission.request().lane(),

@@ -41,63 +41,93 @@ crate::command::nouns::forward_inquiry!(ClearImagePositionInquiry, crate::comman
 /// Drives toward telephoto at a speed resolved against the target's zoom range.
 #[derive(Debug, Clone, Copy)]
 pub struct TeleVariable {
-    inner: builtin::ZoomDrive,
+    preview: Option<builtin::ZoomDrive>,
     speed: Speed<ZoomSpeed>,
 }
 impl TeleVariable {
-    /// Resolves a coarse or exact speed without sending a command.
+    /// Captures a speed to resolve against the receiving camera during preparation.
+    pub fn new(speed: impl Into<Speed<ZoomSpeed>>) -> Self {
+        Self {
+            preview: None,
+            speed: speed.into(),
+        }
+    }
+
+    /// Creates a movement intent with a preview for direct encoding.
     pub fn for_target(
         target: &TargetRegistration,
         speed: impl Into<Speed<ZoomSpeed>>,
     ) -> crate::Result<Self> {
-        let speed = speed.into();
-        Ok(Self {
-            inner: builtin::ZoomDrive::TeleVariable(lower_speed(target, speed)?),
-            speed,
-        })
+        let mut request = Self::new(speed);
+        request.preview = Some(request.lower(target)?);
+        Ok(request)
     }
+
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::ZoomDrive> {
+        #[cfg(test)]
+        builtin::record_request_value_validation();
+        Ok(builtin::ZoomDrive::TeleVariable(lower_speed(
+            target, self.speed,
+        )?))
+    }
+
     /// Returns the requested coarse or exact speed.
     #[must_use]
     pub const fn speed(self) -> Speed<ZoomSpeed> {
         self.speed
     }
 }
-crate::command::nouns::forward_request!(
+crate::command::nouns::movement_intent!(
     TeleVariable,
     builtin::ZoomDrive,
     AppliedOnly,
-    rows = [ZoomTeleVariable]
+    ZoomTeleVariable
 );
 
 /// Drives toward wide angle at a speed resolved against the target's zoom range.
 #[derive(Debug, Clone, Copy)]
 pub struct WideVariable {
-    inner: builtin::ZoomDrive,
+    preview: Option<builtin::ZoomDrive>,
     speed: Speed<ZoomSpeed>,
 }
 impl WideVariable {
-    /// Resolves a coarse or exact speed without sending a command.
+    /// Captures a speed to resolve against the receiving camera during preparation.
+    pub fn new(speed: impl Into<Speed<ZoomSpeed>>) -> Self {
+        Self {
+            preview: None,
+            speed: speed.into(),
+        }
+    }
+
+    /// Creates a movement intent with a preview for direct encoding.
     pub fn for_target(
         target: &TargetRegistration,
         speed: impl Into<Speed<ZoomSpeed>>,
     ) -> crate::Result<Self> {
-        let speed = speed.into();
-        Ok(Self {
-            inner: builtin::ZoomDrive::WideVariable(lower_speed(target, speed)?),
-            speed,
-        })
+        let mut request = Self::new(speed);
+        request.preview = Some(request.lower(target)?);
+        Ok(request)
     }
+
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::ZoomDrive> {
+        #[cfg(test)]
+        builtin::record_request_value_validation();
+        Ok(builtin::ZoomDrive::WideVariable(lower_speed(
+            target, self.speed,
+        )?))
+    }
+
     /// Returns the requested coarse or exact speed.
     #[must_use]
     pub const fn speed(self) -> Speed<ZoomSpeed> {
         self.speed
     }
 }
-crate::command::nouns::forward_request!(
+crate::command::nouns::movement_intent!(
     WideVariable,
     builtin::ZoomDrive,
     AppliedOnly,
-    rows = [ZoomWideVariable]
+    ZoomWideVariable
 );
 
 /// Moves to an absolute zoom position.
@@ -131,42 +161,31 @@ crate::command::nouns::forward_request!(
 /// Moves to a normalized position across one documented zoom domain.
 #[derive(Debug, Clone, Copy)]
 pub struct SetNormalized {
-    inner: builtin::ZoomTarget,
     position: UnitInterval,
     domain: ZoomDomain,
 }
 impl SetNormalized {
-    /// Resolves `0` as wide and `1` as the selected domain's telephoto endpoint.
+    /// Selects `0` as wide and `1` as the selected domain's telephoto endpoint.
     ///
-    /// The combined optical/digital domain requires a documented digital maximum.
-    pub fn for_target(
-        target: &TargetRegistration,
-        position: UnitInterval,
-        domain: ZoomDomain,
-    ) -> crate::Result<Self> {
-        Ok(Self {
-            inner: builtin::ZoomTarget::from_normalized(position, domain, target.profile())?,
-            position,
-            domain,
-        })
+    /// Preparation resolves the position against the receiving camera. A
+    /// combined optical/digital domain requires a documented digital maximum.
+    #[must_use]
+    pub const fn new(position: UnitInterval, domain: ZoomDomain) -> Self {
+        Self { position, domain }
     }
+
     /// Returns the requested normalized position.
     #[must_use]
     pub const fn position(self) -> UnitInterval {
         self.position
     }
+
     /// Returns the selected normalization domain.
     #[must_use]
     pub const fn domain(self) -> ZoomDomain {
         self.domain
     }
 }
-crate::command::nouns::forward_request!(
-    SetNormalized,
-    builtin::ZoomTarget,
-    Targeted,
-    rows = [ZoomPosition]
-);
 
 /// Enables or disables digital zoom.
 #[derive(Debug, Clone, Copy)]
@@ -284,20 +303,13 @@ fn lower_speed(target: &TargetRegistration, speed: Speed<ZoomSpeed>) -> crate::R
 /// The response uses the same `0` wide and `1` telephoto endpoints as [`SetNormalized`].
 #[derive(Debug, Clone, Copy)]
 pub struct NormalizedInquiry {
-    inner: crate::command::ZoomPositionInquiry,
     domain: ZoomDomain,
-    maximum: u16,
 }
 impl NormalizedInquiry {
-    /// Selects the target's normalization domain without allocating or sending a query.
-    pub fn for_target(target: &TargetRegistration, domain: ZoomDomain) -> crate::Result<Self> {
-        let inquiry = Self {
-            inner: crate::command::ZoomPositionInquiry,
-            domain,
-            maximum: normalization_maximum(target, domain)?,
-        };
-        crate::Request::validate_for_target(&inquiry, target)?;
-        Ok(inquiry)
+    /// Creates a query that normalizes its reply against the receiving camera.
+    #[must_use]
+    pub const fn new(domain: ZoomDomain) -> Self {
+        Self { domain }
     }
 
     /// Returns the selected normalization domain.
@@ -305,67 +317,74 @@ impl NormalizedInquiry {
     pub const fn domain(self) -> ZoomDomain {
         self.domain
     }
-
-    fn validate_normalization(&self, target: &TargetRegistration) -> crate::Result<()> {
-        if normalization_maximum(target, self.domain)? == self.maximum {
-            Ok(())
-        } else {
-            Err(Error::InvalidRequest {
-                reason: "zoom normalization belongs to a different profile range".into(),
-            })
-        }
-    }
 }
 crate::command::nouns::forward_inquiry!(
     @request NormalizedInquiry, crate::command::ZoomPositionInquiry,
-    validate = |request, target| request.validate_normalization(target)
+    validate = |_request, _target| {
+        #[cfg(test)]
+        builtin::record_request_validation();
+        Ok::<(), Error>(())
+    };
+    crate::command::ZoomPositionInquiry
 );
 
 impl crate::Inquiry for NormalizedInquiry {
     type Response = UnitInterval;
 
     fn payload_shape(&self) -> crate::PayloadShape {
-        crate::Inquiry::payload_shape(&self.inner)
+        crate::Inquiry::payload_shape(&crate::command::ZoomPositionInquiry)
     }
     fn payload_shape_for_profile(
         &self,
         profile: &crate::profiles::ProfileSpec,
     ) -> crate::PayloadShape {
-        crate::Inquiry::payload_shape_for_profile(&self.inner, profile)
+        crate::Inquiry::payload_shape_for_profile(&crate::command::ZoomPositionInquiry, profile)
     }
     fn decoder(&self) -> crate::ResponseDecoder<Self::Response> {
-        crate::ResponseDecoder::with_inline_context([u64::from(self.maximum), 0], decode_normalized)
+        crate::ResponseDecoder::from_fn(|_| {
+            Err(Error::InvalidRequest {
+                reason: "normalized zoom decoding requires a target profile".into(),
+            })
+        })
     }
     fn decoder_for_profile(
         &self,
-        _profile: &crate::profiles::ProfileSpec,
-    ) -> crate::ResponseDecoder<Self::Response> {
-        // Preparation validated that the registered target has these exact bounds.
-        self.decoder()
+        profile: &crate::profiles::ProfileSpec,
+    ) -> crate::Result<crate::ResponseDecoder<Self::Response>> {
+        #[cfg(test)]
+        builtin::record_request_value_validation();
+        let capabilities = profile.capabilities();
+        let zoom = capabilities
+            .zoom
+            .as_ref()
+            .ok_or(Error::FeatureNotSupported { feature: "zoom" })?;
+        if self.domain == ZoomDomain::OpticalPlusDigital
+            && !capabilities.supports(crate::capabilities::TypedSupportSurface::DigitalZoomRange)
+        {
+            return Err(Error::FeatureNotSupported {
+                feature: "optical-plus-digital zoom range",
+            });
+        }
+        let maximum = crate::inquiry_conversions::zoom_domain_max(
+            self.domain,
+            zoom.optical_max,
+            zoom.digital_max,
+        )?;
+        Ok(crate::ResponseDecoder::with_inline_context(
+            [u64::from(maximum), 0],
+            decode_normalized,
+        ))
     }
     #[allow(private_interfaces)]
     fn builtin_inquiry_syntax_retry(
         &self,
         authority: crate::requests::BuiltinInquiryAuthority,
     ) -> bool {
-        crate::Inquiry::builtin_inquiry_syntax_retry(&self.inner, authority)
+        crate::Inquiry::builtin_inquiry_syntax_retry(
+            &crate::command::ZoomPositionInquiry,
+            authority,
+        )
     }
-}
-
-fn normalization_maximum(target: &TargetRegistration, domain: ZoomDomain) -> crate::Result<u16> {
-    let capabilities = target.profile().capabilities();
-    let zoom = capabilities
-        .zoom
-        .as_ref()
-        .ok_or(Error::FeatureNotSupported { feature: "zoom" })?;
-    if domain == ZoomDomain::OpticalPlusDigital
-        && !capabilities.supports(crate::capabilities::TypedSupportSurface::DigitalZoomRange)
-    {
-        return Err(Error::FeatureNotSupported {
-            feature: "optical-plus-digital zoom range",
-        });
-    }
-    Ok(zoom.position_at(UnitInterval::MAX, domain)?.value())
 }
 
 fn decode_normalized(context: [u64; 2], payload: &[u8]) -> crate::Result<UnitInterval> {
@@ -390,13 +409,21 @@ mod tests {
     };
 
     fn target(digital_permission: bool) -> TargetRegistration {
+        target_with_optical_limit(digital_permission, 0x4000)
+    }
+
+    fn target_with_optical_limit(digital_permission: bool, optical_max: u16) -> TargetRegistration {
         let base = ProfileId::PtzOpticsG2.spec().expect("base profile");
         let mut facts = base.capabilities().clone();
         facts.profile_id = None;
         let zoom = facts.zoom.as_mut().expect("zoom");
+        zoom.optical_max = optical_max;
         zoom.digital_max = Some(0x7000);
         zoom.speed = CapabilityRange::<u8>::new(2, 5).expect("valid capability bounds");
-        facts.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
+        facts.typed_support = TypedSupportSet::from_surfaces(&[
+            TypedSupportSurface::DirectZoom,
+            TypedSupportSurface::PanTiltPositioning,
+        ]);
         if digital_permission {
             facts.typed_support = facts.typed_support.union(TypedSupportSet::from_surface(
                 TypedSupportSurface::DigitalZoomRange,
@@ -419,25 +446,29 @@ mod tests {
     fn normalized_readback_uses_the_setters_domain_and_preserves_query_policy() {
         let target = target(true);
         let midpoint = UnitInterval::new(0.5).expect("midpoint");
-        let setter = SetNormalized::for_target(&target, midpoint, ZoomDomain::OpticalPlusDigital)
-            .expect("normalized setter");
+        let setter = SetNormalized::new(midpoint, ZoomDomain::OpticalPlusDigital);
         let mut buffer = [0; 9];
         setter
-            .write_into(CameraId::CAMERA_1, &mut buffer)
+            .validate_for_target(&target)
+            .expect("documented digital domain");
+        setter
+            .write_for_target(
+                &target,
+                &mut buffer,
+                crate::requests::RequestContractAuthority::new(),
+            )
             .expect("target frame");
         assert_eq!(buffer, [0x81, 1, 4, 0x47, 3, 8, 0, 0, 0xff]);
-        let query = NormalizedInquiry::for_target(&target, ZoomDomain::OpticalPlusDigital)
-            .expect("normalized getter");
+        let query = NormalizedInquiry::new(ZoomDomain::OpticalPlusDigital);
+        let decoder = query
+            .decoder_for_profile(target.profile())
+            .expect("target decoder");
         assert_eq!(
-            query
-                .decoder()
-                .decode(&[3, 8, 0, 0])
-                .expect("midpoint reply"),
+            decoder.decode(&[3, 8, 0, 0]).expect("midpoint reply"),
             midpoint
         );
         assert_eq!(
-            query
-                .decoder()
+            decoder
                 .clone()
                 .decode(&[7, 0, 0, 0])
                 .expect("maximum reply"),
@@ -448,22 +479,92 @@ mod tests {
             query.policy().retry_class(),
             crate::request::InquiryRetryClass::Inquiry
         );
-        let optical =
-            NormalizedInquiry::for_target(&target, ZoomDomain::Optical).expect("optical getter");
+        let optical = NormalizedInquiry::new(ZoomDomain::Optical)
+            .decoder_for_profile(target.profile())
+            .expect("optical decoder");
         assert!(matches!(
-            optical.decoder().decode(&[7, 0, 0, 0]),
+            optical.decode(&[7, 0, 0, 0]),
             Err(Error::InvalidResponse { .. })
         ));
         assert_eq!(
-            optical.decoder().decode(&[0, 0, 0, 0]).expect("wide reply"),
+            optical.decode(&[0, 0, 0, 0]).expect("wide reply"),
             UnitInterval::MIN
         );
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn normalized_zoom_intent_prepares_against_each_receiving_profile() {
+        use crate::{completion::Targeted, prepared::test_support::prepare_builtin_operation};
+        let half = UnitInterval::new(0.5).expect("midpoint");
+        let combined = SetNormalized::new(half, ZoomDomain::OpticalPlusDigital);
+        let query = NormalizedInquiry::new(ZoomDomain::OpticalPlusDigital);
+        for (profile, expected) in [
+            (ProfileId::SonyBrc300, [3, 0x0f, 8, 0]),
+            (ProfileId::SonyEviH100, [3, 0x0d, 6, 0]),
+        ] {
+            let target = TargetRegistration::new(
+                crate::IndividualCameraId::CAMERA_2,
+                profile.spec().expect("built-in profile"),
+            );
+            prepare_builtin_operation::<Targeted, _>(
+                &combined,
+                &target,
+                crate::OperationalTuning::new(),
+            )
+            .expect("combined midpoint")
+            .admit_with(|request, _, _, _| {
+                let [a, b, c, d] = expected;
+                assert_eq!(
+                    request.wire().as_bytes(),
+                    &[0x82, 1, 4, 0x47, a, b, c, d, 0xff]
+                );
+            });
+            let decoder = query
+                .decoder_for_profile(target.profile())
+                .expect("profile-bound query");
+            assert_eq!(decoder.decode(&expected).expect("midpoint reply"), half);
+        }
+
+        let narrower = target_with_optical_limit(true, 0x3000);
+        let optical = SetNormalized::new(UnitInterval::MAX, ZoomDomain::Optical);
+        prepare_builtin_operation::<Targeted, _>(
+            &optical,
+            &narrower,
+            crate::OperationalTuning::new(),
+        )
+        .expect("receiving optical endpoint")
+        .admit_with(|request, _, _, _| {
+            assert_eq!(
+                request.wire().as_bytes(),
+                &[0x81, 1, 4, 0x47, 3, 0, 0, 0, 0xff]
+            );
+        });
+        let no_combined_range = target(false);
+        assert!(matches!(
+            crate::prepared::test_support::prepare_inquiry(
+                &query,
+                &no_combined_range,
+                crate::OperationalTuning::new(),
+                crate::prepared::ClassSelection::Request
+            ),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        assert!(matches!(
+            prepare_builtin_operation::<Targeted, _>(
+                &combined,
+                &no_combined_range,
+                crate::OperationalTuning::new()
+            ),
+            Err(Error::FeatureNotSupported { .. })
+        ));
     }
 
     #[test]
     fn normalization_permission_and_profile_ranges_are_checked_before_encoding() {
         assert!(matches!(
-            NormalizedInquiry::for_target(&target(false), ZoomDomain::OpticalPlusDigital),
+            NormalizedInquiry::new(ZoomDomain::OpticalPlusDigital)
+                .decoder_for_profile(target(false).profile()),
             Err(Error::FeatureNotSupported { .. })
         ));
         let target = target(true);

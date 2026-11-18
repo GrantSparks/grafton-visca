@@ -724,6 +724,7 @@ impl ProtocolEngine {
         EngineMethods::handle_in_turn_into(self, turn, input, effects);
     }
 
+    #[cfg(test)]
     pub(crate) fn admit_in_turn(
         &mut self,
         turn: &InputTurn,
@@ -733,10 +734,40 @@ impl ProtocolEngine {
         EngineMethods::admit_in_turn(self, turn, request, slot)
     }
 
+    pub(crate) fn admit_owner_in_turn(
+        &mut self,
+        turn: &InputTurn,
+        request: RuntimeRequest,
+        slot: AdmissionSlot,
+    ) -> Result<AdmittedId, Error> {
+        let lane = request.lane();
+        let id = EngineMethods::admit_in_turn(self, turn, request, slot)?;
+        Ok(match lane {
+            Lane::Command => AdmittedId::Command(CommandRequestId::issued(id)),
+            Lane::Inquiry => AdmittedId::Inquiry(id),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn command_id(&self, id: RequestId) -> CommandRequestId {
+        let admitted = self
+            .entry(id)
+            .is_some_and(|entry| entry.request.lane() == Lane::Command);
+        assert!(admitted, "test cancellation requires an admitted command");
+        CommandRequestId::issued(id)
+    }
+
+    #[cfg(test)]
+    fn cancel_input(&self, id: RequestId) -> Input {
+        Input::Cancel {
+            id: self.command_id(id),
+        }
+    }
+
     pub(crate) fn cancel_in_turn_into(
         &mut self,
         turn: &InputTurn,
-        id: RequestId,
+        id: CommandRequestId,
         effects: &mut Vec<Effect>,
     ) -> Result<(), Error> {
         EngineMethods::cancel_in_turn_into(self, turn, id, effects)
@@ -1135,7 +1166,7 @@ trait EngineMethods: EngineAccess {
     fn cancel_in_turn_into(
         &mut self,
         turn: &InputTurn,
-        id: RequestId,
+        id: CommandRequestId,
         sink: &mut Vec<Effect>,
     ) -> Result<(), Error> {
         self.debug_assert_input_boundary();
@@ -1157,11 +1188,12 @@ trait EngineMethods: EngineAccess {
         engine_turn: EngineTurn,
         sink: &mut Vec<Effect>,
     ) {
-        let mut effects = Decision::new(sink);
+        // Input-only turns were already audited as each input was applied.
         if engine_turn.runs_due() {
+            let mut effects = Decision::new(sink);
             self.scheduler_tail(input_turn.now, &mut effects);
+            self.finish_decision(input_turn.now, effects);
         }
-        self.finish_decision(input_turn.now, effects)
     }
 
     fn finish_decision(&mut self, now: Instant, mut decision: Decision<'_>) {
@@ -1169,6 +1201,8 @@ trait EngineMethods: EngineAccess {
             self.apply_retro(now, &mut decision);
         }
         self.debug_assert_invariants();
+        #[cfg(test)]
+        tests::assert_occupancy_agrees(self, now);
     }
 
     fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Decision) {
@@ -1231,8 +1265,6 @@ trait EngineMethods: EngineAccess {
             #[cfg(test)]
             Input::Wake => {}
         }
-        #[cfg(test)]
-        tests::assert_occupancy_agrees(self, now);
     }
 
     /// Runs due internal work, pending cancellation, and ordinary dispatch.
@@ -1306,7 +1338,7 @@ trait EngineMethods: EngineAccess {
                     .map_or(0, |policy| policy.control_reserve);
                 if self.entries_holding(slot, target) >= usize::from(reserve) {
                     return Err(Error::ControlReserveExhausted {
-                        target: target.camera(),
+                        target: target.individual_camera(),
                         reserve: usize::from(reserve),
                     });
                 }
@@ -1473,7 +1505,7 @@ trait EngineMethods: EngineAccess {
                 });
             if !available {
                 return Err(Error::inquiry_shape_capacity_exhausted(
-                    context.target.camera(),
+                    context.target.individual_camera(),
                     MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET,
                 ));
             }
@@ -2422,7 +2454,7 @@ trait EngineMethods: EngineAccess {
         self.transition(request, write.refused(), now, effects);
         effects.push(Effect::CancellationObservation {
             id: request,
-            observation: CancellationObservation::Failed(error),
+            observation: CancellationObservation::AttemptFailed(error),
         });
     }
 
@@ -3025,9 +3057,9 @@ trait EngineMethods: EngineAccess {
     }
 
     /// A compatibility ACK cannot reconstruct physical socket occupancy after
-    /// a completion was retained ambiguously, or while inert socket evidence
-    /// may already have completed unseen. In particular, the camera can reuse
-    /// a socket that the host still indexes to a predecessor.
+    /// a completion was retained ambiguously or dropped while a current owner
+    /// could have sent it, or while an inert socket hold exists. The camera
+    /// can reuse a socket that the host still indexes to a predecessor.
     fn uncertain_socketless_stream_ack(&self, target: TargetSlot) -> bool {
         let Some(stream) = self.mode().stream() else {
             return false;
@@ -3035,10 +3067,12 @@ trait EngineMethods: EngineAccess {
         let learning = &stream.learning[target];
         self.raw_socket_hold_count(target) != 0
             || learning.pending_socketless_completions.is_some()
-            || matches!(
-                learning.completion_sockets,
-                CompletionSockets::Unknown { dropped: 1.., .. }
-            )
+            || [ViscaSocket::S1, ViscaSocket::S2]
+                .into_iter()
+                .any(|socket| {
+                    learning.dropped_completion_owners[socket.as_index()]
+                        .is_some_and(|owner| self.socket_owner(target, socket) == Some(owner))
+                })
             || self
                 .command_sockets(target)
                 .sockets()
@@ -3117,7 +3151,7 @@ trait EngineMethods: EngineAccess {
         if entry.cancellation_observation_open() {
             effects.push(Effect::CancellationObservation {
                 id,
-                observation: CancellationObservation::Failed(Error::CancellationUnconfirmed),
+                observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed),
             });
         }
         self.transition(id, next, now, effects);
@@ -3183,7 +3217,7 @@ trait EngineMethods: EngineAccess {
                     Error::InvalidState {
                         reason: "accepted command has no uncontested socket".into(),
                     },
-                    false,
+                    true,
                     now,
                     effects,
                 );
@@ -3250,7 +3284,8 @@ trait EngineMethods: EngineAccess {
             return;
         }
         self.quarantine_raw_terminal(id, now);
-        self.finish(id, CommandOutcome::Applied, now, effects);
+        let keep_cancel_hold = !(self.mode().is_stream() && socket.is_some());
+        self.finish_with_cancel_hold(id, CommandOutcome::Applied, keep_cancel_hold, now, effects);
     }
 
     /// Retains bounded raw-correlation evidence after an uncorrelatable
@@ -3321,10 +3356,10 @@ trait EngineMethods: EngineAccess {
     /// a new owner of that socket, and the command's own late completion or
     /// execution error is not taken for a later command's. On a datagram
     /// transport the hold lasts through the cancellation's ambiguity deadline.
-    /// On a byte stream the ledger also owes the cancellation's answer, and
-    /// the hold lasts until evidence releases it: that answer, or a frame
-    /// naming the socket — all of which precede any rejection of a new
-    /// command the camera allocates that socket (#795).
+    /// On a byte stream the ledger owes the cancellation's answer. The hold
+    /// lasts until that answer or other socket-naming evidence arrives. If
+    /// the command itself ends with a frame naming the socket, the ledger
+    /// handles the late cancellation reply without a separate hold (#1062).
     fn hold_socket_of_unanswered_cancel(&mut self, id: RequestId) {
         let Some(entry) = self.entries.get(&id) else {
             return;
@@ -3477,7 +3512,7 @@ trait EngineMethods: EngineAccess {
         }) || (completion_only
             && self.mode().ledger().lane_state(target, Lane::Inquiry) == LaneState::Latched)
         {
-            return Some(Error::inquiry_correlation_lost(target.camera()));
+            return Some(Error::inquiry_correlation_lost(target.individual_camera()));
         }
         // A `NoReply` command is refused too: the ledger owes its possible
         // rejection until write order settles it, and that could not be told
@@ -3489,7 +3524,7 @@ trait EngineMethods: EngineAccess {
         ((command_lane
             && self.mode().ledger().lane_state(target, Lane::Command) == LaneState::Latched)
             || rejection_latched)
-            .then(|| Error::command_correlation_lost(target.camera()))
+            .then(|| Error::command_correlation_lost(target.individual_camera()))
     }
 
     /// Fails every queued (`Ready`/`Backoff`) request that a latched target
@@ -3584,7 +3619,9 @@ trait EngineMethods: EngineAccess {
             let cancellation_answered = self.mode().is_raw()
                 && code == CameraErrorCode::NoSocket
                 && raw_cancellation_no_socket_response(entry);
-            self.finish_after_ack(id, code.into_error(), cancellation_answered, now, effects);
+            let keep_cancel_hold =
+                !(cancellation_answered || (self.mode().is_stream() && socket.is_some()));
+            self.finish_after_ack(id, code.into_error(), keep_cancel_hold, now, effects);
             return;
         }
         let retry = (correlation_kind == CorrelationKind::Request
@@ -3629,13 +3666,12 @@ trait EngineMethods: EngineAccess {
     }
 
     /// Ends an acknowledged request with the camera's error. The request may
-    /// have started, so its outcome is [`Error::CommandFailedAfterAck`]; an
-    /// open cancellation observation keeps the camera's exact error.
+    /// have started, so its outcome is [`Error::CommandFailedAfterAck`].
     fn finish_after_ack(
         &mut self,
         id: RequestId,
         error: Error,
-        cancellation_answered: bool,
+        keep_cancel_hold: bool,
         now: Instant,
         effects: &mut Decision,
     ) {
@@ -3647,13 +3683,15 @@ trait EngineMethods: EngineAccess {
             self.entries.transition(id, EntryChange::CloseObserver);
             effects.push(Effect::CancellationObservation {
                 id,
-                observation: CancellationObservation::Failed(error.clone()),
+                observation: CancellationObservation::Concluded(CancellationConclusion::Failed(
+                    error.kind(),
+                )),
             });
         }
         self.finish_with_cancel_hold(
             id,
             Error::command_failed_after_ack(error),
-            !cancellation_answered,
+            keep_cancel_hold,
             now,
             effects,
         );
@@ -3671,40 +3709,48 @@ trait EngineMethods: EngineAccess {
         self.finish_with_cancel_hold(id, CommandOutcome::Cancelled, false, now, effects);
     }
 
-    fn cancel(&mut self, id: RequestId, now: Instant, effects: &mut Decision) -> Result<(), Error> {
-        let Some(entry) = self.entries.get(&id) else {
+    fn cancel(
+        &mut self,
+        command: CommandRequestId,
+        now: Instant,
+        effects: &mut Decision,
+    ) -> Result<(), Error> {
+        let id = command.request_id();
+        let Some((entry, lifecycle)) = self.entries.get(&id).and_then(|entry| {
+            if entry.request.lane() != Lane::Command {
+                return None;
+            }
+            entry
+                .lifecycle()
+                .command_view()
+                .map(|lifecycle| (entry, lifecycle))
+        }) else {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return Ok(());
         };
-        // Inquiry refusal is request-kind authority; a queued inquiry must not
-        // take the local command-cancellation path.
-        let queued_inquiry =
-            entry.reply_family() == SendingReply::Inquiry && entry.lifecycle().is_off_wire();
-        let decision = if queued_inquiry {
-            CancellationDecision::Refused(Error::InquiryNotCancellable)
-        } else {
-            entry.lifecycle().cancellation_decision(
-                self.targets[entry.request.context().target]
-                    .policy
-                    .is_some_and(|policy| policy.cancellation == CancellationPolicy::Supported),
-                add_duration(now, entry.request.context().timeout.ambiguity.get()),
-            )
-        };
+        let decision = lifecycle.cancellation_decision(
+            self.targets[entry.request.context().target]
+                .policy
+                .is_some_and(|policy| policy.cancellation == CancellationPolicy::Supported),
+            add_duration(now, entry.request.context().timeout.ambiguity.get()),
+        );
         match decision {
             CancellationDecision::Local => {
                 effects.push(Effect::CancellationRecorded { id });
                 if entry.certainty(AttemptEvidence::Unwritten) == Certainty::Unconfirmed {
                     effects.push(Effect::CancellationObservation {
                         id,
-                        observation: CancellationObservation::Failed(
-                            Error::CancellationUnconfirmed,
+                        observation: CancellationObservation::Concluded(
+                            CancellationConclusion::Failed(Error::CancellationUnconfirmed.kind()),
                         ),
                     });
                     self.finish(id, Error::CancellationUnconfirmed, now, effects);
                 } else {
                     effects.push(Effect::CancellationObservation {
                         id,
-                        observation: CancellationObservation::Cancelled,
+                        observation: CancellationObservation::Concluded(
+                            CancellationConclusion::Cancelled,
+                        ),
                     });
                     self.finish(id, CommandOutcome::Cancelled, now, effects);
                 }
@@ -3712,7 +3758,7 @@ trait EngineMethods: EngineAccess {
             CancellationDecision::Refused(error) => {
                 effects.push(Effect::CancellationObservation {
                     id,
-                    observation: CancellationObservation::Failed(error.clone()),
+                    observation: CancellationObservation::AttemptFailed(error.clone()),
                 });
                 return Err(error);
             }
@@ -4161,7 +4207,7 @@ trait EngineMethods: EngineAccess {
         self.entries.transition(id, EntryChange::CloseObserver);
         effects.push(Effect::CancellationObservation {
             id,
-            observation: CancellationObservation::Failed(Error::timeout(
+            observation: CancellationObservation::AttemptFailed(Error::timeout(
                 FailureStage::CancellationAttempt,
                 Certainty::StillLive,
             )),
@@ -4204,6 +4250,7 @@ trait EngineMethods: EngineAccess {
                 let mark = effects.len();
                 if cancellation.is_some() {
                     self.finish_cancellation_unconfirmed(id, now, effects);
+                    record_deadline_expiry(id, DeadlineKind::Ack, mark, effects);
                 } else if self.mode().is_stream()
                     && self.mode().ledger().awaits_dispute(context.target, id)
                     && deadline.saturating_duration_since(sent_at) <= context.timeout.ack.get()
@@ -4233,6 +4280,7 @@ trait EngineMethods: EngineAccess {
                             now,
                             effects,
                         );
+                        record_deadline_expiry(id, DeadlineKind::Ack, mark, effects);
                     }
                 } else {
                     let cause = terminal_timeout(entry, AttemptEvidence::Lifecycle);
@@ -4244,8 +4292,8 @@ trait EngineMethods: EngineAccess {
                         now,
                         effects,
                     );
+                    record_deadline_expiry(id, DeadlineKind::Ack, mark, effects);
                 }
-                record_deadline_expiry(id, DeadlineKind::Ack, mark, effects);
             }
             DueAction::Completion(completion) => {
                 let mark = effects.len();
@@ -4638,15 +4686,17 @@ trait EngineMethods: EngineAccess {
         }
         if entry.cancellation_observation_open() {
             let observation = match &outcome {
-                RuntimeOutcome::Command(CommandOutcome::Applied) => {
-                    Some(CancellationObservation::Completed)
-                }
-                RuntimeOutcome::Command(CommandOutcome::Cancelled) => {
-                    Some(CancellationObservation::Cancelled)
-                }
+                RuntimeOutcome::Command(CommandOutcome::Applied) => Some(
+                    CancellationObservation::Concluded(CancellationConclusion::Completed),
+                ),
+                RuntimeOutcome::Command(CommandOutcome::Cancelled) => Some(
+                    CancellationObservation::Concluded(CancellationConclusion::Cancelled),
+                ),
                 RuntimeOutcome::Command(CommandOutcome::Failed(error))
                 | RuntimeOutcome::Inquiry(InquiryOutcome::Failed(error)) => {
-                    Some(CancellationObservation::Failed(error.clone()))
+                    Some(CancellationObservation::Concluded(
+                        CancellationConclusion::Failed(error.kind()),
+                    ))
                 }
                 RuntimeOutcome::Command(CommandOutcome::Written)
                 | RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }) => None,
@@ -5364,9 +5414,10 @@ mod cancellation_regression_tests {
         (engine, id)
     }
 
-    fn quarantine() -> (ProtocolEngine, RequestId, Instant) {
+    fn quarantine() -> (ProtocolEngine, CommandRequestId, Instant) {
         let now = Instant::now();
         let (mut engine, id) = start_executing(EnvelopeKind::Raw, Duration::ZERO, now);
+        let command_id = engine.command_id(id);
         let completion_deadline = now + Duration::from_millis(5);
         let expired = engine.advance(completion_deadline);
         assert!(terminal_unconfirmed(&expired, id));
@@ -5375,7 +5426,7 @@ mod cancellation_regression_tests {
             .raw_hold(camera(), RawHoldScope::Socket(ViscaSocket::S1))
             .expect("socket quarantine hold")
             .until;
-        (engine, id, deadline)
+        (engine, command_id, deadline)
     }
 
     #[test]
@@ -5387,7 +5438,7 @@ mod cancellation_regression_tests {
             // completion deadline then extends the executing response window
             // before pacing permits the cancellation write for both envelopes.
             let cancel_at = start + Duration::from_millis(1);
-            let recorded = engine.handle(Input::Cancel { id }, cancel_at);
+            let recorded = engine.handle(engine.cancel_input(id), cancel_at);
             assert!(recorded.iter().any(
                 |effect| matches!(effect, Effect::CancellationRecorded { id: recorded_id } if *recorded_id == id)
             ));
@@ -5444,7 +5495,7 @@ mod cancellation_regression_tests {
             overdue.as_slice(),
             [Effect::Ignored(IgnoreReason::UnknownRequest)]
         ));
-        assert!(overdue_engine.entry(overdue_id).is_none());
+        assert!(overdue_engine.entry(overdue_id.request_id()).is_none());
         assert!(overdue_engine.correlation.holds().is_empty());
         overdue_engine
             .assert_invariants()
@@ -5477,7 +5528,7 @@ mod cancellation_regression_tests {
             Some(Phase::AwaitingAck { .. })
         ));
 
-        let cancel = engine.handle(Input::Cancel { id }, now);
+        let cancel = engine.handle(engine.cancel_input(id), now);
         assert!(cancel.iter().any(
             |effect| matches!(effect, Effect::CancellationRecorded { id: recorded } if *recorded == id)
         ));
@@ -5553,7 +5604,7 @@ mod cancellation_regression_tests {
             Some(Phase::AwaitingCompletion { .. })
         ));
 
-        let cancel = engine.handle(Input::Cancel { id }, now);
+        let cancel = engine.handle(engine.cancel_input(id), now);
         assert!(!cancel.iter().any(|effect| {
             matches!(
                 effect,
@@ -5580,7 +5631,7 @@ mod cancellation_regression_tests {
             now,
         );
         assert!(cancel.iter().any(|effect| matches!(effect,
-            Effect::CancellationObservation { id: observed, observation: CancellationObservation::Failed(Error::CancellationNotSupported) } if *observed == id)));
+            Effect::CancellationObservation { id: observed, observation: CancellationObservation::AttemptFailed(Error::CancellationNotSupported) } if *observed == id)));
         assert!(effects.iter().any(|effect| matches!(effect,
             Effect::RetryScheduled { id: scheduled, .. } if *scheduled == id)));
         assert!(!effects.iter().any(|effect| matches!(effect,
@@ -5638,7 +5689,7 @@ mod cancellation_regression_tests {
     fn raw_awaiting_terminal_cancel_no_socket_is_a_failed_observation() {
         let now = Instant::now();
         let (mut engine, id) = start_executing(EnvelopeKind::Raw, Duration::ZERO, now);
-        let cancel = engine.handle(Input::Cancel { id }, now);
+        let cancel = engine.handle(engine.cancel_input(id), now);
         let cancel_transmission = cancel_transmission(&cancel);
         engine.handle(
             Input::TransmissionFinished {
@@ -5677,12 +5728,12 @@ mod cancellation_regression_tests {
                 effect,
                 Effect::CancellationObservation {
                     id: observed,
-                    observation: CancellationObservation::Failed(Error::NoSocket),
-                } if *observed == id
+                    observation: CancellationObservation::Concluded(CancellationConclusion::Failed(kind)),
+                } if *observed == id && *kind == Error::NoSocket.kind()
             )
         }));
-        // The acknowledged command's own outcome is unconfirmed (#795); the
-        // cancellation observation keeps the camera's exact answer.
+        // The acknowledged command's terminal is unconfirmed and retains the
+        // exact camera error (#795).
         assert!(effects.iter().any(|effect| {
             matches!(
                 effect,

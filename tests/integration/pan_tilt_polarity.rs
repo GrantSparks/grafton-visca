@@ -13,8 +13,8 @@ use std::collections::BTreeSet;
 use grafton_visca::{
     capabilities::PanTiltWireCodec,
     profiles::{
-        CompileTimeProfile, GenericVisca, NearusBrc300, ProfileId, ProfileSpec, PtzOptics30x,
-        PtzOpticsG2, PtzOpticsG3, SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
+        CompileTimeProfile, NearusBrc300, ProfileId, ProfileSpec, PtzOptics30x, PtzOpticsG2,
+        PtzOpticsG3, SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
     },
     request::Request,
     types::{CameraId, Degrees, PanSpeed, TiltSpeed},
@@ -84,11 +84,6 @@ fn table() -> Vec<Polarity> {
             Increasing,
             "R21 limit table: 08A58 left end, 493D up end",
         ),
-        polarity::<GenericVisca>(
-            Increasing,
-            Increasing,
-            "R8, R12 and R21 agree on tilt; pan follows R8",
-        ),
     ]
 }
 
@@ -135,6 +130,7 @@ fn positive_degrees_are_right_and_up_for_every_built_in_profile() {
     let covered: BTreeSet<_> = table.iter().map(|row| format!("{:?}", row.id)).collect();
     let all: BTreeSet<_> = ProfileId::all()
         .iter()
+        .filter(|id| id.spec().expect("profile").pan_tilt_coordinates().is_some())
         .map(|id| format!("{id:?}"))
         .collect();
     assert_eq!(covered, all, "every built-in profile has a polarity row");

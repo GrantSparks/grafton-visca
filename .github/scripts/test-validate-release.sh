@@ -48,7 +48,7 @@ proc-macro = true
 (root / "src/lib.rs").write_text("#![allow(dead_code)]\n")
 (root / "grafton-visca-macros/src/lib.rs").write_text("\n")
 (root / "CHANGELOG.md").write_text(
-    f"# Changelog\n\n## [{version}] - 2026-08-26\n"
+    f"# Changelog\n\n## [Unreleased]\n\n## [{version}] - 2026-08-26\n"
 )
 (root / ".gitignore").write_text("/Cargo.lock\n/target/\n")
 PY
@@ -133,20 +133,39 @@ PY_MUTATION
         run_validator "${pin_root}" v2.0.0
 done
 
-# Unreleased notes or an incorrectly formatted date do not satisfy a release
-# cut. The required dated heading must name exactly the intended version.
-for record in unreleased wrong-version wrong-date-format; do
+# The cut requires empty Unreleased notes and the intended strict date first.
+for record in missing-heading wrong-version superseded misordered wrong-date-format; do
     record_root="${root_temp}/record-${record}"
     make_fixture "${record_root}" "2.0.0"
+    prefix=$'# Changelog\n\n'
     case "${record}" in
-        unreleased) printf '# Changelog\n\n## [Unreleased]\n' > "${record_root}/CHANGELOG.md" ;;
-        wrong-version) printf '# Changelog\n\n## [2.0.1] - 2026-08-26\n' > "${record_root}/CHANGELOG.md" ;;
-        wrong-date-format) printf '# Changelog\n\n## [2.0.0] - 2026/08/26\n' > "${record_root}/CHANGELOG.md" ;;
+        missing-heading) heading='' ;;
+        wrong-version) heading='## [2.0.1] - 2026-08-26' ;;
+        superseded) heading=$'## [2.0.1] - 2026-08-27\n\n## [2.0.0] - 2026-08-26' ;;
+        misordered)
+            prefix+=$'## [2.0.1] - 2026-08-27\n\n'
+            heading='## [2.0.0] - 2026-08-26'
+            ;;
+        wrong-date-format) heading='## [2.0.0] - 2026/08/26' ;;
     esac
+    printf '%s## [Unreleased]\n\n%s\n' "${prefix}" "${heading}" > "${record_root}/CHANGELOG.md"
     commit_fixture_changes "${record_root}"
-    expect_failure "CHANGELOG.md must contain a dated '## [2.0.0] - YYYY-MM-DD' heading" \
+    expect_failure "CHANGELOG.md must start its release history with '## [2.0.0] - YYYY-MM-DD'" \
         run_validator "${record_root}" v2.0.0
 done
+
+record_root="${root_temp}/record-unreleased"
+make_fixture "${record_root}" "2.0.0"
+printf '# Changelog\n\n## [Unreleased]\n\n- Release note.\n\n## [2.0.0] - 2026-08-26\n' \
+    > "${record_root}/CHANGELOG.md"
+commit_fixture_changes "${record_root}"
+expect_failure "CHANGELOG.md has a non-empty [Unreleased] section" \
+    run_validator "${record_root}" v2.0.0
+
+printf '# Changelog\n\n## [Unreleased]\n\n## [2.0.0] - 2026-08-26\n\n- Release note.\n' \
+    > "${record_root}/CHANGELOG.md"
+commit_fixture_changes "${record_root}"
+run_validator "${record_root}" v2.0.0
 
 # Build metadata is never an alternate release identity, including on an RC.
 metadata_root="${root_temp}/metadata"

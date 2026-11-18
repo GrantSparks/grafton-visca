@@ -5,12 +5,10 @@ use grafton_visca::{operation::Targeted, r#async::Operation};
 async fn concurrent_waits(mut handle: Operation<Targeted>) {
     let applied = handle.applied();
     let settled = handle.settled();
+    //~^ E0499 "cannot borrow `handle` as mutable more than once at a time"
     let _ = (applied.await, settled.await);
 }
 
 fn main() {
     let _ = concurrent_waits;
 }
-
-//~ E0499
-//~ "cannot borrow `handle` as mutable more than once at a time"

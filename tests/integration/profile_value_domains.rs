@@ -25,6 +25,7 @@ fn sony_shutter_replies_decode_to_their_source_table_codes() -> Result<(), Error
         for (reply, denominator) in [(0x05_u8, 30_u32), (0x0F, 1000), (0x15, 10000)] {
             let decoded = grafton_visca::command::exposure::ShutterInquiry
                 .decoder_for_profile(&profile)
+                .expect("profile-bound decoder")
                 .decode(&[0x00, 0x00, reply >> 4, reply & 0x0F])?;
             assert_eq!(decoded.value(), reply, "{}", profile.name());
             assert_eq!(
@@ -60,6 +61,7 @@ fn evi_h100_zero_shutter_reply_decodes_to_one_second() -> Result<(), Error> {
     let profile = ProfileSpec::from_compile_time::<SonyEviH100>()?;
     let decoded = grafton_visca::command::exposure::ShutterInquiry
         .decoder_for_profile(&profile)
+        .expect("profile-bound decoder")
         .decode(&[0x00, 0x00, 0x00, 0x00])?;
     assert_eq!(decoded.value(), 0x00);
     assert_eq!(

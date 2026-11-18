@@ -51,7 +51,7 @@ facade_matrix! {
         let raw = grafton_visca::request::Inquiry::decoder_for_profile(
             &grafton_visca::command::pan_tilt::PositionInquiry,
             camera.profile(),
-        ).decode(&POSITION[2..12]).expect("R7 raw position words");
+        ).expect("FR7 decoder").decode(&POSITION[2..12]).expect("R7 raw position words");
         assert_eq!((raw.pan, raw.tilt), (40103, 46000));
         assert!(!wait!(camera.motion().is_moving(MotionQuery::new(AffectedAxes::PAN_TILT))).expect("FR7 motion observation"));
         wait!(camera.motion().wait_until_idle(IdleWait::new(AffectedAxes::PAN_TILT, Duration::from_secs(5)).with_interval(Duration::from_millis(25)))).expect("FR7 idle polling");

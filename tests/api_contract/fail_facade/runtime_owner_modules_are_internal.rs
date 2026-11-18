@@ -5,9 +5,7 @@
 
 fn main() {
     let _ = core::any::TypeId::of::<grafton_visca::runtime::engine::ProtocolEngine>();
+    //~^ E0603 "module `engine` is private"
     let _ = core::any::TypeId::of::<grafton_visca::runtime::owner::OwnerPolicy>();
+    //~^ E0603 "module `owner` is private"
 }
-
-//~ E0603
-//~ "module `engine` is private"
-//~ "module `owner` is private"

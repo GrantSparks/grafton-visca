@@ -2,16 +2,14 @@
 //!
 //! Diagnostics are deliberately a projection of the private owner trace.  The
 //! projection contains no wire bytes, timestamps, socket/transmission
-//! authority, sequence numbers, arbitrary strings, or publicly usable
-//! lifecycle numbers. All queues are bounded by the owner policy: the
+//! authority, sequence numbers, or arbitrary strings. Request identities
+//! correlate observations. The owner bounds each queue. The
 //! pre-admission staging retains at most 128 events and an owner retains at
 //! most four diagnostic subscribers, each with capacity at most 128.
 
-use std::fmt;
-
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::Error;
-use crate::{state_cache::StateKey, CameraId, ErrorKind};
+use crate::{state_cache::StateKey, ErrorKind, IndividualCameraId, OperationId};
 
 /// The externally observable state of one owner session.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -72,7 +70,11 @@ pub struct MetricsSnapshot {
     pub cancellations: u64,
     /// Exact applied-state effects committed to the target cache.
     pub cache_updates: u64,
-    /// Acknowledgement deadlines that expired on a sent command.
+    /// Applied-state keys made unknown by unconfirmed writes.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub cache_invalidations: u64,
+    /// Acknowledgement deadlines that expired on a sent command. A disputed
+    /// ACK deadline extended for more evidence counts if that extension expires.
     pub ack_timeouts: u64,
     /// Completion deadlines that expired while an acknowledged command or
     /// completion-only raw command awaited completion.
@@ -139,35 +141,6 @@ pub struct MetricsSnapshot {
     pub pending: usize,
     /// Current session state.
     pub session: SessionStatus,
-}
-
-/// Opaque identity for one diagnostic request lifecycle.
-///
-/// The Rust value has no public constructor or numeric accessor. With serde,
-/// its numeric form can be stored and restored for equality and correlation of
-/// events from one subscription. A restored identity grants no lifecycle
-/// authority; observing or cancelling work requires the corresponding handle.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub struct DiagnosticId(u64);
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-impl DiagnosticId {
-    pub(crate) const fn from_owner(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-impl fmt::Debug for DiagnosticId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("DiagnosticId(..)")
-    }
 }
 
 /// Request class carried by a diagnostic event.
@@ -367,9 +340,9 @@ pub enum DiagnosticEvent {
     #[non_exhaustive]
     Admitted {
         /// Opaque request lifecycle identity.
-        id: DiagnosticId,
+        id: OperationId,
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Request class.
         lane: DiagnosticLane,
     },
@@ -377,7 +350,7 @@ pub enum DiagnosticEvent {
     #[non_exhaustive]
     AdmissionRejected {
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Request class.
         lane: DiagnosticLane,
         /// Bounded rejection category.
@@ -387,7 +360,7 @@ pub enum DiagnosticEvent {
     #[non_exhaustive]
     FrameReceived {
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Sanitized response category.
         response: DiagnosticResponse,
     },
@@ -395,9 +368,9 @@ pub enum DiagnosticEvent {
     #[non_exhaustive]
     Transition {
         /// Opaque request lifecycle identity.
-        id: DiagnosticId,
+        id: OperationId,
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Previous phase.
         from: DiagnosticPhase,
         /// New phase.
@@ -407,9 +380,9 @@ pub enum DiagnosticEvent {
     #[non_exhaustive]
     WriteFinished {
         /// Opaque request lifecycle identity.
-        id: DiagnosticId,
+        id: OperationId,
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Whether this was a cancellation write.
         cancellation: bool,
         /// Whether the write succeeded.
@@ -419,13 +392,14 @@ pub enum DiagnosticEvent {
     #[non_exhaustive]
     RetryScheduled {
         /// Opaque request lifecycle identity.
-        id: DiagnosticId,
+        id: OperationId,
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Retry attempt, bounded by the request policy.
         attempt: u32,
     },
-    /// A request's own protocol deadline expired.
+    /// A request's own protocol deadline expired. Extending a disputed ACK
+    /// deadline only emits a [`crate::observability::DiagnosticEvent::Transition`].
     ///
     /// `will_retry` is the scheduler's decision for this exact expiry, so a
     /// subscriber never has to infer it from a [`crate::observability::DiagnosticEvent::Transition`]
@@ -433,9 +407,9 @@ pub enum DiagnosticEvent {
     #[non_exhaustive]
     DeadlineExpired {
         /// Opaque request lifecycle identity.
-        id: DiagnosticId,
+        id: OperationId,
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Which deadline expired.
         deadline: DiagnosticDeadline,
         /// Whether this expiry scheduled another attempt.
@@ -445,17 +419,17 @@ pub enum DiagnosticEvent {
     #[non_exhaustive]
     CancellationRecorded {
         /// Opaque request lifecycle identity.
-        id: DiagnosticId,
+        id: OperationId,
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
     },
     /// Cancellation changed observation state.
     #[non_exhaustive]
     CancellationObserved {
         /// Opaque request lifecycle identity.
-        id: DiagnosticId,
+        id: OperationId,
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Sanitized observation.
         observation: DiagnosticCancellation,
     },
@@ -463,19 +437,29 @@ pub enum DiagnosticEvent {
     #[non_exhaustive]
     AppliedState {
         /// Opaque request lifecycle identity.
-        id: DiagnosticId,
+        id: OperationId,
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Applied-state key.
+        key: StateKey,
+    },
+    /// An unconfirmed write made a cached key unknown.
+    #[non_exhaustive]
+    StateInvalidated {
+        /// Opaque request lifecycle identity.
+        id: OperationId,
+        /// Target camera.
+        target: IndividualCameraId,
+        /// Invalidated state key.
         key: StateKey,
     },
     /// A request reached a terminal outcome.
     #[non_exhaustive]
     Terminal {
         /// Opaque request lifecycle identity.
-        id: DiagnosticId,
+        id: OperationId,
         /// Target camera.
-        target: CameraId,
+        target: IndividualCameraId,
         /// Sanitized outcome.
         outcome: DiagnosticOutcome,
     },
@@ -658,6 +642,7 @@ pub(crate) fn metrics_snapshot(
         terminal: metrics.terminal,
         cancellations: metrics.cancellations,
         cache_updates: metrics.cache_updates,
+        cache_invalidations: metrics.cache_invalidations,
         ack_timeouts: metrics.ack_timeouts,
         completion_timeouts: metrics.completion_timeouts,
         inquiry_timeouts: metrics.inquiry_timeouts,
@@ -693,8 +678,8 @@ mod portable_data_tests {
     #[test]
     fn diagnostic_events_round_trip_as_closed_sanitized_records() -> Result<(), serde_json::Error> {
         let event = DiagnosticEvent::DeadlineExpired {
-            id: DiagnosticId(42),
-            target: CameraId::CAMERA_3,
+            id: OperationId::from_raw(42),
+            target: IndividualCameraId::CAMERA_3,
             deadline: DiagnosticDeadline::InquiryReply,
             will_retry: true,
         };
@@ -705,30 +690,42 @@ mod portable_data_tests {
         });
         assert_eq!(serde_json::to_value(event)?, json);
         assert_eq!(serde_json::from_value::<DiagnosticEvent>(json)?, event);
-        assert!(
-            serde_json::from_value::<DiagnosticEvent>(serde_json::json!({
-                "deadline_expired": {
-                    "id": 42, "target": 0, "deadline": "inquiry_reply", "will_retry": true
-                }
-            }))
-            .is_err()
-        );
+        for invalid in [0, 8] {
+            assert!(
+                serde_json::from_value::<DiagnosticEvent>(serde_json::json!({
+                    "deadline_expired": {
+                        "id": 42, "target": invalid, "deadline": "inquiry_reply", "will_retry": true
+                    }
+                }))
+                .is_err()
+            );
+        }
         assert!(
             serde_json::from_value::<DiagnosticEvent>(serde_json::json!({
                 "ignored": {"reason": "unknown_request", "wire_bytes": [144, 81, 255]}
             }))
             .is_err()
         );
+        let invalidation = DiagnosticEvent::StateInvalidated {
+            id: OperationId::from_raw(42),
+            target: IndividualCameraId::CAMERA_3,
+            key: StateKey::ExposureWideDynamicRange,
+        };
+        let json = serde_json::json!({
+            "state_invalidated": {
+                "id": 42, "target": 3, "key": "exposure_wide_dynamic_range"
+            }
+        });
+        assert_eq!(serde_json::to_value(invalidation)?, json);
+        assert_eq!(
+            serde_json::from_value::<DiagnosticEvent>(json)?,
+            invalidation
+        );
         let terminal = DiagnosticOutcome::Failed(ErrorKind::Unconfirmed);
         assert_eq!(
             serde_json::to_value(terminal)?,
             serde_json::json!({"failed":"unconfirmed"})
         );
-        assert_eq!(
-            serde_json::to_value(DiagnosticId(u64::MAX))?,
-            serde_json::json!(u64::MAX)
-        );
-        assert_eq!(format!("{:?}", DiagnosticId(42)), "DiagnosticId(..)");
         Ok(())
     }
 
@@ -736,6 +733,7 @@ mod portable_data_tests {
     fn metric_snapshots_keep_full_counters_and_session_state() -> Result<(), serde_json::Error> {
         let snapshot = MetricsSnapshot {
             admitted: u64::MAX,
+            cache_invalidations: 2,
             active: 2,
             pending: 3,
             session: SessionStatus::Poisoned,
@@ -743,10 +741,20 @@ mod portable_data_tests {
         };
         let mut json = serde_json::to_value(snapshot)?;
         assert_eq!(json["admitted"], u64::MAX);
+        assert_eq!(json["cache_invalidations"], 2);
         assert_eq!(json["session"], "poisoned");
         assert_eq!(
             serde_json::from_value::<MetricsSnapshot>(json.clone())?,
             snapshot
+        );
+        assert_eq!(
+            json.as_object_mut()
+                .and_then(|object| object.remove("cache_invalidations")),
+            Some(serde_json::json!(2))
+        );
+        assert_eq!(
+            serde_json::from_value::<MetricsSnapshot>(json.clone())?.cache_invalidations,
+            0
         );
         json["private_queue"] = serde_json::json!([]);
         assert!(serde_json::from_value::<MetricsSnapshot>(json).is_err());
@@ -763,10 +771,6 @@ mod portable_data_tests {
             "integer"
         );
         let config = ts_rs::Config::default();
-        assert_eq!(
-            <DiagnosticId as ts_rs::TS>::decl(&config),
-            "type DiagnosticId = bigint;"
-        );
         let event = <DiagnosticEvent as ts_rs::TS>::decl(&config)
             .lines()
             .filter(|line| {
@@ -778,7 +782,23 @@ mod portable_data_tests {
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
-        assert!(event.contains("\"deadline_expired\": { id: DiagnosticId, target: CameraId, deadline: DiagnosticDeadline, will_retry: boolean,"));
+        assert!(event.contains("\"deadline_expired\": { id: OperationId, target: IndividualCameraId, deadline: DiagnosticDeadline, will_retry: boolean,"));
+        assert_eq!(
+            schema.as_value()["properties"]["cache_invalidations"]["type"],
+            "integer"
+        );
+        let event_schema = schemars::schema_for!(DiagnosticEvent);
+        let targets = &event_schema.as_value()["$defs"]["IndividualCameraId"];
+        assert_eq!(targets["minimum"], 1);
+        assert_eq!(targets["maximum"], 7);
+        assert!(event_schema.as_value()["oneOf"]
+            .as_array()
+            .is_some_and(|variants| variants
+                .iter()
+                .any(|variant| variant["properties"]["state_invalidated"].is_object())));
+        assert!(event.contains(
+            "\"state_invalidated\": { id: OperationId, target: IndividualCameraId, key: StateKey,"
+        ));
         assert!(!event.contains("socket"));
         assert!(!event.contains("timestamp"));
     }

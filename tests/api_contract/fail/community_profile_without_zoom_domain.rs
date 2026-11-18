@@ -5,6 +5,8 @@ use grafton_visca::{
 };
 struct Community;
 impl CompileTimeProfile for Community {
+    const DOMAINS: grafton_visca::capabilities::DomainSet = grafton_visca::capabilities::DomainSet::empty();
+    const TRANSPORTS: grafton_visca::capabilities::TransportSet = grafton_visca::profiles::GenericVisca::TRANSPORTS;
     const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::empty();
     const ID: Option<ProfileId> = None;
     fn spec() -> grafton_visca::Result<ProfileSpec> {
@@ -25,7 +27,5 @@ impl CompileTimeProfile for Community {
 fn requires_zoom<P: CompileTimeProfile + HasZoom>() {}
 fn main() {
     requires_zoom::<Community>();
+    //~^ E0277 "profile `Community` does not declare Zoom support"
 }
-
-//~ E0277
-//~ "profile `Community` does not declare Zoom support"

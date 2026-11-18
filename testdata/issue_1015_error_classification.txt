@@ -538,16 +538,6 @@ ResponseTooLarge//TransmissionNotSent/NotAccepted	Protocol	false	Some(FailureCon
 ResponseTooLarge//TransmissionNotSent/FailedConclusively	Protocol	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
 ResponseTooLarge//TransmissionNotSent/StillLive	Protocol	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
 ResponseTooLarge//TransmissionNotSent/Unconfirmed	Protocol	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
-InquiryNotCancellable//bare	InvalidParameter	false	None	Abandon
-InquiryNotCancellable//WithContext	InvalidParameter	false	None	Abandon
-InquiryNotCancellable//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
-InquiryNotCancellable//TransportError	Transport	false	None	Resubmit { after: 50ms }
-InquiryNotCancellable//SettlementObservationFailed	InvalidParameter	false	Some(FailureContext { stage: Observation, certainty: Unconfirmed })	Reconcile
-InquiryNotCancellable//CancellationObservationFailed	InvalidParameter	false	Some(FailureContext { stage: CancellationAttempt, certainty: StillLive })	WaitAgain
-InquiryNotCancellable//TransmissionNotSent/NotAccepted	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: NotAccepted })	Abandon
-InquiryNotCancellable//TransmissionNotSent/FailedConclusively	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon
-InquiryNotCancellable//TransmissionNotSent/StillLive	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: StillLive })	WaitAgain
-InquiryNotCancellable//TransmissionNotSent/Unconfirmed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: Unconfirmed })	Reconcile
 InvalidAddress//bare	InvalidParameter	false	None	Abandon
 InvalidAddress//WithContext	InvalidParameter	false	None	Abandon
 InvalidAddress//InquiryFailed	InvalidParameter	false	Some(FailureContext { stage: Terminal, certainty: FailedConclusively })	Abandon

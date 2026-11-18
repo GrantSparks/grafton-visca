@@ -1,13 +1,13 @@
 //! One producer-side projection from engine facts to public diagnostics.
 use super::*;
 use crate::observability::{
-    DiagnosticCancellation, DiagnosticDeadline, DiagnosticId, DiagnosticIgnoreReason,
-    DiagnosticLane, DiagnosticOutcome, DiagnosticPhase, DiagnosticResponse,
+    DiagnosticCancellation, DiagnosticDeadline, DiagnosticIgnoreReason, DiagnosticLane,
+    DiagnosticOutcome, DiagnosticPhase, DiagnosticResponse,
 };
 use crate::runtime::engine::Phase;
 
-pub(super) fn id(id: RequestId) -> DiagnosticId {
-    DiagnosticId::from_owner(id.get())
+pub(super) fn id(id: RequestId) -> crate::OperationId {
+    crate::OperationId::from_nonzero(id.as_nonzero())
 }
 
 pub(super) fn phase(value: Lifecycle) -> DiagnosticPhase {
@@ -77,9 +77,18 @@ pub(super) fn outcome(outcome: &RuntimeOutcome) -> DiagnosticOutcome {
 pub(super) fn cancellation(observation: &CancellationObservation) -> DiagnosticCancellation {
     match observation {
         CancellationObservation::Recorded => DiagnosticCancellation::Recorded,
-        CancellationObservation::Cancelled => DiagnosticCancellation::Cancelled,
-        CancellationObservation::Completed => DiagnosticCancellation::Completed,
-        CancellationObservation::Failed(error) => DiagnosticCancellation::Failed(error.kind()),
+        CancellationObservation::Concluded(CancellationConclusion::Cancelled) => {
+            DiagnosticCancellation::Cancelled
+        }
+        CancellationObservation::Concluded(CancellationConclusion::Completed) => {
+            DiagnosticCancellation::Completed
+        }
+        CancellationObservation::AttemptFailed(error) => {
+            DiagnosticCancellation::Failed(error.kind())
+        }
+        CancellationObservation::Concluded(CancellationConclusion::Failed(kind)) => {
+            DiagnosticCancellation::Failed(*kind)
+        }
     }
 }
 

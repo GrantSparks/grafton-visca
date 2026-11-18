@@ -78,14 +78,14 @@ macro_rules! noun_table {
             /// the slowest drive, not STOP. `SpeedLevel` resolves within the selected
             /// profile's `ZoomCaps::speed` range, which also bounds exact inputs.
             applied [TeleVariable] tele_variable(#[into] speed: types::Speed<types::ZoomSpeed>) -> command::zoom::TeleVariable
-                = [with_target |target| command::zoom::TeleVariable::for_target(target, speed)];
+                = [command::zoom::TeleVariable::new(speed)];
             /// Drives toward wide angle at a validated variable speed.
             ///
             /// An exact `ZoomSpeed` is a unitless protocol speed code in `0..=7`; zero is
             /// the slowest drive, not STOP. `SpeedLevel` resolves within the selected
             /// profile's `ZoomCaps::speed` range, which also bounds exact inputs.
             applied [WideVariable] wide_variable(#[into] speed: types::Speed<types::ZoomSpeed>) -> command::zoom::WideVariable
-                = [with_target |target| command::zoom::WideVariable::for_target(target, speed)];
+                = [command::zoom::WideVariable::new(speed)];
             /// Moves to an absolute zoom position.
             ///
             /// Positions are `ZoomPosition` codes, not millimetres or magnification
@@ -104,7 +104,7 @@ macro_rules! noun_table {
             /// the profile's `optical_max` or documented `digital_max`; they do not
             /// normalize against the type's union maximum.
             targeted [SetNormalized] set_normalized(position: types::UnitInterval, domain: types::ZoomDomain) -> command::zoom::SetNormalized where HasDirectZoom
-                = [with_target |target| command::zoom::SetNormalized::for_target(target, position, domain)];
+                = [command::zoom::SetNormalized::new(position, domain)];
             /// Enables or disables digital zoom.
             ///
             /// `true` enables digital zoom and `false` disables it. This boolean has no
@@ -140,7 +140,7 @@ macro_rules! noun_table {
             /// the profile's `optical_max` or documented `digital_max`; they do not
             /// normalize against the type's union maximum.
             inquiry [NormalizedInquiry] normalized(domain: types::ZoomDomain) -> types::UnitInterval where HasDirectZoom
-                = [with_target |target| command::zoom::NormalizedInquiry::for_target(target, domain)];
+                = [command::zoom::NormalizedInquiry::new(domain)];
 
             @noun System {
                 accessor: SystemAccessor,
@@ -175,13 +175,10 @@ macro_rules! noun_table {
             ///
             /// `PanTiltPosition` stores checked degrees on both axes: pan is positive
             /// right and tilt positive up. The target's registered
-            /// `PanTiltCoordinateConversion` maps its profile's `PanTiltCaps::pan_range`
+            /// `PanTiltCoordinateConversion` maps its profile's `PanTiltGeometry::pan_range`
             /// and mount-selected `tilt_ranges` into degree limits.
-            inquiry [PositionInquiry] position() -> types::PanTiltPosition
-                = [mapped [command::pan_tilt::PositionInquiry] |reply, profile| {
-                    let coordinates = profile.pan_tilt_coordinates().ok_or(crate::Error::FeatureNotSupported { feature: "pan/tilt coordinate conversion" })?;
-                    types::PanTiltPosition::from_degrees(coordinates.pan_degrees(reply.pan), coordinates.tilt_degrees(reply.tilt))
-                }];
+            inquiry [PositionInquiry] position() -> types::PanTiltPosition where HasPanTiltPositioning
+                = [with_decoder [command::pan_tilt::PositionInquiry] => crate::ResponseDecoder::for_pan_tilt_position];
             /// Moves the pan/tilt mechanism to its home position.
             targeted [Home] home() -> command::pan_tilt::Home
                 = [command::pan_tilt::Home];
@@ -191,13 +188,11 @@ macro_rules! noun_table {
             /// Drives in the selected direction at coarse or exact pan/tilt speeds. The target profile supplies the
             /// allowed speed ranges; send `stop()` to end continuous motion.
             ///
-            /// `PanTiltDirection` selects an active direction; use `stop()` rather than
-            /// its STOP selector to stop. `Speed<PanTiltSpeed>` resolves coarse levels
-            /// through the profile's `PanTiltCaps::pan_speed` and `tilt_speed`; exact
-            /// speeds use checked protocol codes, not degrees per second. Active axes
-            /// require nonzero speeds.
+            /// `Speed<PanTiltSpeed>` resolves coarse levels through the profile's
+            /// `PanTiltCaps::pan_speed` and `tilt_speed`. Exact speeds are checked
+            /// protocol codes. Each moving axis requires a nonzero speed.
             applied [Drive] drive(direction: types::PanTiltDirection, #[into] speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Drive
-                = [with_target |target| command::pan_tilt::Drive::for_target(target, direction, speed)];
+                = [command::pan_tilt::Drive::new(direction, speed)];
             /// Stops pan/tilt movement using profile-safe stop speeds.
             applied [Stop] stop() -> command::pan_tilt::Stop
                 = [with_target |target| command::pan_tilt::Stop::for_target(target)];
@@ -206,42 +201,42 @@ macro_rules! noun_table {
             ///
             /// `PanTiltPosition` stores checked degrees on both axes: pan is positive
             /// right and tilt positive up. The target's registered
-            /// `PanTiltCoordinateConversion` maps its profile's `PanTiltCaps::pan_range`
+            /// `PanTiltCoordinateConversion` maps its profile's `PanTiltGeometry::pan_range`
             /// and mount-selected `tilt_ranges` into degree limits. The speed is
             /// `Speed<PanTiltSpeed>`: each exact axis uses a unitless protocol code, while
             /// `SpeedLevel` resolves through `PanTiltCaps::pan_speed` and `tilt_speed`.
             /// Position moves also honor the profile's paired-speed grammar and confirmed
             /// speed mode.
-            targeted [Absolute] absolute(position: types::PanTiltPosition, #[into] speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Absolute
-                = [with_target |target| command::pan_tilt::Absolute::for_target(target, position, speed)];
+            targeted [Absolute] absolute(position: types::PanTiltPosition, #[into] speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Absolute where HasPanTiltPositioning
+                = [command::pan_tilt::Absolute::new(position, speed)];
             /// Moves by a relative degree offset. Each axis accepts the span of the target profile's absolute
             /// limits; speed lowering uses that profile's position-command grammar.
             ///
             /// `PanTiltPosition` stores checked degrees on both axes: pan is positive
             /// right and tilt positive up. The target's registered
-            /// `PanTiltCoordinateConversion` maps its profile's `PanTiltCaps::pan_range`
+            /// `PanTiltCoordinateConversion` maps its profile's `PanTiltGeometry::pan_range`
             /// and mount-selected `tilt_ranges` into degree limits. The speed is
             /// `Speed<PanTiltSpeed>`: each exact axis uses a unitless protocol code, while
             /// `SpeedLevel` resolves through `PanTiltCaps::pan_speed` and `tilt_speed`.
             /// Position moves also honor the profile's paired-speed grammar and confirmed
             /// speed mode.
-            targeted [Relative] relative(offset: types::PanTiltPosition, #[into] speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Relative
-                = [with_target |target| command::pan_tilt::Relative::for_target(target, offset, speed)];
+            targeted [Relative] relative(offset: types::PanTiltPosition, #[into] speed: types::Speed<types::PanTiltSpeed>) -> command::pan_tilt::Relative where HasPanTiltPositioning
+                = [command::pan_tilt::Relative::new(offset, speed)];
             /// Sets one motion-limit corner in degrees using the registered target's coordinate conversion and
             /// documented position limits.
             ///
             /// `PanTiltPosition` stores checked degrees on both axes: pan is positive
             /// right and tilt positive up. The target's registered
-            /// `PanTiltCoordinateConversion` maps its profile's `PanTiltCaps::pan_range`
+            /// `PanTiltCoordinateConversion` maps its profile's `PanTiltGeometry::pan_range`
             /// and mount-selected `tilt_ranges` into degree limits.
-            plain [SetLimit] set_limit(corner: types::PanTiltLimitCorner, position: types::PanTiltPosition) -> command::pan_tilt::SetLimit
+            plain [SetLimit] set_limit(corner: types::PanTiltLimitCorner, position: types::PanTiltPosition) -> command::pan_tilt::SetLimit where HasPanTiltPositioning
                 = [with_target |target| command::pan_tilt::SetLimit::for_target(target, corner, position)];
             /// Clears one pan/tilt movement-limit corner.
             ///
             /// `PanTiltLimitCorner` selects the documented upper-right or lower-left
             /// corner. This clears that corner's configured position bound; it does not
             /// move the camera or take a new numeric position.
-            plain [ClearLimit] clear_limit(corner: types::PanTiltLimitCorner) -> command::pan_tilt::ClearLimit
+            plain [ClearLimit] clear_limit(corner: types::PanTiltLimitCorner) -> command::pan_tilt::ClearLimit where HasPanTiltPositioning
                 = [with_target |target| command::pan_tilt::ClearLimit::for_target(target, corner)];
             /// Selects the documented pan/tilt speed-step range: normal 24-step or extended 50-step control (R7
             /// pan/tilt speed-step command).
@@ -286,14 +281,14 @@ macro_rules! noun_table {
             /// the slowest drive, not STOP. `SpeedLevel` resolves within the selected
             /// profile's `FocusCaps::speed` range, which also bounds exact inputs.
             applied [FarVariable] far_variable(#[into] speed: types::Speed<types::FocusSpeed>) -> command::focus::FarVariable
-                = [with_target |target| command::focus::FarVariable::for_target(target, speed)];
+                = [command::focus::FarVariable::new(speed)];
             /// Drives focus nearer at a variable speed.
             ///
             /// An exact `FocusSpeed` is a unitless protocol speed code in `0..=7`; zero is
             /// the slowest drive, not STOP. `SpeedLevel` resolves within the selected
             /// profile's `FocusCaps::speed` range, which also bounds exact inputs.
             applied [NearVariable] near_variable(#[into] speed: types::Speed<types::FocusSpeed>) -> command::focus::NearVariable
-                = [with_target |target| command::focus::NearVariable::for_target(target, speed)];
+                = [command::focus::NearVariable::new(speed)];
             /// Stops focus movement.
             applied [Stop] stop() -> command::focus::Stop
                 = [command::focus::Stop];
@@ -400,7 +395,7 @@ macro_rules! noun_table {
             /// `0..=PresetCaps::highest` on the selected profile; constructing a value
             /// within the type's wider union does not establish camera support.
             targeted [Recall] recall(preset: types::PresetNumber) -> command::presets::Recall
-                = [with_target |target| command::presets::Recall::for_target(target, preset)];
+                = [command::presets::Recall::new(preset)];
             /// Sets the speed level for later preset recalls without starting a recall. The target profile selects
             /// the encoding and range: PTZOptics uses levels `1..=24` (R1 command table), while FR7 common speed
             /// uses `1..=50` (R7 p. 19). These are speed levels rather than degrees per second.
@@ -893,7 +888,7 @@ macro_rules! noun_table {
             /// table lists its supported physical values and owns their wire-code mapping;
             /// steps do not imply a universal Kelvin delta.
             plain [SetColorTemperature] set_color_temperature(temperature: types::Kelvin) -> command::white_balance::SetColorTemperature where HasColorTemperature
-                = [with_target |target| command::white_balance::SetColorTemperature::for_target(target, temperature)];
+                = [command::white_balance::SetColorTemperature::new(temperature)];
             /// Returns the red-channel gain.
             ///
             /// `RgbGain` is a channel protocol code in the union `0x00..=0xFF`, not a

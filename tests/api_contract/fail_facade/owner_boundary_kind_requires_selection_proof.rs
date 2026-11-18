@@ -7,8 +7,6 @@ owner_coordinator_contract!({
     let due = crate::runtime::engine::RawCorrelationReleaseSet;
     if let TurnPlan::Select { turn, .. } = coordinator.plan(now, None, due, || false) {
         turn.classify(Selected::Boundary, due);
+        //~^ E0308 "mismatched types"
     }
 });
-
-//~ E0308
-//~ "expected `NonBoundarySelected`, found `Selected`"

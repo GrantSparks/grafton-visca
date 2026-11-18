@@ -70,9 +70,9 @@ pub enum PanTiltLimitCorner {
     UpRight = 1,
 }
 
-/// Direction for pan/tilt movement commands.
+/// One of the eight active pan/tilt drive directions.
 ///
-/// Represents the 8 directional movements plus stop.
+/// Use `pan_tilt().stop()` to end a continuous drive.
 #[crate::value_enum(wire=(u8,u8))]
 pub enum PanTiltDirection {
     /// Move camera upward (tilt up) while maintaining pan position.
@@ -99,9 +99,6 @@ pub enum PanTiltDirection {
     /// Move camera diagonally down and to the right.
     #[wire((2, 2))]
     DownRight,
-    /// Stop all pan/tilt movement.
-    #[wire((3, 3))]
-    Stop,
 }
 
 #[cfg(test)]
@@ -324,7 +321,10 @@ mod tests {
     visca_test!(
         PanTilt,
         test_pan_tilt_move_stop_golden_frame,
-        golden_move(PanTiltDirection::Stop),
+        PanTilt::Stop {
+            pan_speed: PanSpeed::new(0x18).expect("maximum pan speed"),
+            tilt_speed: TiltSpeed::new(0x14).expect("maximum tilt speed"),
+        },
         &[
             0x81,
             0x01,
@@ -410,9 +410,9 @@ mod tests {
             PanTiltDirection::UpRight,
             PanTiltDirection::DownLeft,
             PanTiltDirection::DownRight,
-            PanTiltDirection::Stop,
         ];
         for (index, direction) in directions.iter().enumerate() {
+            assert_ne!(direction.to_wire(), STOP_DIRECTION);
             for other in directions.iter().skip(index + 1) {
                 assert_ne!(
                     direction.to_wire(),
@@ -421,6 +421,7 @@ mod tests {
                 );
             }
         }
+        assert!(PanTiltDirection::from_wire(STOP_DIRECTION).is_err());
     }
 
     fn profiled_bytes(command: PanTiltProfiled) -> Vec<u8> {
@@ -581,20 +582,22 @@ mod tests {
 
             let mut caps = Capabilities::runtime_baseline("Boundary test", 1).expect("baseline");
             caps.pan_tilt = Some(PanTiltCaps {
-                pan_range: CapabilityRange::<i32>::new(0, 1).expect("valid capability bounds"),
-                tilt_ranges: TiltRanges::Single(
-                    CapabilityRange::<i32>::new(0, 1).expect("valid capability bounds"),
-                ),
+                geometry: Some(crate::capabilities::PanTiltGeometry {
+                    pan_range: CapabilityRange::<i32>::new(0, 1).expect("valid capability bounds"),
+                    tilt_ranges: TiltRanges::Single(
+                        CapabilityRange::<i32>::new(0, 1).expect("valid capability bounds"),
+                    ),
+                    coordinates: crate::PanTiltCoordinateConversion::new(
+                        CoordinateSystem::SignedCentered,
+                        codec,
+                        1.0,
+                        1.0,
+                    )
+                    .expect("signed conversion"),
+                    endpoint_quantization: EndpointQuantization::Exact,
+                }),
                 pan_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
                 tilt_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
-                coordinates: crate::PanTiltCoordinateConversion::new(
-                    CoordinateSystem::SignedCentered,
-                    codec,
-                    1.0,
-                    1.0,
-                )
-                .expect("signed conversion"),
-                endpoint_quantization: EndpointQuantization::Exact,
                 simultaneous: true,
                 preset_recovery_time: std::time::Duration::ZERO,
                 variable_speed: false,
@@ -613,9 +616,10 @@ mod tests {
                     let range = CapabilityRange::<i32>::new(value.min(0), value.max(0))
                         .expect("valid capability bounds");
                     if pan_axis {
-                        domain.pan_range = range;
+                        domain.geometry.as_mut().expect("geometry").pan_range = range;
                     } else {
-                        domain.tilt_ranges = TiltRanges::Single(range);
+                        domain.geometry.as_mut().expect("geometry").tilt_ranges =
+                            TiltRanges::Single(range);
                     }
                     assert_eq!(
                         candidate.validate_domains().is_ok(),
@@ -711,6 +715,7 @@ mod tests {
 /// - `Home` - Return to home position
 /// - `Reset` - Reset pan/tilt mechanism
 /// - `Move` - Directional movement with speed control
+/// - `Stop` - End a continuous drive
 /// - `AbsolutePosition` - Move to raw coordinates
 /// - `RelativePosition` - Move by raw offsets
 /// - `LimitSet` - Set a pan/tilt movement boundary
@@ -730,11 +735,18 @@ pub enum PanTilt {
     Reset,
     /// Move camera in specified direction with given speeds.
     Move {
-        /// Direction of movement (8 directions + stop).
+        /// Active direction of movement.
         direction: PanTiltDirection,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
+        tilt_speed: TiltSpeed,
+    },
+    /// Stop pan/tilt movement.
+    Stop {
+        /// Pan speed field of the STOP frame.
+        pan_speed: PanSpeed,
+        /// Tilt speed field of the STOP frame.
         tilt_speed: TiltSpeed,
     },
     /// Move camera to an absolute pan/tilt position in raw units.
@@ -1091,6 +1103,23 @@ impl WireEncode for PanTiltProfiled {
     }
 }
 
+const STOP_DIRECTION: (u8, u8) = (3, 3);
+
+fn write_drive_frame(
+    frame: FrameWriter<'_>,
+    pan_speed: PanSpeed,
+    tilt_speed: TiltSpeed,
+    (pan, tilt): (u8, u8),
+) -> Result<usize, Error> {
+    frame
+        .bytes(&pan_tilt::DRIVE)
+        .byte(pan_speed.value())
+        .byte(tilt_speed.value())
+        .byte(pan)
+        .byte(tilt)
+        .finish()
+}
+
 impl WireEncode for PanTilt {
     fn write_into(
         &self,
@@ -1108,16 +1137,21 @@ impl WireEncode for PanTilt {
                 direction,
                 pan_speed,
                 tilt_speed,
-            } => {
-                let (pan, tilt) = direction.to_wire();
-                FrameWriter::new(camera_id, buffer)
-                    .bytes(&pan_tilt::DRIVE)
-                    .byte(pan_speed.value())
-                    .byte(tilt_speed.value())
-                    .byte(pan)
-                    .byte(tilt)
-                    .finish()
-            }
+            } => write_drive_frame(
+                FrameWriter::new(camera_id, buffer),
+                pan_speed,
+                tilt_speed,
+                direction.to_wire(),
+            ),
+            Self::Stop {
+                pan_speed,
+                tilt_speed,
+            } => write_drive_frame(
+                FrameWriter::new(camera_id, buffer),
+                pan_speed,
+                tilt_speed,
+                STOP_DIRECTION,
+            ),
             #[cfg(test)]
             Self::AbsolutePosition {
                 pan,

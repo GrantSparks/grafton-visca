@@ -49,15 +49,75 @@ curl --fail --location --silent --show-error --retry 3 \
 
 local_sha256="$(sha256sum -- "${local_payload}" | awk '{print $1}')"
 published_sha256="$(sha256sum -- "${published_payload}" | awk '{print $1}')"
-if [[ "${local_sha256}" != "${published_sha256}" ]]; then
-    echo "${crate_name}@${crate_version} registry payload SHA-256 mismatch" >&2
-    echo "local:     ${local_sha256}" >&2
-    echo "published: ${published_sha256}" >&2
-    exit 1
-fi
-if ! cmp -- "${local_payload}" "${published_payload}"; then
-    echo "${crate_name}@${crate_version} registry payload differs byte-for-byte" >&2
-    exit 1
-fi
+printf '%s\n' \
+    "local SHA-256:     ${local_sha256}" \
+    "published SHA-256: ${published_sha256}"
 
-echo "verified ${crate_name}@${crate_version} registry payload matches local SHA-256 ${local_sha256}"
+python3 - "${crate_name}-${crate_version}" "${temporary_directory}" \
+    "${local_payload}" "${published_payload}" <<'PY'
+import filecmp
+from pathlib import Path
+import shutil
+import sys
+import tarfile
+
+expected_root, temporary, local, published = sys.argv[1:]
+
+
+def unpack(archive_path, destination):
+    files = set()
+    seen = set()
+    with tarfile.open(archive_path, "r:gz") as archive:
+        for member in archive:
+            parts = member.name.split("/")
+            if (
+                parts[0] != expected_root
+                or any(part in ("", ".", "..") or "\\" in part or ":" in part for part in parts)
+            ):
+                raise ValueError(
+                    f"entry {member.name!r} is outside package directory {expected_root!r}"
+                )
+            relative = "/".join(parts[1:])
+            if relative in seen:
+                raise ValueError(f"duplicate package entry: {member.name!r}")
+            seen.add(relative)
+
+            path = destination.joinpath(*parts[1:])
+            if member.isdir():
+                path.mkdir(parents=True, exist_ok=True)
+            elif relative and member.isfile():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with archive.extractfile(member) as source, path.open("xb") as target:
+                    shutil.copyfileobj(source, target)
+                files.add(relative)
+            else:
+                raise ValueError(f"unsupported package entry: {member.name!r}")
+    if not files:
+        raise ValueError("package contains no files")
+    return files
+
+
+root = Path(temporary)
+local_root = root / "local"
+published_root = root / "published"
+try:
+    local_files = unpack(local, local_root)
+    published_files = unpack(published, published_root)
+except (OSError, EOFError, ValueError, tarfile.TarError) as error:
+    raise SystemExit(f"invalid crate archive: {error}") from error
+
+differences = []
+for relative in sorted(local_files | published_files):
+    if relative not in local_files:
+        differences.append(f"unexpected registry file: {relative}")
+    elif relative not in published_files:
+        differences.append(f"missing registry file: {relative}")
+    elif relative != "Cargo.lock" and not filecmp.cmp(
+        local_root / relative, published_root / relative, shallow=False
+    ):
+        differences.append(f"registry file differs: {relative}")
+if differences:
+    raise SystemExit("\n".join(differences))
+PY
+
+echo "verified ${crate_name}@${crate_version} registry contents match apart from the embedded Cargo.lock"

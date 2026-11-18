@@ -425,10 +425,7 @@ mod paused {
         fn an_invalid_update_is_rejected_and_changes_nothing() {
             let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
 
-            let accepted = OperationalTuning::new()
-                .with_ack_timeout(WIDE_ACK_TIMEOUT)
-                .with_quick_timeout(Duration::from_secs(9))
-                .with_retry_limit(2);
+            let accepted = OperationalTuning::new().with_retry_budget(Duration::from_secs(30));
             wait!(session.set_tuning(accepted)).expect("accepted");
 
             // Every rejection below is one `ProfileSpec::validate_tuning` rule, and
@@ -441,8 +438,10 @@ mod paused {
                 OperationalTuning::new().with_quick_timeout(Duration::ZERO),
                 // Tuning may only lower the default base retry count of 3.
                 OperationalTuning::new().with_retry_limit(4),
-                // Backoff that is not ordered, with a budget that cannot hold it.
-                OperationalTuning::new().with_initial_retry_backoff(Duration::from_millis(50)).with_maximum_retry_backoff(Duration::from_millis(10)).with_retry_budget(Duration::from_millis(10)),
+                // An initial backoff outside the effective ceiling.
+                OperationalTuning::new().with_initial_retry_backoff(Duration::from_secs(2)),
+                // A retry budget below the profile floor.
+                OperationalTuning::new().with_retry_budget(Duration::from_secs(9)),
             ];
             for tuning in rejected {
                 let error = wait!(session.set_tuning(tuning))
@@ -467,6 +466,9 @@ mod paused {
         /// for its inner `Session`.
         fn a_camera_session_reconfigures_its_own_session() {
             let config = grafton_visca::config::CameraConfig::new(grafton_visca::profiles::ProfileSpec::from_compile_time::<SonyFr7>().expect("source profile"), grafton_visca::config::TransportOptions::Custom).into_typed::<SonyFr7>().expect("typed config");
+            let config = config.with_tuning(
+                OperationalTuning::new().with_retry_budget(Duration::from_secs(30)),
+            );
             let session =
                 open_camera!(FakeCamera::silent(), &config).expect("single-camera session");
 

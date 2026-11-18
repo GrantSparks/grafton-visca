@@ -35,7 +35,8 @@ NAMED_HOMES = {
     **dict.fromkeys("StateCache StateKey KnownState StateEntry PanTiltLimitUpdate".split(), "state_cache"),
     **dict.fromkeys("MetricsSnapshot SessionStatus".split(), "observability"),
     **dict.fromkeys("Executor ResettableTimer ExecError TokioExecutor TokioTimer SmolExecutor SmolTimer Runtime TokioRuntime SmolRuntime TransportHandle".split(), "runtime"),
-    **dict.fromkeys("TransportConfig TcpKeepaliveConfig BufferConfig SerialConfig SerialStartup".split(), "transport"),
+    **dict.fromkeys("TransportConfig TcpKeepaliveConfig BufferConfig SerialConfig SerialStartup StandardTransport".split(), "transport"),
+    **dict.fromkeys("Domain DomainSet TransportSet".split(), "capabilities"),
     "CommandTimeoutClass": "profiles",
 }
 DATA_KINDS = frozenset(("struct", "enum", "union", "type_alias"))

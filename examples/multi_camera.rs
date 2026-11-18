@@ -22,14 +22,16 @@ use grafton_visca::{
 /// per-camera ACK and completion, sourced from the addressed camera.
 #[derive(Debug)]
 struct SerialBus {
-    config: TransportConfig,
+    config: grafton_visca::transport::ValidatedTransportConfig,
     replies: VecDeque<Vec<u8>>,
 }
 
 impl SerialBus {
     fn new() -> Self {
         Self {
-            config: TransportConfig::for_serial(),
+            config: TransportConfig::for_serial()
+                .validated()
+                .expect("serial defaults"),
             replies: VecDeque::new(),
         }
     }
@@ -43,7 +45,7 @@ impl HasTransportConfig for SerialBus {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &grafton_visca::transport::ValidatedTransportConfig {
         &self.config
     }
 }

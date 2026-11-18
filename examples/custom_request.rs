@@ -177,18 +177,23 @@ fn runtime_profile_spec() -> Result<ProfileSpec, Error> {
         .build()?;
 
     ProfileSpec::builder(capabilities)
+        .typed_support(grafton_visca::capabilities::TypedSupportSet::from_surface(
+            grafton_visca::capabilities::TypedSupportSurface::PanTiltPositioning,
+        ))
         .pan_tilt(PanTiltCaps {
-            pan_range: CapabilityRange::<i32>::new(-1_000, 1_000)?,
-            tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-500, 500)?),
+            geometry: Some(grafton_visca::capabilities::PanTiltGeometry {
+                pan_range: CapabilityRange::<i32>::new(-1_000, 1_000)?,
+                tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-500, 500)?),
+                coordinates: grafton_visca::profiles::PanTiltCoordinateConversion::new(
+                    CoordinateSystem::SignedCentered,
+                    PanTiltWireCodec::StandardVisca,
+                    10.0,
+                    10.0,
+                )?,
+                endpoint_quantization: EndpointQuantization::Exact,
+            }),
             pan_speed: CapabilityRange::<u8>::new(1, 8)?,
             tilt_speed: CapabilityRange::<u8>::new(1, 8)?,
-            coordinates: grafton_visca::profiles::PanTiltCoordinateConversion::new(
-                CoordinateSystem::SignedCentered,
-                PanTiltWireCodec::StandardVisca,
-                10.0,
-                10.0,
-            )?,
-            endpoint_quantization: EndpointQuantization::Exact,
             simultaneous: true,
             preset_recovery_time: Duration::ZERO,
             variable_speed: false,

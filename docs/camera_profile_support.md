@@ -253,11 +253,14 @@ once; `from_id` projects its new built-in identity. Retain every fact key,
 including `None` and empty records or inventories. Typed Rust expressions are
 the values; key names and record structure stay aligned with JSON.
 
-Each grant's `source!` names the source register id, exact model set and checked
-evidence anchor in `docs/visca_reference.md`. A borrowed generic or another
-model's source reference is not Acme evidence. Evidence rows name the final
+Each grant's `source!` names the source register id and checked evidence anchor
+in `docs/visca_reference.md`. The enclosing registry row supplies the model,
+which every cited source must cover. Set each source's reviewed model scope
+once in `source_ids!` in `src/source_evidence.rs`. Evidence rows name the final
 `grant.<Surface>` subject and its exact command/inquiry packet set. New facts
-may need command or inquiry evidence as well as a grant row. Keep existing
+may need command or inquiry evidence as well as a grant row. Supply evidence
+for unconditional rows and the domain-gated rows of each present domain.
+An absent domain adds no domain marker or evidence requirement. Keep existing
 anchors stable and let the source completeness tests catch omissions or
 orphans. An encoding variant additionally needs literal byte cases for every
 new encoder branch.
@@ -372,6 +375,7 @@ full public impact is visible in the documentation diff.
 | Motion sync | `HasMotionSync` | `motion_sync().set_enabled`, `motion_sync().set_speed` |
 | ND filter | `HasNdFilter` | `nd_filter().density`, `nd_filter().preset`, `nd_filter().set_mode`, `nd_filter().set_density`, `nd_filter().density_up`, `nd_filter().density_down`, `nd_filter().set_auto` |
 | Pan/tilt | `HasPanTiltSpeedMode` | `pan_tilt().set_speed_mode` |
+| Pan/tilt | `HasPanTiltPositioning` | `pan_tilt().position`, `pan_tilt().absolute`, `pan_tilt().relative`, `pan_tilt().set_limit`, `pan_tilt().clear_limit` |
 | Power | `HasPowerStandby` | `power().standby` |
 | Presets | `HasPresetRecallSpeed` | `presets().set_recall_speed` |
 | Presets | `HasPresetRecallSpeedInquiry` | `presets().recall_speed` |
@@ -426,15 +430,15 @@ full public impact is visible in the documentation diff.
 | `zoom().normalized` | `HasZoom`, `HasDirectZoom` | `types :: UnitInterval` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
 | `system().version` | `HasVersionInquiry` | `types :: VersionInfo` | `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `system().save_settings` | `HasSettingsSave` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x` |
-| `pan_tilt().position` | `HasPanTilt` | `types :: PanTiltPosition` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().position` | `HasPanTilt`, `HasPanTiltPositioning` | `types :: PanTiltPosition` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
 | `pan_tilt().home` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `pan_tilt().reset` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `pan_tilt().drive` | `HasPanTilt` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `pan_tilt().stop` | `HasPanTilt` | `Operation<AppliedOnly>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
-| `pan_tilt().absolute` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
-| `pan_tilt().relative` | `HasPanTilt` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
-| `pan_tilt().set_limit` | `HasPanTilt` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
-| `pan_tilt().clear_limit` | `HasPanTilt` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
+| `pan_tilt().absolute` | `HasPanTilt`, `HasPanTiltPositioning` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `pan_tilt().relative` | `HasPanTilt`, `HasPanTiltPositioning` | `Operation<Targeted>` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `pan_tilt().set_limit` | `HasPanTilt`, `HasPanTiltPositioning` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
+| `pan_tilt().clear_limit` | `HasPanTilt`, `HasPanTiltPositioning` | `()` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300` |
 | `pan_tilt().set_speed_mode` | `HasPanTilt`, `HasPanTiltSpeedMode` | `()` | `SonyFr7` |
 | `focus().position` | `HasFocus` | `types :: FocusPosition` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
 | `focus().mode` | `HasFocus` | `types :: FocusMode` | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30x`, `SonyFr7`, `SonyBrcH900`, `SonyEviH100`, `SonyBrc300`, `NearusBrc300`, `GenericVisca` |
@@ -745,14 +749,14 @@ optional operation.
 <!-- BEGIN GENERATED PROFILE MARKERS -->
 | Profile | Typed support markers |
 | --- | --- |
-| `PtzOpticsG2` | `HasDirectZoom`, `HasIris`, `HasFocusLock`, `HasFocusZone`, `HasBacklightCompensation`, `HasWideDynamicRange`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasAutoWhiteBalanceSensitivity`, `HasColorTemperature`, `HasRgbGain`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror`, `HasCombinedImageFlip`, `HasContrast`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasLuminance`, `HasGamma`, `HasNoiseReduction2D`, `HasNoiseReduction3D`, `HasPictureEffect`, `HasFocusZoneInquiry`, `HasUsbAudio`, `HasAntiFlicker`, `HasSettingsSave`, `HasPresetRecallSpeed`, `HasMulticastStreaming`, `HasNdiQuality`, `HasExposureMode`, `HasColorTemperatureInquiry`, `HasNoiseReduction2DMode`, `HasSharpnessMode`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasGainLimit`, `HasMenuEnterReturn`, `HasMenuDisplayInquiry`, `HasDirectShutter`, `HasPowerStandby` |
-| `PtzOpticsG3` | `HasDirectZoom`, `HasIris`, `HasFocusLock`, `HasFocusZone`, `HasBacklightCompensation`, `HasWideDynamicRange`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasAutoWhiteBalanceSensitivity`, `HasColorTemperature`, `HasRgbGain`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror`, `HasCombinedImageFlip`, `HasContrast`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasLuminance`, `HasGamma`, `HasNoiseReduction2D`, `HasNoiseReduction3D`, `HasPictureEffect`, `HasAntiFlicker`, `HasSettingsSave`, `HasPresetRecallSpeed`, `HasMulticastStreaming`, `HasNdiQuality`, `HasExposureMode`, `HasNoiseReduction2DMode`, `HasSharpnessMode`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasGainLimit`, `HasMenuEnterReturn`, `HasMenuDisplayInquiry`, `HasDirectShutter`, `HasPowerStandby` |
-| `PtzOptics30x` | `HasDirectZoom`, `HasIris`, `HasFocusLock`, `HasFocusZone`, `HasBacklightCompensation`, `HasWideDynamicRange`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasAutoWhiteBalanceSensitivity`, `HasColorTemperature`, `HasRgbGain`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror`, `HasCombinedImageFlip`, `HasContrast`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasLuminance`, `HasGamma`, `HasNoiseReduction2D`, `HasNoiseReduction3D`, `HasPictureEffect`, `HasFocusZoneInquiry`, `HasUsbAudio`, `HasAntiFlicker`, `HasSettingsSave`, `HasPresetRecallSpeed`, `HasMulticastStreaming`, `HasNdiQuality`, `HasExposureMode`, `HasColorTemperatureInquiry`, `HasNoiseReduction2DMode`, `HasSharpnessMode`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasGainLimit`, `HasMenuEnterReturn`, `HasMenuDisplayInquiry`, `HasDirectShutter`, `HasPowerStandby` |
-| `SonyFr7` | `HasDirectZoom`, `HasPushAutoFocus`, `HasBacklightCompensation`, `HasOnePushWhiteBalance`, `HasSharpness`, `HasTally`, `HasDirectMenu`, `HasNdFilter`, `HasPanTiltSpeedMode`, `HasPresetRecallSpeed`, `HasPresetRecallSpeedInquiry`, `HasSpotlight`, `HasVersionInquiry`, `HasAeLevel`, `HasAutoGain`, `HasAutoShutter`, `HasIrisSteps`, `HasAutoIris`, `HasPresetWhite`, `HasMemoryColorTemperature`, `HasMemoryGain`, `HasMemoryTint`, `HasAtwOffsets`, `HasBlackLevels`, `HasDetail`, `HasKnee`, `HasHighResolutionZoom`, `HasClearImageZoom`, `HasSeparatePresetSpeed`, `HasSeparatePresetDuration`, `HasPresetMemory`, `HasMenuDisplay`, `HasMenuDisplayInquiry`, `HasPowerStandby` |
-| `SonyBrcH900` | `HasIris`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasShutter`, `HasGain`, `HasMenuDisplayInquiry`, `HasPowerStandby` |
-| `SonyEviH100` | `HasDirectZoom`, `HasDigitalZoomToggle`, `HasDigitalZoomRange`, `HasIris`, `HasOnePushFocus`, `HasFocusNearLimit`, `HasBacklightCompensation`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasRgbGain`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasGamma`, `HasNoiseReduction2D`, `HasAutoSlowShutter`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter`, `HasPowerStandby` |
-| `SonyBrc300` | `HasDirectZoom`, `HasDigitalZoomToggle`, `HasDigitalZoomRange`, `HasIris`, `HasOnePushFocus`, `HasBacklightCompensation`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasRgbGain`, `HasImageFlip`, `HasAutoSlowShutter`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter` |
-| `NearusBrc300` | `HasDirectZoom`, `HasDigitalZoomToggle`, `HasDigitalZoomRange`, `HasIris`, `HasOnePushFocus`, `HasBacklightCompensation`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasRgbGain`, `HasImageFlip`, `HasAutoSlowShutter`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter` |
+| `PtzOpticsG2` | `HasDirectZoom`, `HasIris`, `HasFocusLock`, `HasFocusZone`, `HasBacklightCompensation`, `HasWideDynamicRange`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasAutoWhiteBalanceSensitivity`, `HasColorTemperature`, `HasRgbGain`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror`, `HasCombinedImageFlip`, `HasContrast`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasLuminance`, `HasGamma`, `HasNoiseReduction2D`, `HasNoiseReduction3D`, `HasPictureEffect`, `HasFocusZoneInquiry`, `HasUsbAudio`, `HasAntiFlicker`, `HasSettingsSave`, `HasPresetRecallSpeed`, `HasMulticastStreaming`, `HasNdiQuality`, `HasExposureMode`, `HasColorTemperatureInquiry`, `HasNoiseReduction2DMode`, `HasSharpnessMode`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasGainLimit`, `HasMenuEnterReturn`, `HasMenuDisplayInquiry`, `HasDirectShutter`, `HasPowerStandby`, `HasPanTiltPositioning` |
+| `PtzOpticsG3` | `HasDirectZoom`, `HasIris`, `HasFocusLock`, `HasFocusZone`, `HasBacklightCompensation`, `HasWideDynamicRange`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasAutoWhiteBalanceSensitivity`, `HasColorTemperature`, `HasRgbGain`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror`, `HasCombinedImageFlip`, `HasContrast`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasLuminance`, `HasGamma`, `HasNoiseReduction2D`, `HasNoiseReduction3D`, `HasPictureEffect`, `HasAntiFlicker`, `HasSettingsSave`, `HasPresetRecallSpeed`, `HasMulticastStreaming`, `HasNdiQuality`, `HasExposureMode`, `HasNoiseReduction2DMode`, `HasSharpnessMode`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasGainLimit`, `HasMenuEnterReturn`, `HasMenuDisplayInquiry`, `HasDirectShutter`, `HasPowerStandby`, `HasPanTiltPositioning` |
+| `PtzOptics30x` | `HasDirectZoom`, `HasIris`, `HasFocusLock`, `HasFocusZone`, `HasBacklightCompensation`, `HasWideDynamicRange`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasAutoWhiteBalanceSensitivity`, `HasColorTemperature`, `HasRgbGain`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror`, `HasCombinedImageFlip`, `HasContrast`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasLuminance`, `HasGamma`, `HasNoiseReduction2D`, `HasNoiseReduction3D`, `HasPictureEffect`, `HasFocusZoneInquiry`, `HasUsbAudio`, `HasAntiFlicker`, `HasSettingsSave`, `HasPresetRecallSpeed`, `HasMulticastStreaming`, `HasNdiQuality`, `HasExposureMode`, `HasColorTemperatureInquiry`, `HasNoiseReduction2DMode`, `HasSharpnessMode`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasGainLimit`, `HasMenuEnterReturn`, `HasMenuDisplayInquiry`, `HasDirectShutter`, `HasPowerStandby`, `HasPanTiltPositioning` |
+| `SonyFr7` | `HasDirectZoom`, `HasPushAutoFocus`, `HasBacklightCompensation`, `HasOnePushWhiteBalance`, `HasSharpness`, `HasTally`, `HasDirectMenu`, `HasNdFilter`, `HasPanTiltSpeedMode`, `HasPresetRecallSpeed`, `HasPresetRecallSpeedInquiry`, `HasSpotlight`, `HasVersionInquiry`, `HasAeLevel`, `HasAutoGain`, `HasAutoShutter`, `HasIrisSteps`, `HasAutoIris`, `HasPresetWhite`, `HasMemoryColorTemperature`, `HasMemoryGain`, `HasMemoryTint`, `HasAtwOffsets`, `HasBlackLevels`, `HasDetail`, `HasKnee`, `HasHighResolutionZoom`, `HasClearImageZoom`, `HasSeparatePresetSpeed`, `HasSeparatePresetDuration`, `HasPresetMemory`, `HasMenuDisplay`, `HasMenuDisplayInquiry`, `HasPowerStandby`, `HasPanTiltPositioning` |
+| `SonyBrcH900` | `HasIris`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasShutter`, `HasGain`, `HasMenuDisplayInquiry`, `HasPowerStandby`, `HasPanTiltPositioning` |
+| `SonyEviH100` | `HasDirectZoom`, `HasDigitalZoomToggle`, `HasDigitalZoomRange`, `HasIris`, `HasOnePushFocus`, `HasFocusNearLimit`, `HasBacklightCompensation`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasRgbGain`, `HasSharpness`, `HasSaturation`, `HasHue`, `HasGamma`, `HasNoiseReduction2D`, `HasAutoSlowShutter`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter`, `HasPowerStandby`, `HasPanTiltPositioning` |
+| `SonyBrc300` | `HasDirectZoom`, `HasDigitalZoomToggle`, `HasDigitalZoomRange`, `HasIris`, `HasOnePushFocus`, `HasBacklightCompensation`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasRgbGain`, `HasImageFlip`, `HasAutoSlowShutter`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter`, `HasPanTiltPositioning` |
+| `NearusBrc300` | `HasDirectZoom`, `HasDigitalZoomToggle`, `HasDigitalZoomRange`, `HasIris`, `HasOnePushFocus`, `HasBacklightCompensation`, `HasExposureCompensation`, `HasBrightness`, `HasOnePushWhiteBalance`, `HasRgbGain`, `HasImageFlip`, `HasAutoSlowShutter`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter`, `HasPanTiltPositioning` |
 | `GenericVisca` | `HasIris`, `HasOnePushFocus`, `HasOnePushWhiteBalance`, `HasExposureMode`, `HasVersionInquiry`, `HasFocusInfinity`, `HasPresetMemory`, `HasShutter`, `HasGain`, `HasDirectShutter` |
 <!-- END GENERATED PROFILE MARKERS -->
 
@@ -1118,7 +1122,14 @@ ratios are separate source facts: for example BRC-H900 has a 14× optical scale;
 family profiles that do not identify one installed lens use
 `Capabilities::zoom_scale_for_lens`.
 
-Coordinates belong to `PanTiltCaps`; the target registration only selects a
+The `HasPanTiltPositioning` grant covers degree moves, limits and readback.
+Generic VISCA retains continuous drive and stop. R8, R12 and R21 specify
+different position scales, limits and frame shapes, so Generic VISCA withholds
+degree positioning, limits and position polling. Home, reset and preset recall
+require a camera-specific profile for pan/tilt settlement. Generic VISCA's
+focus position interval is the shared `0x1000..=0xC000`.
+
+Coordinates belong to optional `PanTiltCaps::geometry` facts. The target registration selects a
 source-declared tilt range. Degree bounds derive from wire bounds and the
 conversion. `EndpointQuantization::Exact` uses exact degree bounds;
 `WholeDegrees` expresses a source's whole-degree endpoint cells, validates that

@@ -122,7 +122,7 @@ impl<T: HasTransportConfig> HasTransportConfig for Observed<T> {
         self.inner.identity()
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
         self.inner.transport_config()
     }
 }

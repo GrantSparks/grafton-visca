@@ -863,7 +863,72 @@ impl ResolvingCancellation {
     }
 }
 
+/// The request phases that can accept command cancellation.
+pub(super) enum CommandLifecycle {
+    OffWire,
+    Sending(CommandReply),
+    AwaitingAck {
+        sent_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+        cancellation: Option<RequestedCancellation>,
+    },
+    AwaitingCompletion,
+    Executing {
+        started_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+        cancellation: ExecutingCancellation,
+    },
+    ExecutingDisplaced,
+    AwaitingCancellationResolution,
+}
+
 impl Lifecycle {
+    pub(super) const fn command_view(self) -> Option<CommandLifecycle> {
+        Some(match self {
+            Self::Ready { .. } | Self::Backoff { .. } => CommandLifecycle::OffWire,
+            Self::Sending { reply, .. } => CommandLifecycle::Sending(match reply {
+                SendingReply::AckThenCompletion => CommandReply::AckThenCompletion,
+                SendingReply::Stop => CommandReply::Stop,
+                SendingReply::CompletionOnly => CommandReply::CompletionOnly,
+                SendingReply::NoReply => CommandReply::NoReply,
+                SendingReply::Inquiry => return None,
+            }),
+            Self::AwaitingReply { .. } => return None,
+            Self::AwaitingAck {
+                sent_at,
+                deadline,
+                attempt,
+                cancellation,
+            } => CommandLifecycle::AwaitingAck {
+                sent_at,
+                deadline,
+                attempt,
+                cancellation,
+            },
+            Self::AwaitingCompletion { .. } => CommandLifecycle::AwaitingCompletion,
+            Self::Executing {
+                started_at,
+                deadline,
+                attempt,
+                cancellation,
+                ..
+            } => CommandLifecycle::Executing {
+                started_at,
+                deadline,
+                attempt,
+                cancellation,
+            },
+            Self::ExecutingDisplaced { .. } => CommandLifecycle::ExecutingDisplaced,
+            Self::AwaitingCancellationResolution { .. } => {
+                CommandLifecycle::AwaitingCancellationResolution
+            }
+        })
+    }
+}
+
+impl CommandLifecycle {
     pub(super) fn cancellation_decision(
         self,
         supported: bool,
@@ -875,20 +940,18 @@ impl Lifecycle {
         };
         let refused = || CancellationDecision::Refused(crate::Error::CancellationNotSupported);
         match self {
-            Self::Ready { .. } | Self::Backoff { .. } => CancellationDecision::Local,
-            Self::AwaitingCompletion { .. } => refused(),
-            Self::ExecutingDisplaced { .. } => {
+            Self::OffWire => CancellationDecision::Local,
+            Self::AwaitingCompletion => refused(),
+            Self::ExecutingDisplaced => {
                 CancellationDecision::Refused(crate::Error::CancellationUnconfirmed)
             }
-            Self::AwaitingReply { .. } => {
-                CancellationDecision::Refused(crate::Error::InquiryNotCancellable)
-            }
-            Self::AwaitingCancellationResolution { .. } => CancellationDecision::Duplicate,
-            Self::Sending {
-                reply: SendingReply::Inquiry,
-                ..
-            } => CancellationDecision::Refused(crate::Error::InquiryNotCancellable),
-            Self::Sending { .. } => refused(),
+            Self::AwaitingCancellationResolution => CancellationDecision::Duplicate,
+            Self::Sending(
+                CommandReply::AckThenCompletion
+                | CommandReply::Stop
+                | CommandReply::CompletionOnly
+                | CommandReply::NoReply,
+            ) => refused(),
             Self::AwaitingAck {
                 cancellation: Some(_),
                 ..
@@ -920,7 +983,6 @@ impl Lifecycle {
                 )
             }
             Self::Executing {
-                socket: _,
                 started_at,
                 deadline,
                 attempt,

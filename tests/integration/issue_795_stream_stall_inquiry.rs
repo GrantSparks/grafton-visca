@@ -252,14 +252,14 @@ fn latched_inquiry_failure<T: fmt::Debug>(result: &Result<T, Error>, already_adm
         assert!(
             matches!(error, Error::InquiryFailed { source, .. }
             if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera, .. }
-                if *camera == CameraId::CAMERA_1)),
+                if *camera == grafton_visca::types::IndividualCameraId::CAMERA_1)),
             "{error:?}"
         );
         Certainty::FailedConclusively
     } else {
         assert!(
             matches!(error, Error::InquiryCorrelationLost { camera, .. }
-            if *camera == CameraId::CAMERA_1),
+            if *camera == grafton_visca::types::IndividualCameraId::CAMERA_1),
             "{error:?}"
         );
         Certainty::NotAccepted

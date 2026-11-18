@@ -74,23 +74,23 @@ impl Serial {
     /// open and startup behaviour shared with the blocking transport.
     #[allow(clippy::manual_async_fn)]
     pub fn connect(config: SerialConfig) -> impl Future<Output = Result<Self>> + Send {
-        async move {
-            let transport_config = config.transport_config();
-            transport_config.validate()?;
+        async move { Self::open_validated(config.validated()?).await }
+    }
 
-            let stream = port_builder(&config)
-                .open_native_async()
-                .map_err(|error| open_failed(&config, error))?;
-            let mut adapter = TokioSerialAdapter { stream };
+    async fn open_validated(config: crate::transport::ValidatedSerialConfig) -> Result<Self> {
+        let (config, transport_config) = config.into_parts();
+        let stream = port_builder(&config)
+            .open_native_async()
+            .map_err(|error| open_failed(&config, error))?;
+        let mut adapter = TokioSerialAdapter { stream };
 
-            let executor = TokioExecutor::from_current()?;
-            let addressed_cameras =
-                perform_startup(&executor, &mut adapter, &config, StartupTiming::VISCA).await?;
+        let executor = TokioExecutor::from_current()?;
+        let addressed_cameras =
+            perform_startup(&executor, &mut adapter, &config, StartupTiming::VISCA).await?;
 
-            let addressed_bus =
-                addressed_cameras.map(|cameras| AddressedBus::new(config.port.clone(), cameras));
-            Ok(Self::new(adapter, transport_config).with_addressed_bus(addressed_bus))
-        }
+        let addressed_bus =
+            addressed_cameras.map(|cameras| AddressedBus::new(config.port.clone(), cameras));
+        Ok(Self::new(adapter, transport_config).with_addressed_bus(addressed_bus))
     }
 
     /// Connect on an explicitly selected Tokio runtime.
@@ -100,12 +100,12 @@ impl Serial {
     /// same runtime that will own the session actor.
     pub(crate) fn connect_on(
         handle: tokio::runtime::Handle,
-        config: SerialConfig,
+        config: crate::transport::ValidatedSerialConfig,
     ) -> impl Future<Output = Result<Self>> + Send {
         // Polling through this wrapper retains the caller-owned future while
         // still installing the selected handle before opening the async
         // descriptor and at every handshake poll.
-        TokioBoundFuture::new(handle, Self::connect(config))
+        TokioBoundFuture::new(handle, Self::open_validated(config))
     }
 
     /// Connect to a serial port with default configuration.
@@ -197,8 +197,13 @@ mod tests {
 
         let (_master, stream) = SerialStream::pair().expect("pseudo-terminal pair");
         let bus = AddressedBus::new("test pseudo-terminal", 3);
-        let transport = Serial::new(TokioSerialAdapter { stream }, TransportConfig::for_serial())
-            .with_addressed_bus(Some(bus.clone()));
+        let transport = Serial::new(
+            TokioSerialAdapter { stream },
+            TransportConfig::for_serial()
+                .validated()
+                .expect("valid connector test configuration"),
+        )
+        .with_addressed_bus(Some(bus.clone()));
         let handle = TransportHandle::<TokioRuntime>::Serial(Box::new(transport));
 
         assert_eq!(
@@ -457,7 +462,7 @@ mod tests {
         let first = Serial::connect(config.clone())
             .await
             .expect("first opener succeeds");
-        let reported = first.transport_config();
+        let reported = first.transport_config().as_config();
         assert_eq!(reported, &config.transport_config());
 
         assert_eq!(reported.tcp_nodelay, None);

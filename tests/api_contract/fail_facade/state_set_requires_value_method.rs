@@ -14,7 +14,6 @@ mod contract {
 
 struct Tally;
 impl contract::StateValue for Tally {
-    const KEY: StateKey = StateKey::TallyMode;
     type Value = TallyMode;
     fn known(value: TallyMode) -> KnownState {
         KnownState::TallyMode(value)
@@ -23,6 +22,7 @@ impl contract::StateValue for Tally {
 
 struct MissingValue;
 impl contract::BuiltinStateValue<TallyMode> for MissingValue {}
+//~^ E0046 "not all trait items implemented, missing: `state_value`"
 
 fn main() {
     // This is the same projection obligation that builtin_request! generates.
@@ -30,6 +30,3 @@ fn main() {
         &MissingValue,
     );
 }
-
-//~ E0046
-//~ "missing `state_value` in implementation"

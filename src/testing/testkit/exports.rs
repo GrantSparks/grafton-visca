@@ -19,7 +19,7 @@ macro_rules! testkit_utility_exports {
             };
 
             feature = "test-utils" => scripted_transport {
-                helpers, DynamicResponseFn, Step,
+                helpers, DynamicResponseFn, ScriptedTransportIdentity, Step,
             };
         }
     };

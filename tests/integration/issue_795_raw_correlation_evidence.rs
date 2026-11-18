@@ -544,20 +544,29 @@ mod dispute_regressions {
         );
     }
 
+    const CUSTOM_IP_STREAM: grafton_visca::testing::testkit::ScriptedTransportIdentity =
+        grafton_visca::testing::testkit::ScriptedTransportIdentity::Custom {
+            semantics: grafton_visca::transport::SendSemantics::Stream,
+            addressing: grafton_visca::transport::AddressingMode::Ip,
+        };
+
     #[test]
     fn accepted_dispute_keeps_the_second_stop_answer_away_from_a_later_operation() {
         let clock = ManualClock::new();
         let participant = clock.enter();
-        let wire = ScriptedBlockingTransport::new([
-            Step::on_send(None, vec![]),
-            Step::on_send(None, vec![]),
-            Step::on_send(None, vec![]),
-            Step::after(
-                Duration::from_millis(150),
-                vec![vec![0x90, 0x60, 0x41, 0xff], vec![0x90, 0x50, 0xff]],
-            ),
-            Step::on_send(None, vec![vec![0x90, 0x41, 0xff], vec![0x90, 0x51, 0xff]]),
-        ])
+        let wire = ScriptedBlockingTransport::new(
+            CUSTOM_IP_STREAM,
+            [
+                Step::on_send(None, vec![]),
+                Step::on_send(None, vec![]),
+                Step::on_send(None, vec![]),
+                Step::after(
+                    Duration::from_millis(150),
+                    vec![vec![0x90, 0x60, 0x41, 0xff], vec![0x90, 0x50, 0xff]],
+                ),
+                Step::on_send(None, vec![vec![0x90, 0x41, 0xff], vec![0x90, 0x51, 0xff]]),
+            ],
+        )
         .on_clock(&clock);
         let probe = wire.clone();
         let session = clock
@@ -604,11 +613,14 @@ mod dispute_regressions {
     fn socketless_disputed_ack_never_proves_the_completion_only_command_applied() {
         let clock = ManualClock::new();
         let participant = clock.enter();
-        let wire = ScriptedBlockingTransport::new([
-            Step::on_send(None, vec![]),
-            Step::on_send(None, vec![vec![0x90, 0x60, 0x41, 0xff]]),
-            Step::on_send(None, vec![vec![0x90, 0x40, 0xff], vec![0x90, 0x50, 0xff]]),
-        ])
+        let wire = ScriptedBlockingTransport::new(
+            CUSTOM_IP_STREAM,
+            [
+                Step::on_send(None, vec![]),
+                Step::on_send(None, vec![vec![0x90, 0x60, 0x41, 0xff]]),
+                Step::on_send(None, vec![vec![0x90, 0x40, 0xff], vec![0x90, 0x50, 0xff]]),
+            ],
+        )
         .on_clock(&clock);
         let probe = wire.clone();
         // A halt's budget includes a ten-second retry floor. This long

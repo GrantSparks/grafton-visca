@@ -15,53 +15,31 @@
 //!
 //! # The declaration syntax
 //!
-//! A fixture declares one expectation per line, in a comment beginning `//~`:
+//! A fixture places each diagnostic expectation beside the line it covers:
 //!
 //! ```text
-//! //~ E0603
-//! //~ "module `camera_id` is private"
+//! use grafton_visca::types::camera_id;
+//! //~^ E0603 "module `camera_id` is private"
 //! ```
 //!
-//! * `//~ E0603` requires rustc to emit `error[E0603]`.
-//! * `//~ "text"` requires `text` to appear somewhere in rustc's stderr. `\"`
-//!   and `\\` are the two escapes. This is how a lint-only fixture (which has
-//!   no error code at all) pins its diagnostic.
+//! `//~^` covers the preceding line. Use more carets to move further back or
+//! use `//~ L4` to name line 4 explicitly. The declaration requires the exact
+//! error code (or no code for a lint or macro error) and can include a stable
+//! substring of the diagnostic's own message. The quoted message supports
+//! escaped quotes and backslashes.
 //!
-//! A fixture whose contract is a post-monomorphization error, such as a
-//! failing `const { assert!(..) }` inside a generic function, adds the line
-//! `//@ build`. `cargo check` never instantiates generic code, so those
-//! fixtures are compiled with `cargo build` instead.
+//! Every error on a primary line in the fixture needs a matching declaration.
+//! The message anchor must not occur verbatim in the source outside its
+//! declarations. Absence codes (see `ABSENCE_CODES`) require a message to
+//! distinguish the intended missing path from a typo.
 //!
-//! The rules the harness enforces:
+//! Choose the diagnostic prose that stays stable across supported feature
+//! shapes. Rustc may abbreviate a type path whenever it is unambiguous.
 //!
-//! 1. Every fixture declares at least one expectation. A fixture with none is
-//!    a harness failure, not a silent pass.
-//! 2. Every declared code must appear in stderr, **and every code in stderr
-//!    must be declared**. The set is exact, so a fixture that starts failing
-//!    for an extra or different reason fails loudly instead of coasting on the
-//!    reason it still shares with its declaration.
-//! 3. Every declared message must appear in stderr.
-//! 4. A fixture declaring an *absence* code — `ABSENCE_CODES`, the codes a
-//!    typo produces just as readily as a real removal — must also declare a
-//!    message naming the path that has to be missing. "This name is gone" is
-//!    only a contract if the fixture says which name.
-//!
-//! Three conventions keep the declarations honest:
-//!
-//! * Put the declaration block at the end of the fixture so the contract under
-//!   test remains visually primary and diagnostic anchors stay easy to audit.
-//! * Anchor a message on rustc's own prose ("unresolved import `x`", "module
-//!   `y` is private"), never on a bare identifier. rustc echoes the offending
-//!   source line into stderr, so `"grafton_visca::CameraBuilder"` on its own
-//!   would be matched by the fixture's own `use` statement no matter what
-//!   rustc concluded about it.
-//! * Keep the message to the part that is stable across toolchains and feature
-//!   sets. 1.98 renamed "no function or associated item named `new` found for
-//!   struct" to "no associated function or constant named `new` found for
-//!   struct", and rustc abbreviates a type path whenever it is unambiguous
-//!   (`grafton_visca::blocking::Session` under `--all-features`, plain
-//!   `Session` in a blocking-only build). "named `new` found for struct" is
-//!   specific, is prose, and survives both.
+//! A fixture whose contract is a post-monomorphization error adds the line
+//! `//@ build`. Cargo checks do not instantiate generic code. For a const
+//! evaluation error originating in a dependency, rustc's instantiation note
+//! points to the triggering line in the fixture.
 //!
 //! Failures are collected across the whole run and reported together, so one
 //! run tells you every fixture that needs attention.
@@ -86,11 +64,21 @@ const ABSENCE_CODES: &[&str] = &[
 
 /// One diagnostic a fixture requires of rustc.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Expectation {
-    /// `//~ E0603`: rustc must emit `error[E0603]`.
-    Code(String),
-    /// `//~ "..."`: the text must appear in rustc's stderr.
-    Message(String),
+struct Expectation {
+    line: usize,
+    code: Option<String>,
+    message: Option<String>,
+}
+
+impl Expectation {
+    fn matches(&self, diagnostic: &ErrorDiagnostic, line: usize) -> bool {
+        self.line == line
+            && self.code == diagnostic.code
+            && self
+                .message
+                .as_ref()
+                .is_none_or(|text| diagnostic.message.contains(text))
+    }
 }
 
 /// The grafton-visca features enabled in the test crate that expands it, as a
@@ -506,6 +494,14 @@ struct FixtureCompilation {
     /// The fixture's rustc diagnostics, rendered exactly as `cargo check`
     /// prints them to stderr (see [`attribute_cargo_messages`]).
     diagnostics: String,
+    errors: Vec<ErrorDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ErrorDiagnostic {
+    primary_lines: BTreeSet<usize>,
+    code: Option<String>,
+    message: String,
 }
 
 struct WorkspaceRun {
@@ -708,17 +704,30 @@ fn attribute_cargo_messages(
 
         match reason {
             Some("compiler-message") => {
-                let rendered = record
-                    .get("message")
-                    .and_then(|message| message.get("rendered"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
+                let message = &record["message"];
+                let rendered = message["rendered"].as_str().unwrap_or_default();
                 match slot {
                     Some(slot) => {
                         let member_source = format!("{}/src/", packages[slot].1);
-                        compilations[slot]
+                        let compilation = &mut compilations[slot];
+                        compilation
                             .diagnostics
                             .push_str(&rendered.replace(&member_source, "src/"));
+                        let source_path = format!("{member_source}main.rs");
+                        match message["level"].as_str() {
+                            Some("error") => compilation.errors.push(ErrorDiagnostic {
+                                primary_lines: primary_fixture_lines(message, &source_path),
+                                code: message["code"]["code"]
+                                    .as_str()
+                                    .filter(|code| is_error_code(code))
+                                    .map(str::to_owned),
+                                message: message["message"].as_str().unwrap_or_default().to_owned(),
+                            }),
+                            Some("note") => {
+                                bind_instantiation_note(compilation, message, &source_path)
+                            }
+                            _ => {}
+                        }
                     }
                     None => unattributed.push_str(rendered),
                 }
@@ -738,6 +747,50 @@ fn attribute_cargo_messages(
     })
 }
 
+fn primary_fixture_lines(diagnostic: &serde_json::Value, source_path: &str) -> BTreeSet<usize> {
+    diagnostic["spans"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|span| span["is_primary"] == true)
+        .filter_map(|span| {
+            // A primary span inside an expansion belongs to the fixture
+            // through its invocation, even if the macro lives elsewhere.
+            let span = std::iter::successors(Some(span), |span| span.get("expansion")?.get("span"))
+                .find(|span| {
+                    span["file_name"].as_str().is_some_and(|file| {
+                        let file = file.replace('\\', "/");
+                        file == source_path
+                            || file
+                                .strip_suffix(source_path)
+                                .is_some_and(|prefix| prefix.ends_with('/'))
+                    })
+                })?;
+            usize::try_from(span["line_start"].as_u64()?).ok()
+        })
+        .collect()
+}
+
+fn bind_instantiation_note(
+    compilation: &mut FixtureCompilation,
+    note: &serde_json::Value,
+    source_path: &str,
+) {
+    // For an inline const assertion in a dependency, rustc emits a separate
+    // note identifying the call that instantiated the invalid expression.
+    let Some(error) = compilation.errors.last_mut() else {
+        return;
+    };
+    if error.code.as_deref() == Some("E0080")
+        && error.primary_lines.is_empty()
+        && note["message"].as_str().is_some_and(|message| {
+            message.starts_with("the above error was encountered while instantiating ")
+        })
+    {
+        error.primary_lines = primary_fixture_lines(note, source_path);
+    }
+}
+
 /// Matches one compiled fail fixture against its declarations.
 ///
 /// Returns the report for a fixture that did not meet them.
@@ -753,10 +806,6 @@ fn check_fail_fixture(
             return Err(format!("{fixture_label}: {problem}"));
         }
     };
-    if let Some(problem) = declaration_problem(&expectations) {
-        return Err(format!("{fixture_label}: {problem}"));
-    }
-
     if compilation.compiled {
         return Err(format!(
             "{fixture_label}: compiled successfully; the contract it pins is no longer enforced \
@@ -766,7 +815,7 @@ fn check_fail_fixture(
     }
 
     let stderr = compilation.diagnostics.as_str();
-    let problems = unmet_expectations(&expectations, stderr);
+    let problems = unmet_expectations(&expectations, &compilation.errors);
     if problems.is_empty() {
         return Ok(());
     }
@@ -851,119 +900,126 @@ fn compile_command(source: &str) -> &'static str {
     }
 }
 
-/// Reads the `//~` declaration block out of a fixture's source.
+/// Reads and validates the fixture's line-bound diagnostic declarations.
 fn parse_expectations(source: &str) -> Result<Vec<Expectation>, String> {
+    let lines: Vec<_> = source.lines().map(str::trim).collect();
     let mut expectations = Vec::new();
 
-    for (offset, line) in source.lines().enumerate() {
-        let Some(rest) = line.trim_start().strip_prefix("//~") else {
+    for (offset, content) in lines.iter().enumerate() {
+        let Some(rest) = content.strip_prefix("//~") else {
             continue;
         };
         let number = offset + 1;
-        let rest = rest.trim();
-
-        if rest.is_empty() {
-            return Err(format!("line {number}: empty `//~` expectation"));
-        }
-        if rest.starts_with('"') {
-            let text = unquote(rest).ok_or_else(|| {
-                format!("line {number}: `//~ \"...\"` expectation is not a closed quoted string")
-            })?;
-            if text.is_empty() {
-                return Err(format!("line {number}: empty `//~ \"...\"` expectation"));
-            }
-            expectations.push(Expectation::Message(text));
-        } else if is_error_code(rest) {
-            expectations.push(Expectation::Code(rest.to_owned()));
+        let rest = rest.trim_start();
+        let relative = rest.bytes().take_while(|&byte| byte == b'^').count();
+        let (line, payload) = if relative > 0 {
+            (number.checked_sub(relative), rest[relative..].trim_start())
+        } else if let Some(explicit) = rest.strip_prefix('L') {
+            let (digits, payload) = explicit
+                .split_once(char::is_whitespace)
+                .unwrap_or((explicit, ""));
+            (digits.parse().ok(), payload.trim_start())
         } else {
             return Err(format!(
-                "line {number}: expected `//~ E1234` or `//~ \"message text\"`, found `//~ {rest}`"
+                "line {number}: expected a `//~^` or `//~ L4` location"
+            ));
+        };
+        let line = line
+            .filter(|line| {
+                line.checked_sub(1)
+                    .and_then(|offset| lines.get(offset))
+                    .is_some_and(|target| !target.is_empty() && !target.starts_with("//~"))
+            })
+            .ok_or_else(|| format!("line {number}: expectation must point to a source line"))?;
+
+        let (code, quoted) = if payload.starts_with('"') {
+            (None, payload)
+        } else {
+            let (code, quoted) = payload
+                .split_once(char::is_whitespace)
+                .unwrap_or((payload, ""));
+            if !is_error_code(code) {
+                return Err(format!(
+                    "line {number}: expected E1234 or a quoted diagnostic message"
+                ));
+            }
+            (Some(code.to_owned()), quoted.trim_start())
+        };
+        let message = if quoted.is_empty() {
+            None
+        } else {
+            let message = unquote(quoted)
+                .filter(|text| !text.is_empty())
+                .ok_or_else(|| {
+                    format!("line {number}: expected a nonempty quoted diagnostic message")
+                })?;
+            if lines
+                .iter()
+                .any(|line| !line.starts_with("//~") && line.contains(&message))
+            {
+                return Err(format!(
+                    "line {number}: diagnostic anchor {message:?} occurs in fixture source"
+                ));
+            }
+            Some(message)
+        };
+        if message.is_none()
+            && code
+                .as_deref()
+                .is_some_and(|code| ABSENCE_CODES.contains(&code))
+        {
+            return Err(format!(
+                "line {number}: absence code requires a message naming the missing path"
             ));
         }
+
+        expectations.push(Expectation {
+            line,
+            code,
+            message,
+        });
     }
 
+    if expectations.is_empty() {
+        return Err("declares no expected diagnostic. Add `//~^ E1234` and/or a quoted message beside the error.".to_owned());
+    }
     Ok(expectations)
 }
 
-/// Checks a fixture's declaration on its own, before anything is compiled.
-fn declaration_problem(expectations: &[Expectation]) -> Option<String> {
-    if expectations.is_empty() {
-        return Some(
-            "declares no expected diagnostic. Add `//~ E1234` and/or `//~ \"message text\"` \
-             lines stating exactly what rustc must report."
-                .to_owned(),
-        );
-    }
-
-    let absent: Vec<String> = declared_codes(expectations)
-        .into_iter()
-        .filter(|code| ABSENCE_CODES.contains(&code.as_str()))
-        .collect();
-    let has_message = expectations
-        .iter()
-        .any(|expectation| matches!(expectation, Expectation::Message(_)));
-
-    if !absent.is_empty() && !has_message {
-        return Some(format!(
-            "declares the absence code(s) {absent:?} but no `//~ \"...\"` message. A typo \
-             produces those codes as readily as a real removal, so the fixture must also pin \
-             the message naming the path that has to be missing."
-        ));
-    }
-
-    None
-}
-
-/// Matches a fixture's declarations against what rustc actually reported.
-fn unmet_expectations(expectations: &[Expectation], stderr: &str) -> Vec<String> {
+/// Requires matching evidence in both directions, at every primary fixture line.
+fn unmet_expectations(expectations: &[Expectation], errors: &[ErrorDiagnostic]) -> Vec<String> {
     let mut problems = Vec::new();
 
-    let declared = declared_codes(expectations);
-    let observed = observed_codes(stderr);
-
-    for code in declared.difference(&observed) {
-        problems.push(format!("declared {code}, which rustc did not report"));
-    }
-    for code in observed.difference(&declared) {
-        problems.push(format!(
-            "rustc reported {code}, which the fixture does not declare"
-        ));
-    }
     for expectation in expectations {
-        if let Expectation::Message(text) = expectation {
-            if !stderr.contains(text.as_str()) {
-                problems.push(format!(
-                    "declared message {text:?}, which rustc did not report"
-                ));
+        if !errors.iter().any(|error| {
+            error.primary_lines.contains(&expectation.line)
+                && expectation.matches(error, expectation.line)
+        }) {
+            problems.push(format!(
+                "rustc did not report {}",
+                describe_expectation(expectation)
+            ));
+        }
+    }
+    for error in errors {
+        let code = error.code.as_deref().unwrap_or("error");
+        if error.primary_lines.is_empty() {
+            problems.push(format!(
+                "{code} has no primary fixture line: {}",
+                error.message
+            ));
+        }
+        for &line in &error.primary_lines {
+            if !expectations
+                .iter()
+                .any(|expectation| expectation.matches(error, line))
+            {
+                problems.push(format!("line {line}: undeclared {code}: {}", error.message));
             }
         }
     }
 
     problems
-}
-
-fn declared_codes(expectations: &[Expectation]) -> BTreeSet<String> {
-    expectations
-        .iter()
-        .filter_map(|expectation| match expectation {
-            Expectation::Code(code) => Some(code.clone()),
-            Expectation::Message(_) => None,
-        })
-        .collect()
-}
-
-/// Collects every `error[E1234]` code rustc printed.
-fn observed_codes(stderr: &str) -> BTreeSet<String> {
-    let mut codes = BTreeSet::new();
-    for (offset, _) in stderr.match_indices("error[") {
-        let rest = &stderr[offset + "error[".len()..];
-        let Some(end) = rest.find(']') else { continue };
-        let code = &rest[..end];
-        if is_error_code(code) {
-            codes.insert(code.to_owned());
-        }
-    }
-    codes
 }
 
 fn is_error_code(value: &str) -> bool {
@@ -989,13 +1045,18 @@ fn unquote(value: &str) -> Option<String> {
     characters.next().is_none().then_some(text)
 }
 
+fn describe_expectation(expectation: &Expectation) -> String {
+    let code = expectation.code.as_deref().unwrap_or("uncoded error");
+    match &expectation.message {
+        Some(message) => format!("line {}: {code} containing {message:?}", expectation.line),
+        None => format!("line {}: {code}", expectation.line),
+    }
+}
+
 fn describe(expectations: &[Expectation]) -> String {
     expectations
         .iter()
-        .map(|expectation| match expectation {
-            Expectation::Code(code) => code.clone(),
-            Expectation::Message(text) => format!("{text:?}"),
-        })
+        .map(describe_expectation)
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -1122,103 +1183,123 @@ mod tests {
     }
 
     #[test]
-    fn reads_code_and_message_declarations() {
-        let declared =
-            expectations("fn main() {}\n\n//~ E0603\n//~ \"module `camera_id` is private\"\n");
+    fn reads_relative_and_explicit_declarations() {
+        let declared = expectations(
+            "use grafton_visca::types::camera_id;\n\n//~^^ E0603 \"module `camera_id` is private\"\n",
+        );
         assert_eq!(
             declared,
-            vec![
-                Expectation::Code("E0603".to_owned()),
-                Expectation::Message("module `camera_id` is private".to_owned()),
-            ]
+            expectations(
+                "use grafton_visca::types::camera_id;\n//~ L1 E0603 \"module `camera_id` is private\"\n"
+            )
+        );
+        assert_eq!(
+            declared,
+            vec![Expectation {
+                line: 1,
+                code: Some("E0603".to_owned()),
+                message: Some("module `camera_id` is private".to_owned()),
+            }]
         );
     }
 
     #[test]
     fn build_directive_selects_a_full_build() {
-        assert_eq!(compile_command("fn main() {}\n//~ E0080\n"), "check");
+        assert_eq!(compile_command("fn main() {}\n//~^ E0080\n"), "check");
         assert_eq!(
-            compile_command("//@ build\nfn main() {}\n//~ E0080\n"),
+            compile_command("//@ build\nfn main() {}\n//~^ E0080\n"),
             "build"
         );
     }
 
     #[test]
     fn rejects_malformed_declarations() {
-        assert!(parse_expectations("//~\n").is_err());
-        assert!(parse_expectations("//~ E603\n").is_err());
-        assert!(parse_expectations("//~ privacy error\n").is_err());
-        assert!(parse_expectations("//~ \"unterminated\n").is_err());
-        assert!(parse_expectations("//~ \"trailing\" junk\n").is_err());
+        for malformed in [
+            "//~",
+            "//~^",
+            "//~^ E603",
+            "//~^ privacy error",
+            "//~^ \"unterminated",
+            "//~^ \"trailing\" junk",
+            "//~^^ E0603",
+            "//~ L3 E0603",
+        ] {
+            let source = format!("fn main() {{}}\n{malformed}\n");
+            assert!(parse_expectations(&source).is_err(), "accepted {malformed}");
+        }
     }
 
     #[test]
-    fn undeclared_fixture_is_rejected_before_it_is_compiled() {
-        assert!(declaration_problem(&[]).is_some());
+    fn undeclared_fixture_has_no_contract() {
+        assert!(parse_expectations("fn main() {}").is_err());
     }
 
     #[test]
     fn absence_code_without_a_message_anchor_is_rejected() {
-        assert!(declaration_problem(&[Expectation::Code("E0432".to_owned())]).is_some());
-        assert!(declaration_problem(&[
-            Expectation::Code("E0432".to_owned()),
-            Expectation::Message("unresolved import `grafton_visca::CameraBuilder`".to_owned()),
-        ])
-        .is_none());
-        // A privacy code is not an absence code: it cannot be produced by a
-        // typo, so it stands on its own.
-        assert!(declaration_problem(&[Expectation::Code("E0603".to_owned())]).is_none());
+        assert!(parse_expectations("use example::missing;\n//~^ E0432\n").is_err());
+        assert!(parse_expectations(
+            "use example::missing;\n//~^ E0432 \"unresolved import `example::missing`\"\n"
+        )
+        .is_ok());
+        assert!(parse_expectations("use example::private;\n//~^ E0603\n").is_ok());
     }
 
     #[test]
-    fn a_declared_code_that_stops_matching_fails() {
-        let declared = [Expectation::Code("E0603".to_owned())];
-        let rotted = "error[E0432]: unresolved import `grafton_visca::gone`\n";
-        let problems = unmet_expectations(&declared, rotted);
-        assert_eq!(problems.len(), 2, "{problems:?}");
-        assert!(problems[0].contains("declared E0603"));
-        assert!(problems[1].contains("rustc reported E0432"));
+    fn an_anchor_copied_from_the_source_is_rejected() {
+        let problem =
+            parse_expectations("use example::missing;\n//~^ E0432 \"example::missing\"\n")
+                .unwrap_err();
+        assert!(problem.contains("occurs in fixture source"));
+    }
+
+    fn error(lines: &[usize], code: Option<&str>, message: &str) -> ErrorDiagnostic {
+        ErrorDiagnostic {
+            primary_lines: lines.iter().copied().collect(),
+            code: code.map(str::to_owned),
+            message: message.to_owned(),
+        }
     }
 
     #[test]
-    fn an_extra_undeclared_code_fails() {
-        let declared = [Expectation::Code("E0603".to_owned())];
-        let stderr = "error[E0603]: module `camera_id` is private\n\
-                      error[E0433]: failed to resolve: could not find `gone`\n";
-        let problems = unmet_expectations(&declared, stderr);
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("rustc reported E0433"));
+    fn message_and_code_must_match_the_same_diagnostic_on_the_declared_line() {
+        let declared =
+            expectations("use example::private;\n//~^ E0603 \"module `private` is private\"\n");
+        let correct = error(&[1], Some("E0603"), "module `private` is private");
+        assert!(unmet_expectations(&declared, std::slice::from_ref(&correct)).is_empty());
+        for mismatch in [
+            error(&[2], Some("E0603"), &correct.message),
+            error(&[1], Some("E0432"), &correct.message),
+            error(&[1], Some("E0603"), "module `wrong` is private"),
+        ] {
+            let problems = unmet_expectations(&declared, &[mismatch]);
+            assert_eq!(problems.len(), 2, "{problems:?}");
+            assert!(problems[0].contains("rustc did not report line 1: E0603"));
+            assert!(problems[1].contains("undeclared"));
+        }
     }
 
     #[test]
-    fn a_declared_message_that_stops_matching_fails() {
-        let declared = [
-            Expectation::Code("E0432".to_owned()),
-            Expectation::Message("unresolved import `grafton_visca::CameraBuilder`".to_owned()),
-        ];
-        let renamed = "error[E0432]: unresolved import `grafton_visca::CameraFactory`\n";
-        let problems = unmet_expectations(&declared, renamed);
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("declared message"));
+    fn every_primary_fixture_line_must_be_declared() {
+        let declared = expectations("first();\n//~^ E0308\nsecond();\n");
+        let single = error(&[1], Some("E0308"), "mismatched types");
+        let extra = error(&[3], Some("E0308"), "mismatched types");
+        let problems = unmet_expectations(&declared, &[single, extra]);
+        assert_eq!(problems, ["line 3: undeclared E0308: mismatched types"]);
+
+        let multi_span = error(&[1, 3], Some("E0308"), "mismatched types");
+        assert_eq!(
+            unmet_expectations(&declared, std::slice::from_ref(&multi_span)),
+            ["line 3: undeclared E0308: mismatched types"]
+        );
+        let both_lines = expectations("first();\n//~^ E0308\nsecond();\n//~^ E0308\n");
+        assert!(unmet_expectations(&both_lines, &[multi_span]).is_empty());
     }
 
     #[test]
     fn a_lint_only_fixture_matches_on_its_message_alone() {
-        let declared = [Expectation::Message(
-            "unused `Operation` that must be used".to_owned(),
-        )];
-        let stderr = "error: unused `Operation` that must be used\n";
-        assert!(unmet_expectations(&declared, stderr).is_empty());
-    }
-
-    #[test]
-    fn matching_declarations_pass() {
-        let declared = [
-            Expectation::Code("E0603".to_owned()),
-            Expectation::Message("module `camera_id` is private".to_owned()),
-        ];
-        let stderr = "error[E0603]: module `camera_id` is private\n";
-        assert!(unmet_expectations(&declared, stderr).is_empty());
+        let declared = expectations("operation();\n//~^ \"unused operation\"\n");
+        let lint = error(&[1], None, "unused operation");
+        assert!(unmet_expectations(&declared, &[lint]).is_empty());
     }
 
     #[test]
@@ -1344,10 +1425,12 @@ mod tests {
                     diagnostics: "error[E0603]: module `x` is private\n --> src/main.rs:1:5\n\n\
                                   For more information about this error, try `rustc --explain E0603`.\n"
                         .to_owned(),
+                    errors: vec![error(&[], None, "")],
                 },
                 FixtureCompilation {
                     compiled: true,
                     diagnostics: "warning: unused\n --> src/main.rs:2:1\n\n".to_owned(),
+                    errors: Vec::new(),
                 },
             ]
         );
@@ -1363,14 +1446,16 @@ mod tests {
 
     #[test]
     fn compiled_fail_fixture_and_failed_pass_fixture_are_reported() {
-        let source = "fn main() {}\n//~ E0603\n";
+        let source = "use example::private;\n//~^ E0603\n";
         let compiled = FixtureCompilation {
             compiled: true,
             diagnostics: String::new(),
+            errors: Vec::new(),
         };
         let failed = FixtureCompilation {
             compiled: false,
             diagnostics: "error[E0603]: module `x` is private\n".to_owned(),
+            errors: vec![error(&[1], Some("E0603"), "module `x` is private")],
         };
         let silent_failure = FixtureCompilation::default();
 

@@ -9,10 +9,8 @@ owner_coordinator_contract!({
         {
             let vacancy = vacancy(turn);
             let _ = coordinator.plan(now, None, due, || false);
+            //~^ E0499 "cannot borrow `coordinator` as mutable more than once at a time"
             OwnerCoordinator::retain(vacancy, 7);
         }
     }
 });
-
-//~ E0499
-//~ "cannot borrow `coordinator` as mutable more than once at a time"

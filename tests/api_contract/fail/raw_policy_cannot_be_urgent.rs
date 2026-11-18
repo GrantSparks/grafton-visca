@@ -7,8 +7,6 @@ fn main() {
         CommandTimeoutClass::Quick,
         CommandRetryClass::Never,
         ControlClass::Urgent,
+        //~^ E0308 "mismatched types"
     );
 }
-
-//~ E0308
-//~ "expected `SubmissionClass`, found `ControlClass`"

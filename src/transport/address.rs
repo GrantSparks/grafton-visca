@@ -27,7 +27,7 @@ enum Host {
 
 /// Fully specified endpoint ready for DNS resolution or socket APIs.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct NetworkEndpoint {
+pub struct NetworkEndpoint {
     host: Host,
     port: NonZeroU16,
 }
@@ -105,11 +105,30 @@ impl ParsedEndpoint {
 }
 
 impl NetworkEndpoint {
-    fn format_socket_addr(&self) -> String {
+    /// Parse a network address, using `default_port` for an address without a port.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidAddress`] for malformed addresses or missing ports.
+    pub fn parse(address: &str, default_port: Option<u16>) -> Result<Self, Error> {
+        ParsedEndpoint::parse(address)?.with_default_port(default_port)
+    }
+
+    /// Return the socket address for a literal endpoint. A name needs DNS.
+    #[must_use]
+    pub fn socket_addr(&self) -> Option<SocketAddr> {
+        match self.host {
+            Host::Ip(ip) => Some(SocketAddr::new(ip, self.port.get())),
+            Host::Dns(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Display for NetworkEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.host {
-            Host::Ip(IpAddr::V4(host)) => format!("{}:{}", host, self.port),
-            Host::Ip(IpAddr::V6(host)) => format!("[{}]:{}", host, self.port),
-            Host::Dns(host) => format!("{}:{}", host, self.port),
+            Host::Ip(ip) => SocketAddr::new(*ip, self.port.get()).fmt(f),
+            Host::Dns(host) => write!(f, "{}:{}", host, self.port),
         }
     }
 }
@@ -138,7 +157,7 @@ fn parse_bracketed_ipv6(address: &str) -> Result<ParsedEndpoint, Error> {
     };
 
     Ok(ParsedEndpoint {
-        host: Host::Ip(IpAddr::V6(host)),
+        host: Host::Ip(IpAddr::V6(host).to_canonical()),
         port,
     })
 }
@@ -219,8 +238,7 @@ fn invalid_address(reason: impl Into<Cow<'static, str>>) -> Error {
 /// IPv6 zone identifiers are intentionally rejected because the internal endpoint
 /// model uses `std::net::IpAddr`, which does not represent scope identifiers.
 ///
-/// This should be called at all TCP/UDP connection entry points to ensure consistent
-/// address handling across the entire API surface.
+/// IPv4-mapped IPv6 addresses are formatted in IPv4 form.
 ///
 /// # Arguments
 ///
@@ -240,11 +258,6 @@ fn invalid_address(reason: impl Into<Cow<'static, str>>) -> Error {
 /// - The address cannot be parsed
 /// - The address format is invalid
 /// - The endpoint has no explicit or default port
-///
-/// # Invariant
-///
-/// After canonicalization, all TCP/UDP connectors receive a canonical `host:port` string
-/// where IPv6 is always bracketed when a port is present.
 ///
 /// # Examples
 ///
@@ -281,10 +294,9 @@ fn invalid_address(reason: impl Into<Cow<'static, str>>) -> Error {
 ///     "localhost:5678"
 /// );
 /// ```
+#[cfg(test)]
 pub fn canonicalize_endpoint(address: &str, default_port: Option<u16>) -> Result<String, Error> {
-    let parsed = ParsedEndpoint::parse(address)?;
-    let endpoint = parsed.with_default_port(default_port)?;
-    Ok(endpoint.format_socket_addr())
+    Ok(NetworkEndpoint::parse(address, default_port)?.to_string())
 }
 
 /// The error for an endpoint whose name resolution failed.
@@ -297,7 +309,7 @@ pub fn canonicalize_endpoint(address: &str, default_port: Option<u16>) -> Result
     feature = "runtime-tokio",
     feature = "runtime-smol"
 ))]
-pub(crate) fn resolution_failed(endpoint: &str, error: std::io::Error) -> Error {
+pub(crate) fn resolution_failed(endpoint: &NetworkEndpoint, error: std::io::Error) -> Error {
     crate::transport::connect::connection_failed(endpoint, error)
 }
 
@@ -309,7 +321,7 @@ pub(crate) fn resolution_failed(endpoint: &str, error: std::io::Error) -> Error 
     feature = "runtime-smol"
 ))]
 pub(crate) fn resolved<I>(
-    endpoint: &str,
+    endpoint: &NetworkEndpoint,
     lookup: std::io::Result<I>,
 ) -> Result<Vec<SocketAddr>, Error>
 where
@@ -318,6 +330,13 @@ where
     let addresses: Vec<SocketAddr> = lookup
         .map_err(|error| resolution_failed(endpoint, error))?
         .into_iter()
+        .map(|address| match address {
+            SocketAddr::V6(v6) => v6
+                .ip()
+                .to_ipv4_mapped()
+                .map_or(address, |ipv4| SocketAddr::new(ipv4.into(), v6.port())),
+            SocketAddr::V4(_) => address,
+        })
         .collect();
     if addresses.is_empty() {
         return Err(invalid_address(format!(
@@ -327,21 +346,11 @@ where
     Ok(addresses)
 }
 
-/// A canonical endpoint that is already a socket address needs no resolver.
-#[cfg(any(
-    feature = "blocking",
-    feature = "runtime-tokio",
-    feature = "runtime-smol"
-))]
-pub(crate) fn literal_socket_addr(endpoint: &str) -> Option<SocketAddr> {
-    endpoint.parse().ok()
-}
-
 /// Resolve a canonical endpoint on a blocking caller within `deadline`, with
 /// the system resolver (see [`BlockingResolver`]).
 #[cfg(feature = "blocking")]
 pub(crate) fn resolve_blocking(
-    endpoint: &str,
+    endpoint: &NetworkEndpoint,
     deadline: crate::timeout::Deadline,
 ) -> Result<Vec<SocketAddr>, Error> {
     SYSTEM_RESOLVER.resolve(endpoint, deadline)
@@ -411,19 +420,19 @@ impl BlockingResolver {
     /// thread that cannot be started or panics before answering.
     pub(crate) fn resolve(
         &'static self,
-        endpoint: &str,
+        endpoint: &NetworkEndpoint,
         deadline: crate::timeout::Deadline,
     ) -> Result<Vec<SocketAddr>, Error> {
         use std::{sync::mpsc, time::Instant};
 
-        if let Some(address) = literal_socket_addr(endpoint) {
+        if let Some(address) = endpoint.socket_addr() {
             return Ok(vec![address]);
         }
         let slot = self.claim(deadline)?;
         let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
 
         let (sender, receiver) = mpsc::sync_channel(1);
-        let lookup_endpoint = endpoint.to_owned();
+        let lookup_endpoint = endpoint.to_string();
         let lookup = self.lookup;
         std::thread::Builder::new()
             .name("grafton-visca-resolve".into())
@@ -514,7 +523,7 @@ mod tests {
     fn resolution_errors_retain_the_endpoint_and_io_source() {
         for kind in [std::io::ErrorKind::NotFound, std::io::ErrorKind::Other] {
             let error = resolved::<Vec<SocketAddr>>(
-                "camera.invalid:5678",
+                &NetworkEndpoint::parse("camera.invalid:5678", None).unwrap(),
                 Err(std::io::Error::new(kind, "lookup failed")),
             )
             .unwrap_err();
@@ -545,7 +554,11 @@ mod tests {
             assert_eq!(error.recovery(), crate::error::Recovery::Abandon);
         }
 
-        let error = resolved("camera.invalid:5678", Ok(Vec::new())).unwrap_err();
+        let error = resolved(
+            &NetworkEndpoint::parse("camera.invalid:5678", None).unwrap(),
+            Ok(Vec::new()),
+        )
+        .unwrap_err();
         assert!(matches!(
             error,
             Error::InvalidAddress { ref reason }
@@ -563,7 +576,10 @@ mod tests {
         use std::sync::Arc;
         let cause = std::io::Error::from_raw_os_error(5);
         let kind = cause.kind();
-        let error = resolution_failed("camera.test:5678", cause);
+        let error = resolution_failed(
+            &NetworkEndpoint::parse("camera.test:5678", None).unwrap(),
+            cause,
+        );
         let cloned = error.clone();
         let original_source = std::error::Error::source(&error)
             .unwrap()
@@ -600,6 +616,38 @@ mod tests {
         for source in [original_source, cloned_source] {
             assert_eq!(source.kind(), kind);
             assert_eq!(source.raw_os_error(), Some(5));
+        }
+    }
+
+    #[test]
+    fn ipv4_mapped_endpoints_use_ipv4_for_literals_and_resolution() {
+        let mapped = NetworkEndpoint::parse("[::ffff:192.0.2.10]:5678", None).unwrap();
+        assert_eq!(
+            mapped.socket_addr(),
+            Some("192.0.2.10:5678".parse().unwrap())
+        );
+        assert_eq!(
+            canonicalize_endpoint("[::ffff:192.0.2.10]:5678", None).unwrap(),
+            "192.0.2.10:5678"
+        );
+        assert_eq!(
+            canonicalize_endpoint("[::1]:5678", None).unwrap(),
+            "[::1]:5678"
+        );
+
+        #[cfg(any(
+            feature = "blocking",
+            feature = "runtime-tokio",
+            feature = "runtime-smol"
+        ))]
+        {
+            let endpoint = NetworkEndpoint::parse("camera.local:5678", None).unwrap();
+            let mapped = "[::ffff:192.0.2.10]:5678".parse::<SocketAddr>().unwrap();
+            let ipv6 = "[2001:db8::1]:5678".parse::<SocketAddr>().unwrap();
+            assert_eq!(
+                resolved(&endpoint, Ok([mapped, ipv6])).unwrap(),
+                ["192.0.2.10:5678".parse::<SocketAddr>().unwrap(), ipv6]
+            );
         }
     }
 
@@ -672,7 +720,11 @@ mod tests {
         #[test]
         fn ip_literals_resolve_without_a_lookup_even_with_a_spent_budget() {
             assert_eq!(
-                resolve_blocking("[::1]:5678", budget(Duration::ZERO)).unwrap(),
+                resolve_blocking(
+                    &NetworkEndpoint::parse("[::1]:5678", None).unwrap(),
+                    budget(Duration::ZERO)
+                )
+                .unwrap(),
                 vec!["[::1]:5678".parse::<SocketAddr>().unwrap()]
             );
         }
@@ -691,9 +743,11 @@ mod tests {
             for address in ["192.168.1.010:1259", "127.1:1259", "0x7f000001:1259"] {
                 let result = crate::transport::connect::preflight(
                     address,
-                    &crate::transport::TransportConfig::for_udp(),
+                    crate::transport::TransportConfig::for_udp(),
                 )
-                .and_then(|endpoint| RESOLVER.resolve(&endpoint, budget(Duration::from_secs(1))));
+                .and_then(|(endpoint, _)| {
+                    RESOLVER.resolve(&endpoint, budget(Duration::from_secs(1)))
+                });
                 assert!(matches!(result, Err(Error::InvalidAddress { .. })));
             }
             assert_eq!(LOOKUPS.load(Ordering::Relaxed), 0);
@@ -708,7 +762,10 @@ mod tests {
 
             assert_eq!(
                 RESOLVER
-                    .resolve("camera.test:5678", budget(Duration::from_secs(5)))
+                    .resolve(
+                        &NetworkEndpoint::parse("camera.test:5678", None).unwrap(),
+                        budget(Duration::from_secs(5))
+                    )
                     .unwrap(),
                 vec![answer()]
             );
@@ -740,7 +797,10 @@ mod tests {
                 ),
             ] {
                 let error = RESOLVER
-                    .resolve(endpoint, budget(Duration::from_secs(5)))
+                    .resolve(
+                        &NetworkEndpoint::parse(endpoint, None).unwrap(),
+                        budget(Duration::from_secs(5)),
+                    )
                     .unwrap_err();
                 assert!(matches!(error, Error::ConnectionFailed { .. }));
                 let source = std::error::Error::source(&error)
@@ -769,7 +829,10 @@ mod tests {
             }
             static RESOLVER: BlockingResolver = BlockingResolver::new(1, panicking);
             let error = RESOLVER
-                .resolve("camera.test:5678", budget(Duration::from_secs(5)))
+                .resolve(
+                    &NetworkEndpoint::parse("camera.test:5678", None).unwrap(),
+                    budget(Duration::from_secs(5)),
+                )
                 .unwrap_err();
             assert!(matches!(error, Error::ConnectionFailed { .. }));
             assert_eq!(
@@ -798,7 +861,10 @@ mod tests {
 
             let started = Instant::now();
             assert!(matches!(
-                RESOLVER.resolve("camera.test:5678", budget(Duration::from_millis(20))),
+                RESOLVER.resolve(
+                    &NetworkEndpoint::parse("camera.test:5678", None).unwrap(),
+                    budget(Duration::from_millis(20))
+                ),
                 Err(Error::Timeout { .. })
             ));
             assert!(started.elapsed() >= Duration::from_millis(20));
@@ -807,7 +873,10 @@ mod tests {
             // Every slot stays taken: the next connect waits its whole budget.
             let started = Instant::now();
             assert!(matches!(
-                RESOLVER.resolve("camera.test:5678", budget(Duration::from_millis(40))),
+                RESOLVER.resolve(
+                    &NetworkEndpoint::parse("camera.test:5678", None).unwrap(),
+                    budget(Duration::from_millis(40))
+                ),
                 Err(Error::Timeout { .. })
             ));
             assert!(started.elapsed() >= Duration::from_millis(40));
@@ -819,7 +888,10 @@ mod tests {
             });
             assert_eq!(
                 RESOLVER
-                    .resolve("camera.test:5678", budget(Duration::from_secs(5)))
+                    .resolve(
+                        &NetworkEndpoint::parse("camera.test:5678", None).unwrap(),
+                        budget(Duration::from_secs(5))
+                    )
                     .unwrap(),
                 vec![answer()]
             );
@@ -840,7 +912,10 @@ mod tests {
             let connects: Vec<_> = (0..8)
                 .map(|_| {
                     std::thread::spawn(|| {
-                        RESOLVER.resolve("camera.test:5678", budget(Duration::from_secs(5)))
+                        RESOLVER.resolve(
+                            &NetworkEndpoint::parse("camera.test:5678", None).unwrap(),
+                            budget(Duration::from_secs(5)),
+                        )
                     })
                 })
                 .collect();
@@ -852,8 +927,11 @@ mod tests {
 
         #[test]
         fn localhost_resolves_through_the_system_resolver() {
-            let addresses =
-                resolve_blocking("localhost:5678", budget(Duration::from_secs(5))).unwrap();
+            let addresses = resolve_blocking(
+                &NetworkEndpoint::parse("localhost:5678", None).unwrap(),
+                budget(Duration::from_secs(5)),
+            )
+            .unwrap();
             assert!(addresses.iter().all(|address| address.port() == 5678));
         }
     }

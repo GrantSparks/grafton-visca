@@ -14,11 +14,9 @@ fn tokio_serial() -> SerialTransport {
 
 fn smol_cannot_hold_tokio_serial() {
     let _: TransportHandle<SmolRuntime> = TransportHandle::Serial(Box::new(tokio_serial()));
+    //~^ E0271 "type mismatch resolving `<SmolRuntime as Runtime>::SerialTransport == Serial<TokioSerialAdapter>`"
 }
 
 fn main() {
     let _ = smol_cannot_hold_tokio_serial;
 }
-
-//~ E0271
-//~ "type mismatch resolving `<SmolRuntime as Runtime>::SerialTransport == Serial<TokioSerialAdapter>`"

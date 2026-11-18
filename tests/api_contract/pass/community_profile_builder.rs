@@ -7,6 +7,8 @@ use grafton_visca::{
 };
 struct Community;
 impl CompileTimeProfile for Community {
+    const DOMAINS: grafton_visca::capabilities::DomainSet = grafton_visca::capabilities::DomainSet::from_domains(&[grafton_visca::capabilities::Domain::Zoom]);
+    const TRANSPORTS: grafton_visca::capabilities::TransportSet = grafton_visca::profiles::TransportCompatibility::new().with_tcp(5678).transport_set();
     const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::empty();
     const ID: Option<ProfileId> = None;
     fn spec() -> grafton_visca::Result<ProfileSpec> {

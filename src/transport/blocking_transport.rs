@@ -6,7 +6,7 @@
 use core::time::Duration;
 
 use crate::{
-    transport::{builder::TransportConfig, AddressingMode, ReceiveOutcome, SendSemantics},
+    transport::{builder::ValidatedTransportConfig, AddressingMode, ReceiveOutcome, SendSemantics},
     Error,
 };
 
@@ -69,7 +69,7 @@ impl HasTransportConfig for BlockingTransportHandle {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         match self {
             BlockingTransportHandle::Tcp(transport) => transport.transport_config(),
             BlockingTransportHandle::Udp(transport) => transport.transport_config(),
@@ -345,7 +345,7 @@ impl<'a> TransportIdentity<'a> {
 ///
 /// // Access configuration from any transport
 /// fn inspect_config(transport: &impl HasTransportConfig) {
-///     let config = transport.transport_config();
+///     let config = transport.transport_config().as_config();
 ///     let read_timeout = config.read_timeout();
 ///     let buffer_config = config.buffer_config();
 /// }
@@ -354,8 +354,8 @@ pub trait HasTransportConfig {
     /// Declare the transport identity. Wrappers must forward the inner identity.
     fn identity(&self) -> TransportIdentity<'_>;
 
-    /// Get the transport configuration.
-    fn transport_config(&self) -> &TransportConfig;
+    /// Return settings checked by [`TransportConfig::validated`](super::TransportConfig::validated).
+    fn transport_config(&self) -> &ValidatedTransportConfig;
 }
 
 // Blanket implementation for references, enabling HRTB bounds like `for<'a> &'a T: HasTransportConfig`
@@ -365,7 +365,7 @@ impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
     }
 
     #[inline]
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         (*self).transport_config()
     }
 }

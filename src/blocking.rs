@@ -263,9 +263,15 @@ mod tests {
         capabilities::Capabilities,
         profiles::{ProfileEnvelope, ProfileTiming, TransportCompatibility},
         testing::testkit::{helpers, ScriptedBlockingTransport, Step},
-        transport::{BlockingTransport, HasTransportConfig, TransportConfig},
+        transport::{BlockingTransport, HasTransportConfig},
         CommandTimeouts, ProfileSpec,
     };
+
+    const CUSTOM_IP_STREAM: crate::testing::testkit::ScriptedTransportIdentity =
+        crate::testing::testkit::ScriptedTransportIdentity::Custom {
+            semantics: crate::transport::SendSemantics::Stream,
+            addressing: crate::transport::AddressingMode::Ip,
+        };
 
     struct FailFirstZoomStopSend {
         inner: ScriptedBlockingTransport,
@@ -278,7 +284,7 @@ mod tests {
             let writes = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
-                    inner: ScriptedBlockingTransport::new(steps),
+                    inner: ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, steps),
                     writes: Arc::clone(&writes),
                     failed: false,
                 },
@@ -295,7 +301,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &TransportConfig {
+        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
             self.inner.transport_config()
         }
     }
@@ -369,36 +375,147 @@ mod tests {
 
     #[test]
     fn selected_noun_calls_validate_their_value_once() {
-        use crate::request::builtin::{
-            request_validation_count, request_value_validation_count,
-            reset_request_validation_count,
+        use crate::{
+            request::builtin::{
+                request_validation_count, request_value_validation_count,
+                reset_request_validation_count,
+            },
+            types::{
+                Kelvin, PanTiltDirection, PanTiltLimitCorner, PanTiltPosition, PresetNumber,
+                PresetSpeed, SpeedLevel, UnitInterval, ZoomDomain,
+            },
         };
-        for (profile, step) in [
-            (
-                ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap(),
-                helpers::auto_respond_step(),
-            ),
-            (
-                ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().unwrap(),
-                helpers::sony_auto_respond_step(),
-            ),
+
+        for profile in [
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap(),
+            ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().unwrap(),
         ] {
-            let transport = ScriptedBlockingTransport::new([step.clone(), step]);
+            let supports_temperature = profile
+                .capabilities()
+                .supports(crate::capabilities::TypedSupportSurface::ColorTemperature);
+            let step = Step::every_send(Arc::new(|frame| {
+                let (sequence, payload) = crate::testing::frames::sony_split(frame)
+                    .map_or((None, frame), |(sequence, payload)| {
+                        (Some(sequence), payload)
+                    });
+                let replies = if payload == [0x81, 0x09, 0x04, 0x47, 0xff] {
+                    vec![helpers::inquiry_reply(&[0, 0, 0, 0])]
+                } else {
+                    vec![helpers::ack(1), helpers::complete(1)]
+                };
+                if let Some(sequence) = sequence {
+                    replies
+                        .iter()
+                        .map(|reply| helpers::sony_reply(sequence, reply))
+                        .collect()
+                } else {
+                    replies
+                }
+            }));
+            let transport = ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, [step]);
             let session = Session::open(transport, &SessionConfig::new(profile)).unwrap();
             let camera = session
                 .camera::<AnyProfile>(crate::IndividualCameraId::CAMERA_1)
                 .unwrap();
-            reset_request_validation_count();
-            camera
-                .presets()
-                .set_recall_speed(crate::types::PresetSpeed::new(12).unwrap())
-                .unwrap();
-            assert_eq!(request_validation_count(), 1, "set_recall_speed");
-            assert_eq!(
-                request_value_validation_count(),
-                1,
-                "one profile range check, including the wrapper and inner request"
+            macro_rules! once {
+                ($method:literal, $call:expr) => {{
+                    reset_request_validation_count();
+                    let result = $call;
+                    assert!(result.is_ok(), "{}: {:?}", $method, result.err());
+                    assert_eq!(request_validation_count(), 1, "{}", $method);
+                    assert_eq!(request_value_validation_count(), 1, "{}", $method);
+                }};
+            }
+            let speed = SpeedLevel::Medium;
+            let origin = PanTiltPosition::from_degrees(0.0, 0.0).unwrap();
+            let corner = PanTiltLimitCorner::UpRight;
+
+            once!(
+                "tele_variable",
+                camera
+                    .zoom()
+                    .tele_variable(speed)
+                    .and_then(|mut op| op.applied())
             );
+            once!(
+                "wide_variable",
+                camera
+                    .zoom()
+                    .wide_variable(speed)
+                    .and_then(|mut op| op.applied())
+            );
+            once!(
+                "far_variable",
+                camera
+                    .focus()
+                    .far_variable(speed)
+                    .and_then(|mut op| op.applied())
+            );
+            once!(
+                "near_variable",
+                camera
+                    .focus()
+                    .near_variable(speed)
+                    .and_then(|mut op| op.applied())
+            );
+            once!(
+                "drive",
+                camera
+                    .pan_tilt()
+                    .drive(PanTiltDirection::Right, speed)
+                    .and_then(|mut op| op.applied())
+            );
+            once!(
+                "stop",
+                camera.pan_tilt().stop().and_then(|mut op| op.applied())
+            );
+            once!(
+                "absolute",
+                camera
+                    .pan_tilt()
+                    .absolute(origin, speed)
+                    .and_then(|mut op| op.applied())
+            );
+            once!(
+                "relative",
+                camera
+                    .pan_tilt()
+                    .relative(origin, speed)
+                    .and_then(|mut op| op.applied())
+            );
+            once!("set_limit", camera.pan_tilt().set_limit(corner, origin));
+            once!("clear_limit", camera.pan_tilt().clear_limit(corner));
+            once!(
+                "set_recall_speed",
+                camera
+                    .presets()
+                    .set_recall_speed(PresetSpeed::new(12).unwrap())
+            );
+
+            once!(
+                "recall",
+                camera
+                    .presets()
+                    .recall(PresetNumber::new(1).unwrap())
+                    .and_then(|mut op| op.applied())
+            );
+            once!(
+                "set_normalized",
+                camera
+                    .zoom()
+                    .set_normalized(UnitInterval::MIN, ZoomDomain::Optical)
+                    .and_then(|mut op| op.applied())
+            );
+            once!("normalized", camera.zoom().normalized(ZoomDomain::Optical));
+            if supports_temperature {
+                once!(
+                    "set_color_temperature",
+                    camera
+                        .white_balance()
+                        .set_color_temperature(Kelvin::new(3200).unwrap())
+                );
+            }
+
             reset_request_validation_count();
             camera.white_balance().one_push().unwrap();
             assert_eq!(request_validation_count(), 1, "one_push");
@@ -413,10 +530,10 @@ mod tests {
     fn camera_views_share_the_session_owner() {
         use crate::testing::testkit::{helpers, ScriptedBlockingTransport};
 
-        let transport = ScriptedBlockingTransport::new([
-            helpers::auto_respond_step(),
-            helpers::auto_respond_step(),
-        ]);
+        let transport = ScriptedBlockingTransport::new(
+            CUSTOM_IP_STREAM,
+            [helpers::auto_respond_step(), helpers::auto_respond_step()],
+        );
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap();
         let session = Session::open(transport, &config).unwrap();
@@ -448,7 +565,8 @@ mod tests {
     /// same on both facades (the async facade used to print its receipt).
     #[test]
     fn operation_debug_shows_only_its_identity() {
-        let transport = ScriptedBlockingTransport::new([helpers::auto_respond_step()]);
+        let transport =
+            ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, [helpers::auto_respond_step()]);
         let session = Session::open(
             transport,
             &SessionConfig::new(partial_motion_profile(true, false)),
@@ -470,7 +588,7 @@ mod tests {
     #[test]
     fn session_debug_lists_only_registered_targets() {
         let session = Session::open(
-            ScriptedBlockingTransport::new([]),
+            ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, []),
             &SessionConfig::for_target(
                 crate::IndividualCameraId::CAMERA_3,
                 ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
@@ -492,7 +610,7 @@ mod tests {
     /// any write: an open that would send the Sony RESET writes nothing.
     #[test]
     fn session_open_rejects_invalid_tuning_before_any_write() {
-        let transport = ScriptedBlockingTransport::new([]);
+        let transport = ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, []);
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()
@@ -507,7 +625,7 @@ mod tests {
 
     #[test]
     fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
-        let transport = ScriptedBlockingTransport::new([]);
+        let transport = ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, []);
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()
@@ -524,7 +642,8 @@ mod tests {
 
     #[test]
     fn stop_all_motion_on_a_zoom_only_runtime_profile_writes_only_zoom_stop() {
-        let transport = ScriptedBlockingTransport::new([helpers::auto_respond_step()]);
+        let transport =
+            ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, [helpers::auto_respond_step()]);
         let probe = transport.clone();
         let session = Session::open(
             transport,
@@ -548,7 +667,7 @@ mod tests {
 
     #[test]
     fn stop_all_motion_on_a_profile_without_motion_axes_is_a_successful_no_op() {
-        let transport = ScriptedBlockingTransport::new([]);
+        let transport = ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, []);
         let probe = transport.clone();
         let session = Session::open(
             transport,
@@ -615,7 +734,8 @@ mod tests {
             profiles::{PtzOpticsG2, SonyFr7},
             testing::testkit::{helpers, ScriptedBlockingTransport},
         };
-        let transport = ScriptedBlockingTransport::new([helpers::auto_respond_step()]);
+        let transport =
+            ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, [helpers::auto_respond_step()]);
         let probe = transport.clone();
         let config =
             SessionConfig::from_compile_time::<PtzOpticsG2>().expect("typed configuration");
@@ -676,7 +796,7 @@ mod tests {
         let session = clock
             .open_blocking_session(
                 &participant,
-                ScriptedBlockingTransport::new([helpers::auto_respond_step()]),
+                ScriptedBlockingTransport::new(CUSTOM_IP_STREAM, [helpers::auto_respond_step()]),
                 config,
             )
             .expect("manual-clock session");
@@ -726,10 +846,13 @@ mod tests {
             types::FocusMode,
         };
         let config = SessionConfig::from_compile_time::<GenericVisca>().expect("configuration");
-        let transport = ScriptedBlockingTransport::new([
-            Step::on_send(None, vec![]),
-            helpers::errors::connection_lost(),
-        ]);
+        let transport = ScriptedBlockingTransport::new(
+            CUSTOM_IP_STREAM,
+            [
+                Step::on_send(None, vec![]),
+                helpers::errors::connection_lost(),
+            ],
+        );
         let session = Session::open(transport, &config).expect("session");
         let diagnostics = session.subscribe_diagnostics(128).expect("subscription");
         assert!(session

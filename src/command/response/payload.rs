@@ -231,6 +231,7 @@ impl<'a, const N: usize> Nibbles<'a, N> {
     /// Returns [`Error::InvalidResponseFormat`] when a leading padding nibble
     /// is not zero (the reply carries a value the field cannot hold).
     pub fn zero_extended_u8(&self) -> Result<u8, Error> {
+        const { assert!(N >= 2, "zero-extended reply width is too small") };
         self.zero_extended::<2>()
     }
 
@@ -245,13 +246,13 @@ impl<'a, const N: usize> Nibbles<'a, N> {
     /// Returns [`Error::InvalidResponseFormat`] when a leading padding nibble
     /// is not zero.
     pub fn zero_extended_nibble(&self) -> Result<u8, Error> {
+        const { assert!(N >= 1, "zero-extended reply width is too small") };
         self.zero_extended::<1>()
     }
 
     /// Combines the trailing `digits` nibbles, requiring every leading nibble
     /// to be zero, as the reference's padded reply layouts do.
     fn zero_extended<const DIGITS: usize>(&self) -> Result<u8, Error> {
-        const { assert!(N >= DIGITS, "zero-extended reply width is too small") };
         let (padding, value) = self.0.split_at(N - DIGITS);
         if padding.iter().any(|&nibble| nibble != 0) {
             return Err(Error::InvalidResponseFormat);

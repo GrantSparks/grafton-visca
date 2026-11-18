@@ -4,9 +4,9 @@
 //! and smol socket converts into on Unix and Windows alike, so each option is
 //! written once.
 
-use crate::transport::builder::{TcpKeepaliveConfig, TransportConfig};
+use crate::transport::builder::{TcpKeepaliveConfig, ValidatedTransportConfig};
 
-/// The TCP projection of a [`TransportConfig`].
+/// The TCP projection of a [`ValidatedTransportConfig`].
 #[derive(Debug, Clone, Copy)]
 pub struct TcpConnectionConfig {
     /// `TCP_NODELAY`; `None` keeps the operating-system default.
@@ -21,18 +21,18 @@ pub struct TcpConnectionConfig {
     pub tcp_keepalive: Option<TcpKeepaliveConfig>,
 }
 
-impl From<TransportConfig> for TcpConnectionConfig {
-    fn from(config: TransportConfig) -> Self {
+impl From<ValidatedTransportConfig> for TcpConnectionConfig {
+    fn from(config: ValidatedTransportConfig) -> Self {
         Self {
-            nodelay: config.tcp_nodelay,
-            ttl: config.ttl,
-            connect_timeout: config.connect_timeout,
-            tcp_keepalive: config.tcp_keepalive,
+            nodelay: config.as_config().tcp_nodelay,
+            ttl: config.as_config().ttl,
+            connect_timeout: config.connect_timeout.get(),
+            tcp_keepalive: config.as_config().tcp_keepalive,
         }
     }
 }
 
-/// The UDP projection of a [`TransportConfig`].
+/// The UDP projection of a [`ValidatedTransportConfig`].
 #[derive(Debug, Clone, Copy)]
 pub struct UdpSocketConfig {
     /// IPv4 TTL / IPv6 hop limit; `None` keeps the operating-system default.
@@ -41,11 +41,11 @@ pub struct UdpSocketConfig {
     pub connect_timeout: std::time::Duration,
 }
 
-impl From<TransportConfig> for UdpSocketConfig {
-    fn from(config: TransportConfig) -> Self {
+impl From<ValidatedTransportConfig> for UdpSocketConfig {
+    fn from(config: ValidatedTransportConfig) -> Self {
         Self {
-            ttl: config.ttl,
-            connect_timeout: config.connect_timeout,
+            ttl: config.as_config().ttl,
+            connect_timeout: config.connect_timeout.get(),
         }
     }
 }
@@ -147,9 +147,15 @@ mod tests {
             if address.is_ipv6() && TcpListener::bind("[::1]:0").is_err() {
                 continue;
             }
-            let socket =
-                configured_tcp_socket(address, TransportConfig::for_tcp().with_ttl(Some(2)).into())
-                    .expect("configure unconnected TCP socket");
+            let socket = configured_tcp_socket(
+                address,
+                crate::transport::TransportConfig::for_tcp()
+                    .with_ttl(Some(2))
+                    .validated()
+                    .expect("valid connector test configuration")
+                    .into(),
+            )
+            .expect("configure unconnected TCP socket");
             assert!(socket.peer_addr().is_err(), "no handshake has started");
             assert!(socket.tcp_nodelay().expect("nodelay"));
             assert!(socket.keepalive().expect("keepalive"));
@@ -175,7 +181,11 @@ mod tests {
         });
 
         let stream = TcpStream::connect(addr).expect("connect stream");
-        let config = TcpConnectionConfig::from(TransportConfig::for_tcp());
+        let config = TcpConnectionConfig::from(
+            crate::transport::TransportConfig::for_tcp()
+                .validated()
+                .expect("valid connector test configuration"),
+        );
         assert_eq!(config.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
         apply_tcp_socket_options(socket2::SockRef::from(&stream), addr, config)
             .expect("apply TCP options");
@@ -189,12 +199,21 @@ mod tests {
     #[test]
     fn ipv4_ttl_remains_applied_to_tcp_and_udp() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("IPv4 listener");
-        let address = listener.local_addr().expect("listener address");
+        let port = listener.local_addr().expect("listener address").port();
+        let endpoint =
+            crate::transport::NetworkEndpoint::parse(&format!("[::ffff:127.0.0.1]:{port}"), None)
+                .expect("mapped endpoint");
+        let address = endpoint.socket_addr().expect("literal address");
+        assert!(address.is_ipv4());
         let stream = TcpStream::connect(address).expect("IPv4 connect");
         apply_tcp_socket_options(
             socket2::SockRef::from(&stream),
             address,
-            TransportConfig::for_tcp().with_ttl(Some(7)).into(),
+            crate::transport::TransportConfig::for_tcp()
+                .with_ttl(Some(7))
+                .validated()
+                .expect("valid connector test configuration")
+                .into(),
         )
         .expect("TCP options");
         assert_eq!(stream.ttl().expect("IPv4 TCP TTL"), 7);
@@ -202,7 +221,11 @@ mod tests {
         apply_udp_socket_options(
             socket2::SockRef::from(&socket),
             address,
-            TransportConfig::for_udp().with_ttl(Some(7)).into(),
+            crate::transport::TransportConfig::for_udp()
+                .with_ttl(Some(7))
+                .validated()
+                .expect("valid connector test configuration")
+                .into(),
         )
         .expect("UDP options");
         assert_eq!(socket.ttl().expect("IPv4 UDP TTL"), 7);

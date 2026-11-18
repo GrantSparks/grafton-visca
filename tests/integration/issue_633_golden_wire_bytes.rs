@@ -696,18 +696,14 @@ fn preset_and_power_commands_match_golden_frames() {
     let profile = ptz_optics_profile();
     let slot = PresetNumber::new(1).expect("valid preset slot");
 
-    assert_golden(
-        "preset recall",
-        &grafton_visca::command::presets::Recall::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                profile.clone(),
-            ),
-            slot,
-        )
-        .expect("profile declares preset recall"),
-        patterns::preset::RECALL_1,
-    );
+    let recall = grafton_visca::command::presets::Recall::new(slot);
+    recall
+        .validate_for_target(&grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            profile,
+        ))
+        .expect("profile declares preset recall");
+    assert_golden("preset recall", &recall, patterns::preset::RECALL_1);
     assert_golden(
         "preset set",
         &grafton_visca::command::presets::Store::new(slot),
@@ -763,18 +759,14 @@ fn preset_slot_255_stays_terminated() {
     .expect("synthetic profile declares all wire preset numbers");
     let slot = PresetNumber::new(255).expect("255 is a valid preset slot");
 
-    assert_golden(
-        "preset recall 255",
-        &grafton_visca::command::presets::Recall::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                profile.clone(),
-            ),
-            slot,
-        )
-        .expect("profile declares preset recall"),
-        patterns::preset::RECALL_255,
-    );
+    let recall = grafton_visca::command::presets::Recall::new(slot);
+    recall
+        .validate_for_target(&grafton_visca::config::TargetRegistration::new(
+            grafton_visca::types::IndividualCameraId::CAMERA_1,
+            profile,
+        ))
+        .expect("profile declares preset recall");
+    assert_golden("preset recall 255", &recall, patterns::preset::RECALL_255);
     assert_golden(
         "preset set 255",
         &grafton_visca::command::presets::Store::new(slot),

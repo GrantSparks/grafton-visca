@@ -6,8 +6,8 @@ use grafton_visca::{
     capabilities::{CapabilityRange, PanTiltWireCodec},
     config::{MountPosition, TargetRegistration},
     profiles::{
-        GenericVisca, NearusBrc300, ProfileId, ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3,
-        SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
+        NearusBrc300, ProfileId, ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3, SonyBrc300,
+        SonyBrcH900, SonyEviH100, SonyFr7,
     },
     request::Request,
     types::{CameraId, Degrees, PanSpeed, TiltSpeed},
@@ -24,12 +24,14 @@ fn targets() -> Vec<TargetRegistration> {
         ProfileSpec::from_compile_time::<SonyEviH100>(),
         ProfileSpec::from_compile_time::<SonyBrc300>(),
         ProfileSpec::from_compile_time::<NearusBrc300>(),
-        ProfileSpec::from_compile_time::<GenericVisca>(),
     ];
     assert_eq!(
         profiles.len(),
-        ProfileId::all().len(),
-        "cover every built-in"
+        ProfileId::all()
+            .iter()
+            .filter(|id| id.spec().expect("profile").pan_tilt_coordinates().is_some())
+            .count(),
+        "cover every built-in with sourced geometry"
     );
     let mut targets = profiles
         .into_iter()
@@ -125,6 +127,44 @@ fn choose(range: CapabilityRange<i32>, seed: u32) -> i32 {
             .expect("offset")
 }
 
+fn check_quantized_difference(
+    target: &TargetRegistration,
+    from: (i32, i32),
+    to: (i32, i32),
+) -> Result<(), proptest::test_runner::TestCaseError> {
+    let geometry = target
+        .profile()
+        .capabilities()
+        .pan_tilt
+        .and_then(|domain| domain.geometry)
+        .expect("geometry");
+    let conversion = geometry.coordinates;
+    let pan_degrees = geometry.pan_range_degrees();
+    let tilt_degrees = target.tilt_range_degrees().expect("tilt degrees");
+    // A sourced wire endpoint can inverse-convert just outside its nominal
+    // degree range (EVI-H100's -907 is one example). Keep the exact inverse
+    // for interior values and use the authored limit for that endpoint.
+    let point = |(pan, tilt)| {
+        (
+            conversion
+                .pan_degrees(pan)
+                .clamp(*pan_degrees.start(), *pan_degrees.end()),
+            conversion
+                .tilt_degrees(tilt)
+                .clamp(*tilt_degrees.start(), *tilt_degrees.end()),
+        )
+    };
+    let start = point(from);
+    let end = point(to);
+    prop_assert_eq!(absolute(target, start.0, start.1), from);
+    prop_assert_eq!(absolute(target, end.0, end.1), to);
+    prop_assert_eq!(
+        relative(target, end.0 - start.0, end.1 - start.1),
+        (to.0 - from.0, to.1 - from.1)
+    );
+    Ok(())
+}
+
 #[test]
 fn every_builtin_span_boundary_encodes_and_one_more_unit_is_refused() {
     for target in targets() {
@@ -134,10 +174,21 @@ fn every_builtin_span_boundary_encodes_and_one_more_unit_is_refused() {
             .pan_tilt
             .as_ref()
             .expect("pan/tilt");
-        let conversion = caps.coordinates;
-        let pan_span = caps.pan_range.max() - caps.pan_range.min();
+        let geometry = caps.geometry.expect("geometry");
+        let conversion = geometry.coordinates;
+        let pan_span = geometry.pan_range.max() - geometry.pan_range.min();
+        let nominal = |degrees: f32| match geometry.endpoint_quantization {
+            grafton_visca::capabilities::EndpointQuantization::WholeDegrees => degrees.round(),
+            _ => degrees,
+        };
         let tilt = target.tilt_range().expect("tilt");
         let tilt_span = tilt.max() - tilt.min();
+        let lower_corner = (geometry.pan_range.min(), tilt.min());
+        let upper_corner = (geometry.pan_range.max(), tilt.max());
+        check_quantized_difference(&target, lower_corner, upper_corner)
+            .expect("lower to upper endpoint difference");
+        check_quantized_difference(&target, upper_corner, lower_corner)
+            .expect("upper to lower endpoint difference");
         for (pan, tilt) in [
             (pan_span, 0),
             (-pan_span, 0),
@@ -147,8 +198,8 @@ fn every_builtin_span_boundary_encodes_and_one_more_unit_is_refused() {
             assert_eq!(
                 relative(
                     &target,
-                    conversion.pan_degrees(pan),
-                    conversion.tilt_degrees(tilt)
+                    nominal(conversion.pan_degrees(pan)),
+                    nominal(conversion.tilt_degrees(tilt))
                 ),
                 (pan, tilt)
             );
@@ -198,17 +249,14 @@ proptest! {
     #[test]
     fn quantized_endpoint_differences_encode_exact_signed_offsets(seeds in any::<[u32; 4]>()) {
         for target in targets() {
-            let caps = target.profile().capabilities().pan_tilt.as_ref().expect("pan/tilt");
-            let conversion = caps.coordinates;
-            let pan_start = choose(caps.pan_range, seeds[0]);
-            let pan_end = choose(caps.pan_range, seeds[1]);
-            let tilt_start = choose(target.tilt_range().expect("tilt"), seeds[2]);
-            let tilt_end = choose(target.tilt_range().expect("tilt"), seeds[3]);
-            let start = (conversion.pan_degrees(pan_start), conversion.tilt_degrees(tilt_start));
-            let end = (conversion.pan_degrees(pan_end), conversion.tilt_degrees(tilt_end));
-            prop_assert_eq!(absolute(&target, start.0, start.1), (pan_start, tilt_start));
-            prop_assert_eq!(absolute(&target, end.0, end.1), (pan_end, tilt_end));
-            prop_assert_eq!(relative(&target, end.0 - start.0, end.1 - start.1), (pan_end - pan_start, tilt_end - tilt_start));
+            let pan = target.profile().capabilities().pan_tilt
+                .and_then(|domain| domain.geometry).expect("geometry").pan_range;
+            let tilt = target.tilt_range().expect("tilt");
+            check_quantized_difference(
+                &target,
+                (choose(pan, seeds[0]), choose(tilt, seeds[2])),
+                (choose(pan, seeds[1]), choose(tilt, seeds[3])),
+            )?;
         }
     }
 
@@ -216,7 +264,7 @@ proptest! {
     fn independently_rounded_continuous_points_differ_by_at_most_one_unit(fractions in prop::array::uniform4(0.01_f32..0.99)) {
         for target in targets() {
             let caps = target.profile().capabilities().pan_tilt.as_ref().expect("pan/tilt");
-            let pan = caps.pan_range_degrees();
+            let pan = caps.geometry.expect("geometry").pan_range_degrees();
             let tilt = target.tilt_range_degrees().expect("tilt degrees");
             let interpolate = |range: &std::ops::RangeInclusive<f32>, fraction: f32| range.start() + (range.end() - range.start()) * fraction;
             let start = (interpolate(&pan, fractions[0]), interpolate(&tilt, fractions[1]));

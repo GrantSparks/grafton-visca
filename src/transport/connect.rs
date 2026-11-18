@@ -4,8 +4,8 @@
 //! Every TCP and UDP connector runs the same steps; only the I/O primitives
 //! differ per facade:
 //!
-//! 1. [`preflight`] validates the [`TransportConfig`] and canonicalizes the
-//!    endpoint before any I/O.
+//! 1. Connection preparation validates the transport configuration and
+//!    canonicalizes the endpoint before any I/O.
 //! 2. One `connect_timeout` budget ([`connect_deadline`]) bounds name
 //!    resolution *and* connection setup on every facade.
 //! 3. Name resolution reports failure through
@@ -44,16 +44,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{
-    timeout::Deadline,
-    transport::{address::canonicalize_endpoint, builder::TransportConfig},
-    Error, Result,
-};
+#[cfg(any(test, feature = "runtime-tokio", feature = "runtime-smol"))]
+use crate::transport::{NetworkEndpoint, TransportConfig, ValidatedTransportConfig};
+use crate::{timeout::Deadline, Error, Result};
 
 /// Validate `config` and canonicalize `address` before any connector I/O.
-pub(crate) fn preflight(address: &str, config: &TransportConfig) -> Result<String> {
-    config.validate()?;
-    canonicalize_endpoint(address, None)
+#[cfg(any(test, feature = "runtime-tokio", feature = "runtime-smol"))]
+pub(crate) fn preflight(
+    address: &str,
+    config: TransportConfig,
+) -> Result<(NetworkEndpoint, ValidatedTransportConfig)> {
+    let config = config.validated()?;
+    let endpoint = NetworkEndpoint::parse(address, None)?;
+    Ok((endpoint, config))
 }
 
 /// The single budget for resolving and connecting one endpoint.
@@ -62,8 +65,8 @@ pub(crate) fn connect_deadline(now: Instant, connect_timeout: Duration) -> Resul
 }
 
 /// The error for a connector that could not reach `endpoint`.
-pub(crate) fn connection_failed(endpoint: &str, error: std::io::Error) -> Error {
-    Error::connection_failed(endpoint.to_owned(), std::sync::Arc::new(error))
+pub(crate) fn connection_failed(endpoint: impl std::fmt::Display, error: std::io::Error) -> Error {
+    Error::connection_failed(endpoint.to_string(), std::sync::Arc::new(error))
 }
 
 /// Select one UDP destination from a nonempty resolution result.
@@ -80,7 +83,10 @@ pub(crate) fn udp_target(addresses: &[SocketAddr]) -> Result<SocketAddr> {
 }
 
 /// Attribute a socket-setup failure to the caller's endpoint.
-pub(crate) fn socket_setup<T>(endpoint: &str, result: std::io::Result<T>) -> Result<T> {
+pub(crate) fn socket_setup<T>(
+    endpoint: impl std::fmt::Display,
+    result: std::io::Result<T>,
+) -> Result<T> {
     result.map_err(|error| connection_failed(endpoint, error))
 }
 
@@ -155,7 +161,7 @@ impl TcpAttempts {
     /// A spent budget is a connect timeout even when the last attempt also
     /// reported a socket-level `TimedOut`, so expiry has one spelling on every
     /// facade.
-    pub(crate) fn into_error(self, endpoint: &str, now: Instant) -> Error {
+    pub(crate) fn into_error(self, endpoint: impl std::fmt::Display, now: Instant) -> Error {
         if self.deadline.remaining_at(now).is_zero() {
             return Error::connect_timeout();
         }

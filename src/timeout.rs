@@ -1,7 +1,6 @@
 //! Private time/deadline helpers and the canonical command timeout values.
 
 use std::time::Duration;
-#[cfg(any(feature = "async", feature = "blocking", test))]
 use std::time::Instant;
 
 use crate::{Error, Result};
@@ -69,20 +68,24 @@ pub(crate) fn saturating_deadline(at: Instant, duration: Duration) -> Instant {
 pub(crate) struct NonZeroDuration(Duration);
 
 impl NonZeroDuration {
+    pub(crate) const fn checked(duration: Duration) -> Option<Self> {
+        if duration.is_zero() {
+            None
+        } else {
+            Some(Self(duration))
+        }
+    }
+
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn new(duration: Duration) -> Result<Self> {
-        if duration.is_zero() {
-            return Err(Error::InvalidRequest {
-                reason: "timeout durations must be non-zero".into(),
-            });
-        }
-        Ok(Self(duration))
+        Self::checked(duration).ok_or_else(|| Error::InvalidRequest {
+            reason: "timeout durations must be non-zero".into(),
+        })
     }
 
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) const HALF_SECOND: Self = Self(Duration::from_millis(500));
 
-    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) const fn from_secs<const SECONDS: u64>() -> Self {
         // This constructor is used only by fixed, positive engine defaults.
         const {
@@ -433,7 +436,6 @@ impl Default for CommandTimeouts {
 /// large for the monotonic clock is always the same
 /// [`Error::InvalidParameter`] naming the configured timeout (for example
 /// `"write_timeout"`), never a panic.
-#[cfg(any(feature = "async", feature = "blocking", test))]
 pub(crate) fn instant_after(
     now: Instant,
     timeout: Duration,

@@ -515,7 +515,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn serde_uses_snake_case_for_every_surface() -> Result<(), serde_json::Error> {
-        assert_eq!(TypedSupportSurface::ALL.len(), 82);
+        assert_eq!(TypedSupportSurface::ALL.len(), 83);
         for surface in TypedSupportSurface::ALL {
             let wire = surface.wire_name();
             assert!(wire

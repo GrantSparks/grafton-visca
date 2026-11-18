@@ -17,8 +17,7 @@ const fn successor(key: StateKey) -> Option<StateKey> {
         StateKey::StreamingNdiQuality => Some(StateKey::TallyBrightness),
         StateKey::TallyBrightness => Some(StateKey::PanTiltSpeedMode),
         StateKey::PanTiltSpeedMode => Some(StateKey::TallyMode),
-        StateKey::TallyMode => Some(StateKey::ImageFlipMode),
-        StateKey::ImageFlipMode => Some(StateKey::MotionSyncSpeed),
+        StateKey::TallyMode => Some(StateKey::MotionSyncSpeed),
         StateKey::MotionSyncSpeed => Some(StateKey::ExposureWideDynamicRange),
         StateKey::ExposureWideDynamicRange => Some(StateKey::MotionSyncEnabled),
         StateKey::MotionSyncEnabled => None,
@@ -70,10 +69,6 @@ fn typed_effects_preserve_the_full_setter_value_including_flashing() -> crate::R
     let known = state_values::MotionSyncSpeed::known(speed);
     assert_eq!(known, KnownState::MotionSyncSpeed(speed));
     assert_eq!(known.key(), StateKey::MotionSyncSpeed);
-    assert_eq!(
-        state_values::ImageFlipMode::known(types::ImageFlipMode::Both),
-        KnownState::ImageFlipMode(types::ImageFlipMode::Both)
-    );
     for level in [0, 4, 8] {
         let level = types::WideDynamicRangeLevel::new(level)?;
         let known = state_values::ExposureWideDynamicRange::known(level);
@@ -105,7 +100,6 @@ fn noun_views_keep_their_target_and_outlive_the_temporary_cache() {
     let _: Option<types::NdFilterMode> = cache.nd_filter().mode();
     let _: Option<bool> = cache.nd_filter().auto();
     let _: Option<bool> = cache.image().freeze();
-    let _: Option<types::ImageFlipMode> = cache.image().flip_mode();
     let _: Option<bool> = cache.zoom().digital_zoom();
     let _: Option<bool> = cache.streaming().multicast();
     let _: Option<types::NdiQuality> = cache.streaming().ndi_quality();

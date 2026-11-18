@@ -838,7 +838,7 @@ where
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
         // Cancelling a concluded request is answered without installing an
         // intent; the receipt's terminal slot still decides (#777).
-        let cancellation = handle.cancel_test(&success.core).await.unwrap();
+        let cancellation = handle.cancel_test(success.core.command_id()).await.unwrap();
         assert!(cancellation.try_recv().is_none());
         success.wait_with_timeout(Duration::ZERO).await.unwrap();
 
@@ -992,7 +992,7 @@ where
 #[derive(Debug)]
 struct ChunkedStreamTransport {
     addressing: crate::transport::AddressingMode,
-    config: crate::transport::builder::TransportConfig,
+    config: crate::transport::ValidatedTransportConfig,
     chunks: flume::Receiver<Vec<u8>>,
     sent: flume::Sender<Vec<u8>>,
 }
@@ -1006,7 +1006,7 @@ impl crate::transport::HasTransportConfig for ChunkedStreamTransport {
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
+    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
         &self.config
     }
 }
@@ -1050,7 +1050,6 @@ enum ScriptedRawRead {
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug, Clone, Copy, Default)]
 struct ScriptedRawOptions {
-    refuse_discard: bool,
     park_target_two_write: bool,
 }
 
@@ -1159,24 +1158,19 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
 
 #[cfg(feature = "runtime-tokio")]
 impl RetainedStreamInput for ScriptedRawDriver {
-    fn retained(&self) -> Option<super::super::RetainedInput> {
+    fn retained(&mut self) -> Option<super::super::RetainedInput<'_>> {
         self.buffered
             .load(Ordering::Acquire)
-            .then_some(super::super::RetainedInput {
-                len: std::num::NonZeroUsize::new(1).unwrap(),
-                evidence: super::super::RetainedEvidence::Incomplete {
-                    target: TargetSlot::CAMERA_1,
-                    kind: self.prefix_kind,
+            .then_some(super::super::RetainedInput::Raw(
+                super::super::RawRetention::AtomicFlag {
+                    evidence: super::super::RawPrefixEvidence::Incomplete {
+                        target: TargetSlot::CAMERA_1,
+                        kind: self.prefix_kind,
+                    },
+                    buffered: &self.buffered,
+                    discards: Some(&self.discards),
                 },
-            })
-    }
-
-    fn discard_first(&mut self) -> Result<(), Error> {
-        self.discards.fetch_add(1, Ordering::Relaxed);
-        if !self.options.refuse_discard {
-            self.buffered.store(false, Ordering::Release);
-        }
-        Ok(())
+            ))
     }
 }
 
@@ -1243,14 +1237,8 @@ fn scripted_raw_harness(options: ScriptedRawOptions, read_capacity: usize) -> Sc
 }
 
 #[cfg(feature = "runtime-tokio")]
-fn boundary_stream_harness(refuse_discard: bool) -> ScriptedRawHarness {
-    scripted_raw_harness(
-        ScriptedRawOptions {
-            refuse_discard,
-            ..ScriptedRawOptions::default()
-        },
-        128,
-    )
+fn boundary_stream_harness() -> ScriptedRawHarness {
+    scripted_raw_harness(ScriptedRawOptions::default(), 128)
 }
 
 /// Minimal raw receive/write script used to prove the exact-release probe
@@ -1272,7 +1260,6 @@ fn parked_write_raw_release_harness() -> ScriptedRawHarness {
     scripted_raw_harness(
         ScriptedRawOptions {
             park_target_two_write: true,
-            ..ScriptedRawOptions::default()
         },
         16,
     )
@@ -1295,7 +1282,7 @@ async fn terminalize_raw_inquiry_predecessor(
         timed_out_inquiry()
     };
     let predecessor = handle.submit(request).await.unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id());
     if stream {
         harness
             .reads
@@ -1416,7 +1403,7 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
 
     assert_eq!(
         harness.writes.recv_async().await.unwrap(),
-        successor.id,
+        successor.id(),
         "only the post-A due pass may dispatch B"
     );
     handle.metrics().await.unwrap();
@@ -1502,7 +1489,7 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
         matches!(first_after_h, BoundaryOrder::StaleRead),
         "a pre-H NoData resumed at H must not fence the stale-frame probe"
     );
-    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id());
     assert!({
         let _ = handle.snapshot().await.unwrap();
         diagnostics.events()
@@ -1574,7 +1561,7 @@ async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
             .await
             .expect("an exact idle fault must fence once rather than hot-loop")
             .unwrap(),
-        successor.id
+        successor.id()
     );
 
     // Stop the intentionally adversarial fixture before terminating its
@@ -1622,7 +1609,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
         .submit(command_for(TargetSlot::CAMERA_2))
         .await
         .unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), parked.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), parked.id());
     harness
         .reads
         .try_send(ScriptedRawRead::Complete(raw_inquiry_reply(0xa1)))
@@ -1652,7 +1639,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
         matches!(first_after_parked_write, BoundaryOrder::StaleRead),
         "a parked write completion crossing H must return to the raw receive probe before B writes"
     );
-    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id());
     assert!({
         let _ = handle.snapshot().await.unwrap();
         diagnostics.events()
@@ -1754,7 +1741,7 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
             runtime.advance(crate::runtime::owner::turn::transient_receive_pause(1));
         }
     }
-    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id());
     handle.metrics().await.unwrap();
     assert!(diagnostics.events().iter().any(|event| matches!(
         event,
@@ -2022,7 +2009,7 @@ impl RetainedStreamInput for UngatedDriver {}
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct ScriptedDatagramTransport {
-    config: crate::transport::builder::TransportConfig,
+    config: crate::transport::ValidatedTransportConfig,
     datagrams: flume::Receiver<Vec<u8>>,
     sent: flume::Sender<Vec<u8>>,
 }
@@ -2036,7 +2023,7 @@ impl crate::transport::HasTransportConfig for ScriptedDatagramTransport {
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
+    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
         &self.config
     }
 }
@@ -2065,7 +2052,7 @@ impl crate::transport::AsyncTransport for ScriptedDatagramTransport {
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct AlternatingFaultAndTruncatedDatagrams {
-    config: crate::transport::builder::TransportConfig,
+    config: crate::transport::ValidatedTransportConfig,
     reads: Arc<std::sync::atomic::AtomicUsize>,
     faults: Arc<std::sync::atomic::AtomicUsize>,
     truncated: Arc<std::sync::atomic::AtomicUsize>,
@@ -2098,7 +2085,7 @@ impl crate::transport::HasTransportConfig for AlternatingFaultAndTruncatedDatagr
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
+    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
         &self.config
     }
 }
@@ -2121,7 +2108,7 @@ impl crate::transport::AsyncTransport for AlternatingFaultAndTruncatedDatagrams 
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct ClosedSendDatagramTransport {
-    config: crate::transport::builder::TransportConfig,
+    config: crate::transport::ValidatedTransportConfig,
 }
 
 #[cfg(feature = "runtime-tokio")]
@@ -2133,7 +2120,7 @@ impl crate::transport::HasTransportConfig for ClosedSendDatagramTransport {
         }
     }
 
-    fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
+    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
         &self.config
     }
 }
@@ -2225,11 +2212,8 @@ impl AsyncOwnerDriver for BufferedBabblingDriver {
 }
 
 impl RetainedStreamInput for BufferedBabblingDriver {
-    fn retained(&self) -> Option<super::super::RetainedInput> {
-        Some(super::super::RetainedInput {
-            len: std::num::NonZeroUsize::new(1).unwrap(),
-            evidence: super::super::RetainedEvidence::NotRaw,
-        })
+    fn retained(&mut self) -> Option<super::super::RetainedInput<'_>> {
+        Some(super::super::RetainedInput::Sony)
     }
 }
 
@@ -2448,19 +2432,16 @@ impl AsyncOwnerDriver for BufferedNoProgressDriver {
 }
 
 impl RetainedStreamInput for BufferedNoProgressDriver {
-    fn retained(&self) -> Option<super::super::RetainedInput> {
-        self.buffered.then_some(super::super::RetainedInput {
-            len: std::num::NonZeroUsize::new(1).unwrap(),
-            evidence: super::super::RetainedEvidence::Incomplete {
-                target: TargetSlot::CAMERA_1,
-                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+    fn retained(&mut self) -> Option<super::super::RetainedInput<'_>> {
+        self.buffered.then_some(super::super::RetainedInput::Raw(
+            super::super::RawRetention::Flag {
+                evidence: super::super::RawPrefixEvidence::Incomplete {
+                    target: TargetSlot::CAMERA_1,
+                    kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+                },
+                buffered: &mut self.buffered,
             },
-        })
-    }
-
-    fn discard_first(&mut self) -> Result<(), Error> {
-        self.buffered = false;
-        Ok(())
+        ))
     }
 }
 
@@ -2597,21 +2578,19 @@ impl AsyncOwnerDriver for RawBufferedFloodDriver {
 
 #[cfg(feature = "runtime-tokio")]
 impl RetainedStreamInput for RawBufferedFloodDriver {
-    fn retained(&self) -> Option<super::super::RetainedInput> {
+    fn retained(&mut self) -> Option<super::super::RetainedInput<'_>> {
         self.buffered
             .load(Ordering::Acquire)
-            .then_some(super::super::RetainedInput {
-                len: std::num::NonZeroUsize::new(1).unwrap(),
-                evidence: super::super::RetainedEvidence::Incomplete {
-                    target: TargetSlot::CAMERA_1,
-                    kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            .then_some(super::super::RetainedInput::Raw(
+                super::super::RawRetention::AtomicFlag {
+                    evidence: super::super::RawPrefixEvidence::Incomplete {
+                        target: TargetSlot::CAMERA_1,
+                        kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+                    },
+                    buffered: &self.buffered,
+                    discards: None,
                 },
-            })
-    }
-
-    fn discard_first(&mut self) -> Result<(), Error> {
-        self.buffered.store(false, Ordering::Release);
-        Ok(())
+            ))
     }
 }
 
@@ -2654,21 +2633,19 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
 
 #[cfg(feature = "runtime-tokio")]
 impl RetainedStreamInput for ImmediateRawGraceDriver {
-    fn retained(&self) -> Option<super::super::RetainedInput> {
+    fn retained(&mut self) -> Option<super::super::RetainedInput<'_>> {
         self.buffered
             .load(Ordering::Acquire)
-            .then_some(super::super::RetainedInput {
-                len: std::num::NonZeroUsize::new(1).unwrap(),
-                evidence: super::super::RetainedEvidence::Incomplete {
-                    target: TargetSlot::CAMERA_1,
-                    kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            .then_some(super::super::RetainedInput::Raw(
+                super::super::RawRetention::AtomicFlag {
+                    evidence: super::super::RawPrefixEvidence::Incomplete {
+                        target: TargetSlot::CAMERA_1,
+                        kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+                    },
+                    buffered: &self.buffered,
+                    discards: None,
                 },
-            })
-    }
-
-    fn discard_first(&mut self) -> Result<(), Error> {
-        self.buffered.store(false, Ordering::Release);
-        Ok(())
+            ))
     }
 }
 
@@ -2913,7 +2890,7 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
 
             if include_cancellation {
                 let cancellation = handle
-                    .cancel_test(&receipt)
+                    .cancel_test(receipt.command_id())
                     .await
                     .map_err(|error| format!("{error:?}"))?;
                 drop(cancellation);

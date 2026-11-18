@@ -62,7 +62,7 @@ trait ProbeDriver: RetainedStreamInput {
 // terminal delivery and recursive effect draining use the production owner.
 #[derive(Debug)]
 struct ProbeTransport {
-    config: TransportConfig,
+    config: crate::transport::ValidatedTransportConfig,
     semantics: SendSemantics,
     metadata: Option<TransmissionMeta>,
     writes: usize,
@@ -77,7 +77,7 @@ impl HasTransportConfig for ProbeTransport {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
         &self.config
     }
 }
@@ -142,7 +142,7 @@ impl TurnProbe {
         semantics: SendSemantics,
     ) -> Result<Self, Error> {
         let driver = ProbeTransport {
-            config,
+            config: config.validated()?,
             semantics,
             metadata: None,
             writes: 0,

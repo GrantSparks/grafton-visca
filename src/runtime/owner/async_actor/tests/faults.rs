@@ -56,7 +56,7 @@ async fn zero_length_stream_read_still_closes_the_session() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             chunks,
             sent,
         },
@@ -97,7 +97,7 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
     let actor_task = tokio::spawn(actor.run(harness.driver));
 
     let receipt = handle.submit(retrying_command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+    assert_eq!(started.recv_async().await.unwrap(), receipt.id());
     gates
         .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
         .await
@@ -111,7 +111,7 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
         .unwrap();
 
     // The very same request is written again rather than failed.
-    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+    assert_eq!(started.recv_async().await.unwrap(), receipt.id());
     gates
         .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
         .await
@@ -157,7 +157,7 @@ async fn fatal_receive_fault_closes_the_session() {
         let actor_task = tokio::spawn(actor.run(harness.driver));
 
         let receipt = handle.submit(command()).await.unwrap();
-        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id());
         gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
         frames
             .send_async(OwnerReceive::read_error(Error::Io {
@@ -342,7 +342,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     let actor_task = tokio::spawn(actor.run(harness.driver));
 
     let receipt = handle.submit(retrying_command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+    assert_eq!(started.recv_async().await.unwrap(), receipt.id());
     gates
         .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
         .await
@@ -356,7 +356,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
             )))
             .await
             .unwrap();
-        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id());
         gates
             .send_async(Ok(TransmissionMeta::Allocated { sequence: 1 }))
             .await
@@ -421,7 +421,7 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
     let actor_task = tokio::spawn(actor.run(harness.driver));
 
     let receipt = handle.submit(retrying_command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+    assert_eq!(started.recv_async().await.unwrap(), receipt.id());
     gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
 
     for timeout in [
@@ -561,7 +561,7 @@ async fn consumed_truncated_datagrams_reset_the_async_fault_run() {
     let config = crate::transport::builder::TransportConfig::default();
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         AlternatingFaultAndTruncatedDatagrams {
-            config,
+            config: config.validated().unwrap(),
             reads,
             faults: Arc::clone(&faults),
             truncated: Arc::clone(&truncated),
@@ -624,7 +624,7 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
     let (sent, sent_rx) = flume::bounded(8);
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ScriptedDatagramTransport {
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             datagrams,
             sent,
         },
@@ -696,7 +696,7 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             chunks,
             sent,
         },
@@ -769,7 +769,7 @@ async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config,
+            config: config.validated().unwrap(),
             chunks,
             sent,
         },
@@ -822,7 +822,7 @@ async fn a_single_target_ip_chain_address_reply_settles_the_command() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             chunks,
             sent,
         },
@@ -859,7 +859,7 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
         .expect("the generic profile is valid");
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ClosedSendDatagramTransport {
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
         },
         &profile,
         TargetSlot::CAMERA_1,

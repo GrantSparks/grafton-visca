@@ -11,15 +11,30 @@ crate_name="grafton-visca"
 crate_version="2.0.0-rc.1"
 local_payload="${fixture_directory}/${crate_name}-${crate_version}.crate"
 registry_directory="${fixture_directory}/registry/${crate_name}/${crate_version}"
-mkdir -p "${registry_directory}"
-printf 'fixture crate payload\n' > "${local_payload}"
-cp -- "${local_payload}" "${registry_directory}/download"
+crate_directory="${fixture_directory}/package"
+crate_root="${crate_name}-${crate_version}"
+mkdir -p "${crate_directory}/${crate_root}/src" "${registry_directory}"
+printf 'pub struct Example;\n' > "${crate_directory}/${crate_root}/src/lib.rs"
+printf '[package]\nname = "%s"\nversion = "%s"\n' "${crate_name}" "${crate_version}" \
+    > "${crate_directory}/${crate_root}/Cargo.toml"
+printf '{"git":{"sha1":"00000000"},"path_in_vcs":""}\n' \
+    > "${crate_directory}/${crate_root}/.cargo_vcs_info.json"
+printf 'version = 4\n' > "${crate_directory}/${crate_root}/Cargo.lock"
 
-"${helper}" \
-    "${crate_name}" \
-    "${crate_version}" \
-    "${local_payload}" \
-    "file://${fixture_directory}/registry"
+pack_fixture() {
+    local destination="$1"
+    shift
+    tar -C "${crate_directory}" --create --gzip --file "${destination}" "${crate_root}" "$@"
+}
+
+verify_fixture() {
+    "${helper}" "${crate_name}" "${crate_version}" "${local_payload}" \
+        "file://${fixture_directory}/registry"
+}
+
+pack_fixture "${local_payload}"
+pack_fixture "${registry_directory}/download"
+verify_fixture
 
 expected_user_agent="grafton-visca-release-verifier/2.0.0 (+https://github.com/GrantSparks/grafton-visca)"
 fake_curl_directory="${fixture_directory}/fake-curl"
@@ -73,14 +88,37 @@ if [[ "$(<"${user_agent_record}")" != "${expected_user_agent}" ]]; then
     exit 1
 fi
 
-printf 'different fixture crate payload\n' > "${registry_directory}/download"
-expect_failure "${crate_name}@${crate_version} registry payload SHA-256 mismatch" \
-    "${helper}" \
-    "${crate_name}" \
-    "${crate_version}" \
-    "${local_payload}" \
-    "file://${fixture_directory}/registry"
+# A fresh library lockfile changes the archive SHA-256 without changing its
+# source and metadata.
+printf 'version = 4\n# Re-resolved dependency versions.\n' > "${crate_directory}/${crate_root}/Cargo.lock"
+pack_fixture "${registry_directory}/download"
+verify_fixture
 
+for path in src/lib.rs Cargo.toml .cargo_vcs_info.json; do
+    file="${crate_directory}/${crate_root}/${path}"
+    cp -- "${file}" "${fixture_directory}/original"
+    printf 'changed\n' >> "${file}"
+    pack_fixture "${registry_directory}/download"
+    expect_failure "registry file differs: ${path}" verify_fixture
+    mv -- "${fixture_directory}/original" "${file}"
+done
+
+touch "${crate_directory}/${crate_root}/src/extra"
+pack_fixture "${registry_directory}/download"
+expect_failure "unexpected registry file: src/extra" verify_fixture
+rm -- "${crate_directory}/${crate_root}/src/extra"
+mv -- "${crate_directory}/${crate_root}/src/lib.rs" "${fixture_directory}/original"
+pack_fixture "${registry_directory}/download"
+expect_failure "missing registry file: src/lib.rs" verify_fixture
+mv -- "${fixture_directory}/original" "${crate_directory}/${crate_root}/src/lib.rs"
+
+touch "${crate_directory}/outside.txt"
+pack_fixture "${registry_directory}/download" outside.txt
+expect_failure "entry 'outside.txt' is outside package directory" verify_fixture
+
+ln -s ../Cargo.toml "${crate_directory}/${crate_root}/src/link"
+pack_fixture "${registry_directory}/download"
+expect_failure "unsupported package entry: '${crate_root}/src/link'" verify_fixture
 
 # Prove an unrelated command failure cannot stand in for a payload mismatch.
 expect_failure "failure did not contain: expected-payload-mismatch" \

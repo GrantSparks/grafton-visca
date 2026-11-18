@@ -4,7 +4,9 @@
 use grafton_visca::{
     capabilities::{CoordinateSystem, PanTiltWireCodec},
     command::pan_tilt,
-    profiles::{CompileTimeProfile, GenericVisca, NearusBrc300, ProfileSpec, SonyBrc300},
+    profiles::{
+        CompileTimeProfile, GenericVisca, NearusBrc300, ProfileSpec, PtzOpticsG2, SonyBrc300,
+    },
     request::Inquiry,
     types::PanTiltUnits,
     wire::Response,
@@ -19,6 +21,7 @@ fn parsed<P: CompileTimeProfile>(payload: &[u8]) -> PanTiltUnits {
     let profile = ProfileSpec::from_compile_time::<P>().expect("validated profile");
     pan_tilt::PositionInquiry
         .decoder_for_profile(&profile)
+        .expect("profile-bound decoder")
         .decode(&frame[2..frame.len() - 1])
         .expect("profile-aware pan/tilt position should parse")
 }
@@ -30,7 +33,7 @@ fn pan_tilt(position: PanTiltUnits) -> (i32, i32) {
 #[test]
 fn standard_visca_signed_centered_profile_decodes_both_signs() {
     assert_eq!(
-        pan_tilt(parsed::<GenericVisca>(&[
+        pan_tilt(parsed::<PtzOpticsG2>(&[
             0x00, 0x00, 0x01, 0x00, 0x0f, 0x0f, 0x0f, 0x00,
         ])),
         (0x10, -0x10)
@@ -109,17 +112,22 @@ fn nearus_uses_the_brc300_frame_its_command_list_documents() {
     let nearus = ProfileSpec::from_compile_time::<NearusBrc300>().unwrap();
     let sony = ProfileSpec::from_compile_time::<SonyBrc300>().unwrap();
     let nearus = nearus.capabilities().pan_tilt.as_ref().unwrap();
+    let nearus_geometry = nearus.geometry.expect("geometry");
     let sony = sony.capabilities().pan_tilt.as_ref().unwrap();
+    let sony_geometry = sony.geometry.expect("geometry");
     assert_eq!(
-        nearus.coordinates.wire_codec(),
+        nearus_geometry.coordinates.wire_codec(),
         PanTiltWireCodec::SonyBrc300
     );
     assert_eq!(
-        nearus.coordinates.coordinate_system(),
+        nearus_geometry.coordinates.coordinate_system(),
         CoordinateSystem::SignedCentered
     );
-    assert_eq!(nearus.pan_range, sony.pan_range);
-    assert_eq!(nearus.tilt_ranges.range(None), sony.tilt_ranges.range(None));
+    assert_eq!(nearus_geometry.pan_range, sony_geometry.pan_range);
+    assert_eq!(
+        nearus_geometry.tilt_ranges.range(None),
+        sony_geometry.tilt_ranges.range(None)
+    );
     assert_eq!(nearus.pan_speed.max(), 0x18);
     assert_eq!(nearus.tilt_speed.max(), 0x18);
 }
@@ -130,17 +138,18 @@ fn real_profile_wire_facts_are_distinct() {
     let sony = ProfileSpec::from_compile_time::<SonyBrc300>().unwrap();
     let generic = generic.capabilities().pan_tilt.as_ref().unwrap();
     let sony = sony.capabilities().pan_tilt.as_ref().unwrap();
+    let sony_geometry = sony.geometry.expect("geometry");
+    assert!(generic.geometry.is_none());
     assert_eq!(
-        generic.coordinates.coordinate_system(),
+        sony_geometry.coordinates.coordinate_system(),
         CoordinateSystem::SignedCentered
     );
     assert_eq!(
-        sony.coordinates.coordinate_system(),
-        CoordinateSystem::SignedCentered
+        sony_geometry.coordinates.wire_codec(),
+        PanTiltWireCodec::SonyBrc300
     );
-    assert_eq!(sony.coordinates.wire_codec(), PanTiltWireCodec::SonyBrc300);
-    assert_eq!(sony.pan_range.min(), -0x08A58);
-    assert_eq!(sony.pan_range.max(), 0x08A58);
-    assert_eq!(sony.tilt_ranges.range(None).min(), -0x186A);
-    assert_eq!(sony.tilt_ranges.range(None).max(), 0x493D);
+    assert_eq!(sony_geometry.pan_range.min(), -0x08A58);
+    assert_eq!(sony_geometry.pan_range.max(), 0x08A58);
+    assert_eq!(sony_geometry.tilt_ranges.range(None).min(), -0x186A);
+    assert_eq!(sony_geometry.tilt_ranges.range(None).max(), 0x493D);
 }

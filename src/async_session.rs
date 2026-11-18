@@ -289,9 +289,15 @@ mod tests {
         capabilities::Capabilities,
         profiles::{ProfileEnvelope, ProfileTiming, TransportCompatibility},
         testing::testkit::{helpers, ManualClock, ManualClockExecutor, ScriptedTransport, Step},
-        transport::{AsyncTransport, HasTransportConfig, TransportConfig},
+        transport::{AsyncTransport, HasTransportConfig},
         CommandTimeouts, ProfileSpec,
     };
+
+    const CUSTOM_IP_STREAM: crate::testing::testkit::ScriptedTransportIdentity =
+        crate::testing::testkit::ScriptedTransportIdentity::Custom {
+            semantics: crate::transport::SendSemantics::Stream,
+            addressing: crate::transport::AddressingMode::Ip,
+        };
 
     struct FailFirstZoomStopSend {
         inner: ScriptedTransport<Arc<ManualClockExecutor>>,
@@ -307,7 +313,7 @@ mod tests {
             let writes = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
-                    inner: ScriptedTransport::new(steps).with_executor(runtime),
+                    inner: ScriptedTransport::new(CUSTOM_IP_STREAM, steps).with_executor(runtime),
                     writes: Arc::clone(&writes),
                     failed: false,
                 },
@@ -324,7 +330,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &TransportConfig {
+        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
             self.inner.transport_config()
         }
     }
@@ -405,8 +411,8 @@ mod tests {
     fn operation_debug_shows_only_its_identity() {
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport =
-            ScriptedTransport::new([helpers::auto_respond_step()]).with_executor(runtime.clone());
+        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, [helpers::auto_respond_step()])
+            .with_executor(runtime.clone());
         let session = runtime
             .run_until(Session::open(
                 transport,
@@ -436,7 +442,8 @@ mod tests {
     fn session_open_rejects_invalid_tuning_before_any_write() {
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
+        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
+            .with_executor(runtime.clone());
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()
@@ -453,7 +460,8 @@ mod tests {
     fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
+        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
+            .with_executor(runtime.clone());
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFr7>()
             .unwrap()
@@ -531,7 +539,7 @@ mod tests {
         fn identity(&self) -> crate::transport::TransportIdentity<'_> {
             self.inner.identity()
         }
-        fn transport_config(&self) -> &TransportConfig {
+        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
             self.inner.transport_config()
         }
     }
@@ -550,7 +558,8 @@ mod tests {
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let transport = DropTrackedTransport {
-            inner: ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone()),
+            inner: ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
+                .with_executor(runtime.clone()),
             dropped: Arc::clone(&dropped),
         };
         let executor = ConstructionExecutor {
@@ -570,7 +579,8 @@ mod tests {
     fn session_open_ready_sony_reset_wins_an_already_ready_timer() {
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
+        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
+            .with_executor(runtime.clone());
         let probe = transport.clone();
         let executor = ConstructionExecutor {
             inner: runtime.clone(),
@@ -603,7 +613,8 @@ mod tests {
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let transport = DropTrackedTransport {
-            inner: ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime),
+            inner: ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
+                .with_executor(runtime),
             dropped: Arc::clone(&dropped),
         };
         let config = SessionConfig::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
@@ -618,8 +629,8 @@ mod tests {
     fn stop_all_motion_on_a_zoom_only_runtime_profile_writes_only_zoom_stop() {
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport =
-            ScriptedTransport::new([helpers::auto_respond_step()]).with_executor(runtime.clone());
+        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, [helpers::auto_respond_step()])
+            .with_executor(runtime.clone());
         let probe = transport.clone();
         let session = runtime
             .run_until(Session::open(
@@ -649,7 +660,8 @@ mod tests {
     fn stop_all_motion_on_a_profile_without_motion_axes_is_a_successful_no_op() {
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
+        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
+            .with_executor(runtime.clone());
         let probe = transport.clone();
         let session = runtime
             .run_until(Session::open(
@@ -726,8 +738,8 @@ mod tests {
         use crate::profiles::{PtzOpticsG2, SonyFr7};
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport =
-            ScriptedTransport::new([helpers::auto_respond_step()]).with_executor(runtime.clone());
+        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, [helpers::auto_respond_step()])
+            .with_executor(runtime.clone());
         let probe = transport.clone();
         let config =
             SessionConfig::from_compile_time::<PtzOpticsG2>().expect("typed configuration");
@@ -826,8 +838,8 @@ mod tests {
             inner: Arc::new(executor),
             timers: Arc::new(AtomicUsize::new(0)),
         };
-        let transport =
-            ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.inner.clone());
+        let transport = ScriptedTransport::new(CUSTOM_IP_STREAM, Vec::<Step>::new())
+            .with_executor(runtime.inner.clone());
         let config = SessionConfig::from_compile_time::<GenericVisca>().expect("configuration");
         let session = runtime
             .block_on(Session::open(transport, &config, runtime.clone()))
@@ -920,10 +932,13 @@ mod tests {
         use crate::{profiles::GenericVisca, types::FocusMode};
         let clock = ManualClock::new();
         let runtime = Arc::new(ManualClockExecutor::local(&clock));
-        let transport = ScriptedTransport::new([
-            Step::on_send(None, vec![]),
-            helpers::errors::connection_lost(),
-        ])
+        let transport = ScriptedTransport::new(
+            CUSTOM_IP_STREAM,
+            [
+                Step::on_send(None, vec![]),
+                helpers::errors::connection_lost(),
+            ],
+        )
         .with_executor(runtime.clone());
         let config = SessionConfig::from_compile_time::<GenericVisca>().expect("configuration");
         let session = runtime
