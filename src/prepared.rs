@@ -585,8 +585,8 @@ pub(crate) fn prepare_inquiry<Q>(
 where
     Q: Inquiry + ?Sized,
 {
-    prepare_inquiry_with_decoder(inquiry, registration, tuning, class, |profile| {
-        inquiry.decoder_for_profile(profile)
+    prepare_inquiry_with_decoder(inquiry, registration, tuning, class, |target| {
+        inquiry.decoder_for_profile(target.profile())
     })
 }
 
@@ -595,7 +595,7 @@ pub(crate) fn prepare_inquiry_with_decoder<Q, R>(
     registration: &crate::TargetRegistration,
     tuning: ValidatedTuning,
     class: ClassSelection,
-    bind_decoder: impl FnOnce(&ProfileSpec) -> Result<ResponseDecoder<R>>,
+    bind_decoder: impl FnOnce(&crate::TargetRegistration) -> Result<ResponseDecoder<R>>,
 ) -> Result<PreparedInquiry<R>>
 where
     Q: Inquiry + ?Sized,
@@ -606,7 +606,7 @@ where
             feature: "VISCA inquiries",
         });
     }
-    let (wire, _, decoder) = encode(inquiry, registration, || bind_decoder(profile))?;
+    let (wire, _, decoder) = encode(inquiry, registration, || bind_decoder(registration))?;
     let (context, _) = lower_request_context(inquiry, registration, tuning, class);
     Ok(PreparedInquiry {
         wire,

@@ -1001,17 +1001,6 @@ struct PreparedPanTiltPosition {
     framing: PanTiltFraming,
 }
 
-fn target_coordinates(
-    target: &crate::TargetRegistration,
-) -> Result<crate::PanTiltCoordinateConversion, Error> {
-    target
-        .profile()
-        .pan_tilt_coordinates()
-        .ok_or(Error::FeatureNotSupported {
-            feature: "degree-based pan/tilt positioning",
-        })
-}
-
 /// Return pan/tilt to its home position.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PanTiltHome;
@@ -1618,7 +1607,7 @@ impl PanTiltAbsolute {
     ) -> Result<Self, Error> {
         let profile = target.profile();
         let speeds = validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
-        let framing = PanTiltFraming::for_conversion(target_coordinates(target)?);
+        let framing = PanTiltFraming::for_conversion(target.pan_tilt_coordinates()?.conversion);
         let (pan, tilt) = target.convert_pan_tilt_degrees(pan.value(), tilt.value())?;
         Ok(Self {
             position: PreparedPanTiltPosition { pan, tilt, framing },
@@ -1670,7 +1659,7 @@ impl PanTiltRelative {
     ) -> Result<Self, Error> {
         let profile = target.profile();
         let speeds = validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
-        let framing = PanTiltFraming::for_conversion(target_coordinates(target)?);
+        let framing = PanTiltFraming::for_conversion(target.pan_tilt_coordinates()?.conversion);
         let (pan, tilt) = target.convert_pan_tilt_offset_degrees(pan.value(), tilt.value())?;
         Ok(Self {
             offset: PreparedPanTiltPosition { pan, tilt, framing },
@@ -1722,11 +1711,18 @@ impl PanTiltLimitSet {
     ) -> Result<Self, Error> {
         #[cfg(test)]
         record_request_value_validation();
-        let conversion = target_coordinates(target)?;
-        let framing = PanTiltFraming::for_conversion(conversion);
-        let (pan, tilt) = target.convert_pan_tilt_degrees(pan.value(), tilt.value())?;
-        let position = PreparedPanTiltPosition { pan, tilt, framing };
-        let applied_position = conversion.to_degrees(crate::types::PanTiltUnits::new(pan, tilt))?;
+        let coordinates = target.pan_tilt_coordinates()?;
+        let framing = PanTiltFraming::for_conversion(coordinates.conversion);
+        let raw = coordinates.checked_units(
+            crate::types::PanTiltPosition { pan, tilt },
+            crate::profiles::CoordinateKind::Position,
+        )?;
+        let position = PreparedPanTiltPosition {
+            pan: raw.pan,
+            tilt: raw.tilt,
+            framing,
+        };
+        let applied_position = coordinates.position_degrees(raw)?;
         Ok(Self {
             corner,
             position,

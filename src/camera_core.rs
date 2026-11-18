@@ -88,14 +88,14 @@ macro_rules! camera_core {
             where
                 Q: crate::Inquiry + ?Sized,
             {
-                self.inquire_with_decoder(inquiry, |profile| inquiry.decoder_for_profile(profile)) $($await)*
+                self.inquire_with_decoder(inquiry, |target| inquiry.decoder_for_profile(target.profile())) $($await)*
             }
 
-            /// Prepares a noun inquiry using its profile-bound response type.
+            /// Prepares a noun inquiry using its target-bound response decoder.
             pub(crate) $($async)* fn inquire_with_decoder<Q, R>(
                 &self,
                 inquiry: &Q,
-                bind_decoder: impl FnOnce(&crate::ProfileSpec) -> crate::Result<crate::ResponseDecoder<R>>,
+                bind_decoder: impl FnOnce(&crate::TargetRegistration) -> crate::Result<crate::ResponseDecoder<R>>,
             ) -> crate::Result<R>
             where
                 Q: crate::Inquiry + ?Sized,

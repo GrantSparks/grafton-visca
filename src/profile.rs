@@ -499,9 +499,10 @@ impl PanTiltCoordinateConversion {
     }
 }
 
-/// Effective source ranges selected by a target, without duplicate degree facts.
+/// Coordinate conversion with the effective source ranges selected at registration.
 #[derive(Clone, Copy)]
-pub(crate) struct PanTiltRanges {
+pub(crate) struct TargetPanTiltCoordinates {
+    pub(crate) conversion: PanTiltCoordinateConversion,
     pub(crate) pan_units: capabilities::CapabilityRange<i32>,
     pub(crate) tilt_units: capabilities::CapabilityRange<i32>,
     pub(crate) endpoint_quantization: capabilities::EndpointQuantization,
@@ -513,12 +514,11 @@ pub(crate) enum CoordinateKind {
     Offset,
 }
 
-impl PanTiltCoordinateConversion {
-    /// The one checked conversion for profile helpers and every target mount.
+impl TargetPanTiltCoordinates {
+    /// Converts a physical position or offset through the registered target's ranges.
     pub(crate) fn checked_units(
-        self,
+        mut self,
         position: crate::types::PanTiltPosition,
-        mut ranges: PanTiltRanges,
         kind: CoordinateKind,
     ) -> Result<crate::camera::PanTiltUnits> {
         let names = match kind {
@@ -528,15 +528,14 @@ impl PanTiltCoordinateConversion {
                     let span = range.max() - range.min();
                     capabilities::CapabilityRange::<i32>::new(-span, span)
                 };
-                ranges.pan_units = span(ranges.pan_units)?;
-                ranges.tilt_units = span(ranges.tilt_units)?;
+                self.pan_units = span(self.pan_units)?;
+                self.tilt_units = span(self.tilt_units)?;
                 ["pan offset", "tilt offset"]
             }
         };
         let convert =
             |parameter, degrees: f32, scale: f32, units: capabilities::CapabilityRange<i32>| {
-                let exact = ordered_degrees(units.min() as f32 / scale, units.max() as f32 / scale);
-                let nominal = ranges.endpoint_quantization.degree_range(exact);
+                let nominal = self.nominal_range(scale, units);
                 if !degrees.is_finite() || !nominal.contains(&degrees) {
                     return Err(Error::InvalidParameter {
                         parameter,
@@ -553,36 +552,98 @@ impl PanTiltCoordinateConversion {
                         value: degrees.to_string().into(),
                         reason: "coordinate exceeds signed unit storage".into(),
                     })?;
-                if units.contains(rounded) {
-                    return Ok(rounded);
-                }
-                let clamped = rounded.clamp(units.min(), units.max());
-                if ranges.endpoint_quantization == capabilities::EndpointQuantization::WholeDegrees
-                    && i64::from(rounded).abs_diff(i64::from(clamped)) <= 1
-                {
-                    Ok(clamped)
-                } else {
-                    Err(Error::InvalidParameter {
+                self.constrain_units(rounded, units)
+                    .ok_or_else(|| Error::InvalidParameter {
                         parameter,
                         value: degrees.to_string().into(),
                         reason: format!("converted coordinate is outside {units:?} units").into(),
                     })
-                }
             };
         Ok(crate::camera::PanTiltUnits::new(
             convert(
                 names[0],
                 position.pan.value(),
-                self.pan_degrees_to_units,
-                ranges.pan_units,
+                self.conversion.pan_degrees_to_units,
+                self.pan_units,
             )?,
             convert(
                 names[1],
                 position.tilt.value(),
-                self.tilt_degrees_to_units,
-                ranges.tilt_units,
+                self.conversion.tilt_degrees_to_units,
+                self.tilt_units,
             )?,
         ))
+    }
+
+    /// Converts valid raw positions, preserving interior precision. A sourced
+    /// endpoint just outside the nominal degree interval can be expressed at
+    /// the nominal limit only if doing so preserves the same wire word.
+    pub(crate) fn position_degrees(
+        self,
+        position: crate::camera::PanTiltUnits,
+    ) -> Result<crate::types::PanTiltPosition> {
+        let decode = |parameter, raw, scale, units: capabilities::CapabilityRange<i32>| {
+            if !units.contains(raw) {
+                return Err(Error::InvalidParameter {
+                    parameter,
+                    value: raw.to_string().into(),
+                    reason: format!("reported coordinate is outside {units:?} units").into(),
+                });
+            }
+            let degrees = raw as f32 / scale;
+            if self.endpoint_quantization == capabilities::EndpointQuantization::WholeDegrees
+                && (raw == units.min() || raw == units.max())
+            {
+                let nominal = self.nominal_range(scale, units);
+                if !nominal.contains(&degrees) {
+                    let endpoint = degrees.clamp(*nominal.start(), *nominal.end());
+                    if degrees_to_units(endpoint, scale)
+                        .and_then(|word| self.constrain_units(word, units))
+                        == Some(raw)
+                    {
+                        return Ok(endpoint);
+                    }
+                }
+            }
+            Ok(degrees)
+        };
+        crate::types::PanTiltPosition::from_degrees(
+            decode(
+                "pan position",
+                position.pan,
+                self.conversion.pan_degrees_to_units,
+                self.pan_units,
+            )?,
+            decode(
+                "tilt position",
+                position.tilt,
+                self.conversion.tilt_degrees_to_units,
+                self.tilt_units,
+            )?,
+        )
+    }
+
+    fn nominal_range(
+        self,
+        scale: f32,
+        units: capabilities::CapabilityRange<i32>,
+    ) -> std::ops::RangeInclusive<f32> {
+        self.endpoint_quantization.degree_range(ordered_degrees(
+            units.min() as f32 / scale,
+            units.max() as f32 / scale,
+        ))
+    }
+
+    fn constrain_units(
+        self,
+        rounded: i32,
+        units: capabilities::CapabilityRange<i32>,
+    ) -> Option<i32> {
+        let clamped = rounded.clamp(units.min(), units.max());
+        (rounded == clamped
+            || (self.endpoint_quantization == capabilities::EndpointQuantization::WholeDegrees
+                && rounded.abs_diff(clamped) == 1))
+            .then_some(clamped)
     }
 }
 
@@ -3457,6 +3518,52 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn degree_readback_preserves_custom_endpoints_that_nominal_rounding_would_alias() {
+        let mut caps = valid_runtime_capabilities();
+        let geometry = caps
+            .pan_tilt
+            .as_mut()
+            .expect("pan/tilt")
+            .geometry
+            .as_mut()
+            .expect("geometry");
+        geometry.pan_range = CapabilityRange::new(-101, 99).expect("pan range");
+        geometry.coordinates = conversion(
+            CoordinateSystem::SignedCentered,
+            PanTiltWireCodec::StandardVisca,
+            -10.0,
+            10.0,
+        );
+        geometry.endpoint_quantization = EndpointQuantization::WholeDegrees;
+
+        let target = crate::TargetRegistration::new(
+            crate::IndividualCameraId::CAMERA_1,
+            runtime_builder(caps).build().expect("custom geometry"),
+        );
+        let coordinates = target
+            .pan_tilt_coordinates()
+            .expect("registered coordinates");
+        let read = |pan| coordinates.position_degrees(crate::types::PanTiltUnits::new(pan, 0));
+        // The true upper endpoint is +10.1°. Reporting +10° instead would
+        // move a caller's next command to the adjacent raw word -100.
+        assert_eq!(read(-101).expect("sourced endpoint").pan.value(), 10.1);
+        assert_eq!(
+            target
+                .convert_pan_tilt_degrees(10.0, 0.0)
+                .expect("nominal endpoint"),
+            (-100, 0)
+        );
+        // +100 fits the nominal degree interval but is outside the raw range.
+        assert!(matches!(
+            read(100),
+            Err(Error::InvalidParameter {
+                parameter: "pan position",
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -167,25 +167,29 @@ impl TargetRegistration {
             .map(|geometry| geometry.tilt_range_degrees(self.mount))
     }
 
-    fn convert_coordinates(
-        &self,
-        pan: f32,
-        tilt: f32,
-        kind: crate::profiles::CoordinateKind,
-    ) -> Result<(i32, i32)> {
+    pub(crate) fn pan_tilt_coordinates(&self) -> Result<crate::profiles::TargetPanTiltCoordinates> {
         let geometry = self
             .profile
             .pan_tilt_geometry()
             .ok_or(Error::FeatureNotSupported {
                 feature: "degree-based pan/tilt positioning",
             })?;
-        let position = geometry.coordinates.checked_units(
+        Ok(crate::profiles::TargetPanTiltCoordinates {
+            conversion: geometry.coordinates,
+            pan_units: geometry.pan_range,
+            tilt_units: geometry.tilt_ranges.range(self.mount),
+            endpoint_quantization: geometry.endpoint_quantization,
+        })
+    }
+
+    fn convert_coordinates(
+        &self,
+        pan: f32,
+        tilt: f32,
+        kind: crate::profiles::CoordinateKind,
+    ) -> Result<(i32, i32)> {
+        let position = self.pan_tilt_coordinates()?.checked_units(
             crate::types::PanTiltPosition::from_degrees(pan, tilt)?,
-            crate::profiles::PanTiltRanges {
-                pan_units: geometry.pan_range,
-                tilt_units: geometry.tilt_ranges.range(self.mount),
-                endpoint_quantization: geometry.endpoint_quantization,
-            },
             kind,
         )?;
         Ok((position.pan, position.tilt))
@@ -467,3 +471,6 @@ mod portable_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod coordinate_tests;
