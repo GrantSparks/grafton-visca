@@ -1185,6 +1185,8 @@ async fn terminal_handle_work_and_metrics_are_stable<R: Executor>(runtime: R) {
         )
         .unwrap();
     assert_eq!(handle.metrics().await.unwrap(), published);
+    drop(driver);
+    actor.core.driver_released();
     drop(actor);
     assert!(matches!(
         cancelled.try_recv().unwrap(),

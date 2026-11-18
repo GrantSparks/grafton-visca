@@ -124,7 +124,9 @@ an executor-specific task join: reopening an endpoint after `close()` is safe
 because completion is ordered after transport release. If the shutdown signal is accepted, an explicit
 `RuntimeShutdown` terminal result is returned as success; a transport close, or
 a stream / strict-opt-in session poison that wins the source ordering, is
-returned unchanged. An immediate error while sending `close()`'s signal is
+returned unchanged. A panic during transport destruction makes every closer
+observe `Error::OwnerTerminated` unless an earlier terminal failure already
+determined the result. An immediate error while sending `close()`'s signal is
 also preserved. Dropping a non-final view or calling `shutdown()` alone is not
 a transport-release barrier. Dropping the final async `Session`/camera-view
 owner handle may release the actor and transport, but provides no completion
@@ -189,8 +191,11 @@ failure after the write left. A command never written, or
 conclusively rejected before ACK with no possibly applied earlier attempt,
 leaves the previous value intact. Preparing a command and an ACK alone cannot
 establish a value. The owner commits effects before notifying observers or
-resolving the terminal outcome, independently of observer attachment. A fresh
-session starts every target at `Unknown`; target views remain isolated.
+resolving the terminal outcome, independently of observer attachment. If the
+owner unwinds, it invalidates the affected keys before waiters observe owner
+loss. A write interrupted inside the driver may have reached the camera. A
+fresh session starts every target at `Unknown`, with each target tracked
+independently.
 
 The scheduler orders writes to the same `StateKey` on the same target by
 admission. A setter holds its place through retry backoff and socket

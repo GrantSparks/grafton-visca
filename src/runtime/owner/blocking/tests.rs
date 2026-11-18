@@ -107,11 +107,15 @@ struct ChannelTransport {
     dropped: Arc<AtomicBool>,
     scheduled: Option<(Instant, Vec<u8>)>,
     write_callback: Arc<Mutex<Option<TransportCallback>>>,
+    drop_callback: Option<TransportCallback>,
 }
 
 impl Drop for ChannelTransport {
     fn drop(&mut self) {
         self.dropped.store(true, Ordering::Release);
+        if let Some(callback) = self.drop_callback.take() {
+            callback();
+        }
     }
 }
 
@@ -309,6 +313,7 @@ impl Setup {
             dropped: Arc::clone(&dropped),
             scheduled: None,
             write_callback: Arc::clone(&write_callback),
+            drop_callback: None,
         };
         let peer = Peer {
             clock: self.clock.clone(),
@@ -322,8 +327,16 @@ impl Setup {
     }
 
     fn spawn(self) -> (BlockingOwnerHandle, Peer) {
+        self.spawn_with_drop(None)
+    }
+
+    fn spawn_with_drop(
+        self,
+        drop_callback: Option<TransportCallback>,
+    ) -> (BlockingOwnerHandle, Peer) {
         let clock = self.clock.clone();
-        let (transport, peer, profile, hold) = self.transport();
+        let (mut transport, peer, profile, hold) = self.transport();
+        transport.drop_callback = drop_callback;
         let (adapter, adapter_policy) =
             BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
                 .unwrap();
@@ -362,8 +375,15 @@ fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
 
 /// A command whose application updates the target's applied-state cache.
 fn limit_clear_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
+    limit_clear_corner(profile, PanTiltLimitCorner::DownLeft)
+}
+
+fn limit_clear_corner(
+    profile: &ProfileSpec,
+    corner: PanTiltLimitCorner,
+) -> crate::prepared::PreparedCommand {
     prepare_command(
-        &PanTiltLimitClear::for_profile(PanTiltLimitCorner::DownLeft, profile).unwrap(),
+        &PanTiltLimitClear::for_profile(corner, profile).unwrap(),
         &crate::TargetRegistration::new(
             (crate::target::TargetSlot::CAMERA_1).individual_camera(),
             profile.clone(),
@@ -783,7 +803,12 @@ fn detached_late_completion_still_updates_the_state_cache() {
         "the detached receipt loses exactly its terminal observation"
     );
     assert_eq!(metrics.active, 0);
+    let cache = owner.state_cache(crate::target::TargetSlot::CAMERA_1);
     owner.close().unwrap();
+    assert_eq!(
+        cache.pan_tilt().limit().unwrap().corner(),
+        PanTiltLimitCorner::DownLeft
+    );
 }
 
 /// Only a zero-length read means the peer closed a stream; it ends the
@@ -1219,6 +1244,39 @@ fn close_joins_the_worker_after_it_releases_the_transport() {
     other.close().unwrap();
 }
 
+#[test]
+fn a_transport_drop_panic_has_one_verdict_for_sequential_and_concurrent_closers() {
+    for concurrent in [false, true] {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&drops);
+        let (owner, peer) = Setup::datagram().spawn_with_drop(Some(Box::new(move || {
+            counted.fetch_add(1, Ordering::Relaxed);
+            panic!("injected transport drop panic");
+        })));
+        let other = owner.clone();
+        let close = |owner: &BlockingOwnerHandle| {
+            assert!(matches!(owner.close(), Err(Error::OwnerTerminated)));
+            assert!(peer.transport_dropped());
+        };
+        if concurrent {
+            let start = std::sync::Barrier::new(2);
+            thread::scope(|scope| {
+                let closer = scope.spawn(|| {
+                    start.wait();
+                    close(&other);
+                });
+                start.wait();
+                close(&owner);
+                closer.join().unwrap();
+            });
+        } else {
+            close(&owner);
+            close(&other);
+        }
+        assert_eq!(drops.load(Ordering::Relaxed), 1);
+    }
+}
+
 /// Exercise a transport calling close on its own worker both before and
 /// after an external closer has taken the join handle. Keep the callback
 /// parked until the join is in progress, so teardown cannot hide either race.
@@ -1337,6 +1395,40 @@ fn a_worker_panic_is_a_terminal_error_for_waiters_and_close() {
     assert!(matches!(receipt.wait(), Err(Error::OwnerTerminated)));
     assert!(matches!(owner.close(), Err(Error::OwnerTerminated)));
     assert!(peer.transport_dropped());
+}
+
+#[test]
+fn a_worker_read_panic_invalidates_an_acknowledged_setter_even_without_a_receipt() {
+    for detached in [false, true] {
+        let profile = crate::profiles::ProfileId::PtzOpticsG2.spec().unwrap();
+        let (owner, peer) = Setup::datagram_for(profile.clone()).spawn();
+        let cache = owner.state_cache(crate::target::TargetSlot::CAMERA_1);
+        let applied = owner.submit_command(limit_clear_for(&profile)).unwrap();
+        peer.next_write();
+        peer.reply(ACK);
+        peer.reply(COMPLETION);
+        applied.wait().unwrap();
+        assert_eq!(
+            cache.pan_tilt().limit().unwrap().corner(),
+            PanTiltLimitCorner::DownLeft
+        );
+
+        let receipt = owner
+            .submit_command(limit_clear_corner(&profile, PanTiltLimitCorner::UpRight))
+            .unwrap();
+        peer.next_write();
+        peer.reply(ACK);
+        if detached {
+            drop(receipt);
+            peer.send(Read::Panic);
+            owner.clock.await_disconnect(&owner.core.actor_alive);
+        } else {
+            peer.send(Read::Panic);
+            assert!(matches!(receipt.wait(), Err(Error::OwnerTerminated)));
+        }
+        assert!(cache.pan_tilt().limit().is_none());
+        assert!(matches!(owner.close(), Err(Error::OwnerTerminated)));
+    }
 }
 
 #[test]

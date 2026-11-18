@@ -644,6 +644,10 @@ enum LifecycleState {
     Open,
     ShutdownAccepted,
     SignalFailed(Error),
+    ShuttingDown {
+        signal_accepted: bool,
+        metrics: TerminalMetrics,
+    },
     ShutDown {
         metrics: TerminalMetrics,
     },
@@ -656,7 +660,7 @@ enum LifecycleState {
 impl LifecycleState {
     fn terminal(&self) -> Option<Error> {
         match self {
-            Self::ShutDown { .. } => Some(Error::RuntimeShutdown),
+            Self::ShuttingDown { .. } | Self::ShutDown { .. } => Some(Error::RuntimeShutdown),
             Self::Terminated { error, .. } => Some(error.clone()),
             Self::Open | Self::ShutdownAccepted | Self::SignalFailed(_) => None,
         }
@@ -668,7 +672,9 @@ impl LifecycleState {
 
     fn metrics(&self) -> Option<Result<crate::observability::MetricsSnapshot, Error>> {
         match self {
-            Self::ShutDown { metrics } | Self::Terminated { metrics, .. } => match metrics {
+            Self::ShuttingDown { metrics, .. }
+            | Self::ShutDown { metrics }
+            | Self::Terminated { metrics, .. } => match metrics {
                 TerminalMetrics::Pending => None,
                 TerminalMetrics::Published(snapshot) => Some(Ok(*snapshot)),
                 TerminalMetrics::Unavailable => Some(Err(missing_terminal_error())),
@@ -677,12 +683,19 @@ impl LifecycleState {
         }
     }
 
-    /// Only an accepted explicit shutdown that actually completed preserves
-    /// shutdown success. A terminal verdict is never replaced by teardown.
+    /// Close boundary admission as soon as the engine ends. An orderly
+    /// shutdown is provisional until the driver has been released.
     fn publish(&mut self, error: Error) {
         *self = match (&*self, error) {
-            (Self::ShutDown { .. } | Self::Terminated { .. }, _) => return,
-            (Self::ShutdownAccepted, Error::RuntimeShutdown) => Self::ShutDown {
+            (Self::ShuttingDown { .. } | Self::ShutDown { .. } | Self::Terminated { .. }, _) => {
+                return;
+            }
+            (Self::SignalFailed(error), _) => Self::Terminated {
+                error: error.clone(),
+                metrics: TerminalMetrics::Pending,
+            },
+            (state, Error::RuntimeShutdown) => Self::ShuttingDown {
+                signal_accepted: matches!(state, Self::ShutdownAccepted),
                 metrics: TerminalMetrics::Pending,
             },
             (_, error) => Self::Terminated {
@@ -692,12 +705,31 @@ impl LifecycleState {
         };
     }
 
+    fn driver_released(&mut self) {
+        if let Self::ShuttingDown {
+            signal_accepted,
+            metrics,
+        } = *self
+        {
+            *self = if signal_accepted {
+                Self::ShutDown { metrics }
+            } else {
+                Self::Terminated {
+                    error: Error::RuntimeShutdown,
+                    metrics,
+                }
+            };
+        }
+    }
+
     fn publish_metrics(
         &mut self,
         snapshot: crate::observability::MetricsSnapshot,
     ) -> Result<crate::observability::MetricsSnapshot, Error> {
         match self {
-            Self::ShutDown { metrics } | Self::Terminated { metrics, .. } => match metrics {
+            Self::ShuttingDown { metrics, .. }
+            | Self::ShutDown { metrics }
+            | Self::Terminated { metrics, .. } => match metrics {
                 TerminalMetrics::Pending => {
                     *metrics = TerminalMetrics::Published(snapshot);
                     Ok(snapshot)
@@ -710,7 +742,15 @@ impl LifecycleState {
     }
 
     fn fail_closed(&mut self) -> Error {
-        self.publish(missing_terminal_error());
+        match *self {
+            Self::ShuttingDown { metrics, .. } => {
+                *self = Self::Terminated {
+                    error: missing_terminal_error(),
+                    metrics,
+                };
+            }
+            _ => self.publish(missing_terminal_error()),
+        }
         match self {
             Self::ShutDown { metrics } | Self::Terminated { metrics, .. }
                 if matches!(metrics, TerminalMetrics::Pending) =>
@@ -787,7 +827,9 @@ impl OwnerLifecycle {
             LifecycleState::SignalFailed(error) | LifecycleState::Terminated { error, .. } => {
                 error.clone()
             }
-            LifecycleState::ShutDown { .. } => Error::RuntimeShutdown,
+            LifecycleState::ShuttingDown { .. } | LifecycleState::ShutDown { .. } => {
+                Error::RuntimeShutdown
+            }
             LifecycleState::Open | LifecycleState::ShutdownAccepted => missing_terminal_error(),
         }
     }
@@ -810,9 +852,9 @@ impl OwnerLifecycle {
         let state = self.lock_state();
         match &*state {
             LifecycleState::Open => Ok(state),
-            LifecycleState::ShutdownAccepted | LifecycleState::ShutDown { .. } => {
-                Err(Error::RuntimeShutdown)
-            }
+            LifecycleState::ShutdownAccepted
+            | LifecycleState::ShuttingDown { .. }
+            | LifecycleState::ShutDown { .. } => Err(Error::RuntimeShutdown),
             LifecycleState::SignalFailed(error) | LifecycleState::Terminated { error, .. } => {
                 Err(error.clone())
             }
@@ -828,6 +870,10 @@ impl OwnerLifecycle {
     /// incorrectly receive `Ok(())`.
     pub(super) fn publish_terminal(&self, error: Error) {
         self.lock_state().publish(error);
+    }
+
+    pub(super) fn driver_released(&self) {
+        self.lock_state().driver_released();
     }
 
     /// Fail closed when an owner is torn down, including by an unwind before
@@ -946,23 +992,17 @@ impl OwnerHandleCore {
 
     /// The result a consuming `close` reports once the owner is gone.
     ///
-    /// The owner publishes its terminal error before dropping the driver and
-    /// liveness sender, so a caller that has observed `actor_alive`
-    /// disconnect reads it ordered after transport teardown. An explicit
-    /// shutdown is the only terminal result that `close` turns into success;
-    /// transport close/poison (and any other terminal owner error) must remain
-    /// observable at that boundary (#542 §Terminology, §3 ordering and
-    /// transport failure).
+    /// A caller that observes `actor_alive` disconnect reads the result after
+    /// transport teardown. Explicit shutdown is successful when the driver
+    /// has been released. A terminal failure remains observable after that
+    /// release (#542 §Terminology, §3 ordering and transport failure).
     pub(super) fn closed_result(&self) -> Result<(), Error> {
         match &*self.lifecycle.lock_state() {
-            LifecycleState::ShutDown { .. }
-            | LifecycleState::Terminated {
-                error: Error::RuntimeShutdown,
-                ..
-            } => Ok(()),
+            LifecycleState::ShutDown { .. } => Ok(()),
             LifecycleState::Terminated { error, .. } => Err(error.clone()),
             LifecycleState::Open
             | LifecycleState::ShutdownAccepted
+            | LifecycleState::ShuttingDown { .. }
             | LifecycleState::SignalFailed(_) => Err(missing_terminal_error()),
         }
     }
@@ -972,7 +1012,10 @@ impl OwnerHandleCore {
     pub(super) fn metrics_concluding(&self) -> bool {
         matches!(
             &*self.lifecycle.lock_state(),
-            LifecycleState::ShutDown {
+            LifecycleState::ShuttingDown {
+                metrics: TerminalMetrics::Pending,
+                ..
+            } | LifecycleState::ShutDown {
                 metrics: TerminalMetrics::Pending
             } | LifecycleState::Terminated {
                 metrics: TerminalMetrics::Pending,
@@ -1009,7 +1052,16 @@ impl OwnerHandleCore {
     pub(super) fn shutdown(&self) -> Result<(), Error> {
         let mut state = self.lifecycle.lock_state();
         match &*state {
-            LifecycleState::ShutdownAccepted | LifecycleState::ShutDown { .. } => Ok(()),
+            LifecycleState::ShutdownAccepted
+            | LifecycleState::ShuttingDown {
+                signal_accepted: true,
+                ..
+            }
+            | LifecycleState::ShutDown { .. } => Ok(()),
+            LifecycleState::ShuttingDown {
+                signal_accepted: false,
+                ..
+            } => Err(Error::RuntimeShutdown),
             LifecycleState::SignalFailed(error) | LifecycleState::Terminated { error, .. } => {
                 Err(error.clone())
             }
@@ -1354,6 +1406,19 @@ pub(super) mod tests {
             MISSING,
             None,
         );
+        for (signal_accepted, shutdown) in [(true, None), (false, Some(SHUTDOWN))] {
+            assert_lifecycle(
+                LifecycleState::ShuttingDown {
+                    signal_accepted,
+                    metrics: TerminalMetrics::Pending,
+                },
+                shutdown,
+                Some(MISSING),
+                Some(SHUTDOWN),
+                SHUTDOWN,
+                Some(SHUTDOWN),
+            );
+        }
         assert_lifecycle(
             LifecycleState::ShutDown {
                 metrics: TerminalMetrics::Pending,
@@ -1370,7 +1435,7 @@ pub(super) mod tests {
                 metrics: TerminalMetrics::Pending,
             },
             Some(SHUTDOWN),
-            None,
+            Some(SHUTDOWN),
             Some(SHUTDOWN),
             SHUTDOWN,
             Some(SHUTDOWN),
@@ -1407,79 +1472,58 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn every_lifecycle_publication_and_fail_closed_transition_is_idempotent() {
-        let states = [
-            LifecycleState::Open,
-            LifecycleState::ShutdownAccepted,
-            LifecycleState::SignalFailed(Error::InvalidState {
-                reason: "signal failed".into(),
-            }),
-            LifecycleState::ShutDown {
-                metrics: TerminalMetrics::Pending,
-            },
-            LifecycleState::Terminated {
-                error: Error::RuntimeShutdown,
-                metrics: TerminalMetrics::Pending,
-            },
-            LifecycleState::Terminated {
-                error: Error::InvalidState {
-                    reason: "signal failed".into(),
-                },
-                metrics: TerminalMetrics::Pending,
-            },
-        ];
-        for initial in states {
-            for explicit_shutdown in [false, true] {
-                let lifecycle = OwnerLifecycle::new();
-                *lifecycle.lock_state() = initial.clone();
-                let expected = match &initial {
-                    LifecycleState::ShutDown { .. } => None,
-                    LifecycleState::Terminated { error, .. } => Some(format!("{error:?}")),
-                    LifecycleState::ShutdownAccepted if explicit_shutdown => None,
-                    _ if explicit_shutdown => Some("RuntimeShutdown".to_owned()),
-                    _ => Some("OwnerTerminated".to_owned()),
-                };
-                lifecycle.publish_terminal(if explicit_shutdown {
-                    Error::RuntimeShutdown
-                } else {
-                    Error::OwnerTerminated
-                });
-                // Repeated publication and a subsequent teardown preserve the
-                // authoritative result, including accepted shutdown success.
-                lifecycle.publish_terminal(Error::InvalidState {
-                    reason: "later result".into(),
-                });
-                lifecycle.fail_closed();
-                let state = lifecycle.lock_state().clone();
-                let terminal = state.terminal().unwrap();
-                let terminal = format!("{terminal:?}");
-                let closed = (terminal != "RuntimeShutdown").then_some(terminal.as_str());
-                assert_lifecycle(
-                    state,
-                    expected.as_deref(),
-                    closed,
-                    Some(&terminal),
-                    &terminal,
-                    Some(&terminal),
-                );
+    fn orderly_engine_shutdown_requires_driver_release_for_close_success() {
+        for released in [true, false] {
+            let (handle, _ends) = lifecycle_handle();
+            assert!(handle.shutdown().is_ok());
+            let lifecycle = &handle.lifecycle;
+            lifecycle.publish_terminal(Error::RuntimeShutdown);
+            lifecycle.publish_terminal(Error::OwnerTerminated);
+            assert!(matches!(
+                handle.closed_result(),
+                Err(Error::OwnerTerminated)
+            ));
+
+            if released {
+                lifecycle.driver_released();
+                lifecycle.driver_released();
             }
-            let lifecycle = OwnerLifecycle::new();
-            *lifecycle.lock_state() = initial.clone();
-            let expected_terminal = initial.terminal().unwrap_or(Error::OwnerTerminated);
-            assert_eq!(
-                format!("{:?}", lifecycle.fail_closed()),
-                format!("{expected_terminal:?}")
-            );
-            let accepted = matches!(initial, LifecycleState::ShutDown { .. });
-            let terminal = format!("{expected_terminal:?}");
-            assert_lifecycle(
-                lifecycle.lock_state().clone(),
-                (!accepted).then_some(terminal.as_str()),
-                (terminal != "RuntimeShutdown").then_some(terminal.as_str()),
-                Some(&terminal),
-                &terminal,
-                Some(&terminal),
-            );
+            for _ in 0..2 {
+                let final_error = lifecycle.fail_closed();
+                if released {
+                    assert!(matches!(final_error, Error::RuntimeShutdown));
+                    assert!(handle.closed_result().is_ok());
+                } else {
+                    assert!(matches!(final_error, Error::OwnerTerminated));
+                    assert!(matches!(
+                        handle.closed_result(),
+                        Err(Error::OwnerTerminated)
+                    ));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fail_closed_preserves_a_prior_terminal_or_signalling_error() {
+        let error = Error::InvalidState {
+            reason: "earlier failure".into(),
+        };
+        for initial in [
+            LifecycleState::SignalFailed(error.clone()),
+            LifecycleState::Terminated {
+                error: error.clone(),
+                metrics: TerminalMetrics::Pending,
+            },
+        ] {
+            let (handle, _ends) = lifecycle_handle();
+            let lifecycle = &handle.lifecycle;
+            *lifecycle.lock_state() = initial;
+            let expected = format!("{error:?}");
+            assert_eq!(format!("{:?}", lifecycle.fail_closed()), expected);
+            lifecycle.publish_terminal(Error::RuntimeShutdown);
+            lifecycle.driver_released();
+            assert_eq!(result_error(handle.closed_result()), Some(expected));
         }
     }
 

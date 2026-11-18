@@ -663,6 +663,15 @@ impl ProtocolEngine {
         self.core.session.state()
     }
 
+    /// Evidence retained for abnormal owner teardown. A staged write owns a
+    /// sending attempt, even if the driver never returned its outcome.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn may_have_applied(&self, id: RequestId) -> Option<bool> {
+        self.entries
+            .get(&id)
+            .map(|entry| entry.may_have_effect(AttemptEvidence::Lifecycle))
+    }
+
     /// Project the retained cause from the engine's complete terminal verdict.
     /// Terminal effects carry that same verdict directly to their consumers.
     pub(crate) const fn terminal_error(&self) -> Option<&Error> {

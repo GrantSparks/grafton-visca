@@ -223,6 +223,10 @@ impl Core {
         self.state.trace.borrow_mut().push("conclude");
         Rc::clone(&self.state.trace)
     }
+
+    fn driver_released(&self) {
+        self.state.trace.borrow_mut().push("driver_released");
+    }
 }
 
 impl Drop for Core {
@@ -382,8 +386,8 @@ fn expanded_shells_share_the_entire_core_call_order_and_teardown_barrier() {
         assert!(calls.contains(&"pace_receive"));
         assert!(calls.contains(&"redeliver"));
         assert_eq!(
-            &calls[calls.len() - 3..],
-            &["conclude", "driver:drop", "core:drop"]
+            &calls[calls.len() - 4..],
+            &["conclude", "driver:drop", "driver_released", "core:drop"]
         );
     }
 }

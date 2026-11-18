@@ -55,6 +55,7 @@ macro_rules! owner_turn_driver {
             // Drop drains boundaries that raced conclude before publishing
             // the final teardown barrier (#626).
             drop(driver);
+            self.core.driver_released();
             snapshot
         }
 

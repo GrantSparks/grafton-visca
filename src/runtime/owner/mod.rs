@@ -434,6 +434,8 @@ pub(crate) struct OwnerMetrics {
 struct RequestSummary {
     target: TargetSlot,
     lane: Lane,
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    applied_state_key: Option<StateKey>,
 }
 
 impl RequestSummary {
@@ -441,6 +443,8 @@ impl RequestSummary {
         Self {
             target: request.context().target,
             lane: request.lane(),
+            #[cfg(any(feature = "async", feature = "blocking"))]
+            applied_state_key: request.applied_state().map(AppliedStateProjection::key),
         }
     }
 }
@@ -1956,6 +1960,25 @@ impl OwnerState {
 
     pub(crate) fn state_cache_registry(&self) -> Arc<PerTarget<Mutex<TargetStateCache>>> {
         Arc::clone(&self.target_cache)
+    }
+
+    /// Invalidate cache keys without invoking transport or waking observers.
+    /// The owner record survives engine retirement until effects are delivered,
+    /// so it also identifies the key if retirement interrupted that delivery.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(super) fn invalidate_uncertain_state(&self) {
+        for (&id, active) in &self.active {
+            let summary = active.summary();
+            if let Some(key) = summary
+                .applied_state_key
+                .filter(|_| self.engine.may_have_applied(id).unwrap_or(true))
+            {
+                let mut cache = self.target_cache[summary.target]
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                cache.apply(AppliedStateProjection::invalidate(key));
+            }
+        }
     }
 
     pub(crate) fn next_wake(&self, now: Instant) -> Option<Instant> {

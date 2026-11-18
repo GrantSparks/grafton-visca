@@ -21,8 +21,9 @@ use crate::{
     ViscaSocket,
 };
 
+use crate::runtime::engine::TransportKind;
 #[cfg(feature = "runtime-tokio")]
-use crate::runtime::engine::{EnvelopeKind, FrameSequence, InquiryOutcome, TransportKind};
+use crate::runtime::engine::{EnvelopeKind, FrameSequence, InquiryOutcome};
 
 use crate::observability::DiagnosticEvent;
 use crate::runtime::engine::{DecodedFrame, SessionState};
@@ -41,7 +42,6 @@ use super::super::boundary::{CancellationBoundary, ControlBoundary};
 use super::super::ReceiptCore;
 use super::super::RuntimeOutcome;
 use super::*;
-#[cfg(feature = "runtime-tokio")]
 use crate::target::PerTarget;
 use crate::target::TargetSlot;
 use crate::{completion, CancellationOutcome};
@@ -64,6 +64,7 @@ mod release_boundary;
 mod retained_boundary;
 #[cfg(feature = "runtime-tokio")]
 mod retry_budget;
+mod teardown;
 
 use crate::runtime::owner::tests::{write_outcome, DiagnosticRecorder};
 
@@ -293,7 +294,6 @@ fn stream_policy(capacity: usize) -> OwnerPolicy {
 /// must exercise `drive()` itself, rather than a synthetic Wake, because
 /// only an awaited transmission completion recursively enters the engine
 /// between source selections.
-#[cfg(feature = "runtime-tokio")]
 fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
     let protocol = ProtocolPolicy {
         capacity: std::num::NonZeroUsize::new(3).unwrap(),
