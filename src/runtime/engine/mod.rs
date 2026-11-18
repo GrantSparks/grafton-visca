@@ -507,15 +507,6 @@ struct DueWork {
 #[derive(Debug)]
 pub(crate) struct InputTurn {
     now: Instant,
-    terminal_prefix: bool,
-}
-
-impl InputTurn {
-    /// Preserve all receive evidence before the framing verdict without
-    /// initiating a wire write against the already failed stream.
-    pub(crate) fn mark_terminal_prefix(&mut self) {
-        self.terminal_prefix = true;
-    }
 }
 
 impl DueWork {
@@ -1134,10 +1125,7 @@ trait EngineMethods: EngineAccess {
     /// calls [`Self::finish_input_turn_into`] exactly once with the selected
     /// [`EngineTurn`] boundary.
     fn begin_input_turn(&self, now: Instant) -> InputTurn {
-        InputTurn {
-            now,
-            terminal_prefix: false,
-        }
+        InputTurn { now }
     }
 
     /// Applies one input without running due deadlines or ordinary dispatch.
@@ -1155,7 +1143,6 @@ trait EngineMethods: EngineAccess {
             return;
         }
         let mut effects = Decision::new(sink);
-        effects.terminal_prefix = turn.terminal_prefix;
         self.apply_input(input, turn.now, &mut effects);
         self.finish_decision(turn.now, effects);
     }
@@ -1530,10 +1517,10 @@ trait EngineMethods: EngineAccess {
         }
     }
 
-    /// Sends every pacing-eligible cancellation whose ACK has already
-    /// established a command socket.  Cancellation is urgent with respect to
-    /// ordinary queued work, but its wire write still advances the shared
-    /// command spacing deadline.  Re-scan after each write so zero-spacing
+    /// Sends every pacing-eligible cancellation whose ACK established a
+    /// socket it still owns after the available replies have been applied.
+    /// Cancellations take priority over ordinary queued work, and their writes
+    /// advance the shared command spacing deadline. Re-scan so zero-spacing
     /// profiles drain the complete urgent set; a positive spacing naturally
     /// stops the scan after the first write advances [`Pacing::last_request`].
     fn drain_pending_cancellations(&mut self, now: Instant, effects: &mut Decision) {
@@ -3201,13 +3188,6 @@ trait EngineMethods: EngineAccess {
                 to: changed.to,
             });
         }
-        if let Some(pending) = self
-            .entries
-            .get(&id)
-            .and_then(|entry| entry.lifecycle().pending_cancellation())
-        {
-            self.emit_cancel(id, pending, now, effects);
-        }
     }
 
     fn completion(
@@ -3733,13 +3713,6 @@ trait EngineMethods: EngineAccess {
                     id,
                     observation: CancellationObservation::Recorded,
                 });
-                if let Some(pending) = self
-                    .entries
-                    .get(&id)
-                    .and_then(|entry| entry.lifecycle().pending_cancellation())
-                {
-                    self.emit_cancel(id, pending, now, effects);
-                }
             }
         }
         Ok(())
@@ -3755,9 +3728,7 @@ trait EngineMethods: EngineAccess {
         let Some(entry) = self.entries.get(&id) else {
             return;
         };
-        if effects.terminal_prefix || self.cancellation_send_at(entry) > now {
-            return;
-        }
+        debug_assert!(self.cancellation_send_at(entry) <= now);
         let ambiguity_deadline = pending.ambiguity_deadline().max(add_duration(
             now,
             entry.request.context().timeout.ambiguity.get(),

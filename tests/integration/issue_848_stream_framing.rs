@@ -34,19 +34,27 @@ fn assert_oversized_stream_poison(error: &Error) {
 
 struct Stream {
     camera: FakeCamera,
+    recv_buffer_size: usize,
 }
 
 impl Stream {
     fn new(camera: FakeCamera) -> Self {
-        Self { camera }
+        Self::with_recv_buffer_size(camera, 64)
     }
 
-    fn config() -> IoBounds {
+    fn with_recv_buffer_size(camera: FakeCamera, recv_buffer_size: usize) -> Self {
+        Self {
+            camera,
+            recv_buffer_size,
+        }
+    }
+
+    fn config(recv_buffer_size: usize) -> IoBounds {
         IoBounds::default()
             .with_buffer_config(
                 grafton_visca::transport::BufferConfig::default()
-                    .with_recv_buffer_size(64)
-                    .with_max_buffer_size(128),
+                    .with_recv_buffer_size(recv_buffer_size)
+                    .with_max_buffer_size(recv_buffer_size.max(128)),
             )
             .expect("buffer bounds")
     }
@@ -55,7 +63,7 @@ impl Stream {
     fn blocking_wire(&self) -> fake_camera::BlockingWire {
         self.camera
             .blocking_wire()
-            .with_config(Self::config())
+            .with_config(Self::config(self.recv_buffer_size))
             .with_semantics(SendSemantics::Stream)
     }
 
@@ -66,7 +74,7 @@ impl Stream {
     fn async_wire(&self) -> fake_camera::AsyncWire {
         self.camera
             .async_wire()
-            .with_config(Self::config())
+            .with_config(Self::config(self.recv_buffer_size))
             .with_semantics(SendSemantics::Stream)
     }
 }
@@ -82,7 +90,7 @@ impl Datagram {
         self.0
             .camera
             .blocking_wire()
-            .with_config(Stream::config())
+            .with_config(Stream::config(self.0.recv_buffer_size))
             .with_semantics(SendSemantics::Datagram)
     }
     #[cfg(all(
@@ -93,7 +101,7 @@ impl Datagram {
         self.0
             .camera
             .async_wire()
-            .with_config(Stream::config())
+            .with_config(Stream::config(self.0.recv_buffer_size))
             .with_semantics(SendSemantics::Datagram)
     }
 }
@@ -227,4 +235,170 @@ facade_matrix! {
         session.shutdown().unwrap();
     }
 
+}
+
+#[cfg(any(
+    feature = "runtime-tokio",
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
+))]
+mod cancellation {
+    use super::*;
+    use fake_camera::ZOOM_STOP;
+    use grafton_visca::operation::CancellationOutcome;
+    use std::{io, time::Duration};
+
+    const CANCEL_SOCKET_1: &[u8] = &[0x81, 0x21, 0xff];
+    const INITIAL_WAIT: Duration = Duration::from_millis(50);
+
+    fn fail_cancel_write() -> FakeCamera {
+        FakeCamera::visca(|payload, answer| {
+            if payload == CANCEL_SOCKET_1 {
+                answer.fail_send(io::Error::from(io::ErrorKind::BrokenPipe).into());
+            }
+        })
+    }
+
+    macro_rules! record_cancel_before_ack {
+        ($session:expr, $op:expr) => {{
+            assert!(matches!(
+                wait!($op.cancel_with_timeout(INITIAL_WAIT)),
+                Err(Error::ObservationTimeout { .. })
+            ));
+            assert_eq!(wait!($session.metrics()).unwrap().cancellations, 1);
+        }};
+    }
+
+    facade_matrix! {
+        paused:
+
+        fn a_raw_completion_in_the_same_read_suppresses_a_pending_socket_cancel() {
+            // With 63 notices the completion occupies slot 65 and must still
+            // beat a cancellation whose ACK was decoded in slot 1.
+            for notices in [0, 63] {
+                let fake = fail_cancel_write();
+                let stream = Stream::with_recv_buffer_size(fake.clone(), 1024);
+                let config = SessionConfig::from_compile_time::<GenericVisca>().unwrap();
+                let session = open!(stream, config).unwrap();
+                let camera = session.camera::<GenericVisca>(IndividualCameraId::CAMERA_1).unwrap();
+                let mut operation = wait!(camera.zoom().stop()).unwrap();
+                wait_for_writes!(fake, 1);
+                record_cancel_before_ack!(session, operation);
+
+                let mut burst = frames::ack(1);
+                for _ in 0..notices {
+                    burst.extend_from_slice(&[0x90, 0x38, 0xff]);
+                }
+                burst.extend(frames::complete(1));
+                fake.push(burst);
+
+                assert_eq!(wait!(operation.cancel()).unwrap(), CancellationOutcome::Completed);
+                wait!(operation.applied()).unwrap();
+                let metrics = wait!(session.metrics()).unwrap();
+                assert_eq!(metrics.session, SessionStatus::Running);
+                assert_eq!(metrics.received_frames, notices + 2);
+                assert_eq!(fake.read_count(), 1);
+                assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec()]);
+                wait!(session.close()).unwrap();
+            }
+        }
+
+        fn an_ack_without_another_complete_reply_sends_the_pending_socket_cancel_once() {
+            for split_confirmation in [false, true] {
+                let confirmation = frames::canceled(1);
+                let split = if split_confirmation { 2 } else { 0 };
+                let tail = confirmation[split..].to_vec();
+                let fake = FakeCamera::new(move |payload, answer| {
+                    if payload == CANCEL_SOCKET_1 {
+                        answer.reply(tail.clone());
+                    }
+                });
+                let config = SessionConfig::from_compile_time::<GenericVisca>().unwrap();
+                let session = open!(Stream::new(fake.clone()), config).unwrap();
+                let camera = session.camera::<GenericVisca>(IndividualCameraId::CAMERA_1).unwrap();
+                let mut operation = wait!(camera.zoom().stop()).unwrap();
+                wait_for_writes!(fake, 1);
+                record_cancel_before_ack!(session, operation);
+
+                // The partial reply can finish only after the write. Its
+                // prefix must allow the pending cancellation to proceed.
+                let mut burst = frames::ack(1);
+                burst.extend_from_slice(&confirmation[..split]);
+                fake.push(burst);
+
+                assert_eq!(wait!(operation.cancel()).unwrap(), CancellationOutcome::Cancelled);
+                assert!(matches!(wait!(operation.applied()), Err(Error::CommandCancelled)));
+                assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec(), CANCEL_SOCKET_1.to_vec()]);
+                wait!(session.close()).unwrap();
+            }
+        }
+
+        fn a_pending_cancel_keeps_its_completion_before_fatal_sony_framing_loss() {
+            let fake = fail_cancel_write();
+            let config = SessionConfig::from_compile_time::<SonyFr7>().unwrap();
+            let session = open!(Stream::new(fake.clone()), config).unwrap();
+            let camera = session.camera::<SonyFr7>(IndividualCameraId::CAMERA_1).unwrap();
+            let startup = fake.write_count();
+            let mut operation = wait!(camera.zoom().stop()).unwrap();
+            wait_for_writes!(fake, startup + 1);
+            record_cancel_before_ack!(session, operation);
+
+            let writes = fake.writes();
+            let (sequence, payload) = frames::sony_split(&writes[startup]).unwrap();
+            assert_eq!(payload, ZOOM_STOP);
+            fake.push([
+                frames::sony_reply(sequence, &frames::ack(1)),
+                frames::sony_reply(sequence, &frames::complete(1)),
+                OVERSIZED_SONY_HEADER.to_vec(),
+            ].concat());
+
+            assert_eq!(wait!(operation.cancel()).unwrap(), CancellationOutcome::Completed);
+            wait!(operation.applied()).unwrap();
+            assert_oversized_stream_poison(&wait!(session.close()).unwrap_err());
+            assert_eq!(fake.writes(), writes);
+        }
+
+        fn a_sony_socket_reassignment_in_the_same_datagram_suppresses_a_pending_cancel() {
+            for first_completes_in_burst in [true, false] {
+                let fake = FakeCamera::silent();
+                let config = SessionConfig::from_compile_time::<SonyFr7>().unwrap();
+                let session = open!(Datagram::new(fake.clone()), config).unwrap();
+                let camera = session.camera::<SonyFr7>(IndividualCameraId::CAMERA_1).unwrap();
+                let startup = fake.write_count();
+                let mut first = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Tele)).unwrap();
+                wait_for_writes!(fake, startup + 1);
+                let mut next = wait!(camera.submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Wide)).unwrap();
+                wait_for_writes!(fake, startup + 2);
+                // The observation wait outlasts the FR7's 35 ms write pacing.
+                record_cancel_before_ack!(session, first);
+
+                let writes = fake.writes();
+                let (first_seq, first_payload) = frames::sony_split(&writes[startup]).unwrap();
+                let (next_seq, next_payload) = frames::sony_split(&writes[startup + 1]).unwrap();
+                assert_eq!(first_payload, ZOOM_TELE);
+                assert_eq!(next_payload, [0x81, 0x01, 0x04, 0x07, 0x03, 0xff]);
+                let mut burst = frames::sony_reply(first_seq, &frames::ack(1));
+                if first_completes_in_burst {
+                    burst.extend(frames::sony_reply(first_seq, &frames::complete(1)));
+                }
+                burst.extend(frames::sony_reply(next_seq, &frames::ack(1)));
+                fake.push(burst);
+
+                if first_completes_in_burst {
+                    assert_eq!(wait!(first.cancel()).unwrap(), CancellationOutcome::Completed);
+                } else {
+                    assert!(matches!(wait!(first.cancel()), Err(Error::CancellationUnconfirmed)));
+                    fake.push(frames::sony_reply(first_seq, &frames::complete(1)));
+                }
+                wait!(first.applied()).unwrap();
+                fake.push(frames::sony_reply(next_seq, &frames::complete(1)));
+                wait!(next.applied()).unwrap();
+                assert_eq!(wait!(session.metrics()).unwrap().session, SessionStatus::Running);
+                assert_eq!(fake.writes(), writes);
+                wait!(session.close()).unwrap();
+            }
+        }
+    }
 }

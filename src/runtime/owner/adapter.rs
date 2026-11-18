@@ -483,10 +483,6 @@ impl<T, F> TransportAdapter<T, F> {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl<T, F> RetainedStreamInput for TransportAdapter<T, F> {
-    fn has_terminal_prefix(&self) -> bool {
-        self.framing.has_terminal_prefix()
-    }
-
     fn retained(&mut self) -> Option<RetainedInput<'_>> {
         self.framing.retained()
     }
@@ -707,16 +703,6 @@ impl AdapterFraming {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl RetainedStreamInput for AdapterFraming {
-    fn has_terminal_prefix(&self) -> bool {
-        matches!(
-            self.framing,
-            EnvelopeFraming::Sony {
-                terminal_prefix: true,
-                ..
-            }
-        )
-    }
-
     fn retained(&mut self) -> Option<RetainedInput<'_>> {
         if !self.is_stream() {
             return None;

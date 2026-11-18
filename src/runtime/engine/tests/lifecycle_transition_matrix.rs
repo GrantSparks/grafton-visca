@@ -331,7 +331,8 @@ impl Fixture {
         if state == AwaitingCancellationResolution {
             let input = engine.cancel_input(id);
             let cancel = checked_input(&mut engine, input, now);
-            transmission = cancel_transmit(&cancel).0;
+            assert!(cancel_transmit_optional(&cancel).is_none());
+            transmission = cancel_transmit(&engine.advance(now)).0;
             checked_input(
                 &mut engine,
                 Input::TransmissionFinished {
@@ -520,21 +521,13 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
                     Executing => {
                         assert!(matches!(
                             fixture.engine.entry(fixture.id).unwrap().cancellation(),
-                            CancelState::Sending { .. }
+                            CancelState::Requested { .. }
                         ));
-                        assert_eq!(
-                            effects
-                                .iter()
-                                .filter(|effect| matches!(
-                                    effect,
-                                    Effect::Transmit {
-                                        kind: Transmission::Cancel { .. },
-                                        ..
-                                    }
-                                ))
-                                .count(),
-                            1
-                        );
+                        assert!(cancel_transmit_optional(&effects).is_none());
+                        let flushed = fixture.engine.advance(fixture.now);
+                        let (_, request, socket) = cancel_transmit(&flushed);
+                        assert_eq!(request, fixture.id);
+                        assert_eq!(socket, ViscaSocket::S1);
                     }
                     AwaitingCompletion => {
                         assert!(effects.iter().any(|effect| matches!(

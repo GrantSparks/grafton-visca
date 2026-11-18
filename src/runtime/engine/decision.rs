@@ -29,7 +29,6 @@ impl DeferredEvidence {
 pub(super) struct Decision<'a> {
     effects: &'a mut Vec<Effect>,
     start: usize,
-    pub(super) terminal_prefix: bool,
     deferred: DeferredEvidence,
 }
 impl<'a> Decision<'a> {
@@ -38,7 +37,6 @@ impl<'a> Decision<'a> {
         Self {
             effects,
             start,
-            terminal_prefix: false,
             deferred: DeferredEvidence::default(),
         }
     }

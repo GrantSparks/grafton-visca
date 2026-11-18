@@ -763,10 +763,7 @@ impl OwnerShellCore {
         // Real bytes decoded: the transport is not idle, so restart the
         // no-data escalation (#675).
         self.idle_receives.reset();
-        let mut turn = self.state.begin_input_turn(received_at);
-        if frames.framing_failure.is_some() || driver.has_terminal_prefix() {
-            turn.0.mark_terminal_prefix();
-        }
+        let turn = self.state.begin_input_turn(received_at);
         self.begin_frame_batch(turn, frames, driver)
     }
 
@@ -1630,10 +1627,6 @@ mod tests {
 
         struct TerminalPrefix(Option<FrameBatch>);
         impl RetainedStreamInput for TerminalPrefix {
-            fn has_terminal_prefix(&self) -> bool {
-                self.0.is_some()
-            }
-
             fn drain_terminal_prefix(&mut self, _: &mut OwnerBuffers) -> Option<FrameBatch> {
                 self.0.take()
             }

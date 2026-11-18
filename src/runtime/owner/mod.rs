@@ -1732,10 +1732,6 @@ impl RawRetention<'_> {
 
 /// Inspect and drain input already retained by the stream framer.
 pub(crate) trait RetainedStreamInput {
-    fn has_terminal_prefix(&self) -> bool {
-        false
-    }
-
     /// The next bounded batch of a read whose buffered tail already proves
     /// position loss. No transport I/O or new receive turn is needed.
     fn drain_terminal_prefix(&mut self, _buffers: &mut OwnerBuffers) -> Option<FrameBatch> {
