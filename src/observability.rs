@@ -249,10 +249,10 @@ pub enum DiagnosticResponse {
     InquiryReply,
     /// A protocol error response was received.
     Error,
-    /// A Sony transport-control reply was received.
+    /// A Sony transport-control error or reset acknowledgement was received.
     #[non_exhaustive]
     SonyControl {
-        /// The one- or two-byte control reply code, stored in network order.
+        /// The one- or two-byte control code, stored in network order.
         code: u16,
     },
     /// A network-change response was received.

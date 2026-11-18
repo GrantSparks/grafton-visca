@@ -211,7 +211,7 @@ For Sony VISCA-over-IP mode, use UDP `52381` and the Sony 8-byte header:
 Byte 0-1: payload type
 Byte 2-3: payload length
 Byte 4-7: sequence number
-Byte 8+:  VISCA payload, ending in FF (FR7 position commands use 17 bytes)
+Byte 8+:  payload (VISCA frames end in FF; FR7 position commands use 17 bytes)
 ```
 
 Common payload types:
@@ -229,13 +229,13 @@ In Sony VISCA-over-IP, the VISCA device address is fixed as camera `1`, so norma
 
 Sony's sequence-number RESET is a control command with a one-byte `01`
 payload: `02 00 00 01 00 00 00 00 01`. The header sequence field is ignored,
-and successful processing resets the next VISCA sequence to zero. A control
-reply uses `02 01`; the documented success payload is `01`, while protocol
-errors use two bytes such as `0F 01` (sequence abnormality) or `0F 02` (message
-type abnormality). These payloads are not terminated VISCA frames and must not
-be used to complete or correlate a VISCA request. The library leaves RESET
-disabled on connect unless the caller opts in, and exposes received control
-codes through diagnostics.
+and successful processing resets the next VISCA sequence to zero. The camera
+acknowledges RESET with payload `01` in a control reply (`02 01`). Camera-issued
+errors use a control command (`02 00`) with payload `0F 01` for a sequence error
+or `0F 02` for a message type error. The library exposes these codes through
+diagnostics independently of VISCA request correlation and completion. Control
+payloads have no `FF` terminator. RESET is disabled on connect unless the caller
+opts in. [Sony ILME-FR7 Command List, pp. 5–7](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf#page=5)
 
 `DirectMenuControl` deliberately rejects the data pair `FF 81..88`. Other
 `FF` data values, including a final `FF`, remain byte-for-byte and receive a

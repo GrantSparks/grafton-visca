@@ -311,18 +311,26 @@ impl SonyEncapsulated {
         framed: crate::protocol::framer::SonyFrame<'a>,
     ) -> Result<SonyResponse<'a>, MalformedFrame> {
         let payload = framed.payload();
-        match framed.payload_type() {
-            PayloadType::ViscaReply => {
+        match (framed.payload_type(), payload) {
+            (PayloadType::ViscaReply, _) => {
                 sony_visca_payload(payload)?;
                 Ok(SonyResponse::Visca {
                     payload,
                     sequence: FrameSequence::from_reply_header(framed.sequence()),
                 })
             }
-            PayloadType::ControlReply => Ok(SonyResponse::Control {
-                code: decode_sony_control_reply(payload)?,
-            }),
-            _ => Err(SonyMalformed::PayloadType(framed.payload_type()).into()),
+            // Sony FR7 command list, pp. 5 and 7: camera ERROR uses a
+            // control command envelope, while the RESET ACK uses a reply.
+            (PayloadType::ControlCommand, [0x0F, detail @ (0x01 | 0x02)]) => {
+                Ok(SonyResponse::Control {
+                    code: u16::from_be_bytes([0x0F, *detail]),
+                })
+            }
+            (PayloadType::ControlReply, [0x01]) => Ok(SonyResponse::Control { code: 0x0001 }),
+            (kind @ (PayloadType::ControlCommand | PayloadType::ControlReply), _) => {
+                Err(SonyMalformed::ControlPayload(kind).into())
+            }
+            (kind, _) => Err(SonyMalformed::PayloadType(kind).into()),
         }
     }
 }
@@ -338,8 +346,8 @@ pub(crate) enum SonyMalformed {
     PayloadLength { actual: usize },
     #[error("Sony VISCA payload must end with the 0xFF VISCA terminator")]
     PayloadTerminator,
-    #[error("Sony control reply payload must contain one or two bytes")]
-    ControlReplyLength,
+    #[error("Unexpected Sony {0:?} payload in response")]
+    ControlPayload(PayloadType),
 }
 
 impl From<SonyMalformed> for Error {
@@ -394,16 +402,6 @@ fn normalize_address(original_addr: u8, addressing: AddressingMode) -> u8 {
     match addressing {
         AddressingMode::Serial => original_addr,
         AddressingMode::Ip => IP_DEVICE_ADDR,
-    }
-}
-
-/// Decode the bounded payload grammar used by Sony control replies.
-#[cfg(any(feature = "blocking", feature = "async"))]
-fn decode_sony_control_reply(payload: &[u8]) -> Result<u16, SonyMalformed> {
-    match payload {
-        [code] => Ok(u16::from(*code)),
-        [class, detail] => Ok(u16::from_be_bytes([*class, *detail])),
-        _ => Err(SonyMalformed::ControlReplyLength),
     }
 }
 
@@ -988,8 +986,8 @@ mod tests {
             ),
             (
                 frame(PayloadType::ControlReply, 0, &[]),
-                SonyMalformed::ControlReplyLength,
-                "Sony control reply payload must contain one or two bytes",
+                SonyMalformed::ControlPayload(PayloadType::ControlReply),
+                "Unexpected Sony ControlReply payload in response",
             ),
         ];
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
@@ -1041,47 +1039,48 @@ mod tests {
 
     #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
-    fn sony_control_replies_are_classified_for_owner_diagnostics() {
+    fn sony_camera_control_messages_are_classified_for_owner_diagnostics() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let frame = |payload: &[u8]| {
-            let header = SonyHeader {
-                payload_type: PayloadType::ControlReply,
-                payload_length: payload.len() as u16,
-                sequence_number: 42,
-            };
-            let mut framed = header.encode().to_vec();
-            framed.extend_from_slice(payload);
-            framed
-        };
-
-        let ack = frame(&[0x01]);
-        assert!(matches!(
-            envelope.extract_owner_response(frame_view(&ack)),
-            Ok(SonyResponse::Control { code: 0x0001 })
-        ));
-        let sequence_error = frame(&[0x0F, 0x01]);
-        assert!(matches!(
-            envelope.extract_owner_response(frame_view(&sequence_error)),
-            Ok(SonyResponse::Control { code: 0x0F01 })
-        ));
+        for (wire, code) in [
+            (&[0x02, 0x01, 0, 1, 0, 0, 0, 42, 0x01][..], 0x0001),
+            (&[0x02, 0x00, 0, 2, 0, 0, 0, 42, 0x0F, 0x01][..], 0x0F01),
+            (&[0x02, 0x00, 0, 2, 0, 0, 0, 42, 0x0F, 0x02][..], 0x0F02),
+        ] {
+            assert_eq!(
+                envelope.extract_owner_response(frame_view(wire)),
+                Ok(SonyResponse::Control { code })
+            );
+        }
     }
 
     #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
-    fn malformed_sony_control_reply_lengths_are_rejected() {
+    fn sony_control_rejects_bad_lengths_codes_and_directions() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        for payload in [&[][..], &[0x0F, 0x01, 0x02][..]] {
-            let header = SonyHeader {
-                payload_type: PayloadType::ControlReply,
-                payload_length: payload.len() as u16,
-                sequence_number: 0,
-            };
-            let mut framed = header.encode().to_vec();
-            framed.extend_from_slice(payload);
-            assert!(matches!(
-                envelope.extract_owner_response(frame_view(&framed)),
-                Err(MalformedFrame::Sony(SonyMalformed::ControlReplyLength))
-            ));
+        for (kind, invalid) in [
+            (
+                PayloadType::ControlCommand,
+                [&[][..], &[0x01], &[0x0F, 0x03], &[0x0F, 0x01, 0x00]],
+            ),
+            (
+                PayloadType::ControlReply,
+                [&[][..], &[0x02], &[0x0F, 0x01], &[0x01, 0x00, 0x00]],
+            ),
+        ] {
+            for payload in invalid {
+                let mut framed = SonyHeader {
+                    payload_type: kind,
+                    payload_length: payload.len() as u16,
+                    sequence_number: 0,
+                }
+                .encode()
+                .to_vec();
+                framed.extend_from_slice(payload);
+                assert_eq!(
+                    envelope.extract_owner_response(frame_view(&framed)),
+                    Err(MalformedFrame::Sony(SonyMalformed::ControlPayload(kind)))
+                );
+            }
         }
     }
 }
