@@ -24,6 +24,7 @@ mod inquiry_golden_tests_simple;
 mod inquiry_response_parsing_tests;
 mod inquiry_simulator_test;
 mod issue_1028_state_cache;
+mod issue_1118_cancellation_response_clock;
 mod issue_363_coordinate_systems;
 mod issue_527_transport_compatibility;
 mod issue_542_async_close;
