@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-18
+
 2.0 is a breaking upgrade from 1.x, with owner-backed sessions, matching
 blocking and async camera APIs, checked values and source-backed profiles.
 See [the migration guide](docs/migration_2_0.md) for caller changes.
