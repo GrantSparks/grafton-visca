@@ -63,6 +63,7 @@ pub(crate) struct NounRow {
 }
 
 impl NounRow {
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn settlement_marker(&self) -> Option<&'static str> {
         use crate::command::{
             semantics::{BuiltinAxisSelection, BuiltinRequestClass},

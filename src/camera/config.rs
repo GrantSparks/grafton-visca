@@ -120,6 +120,7 @@ impl TransportOptions {
     }
 
     /// The selected standard descriptor, or a caller-owned transport selection.
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) const fn identity(&self) -> Option<crate::transport::TransportIdentity<'static>> {
         match self {
             Self::Tcp { .. } => Some(crate::transport::TransportIdentity::Tcp),

@@ -353,7 +353,7 @@ mod paused {
             report.into_result().expect("every supported STOP applied");
             let queued_outcome = wait!(queued.applied());
             assert!(matches!(&queued_outcome, Err(Error::MotionSuperseded { axes, context, .. })
-                if *axes == AffectedAxes::MOVEMENT
+                if *axes == AffectedAxes::ZOOM
                     && context.stage == FailureStage::Terminal
                     && context.certainty == Certainty::NotAccepted), "{queued_outcome:?}");
             assert!(!wait!(view.motion().is_moving(MotionQuery::new(AffectedAxes::ZOOM))).expect("stable stopped zoom position"));

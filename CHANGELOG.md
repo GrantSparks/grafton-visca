@@ -104,8 +104,8 @@ verification.
   and `IoBounds`. Serial takes `SerialConfig` and `IoBounds`. String hooks
   and direct async transport constructors are removed. `TransportConfig`
   and its presets are removed. Set the network address on the selected TCP or
-  UDP options. Caller-owned transports report bounds through
-  `HasTransportConfig::io_bounds()` (#1089, #1090).
+  UDP options in place of `CameraConfig::with_address`. Caller-owned transports
+  report bounds through `HasTransportConfig::io_bounds()` (#1089, #1090).
 
 - **BREAKING**: `subscribe_diagnostics` takes a checked `DiagnosticCapacity` and
   `OperationalTuning::with_retry_limit` takes a checked `RetryLimit`. Values

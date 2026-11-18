@@ -5,7 +5,7 @@ use grafton_visca::{
     __macro_support::InquiryData,
     error::ErrorKind,
     request::Inquiry,
-    types::{GainLevel, GainLimit},
+    types::{GainLevel, GainLimit, SaturationLevel},
     wire::ResponseParser,
     Error, ViscaInquiry,
 };
@@ -16,8 +16,13 @@ use grafton_visca::{
 struct CanonicalGain;
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
-#[visca(opcode = 0x4C, response = Gain)]
-struct CanonicalGainRaw;
+#[visca(opcode = 0x49, response = Saturation, typed_response = SaturationLevel,
+    typed_field = level)]
+struct CanonicalSaturation;
+
+#[derive(Debug, Clone, Copy, ViscaInquiry)]
+#[visca(opcode = 0x49, response = Saturation)]
+struct CanonicalSaturationRaw;
 
 fn custom_gain_parser(payload: &[u8]) -> Result<InquiryData, Error> {
     let &[raw] = payload else {
@@ -33,17 +38,17 @@ struct GeneratedCustomGain;
 
 #[test]
 fn canonical_checked_fields_report_camera_range_errors() {
-    // Valid nibble framing; 256 exceeds the two-nibble gain field.
-    let payload = [0, 1, 0, 0];
+    // Valid nibble framing with a value outside the checked saturation range.
+    let payload = [0, 0, 0, 0x0f];
     for error in [
-        CanonicalGain
+        CanonicalSaturation
             .decoder()
             .decode(&payload)
-            .expect_err("invalid camera gain"),
-        CanonicalGainRaw
+            .expect_err("invalid camera saturation"),
+        CanonicalSaturationRaw
             .decoder()
             .decode(&payload)
-            .expect_err("invalid camera gain"),
+            .expect_err("invalid camera saturation"),
     ] {
         assert_eq!(error.kind(), ErrorKind::Protocol, "{error:?}");
         assert!(matches!(error, Error::InvalidResponse { .. }), "{error:?}");

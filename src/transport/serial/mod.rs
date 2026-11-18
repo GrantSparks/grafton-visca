@@ -13,8 +13,8 @@
 //! - **Open failure** is [`Error::ConnectionFailed`] naming the port and
 //!   carrying the platform error, so its [`std::io::ErrorKind`] survives.
 //! - **Reported configuration.** The transport reports
-//!   [`Config::io_bounds`]: serial addressing and no TCP socket
-//!   options.
+//!   [`HasTransportConfig::io_bounds`](crate::transport::HasTransportConfig::io_bounds)
+//!   and serial addressing through `identity()`.
 //! - **Writes on open.** Only those [`Config::startup`] requests; the default
 //!   writes nothing. After any startup operation the received input is
 //!   discarded, so no startup reply, echo or bus notification reaches the

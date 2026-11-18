@@ -2,6 +2,7 @@ use super::*;
 use crate::runtime::owner::turn::{
     clamp_receive_pause, transient_receive_pause, TransientFaultRun,
 };
+#[cfg(feature = "runtime-tokio")]
 use crate::transport::IoBounds;
 
 /// #1020: an overdue raw hold cannot zero-clamp a failed release probe's

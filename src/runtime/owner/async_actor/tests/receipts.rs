@@ -324,7 +324,6 @@ async fn halt_after_accepted_shutdown_is_rejected_at_the_handle() {
 }
 
 use super::*;
-#[cfg(feature = "runtime-tokio")]
 use crate::observability::DiagnosticCapacity;
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::owner::boundary::PreAdmissionRejection;
