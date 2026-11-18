@@ -1321,6 +1321,7 @@ mod tests {
 
     #[test]
     fn buffered_frames_do_not_prove_a_later_raw_release() {
+        use super::super::turn::{ReceiveArm, SourcePhase};
         use crate::runtime::engine::{
             DecodedFrame, DecodedResponse, EncodedMessage, RuntimeRequest,
         };
@@ -1380,10 +1381,12 @@ mod tests {
         );
         run_turn(&mut core, step);
         let release_at = at + Duration::from_secs(1);
-        assert!(!core
-            .state
-            .raw_correlation_releases_due(release_at)
-            .is_empty());
+        let releases = core.state.raw_correlation_releases_due(release_at);
+        assert!(!releases.is_empty());
+        let _ = core.coordinator.release_mut().observe(releases);
+        core.coordinator
+            .release_mut()
+            .wait_for_input_until(release_at);
 
         // The last buffered batch exhausts the framer at the hold deadline.
         // Its frames still belong to the preceding read, before the hold.
@@ -1410,11 +1413,7 @@ mod tests {
         core.coordinator
             .set_fairness_ceiling(std::num::NonZeroUsize::MIN);
         assert!(core.finish(
-            NonBoundarySelected::receive(
-                core.state.raw_correlation_releases_due(release_at),
-                ReceiveClass::Other,
-            )
-            .kind(),
+            NonBoundarySelected::receive(releases, ReceiveClass::Other).kind(),
             None,
             outcome,
         ));
@@ -1422,6 +1421,14 @@ mod tests {
             !core.begin_turn(),
             "the native probe precedes a forced fairness turn"
         );
+        {
+            let (TurnPlan::Select { selection, .. }, _, _) = core.plan(release_at, &mut Datagrams)
+            else {
+                panic!("the release must select a native probe");
+            };
+            assert_eq!(selection.phase, SourcePhase::ReceiveFirst);
+            assert_eq!(selection.receive, ReceiveArm::Poll);
+        }
 
         let fresh = vec![frame(DecodedResponse::NetworkChange)];
         let step = core.handle(

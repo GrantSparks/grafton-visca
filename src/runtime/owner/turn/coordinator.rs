@@ -771,7 +771,9 @@ impl<B> OwnerCoordinator<B> {
             self.control_allowance_consumed_for = Some(wake);
         }
         if outcome == TurnOutcome::ProbeAfterBufferedDrain {
-            self.release.clear_fence();
+            // The old prefix has drained. Neither a prior no-input proof nor
+            // its grace timer can stand in for polling the now-empty framer.
+            self.release.complete();
         }
         let receive = matches!(
             selected,

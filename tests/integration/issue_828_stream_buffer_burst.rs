@@ -191,7 +191,8 @@ mod read_timing {
             let late = self.split || self.first_read_at > DEADLINE;
             if late {
                 assert!(
-                    matches!(result, Err(Error::Timeout { .. })),
+                    matches!(&result, Err(Error::InquiryFailed { source })
+                        if matches!(source.as_ref(), Error::Timeout { .. })),
                     "{self:?}: {result:?}"
                 );
             } else {
