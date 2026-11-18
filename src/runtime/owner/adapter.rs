@@ -148,8 +148,8 @@ impl Routing {
     }
 }
 
-/// Sony control replies carry no VISCA source. Its payload routing still
-/// follows the transport's addressing for ordinary VISCA replies.
+/// Sony control messages carry no VISCA source. Ordinary VISCA replies use
+/// the transport's addressing for routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SonyRouting {
     target: TargetSlot,

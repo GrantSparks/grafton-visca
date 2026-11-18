@@ -160,8 +160,7 @@ pub(crate) enum SonyResponse<'a> {
         payload: &'a [u8],
         sequence: FrameSequence,
     },
-    /// A Sony transport-control reply, which is diagnostic and never correlates
-    /// to a VISCA request.
+    /// A Sony transport-control message used only for diagnostics.
     Control { code: u16 },
 }
 
