@@ -1659,7 +1659,7 @@ pub(crate) enum RetainedInput<'a> {
 #[derive(Debug)]
 pub(crate) enum RawRetention<'a> {
     Framed(crate::protocol::framer::RetainedRawFrame<'a>),
-    #[cfg(all(test, feature = "runtime-tokio"))]
+    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     Flag {
         evidence: RawPrefixEvidence,
         buffered: &'a mut bool,
@@ -1685,7 +1685,7 @@ impl RawRetention<'_> {
     fn len(&self) -> std::num::NonZeroUsize {
         match self {
             Self::Framed(frame) => frame.len(),
-            #[cfg(all(test, feature = "runtime-tokio"))]
+            #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
             Self::Flag { .. } => std::num::NonZeroUsize::MIN,
             #[cfg(all(test, feature = "runtime-tokio"))]
             Self::AtomicFlag { .. } => std::num::NonZeroUsize::MIN,
@@ -1702,7 +1702,7 @@ impl RawRetention<'_> {
                     RawPrefixEvidence::Incomplete { target, kind }
                 }
             },
-            #[cfg(all(test, feature = "runtime-tokio"))]
+            #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
             Self::Flag { evidence, .. } => *evidence,
             #[cfg(all(test, feature = "runtime-tokio"))]
             Self::AtomicFlag { evidence, .. } => *evidence,
@@ -1712,7 +1712,7 @@ impl RawRetention<'_> {
     pub(crate) fn discard_first(self) -> std::num::NonZeroUsize {
         match self {
             Self::Framed(frame) => frame.discard_first(),
-            #[cfg(all(test, feature = "runtime-tokio"))]
+            #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
             Self::Flag { buffered, .. } => {
                 *buffered = false;
                 std::num::NonZeroUsize::MIN
