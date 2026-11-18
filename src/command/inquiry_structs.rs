@@ -173,10 +173,11 @@ where
     C::probe_samples(target.profile())?
         .into_iter()
         .map(|command| {
-            // Discovery bypasses only the source/grant gate. Parameter values,
-            // target-specific framing and typed reply decoding remain canonical.
+            // Discovery keeps parameter validation and target-specific framing.
+            // Capture raw replies even when the profile cannot bind a typed
+            // decoder, and record that refusal alongside the received bytes.
             command.probe_validate_arguments(target.profile())?;
-            let decoder = command.decoder_for_profile(target.profile())?;
+            let decoder = command.decoder_for_profile(target.profile());
             let mut request = vec![0; C::MAX_SIZE];
             let len = command.write_for_target(
                 target,
@@ -193,7 +194,11 @@ where
                 |decoder, payload| {
                     Ok(ProbeReply {
                         payload: payload.to_vec(),
-                        decoded: decoder.decode(payload).map(|value| format!("{value:?}")),
+                        decoded: decoder
+                            .as_ref()
+                            .map_err(Clone::clone)
+                            .and_then(|decoder| decoder.decode(payload))
+                            .map(|value| format!("{value:?}")),
                     })
                 },
                 crate::request::InquiryRetryClass::Never,

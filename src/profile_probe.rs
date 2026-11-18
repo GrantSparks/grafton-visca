@@ -814,6 +814,26 @@ mod tests {
     }
 
     #[test]
+    fn probe_keeps_raw_bytes_when_the_profile_cannot_bind_a_typed_decoder() {
+        let target = TargetRegistration::new(
+            crate::IndividualCameraId::CAMERA_1,
+            ProfileId::SonyFr7.spec().expect("profile"),
+        );
+        let entry = metadata(InquiryKind::ColorTemperature);
+        assert!((entry.validate)(target.profile()).is_err());
+        let queries = (entry.prepare_probe)(&target).expect("read-only color-temperature inquiry");
+        let decoder = crate::Inquiry::decoder(&queries[0].inquiry);
+        let reply = decoder.decode(&[0x12]).expect("captured payload");
+        assert_eq!(reply.payload, [0x12]);
+        assert!(matches!(
+            reply.decoded,
+            Err(Error::FeatureNotSupported {
+                feature: "color-temperature inquiry"
+            })
+        ));
+    }
+
+    #[test]
     fn failed_requests_are_reported_without_fabricating_reply_bytes_or_candidates() {
         let settings = ProbeSettings::new(
             "127.0.0.1",
