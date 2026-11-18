@@ -884,11 +884,10 @@ verification.
 
 - Pan/tilt motion queries and targeted settlement validate sampled raw positions
   against the registered mount and axis ranges. An invalid sample fails the
-  observation with the original response bytes. Direct raw-unit position
-  inquiries retain their existing behavior (#1120).
+  observation with the original response bytes (#1120).
 - Raw and downstream requests reject standard VISCA command frames declared as
   inquiries, and standard inquiry frames declared as commands or operations,
-  before admission. Other wire categories retain their declared policy (#1121).
+  before admission (#1121).
 - A targeted settlement wait checks for supersession before each position
   inquiry, including between axes, and retains its superseded result (#1122).
 - Abnormal owner teardown invalidates uncertain cached writes before releasing
@@ -899,12 +898,12 @@ verification.
 - DNS resolution and socket setup spend one connection timeout across all
   address attempts, using the clock that drives the async runtime's timer (#1126).
 - FR7 pan/tilt drive socket cancellation waits at least 200 ms after the drive
-  write. A subsequent drive waits for terminal evidence and at least 200 ms
-  after the cancel write (#1127).
-- Sony sequence and message-type errors reach diagnostics as control commands
-  and leave active VISCA requests unchanged (#1128).
-- Sony-framed version inquiries use device-setting payload type `01 20`,
-  including on retry (#1129).
+  write. Once cancellation is sent, a subsequent drive requires a matching
+  `Command Canceled` response and at least 200 ms after the cancel write (#1127).
+- Sony sequence and message-type errors reach diagnostics independently of
+  VISCA request correlation (#1128).
+- FR7 and BRC-H900 version inquiries use the Sony device-setting envelope
+  (`01 20`), including on retry (#1129).
 
 - An applied or cancellation wait that observes a late terminal returns
   `ObservationTimeout`. A fresh wait on that handle can recover the terminal
