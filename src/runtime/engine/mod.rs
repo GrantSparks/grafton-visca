@@ -507,6 +507,15 @@ struct DueWork {
 #[derive(Debug)]
 pub(crate) struct InputTurn {
     now: Instant,
+    terminal_prefix: bool,
+}
+
+impl InputTurn {
+    /// Preserve all receive evidence before the framing verdict without
+    /// initiating a wire write against the already failed stream.
+    pub(crate) fn mark_terminal_prefix(&mut self) {
+        self.terminal_prefix = true;
+    }
 }
 
 impl DueWork {
@@ -1125,7 +1134,10 @@ trait EngineMethods: EngineAccess {
     /// calls [`Self::finish_input_turn_into`] exactly once with the selected
     /// [`EngineTurn`] boundary.
     fn begin_input_turn(&self, now: Instant) -> InputTurn {
-        InputTurn { now }
+        InputTurn {
+            now,
+            terminal_prefix: false,
+        }
     }
 
     /// Applies one input without running due deadlines or ordinary dispatch.
@@ -1143,6 +1155,7 @@ trait EngineMethods: EngineAccess {
             return;
         }
         let mut effects = Decision::new(sink);
+        effects.terminal_prefix = turn.terminal_prefix;
         self.apply_input(input, turn.now, &mut effects);
         self.finish_decision(turn.now, effects);
     }
@@ -3742,7 +3755,7 @@ trait EngineMethods: EngineAccess {
         let Some(entry) = self.entries.get(&id) else {
             return;
         };
-        if self.cancellation_send_at(entry) > now {
+        if effects.terminal_prefix || self.cancellation_send_at(entry) > now {
             return;
         }
         let ambiguity_deadline = pending.ambiguity_deadline().max(add_duration(

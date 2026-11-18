@@ -8,7 +8,7 @@
 #[cfg(any(test, feature = "test-utils"))]
 use crate::{transport::SendSemantics, OperationalTuning};
 
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, sync::Arc};
 
 #[cfg(test)]
 use bytes::Bytes;
@@ -426,7 +426,9 @@ impl<T, F> TransportAdapter<T, F> {
     pub(super) fn buffered(&mut self, buffers: &mut OwnerBuffers) -> Option<OwnerReceive> {
         match self.framing.drain_buffered(buffers) {
             Ok(frames) => frames.map(OwnerReceive::Frames),
-            Err(error) => Some(error.owner_receive()),
+            Err(_) => Some(OwnerReceive::NoProgress(
+                NoProgressReason::MalformedDatagram,
+            )),
         }
     }
 
@@ -463,7 +465,6 @@ impl<T, F> TransportAdapter<T, F> {
                         cause: Error::ResponseTooLarge {
                             max_size: buffers.receive_mut().len(),
                         },
-                        discarded: 0,
                     }),
                 };
             }
@@ -475,15 +476,23 @@ impl<T, F> TransportAdapter<T, F> {
         };
         match decoded {
             Ok(frames) => OwnerReceive::Frames(frames),
-            Err(error) => error.owner_receive(),
+            Err(_) => OwnerReceive::NoProgress(NoProgressReason::MalformedDatagram),
         }
     }
 }
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl<T, F> RetainedStreamInput for TransportAdapter<T, F> {
+    fn has_terminal_prefix(&self) -> bool {
+        self.framing.has_terminal_prefix()
+    }
+
     fn retained(&mut self) -> Option<RetainedInput<'_>> {
         self.framing.retained()
+    }
+
+    fn drain_terminal_prefix(&mut self, buffers: &mut OwnerBuffers) -> Option<FrameBatch> {
+        self.framing.drain_terminal_prefix(buffers)
     }
 }
 
@@ -512,6 +521,7 @@ enum EnvelopeFraming {
         envelope: SonyEncapsulated,
         framer: SonyFramer,
         routing: SonyRouting,
+        terminal_prefix: bool,
     },
 }
 
@@ -582,6 +592,7 @@ impl AdapterFraming {
                         envelope,
                         framer: SonyFramer::new(config.buffer_config()),
                         routing,
+                        terminal_prefix: false,
                     },
                     wire,
                 )
@@ -635,7 +646,7 @@ impl AdapterFraming {
         &mut self,
         buffers: &mut OwnerBuffers,
         received: usize,
-    ) -> Result<FrameBatch, ReceiveDecodeFailure> {
+    ) -> Result<FrameBatch, MalformedFrame> {
         match &mut self.framing {
             EnvelopeFraming::Raw {
                 envelope,
@@ -653,14 +664,25 @@ impl AdapterFraming {
                 envelope,
                 framer,
                 routing,
-            } => decode_frames_with_routing(
-                envelope,
-                framer,
-                *routing,
-                buffers,
-                received,
-                self.transport,
-            ),
+                terminal_prefix,
+            } => {
+                let batch = decode_frames_with_routing(
+                    envelope,
+                    framer,
+                    *routing,
+                    buffers,
+                    received,
+                    self.transport,
+                )?;
+                // Inspect a full stream batch's remainder once per physical
+                // read. Healthy bursts still yield at the fairness ceiling.
+                if received != 0 {
+                    *terminal_prefix = self.transport == TransportKind::Stream
+                        && batch.len() == batch.limit
+                        && framer.has_buffered_position_loss();
+                }
+                Ok(batch)
+            }
         }
     }
 
@@ -668,14 +690,13 @@ impl AdapterFraming {
     /// per-receive frame limit, without reading (#674, #542
     /// protocol-input-first). Returns `None` when nothing was buffered, so the
     /// shell reads; datagrams never enter retained framer storage.
-    /// A genuine framing failure on the buffered bytes still surfaces as `Err`
-    /// and poisons.
+    /// A framing failure follows any verified frames in the same batch.
     pub(crate) fn drain_buffered(
         &mut self,
         buffers: &mut OwnerBuffers,
-    ) -> Result<Option<FrameBatch>, ReceiveDecodeFailure> {
+    ) -> Result<Option<FrameBatch>, MalformedFrame> {
         let buffered = self.decode(buffers, 0)?;
-        if !buffered.is_empty() || buffered.discarded > 0 {
+        if !buffered.is_empty() || buffered.discarded > 0 || buffered.framing_failure.is_some() {
             Ok(Some(buffered))
         } else {
             buffers.recycle_frames(buffered);
@@ -686,6 +707,16 @@ impl AdapterFraming {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl RetainedStreamInput for AdapterFraming {
+    fn has_terminal_prefix(&self) -> bool {
+        matches!(
+            self.framing,
+            EnvelopeFraming::Sony {
+                terminal_prefix: true,
+                ..
+            }
+        )
+    }
+
     fn retained(&mut self) -> Option<RetainedInput<'_>> {
         if !self.is_stream() {
             return None;
@@ -701,33 +732,32 @@ impl RetainedStreamInput for AdapterFraming {
             }
         }
     }
+
+    fn drain_terminal_prefix(&mut self, buffers: &mut OwnerBuffers) -> Option<FrameBatch> {
+        let EnvelopeFraming::Sony {
+            envelope,
+            framer,
+            routing,
+            terminal_prefix: terminal @ true,
+        } = &mut self.framing
+        else {
+            return None;
+        };
+        // All bytes through the rejected header are already in the framer.
+        // Reuse a bounded batch, without reading or sampling another instant.
+        let mut batch = buffers.take_frames();
+        batch.framing_failure = decode_stream(envelope, framer, *routing, &[], &mut batch)
+            .err()
+            .map(Arc::new);
+        *terminal = batch.framing_failure.is_none();
+        Some(batch)
+    }
 }
 
-/// A malformed-frame classification is never expanded into a heap-owning Error
-/// on the owner receive path. Fatal framing faults retain their typed cause.
-#[derive(Debug)]
-pub(crate) enum ReceiveDecodeFailure {
-    Fatal { error: Error, discarded: usize },
-    Malformed(MalformedFrame),
-}
 /// Only raw oversize rejection preserves a usable next stream boundary.
 pub(crate) enum StreamRejection {
     Discard,
     PositionLost(Error),
-}
-
-impl ReceiveDecodeFailure {
-    fn owner_receive(self) -> OwnerReceive {
-        match self {
-            Self::Fatal { error, discarded } => OwnerReceive::Fatal(ReceiveFatal::FramingFailure {
-                cause: error,
-                discarded,
-            }),
-            Self::Malformed(_verdict) => {
-                OwnerReceive::NoProgress(NoProgressReason::MalformedDatagram)
-            }
-        }
-    }
 }
 
 /// Decode one received chunk using its envelope's validated routing.
@@ -738,46 +768,36 @@ fn decode_frames_with_routing<E: AdapterEnvelope>(
     buffers: &mut OwnerBuffers,
     received: usize,
     transport: TransportKind,
-) -> Result<FrameBatch, ReceiveDecodeFailure> {
+) -> Result<FrameBatch, MalformedFrame> {
     if received == 0 && (transport == TransportKind::Datagram || !framer.has_buffered_data()) {
         return Ok(FrameBatch::new());
     }
     let frame_limit = buffers.receive_bounds().frames.get();
     let mut frames = buffers.take_frames();
     let input = buffers.receive_mut();
-    let result = match transport {
-        TransportKind::Datagram => input
-            .get(..received)
-            .ok_or(MalformedFrame::DatagramOversized)
-            .and_then(|input| {
-                decode_datagram(envelope, framer, routing, input, &mut frames, frame_limit)
-            })
-            .map_err(ReceiveDecodeFailure::Malformed),
+    match transport {
+        TransportKind::Datagram => {
+            let result = input
+                .get(..received)
+                .ok_or(MalformedFrame::DatagramOversized)
+                .and_then(|input| {
+                    decode_datagram(envelope, framer, routing, input, &mut frames, frame_limit)
+                });
+            if let Err(error) = result {
+                buffers.recycle_frames(frames);
+                return Err(error);
+            }
+        }
         TransportKind::Stream => {
-            let mut discarded = 0;
             let result = crate::transport::buffer::checked_read(received, input.len()).and_then(
                 |received| {
-                    decode_stream(
-                        envelope,
-                        framer,
-                        routing,
-                        &input[..received],
-                        &mut frames,
-                        &mut discarded,
-                    )
+                    decode_stream(envelope, framer, routing, &input[..received], &mut frames)
                 },
             );
-            frames.discarded = discarded;
-            result.map_err(|error| ReceiveDecodeFailure::Fatal { error, discarded })
-        }
-    };
-    match result {
-        Ok(()) => Ok(frames),
-        Err(error) => {
-            buffers.recycle_frames(frames);
-            Err(error)
+            frames.framing_failure = result.err().map(Arc::new);
         }
     }
+    Ok(frames)
 }
 
 fn decode_datagram<E: AdapterEnvelope>(
@@ -809,7 +829,6 @@ fn decode_stream<E: AdapterEnvelope>(
     routing: E::Routing,
     input: &[u8],
     frames: &mut FrameBatch,
-    discarded: &mut usize,
 ) -> Result<(), Error> {
     framer.push_slice(input)?;
     while let Some(vacancy) = frames.vacancy() {
@@ -819,9 +838,9 @@ fn decode_stream<E: AdapterEnvelope>(
         };
         match next {
             Ok(Ok(frame)) => vacancy.fill(frame),
-            Ok(Err(_)) => *discarded = discarded.saturating_add(1),
+            Ok(Err(_)) => frames.discarded = frames.discarded.saturating_add(1),
             Err(rejection) => match E::stream_rejection(rejection) {
-                StreamRejection::Discard => *discarded = discarded.saturating_add(1),
+                StreamRejection::Discard => frames.discarded = frames.discarded.saturating_add(1),
                 StreamRejection::PositionLost(error) => return Err(error),
             },
         }
@@ -1274,7 +1293,7 @@ mod tests {
             ..OwnerLimits::default()
         });
         let capacity = buffers.receive_mut().len();
-        let failure = decode_frames_with_routing(
+        let frames = decode_frames_with_routing(
             &envelope,
             &mut framer,
             routing,
@@ -1282,9 +1301,10 @@ mod tests {
             capacity + 1,
             TransportKind::Stream,
         )
-        .unwrap_err();
+        .unwrap();
+        assert!(frames.is_empty());
         assert!(
-            matches!(failure.owner_receive(), OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause: Error::BufferTooSmall { required, actual }, discarded: 0 }) if required == capacity + 1 && actual == capacity)
+            matches!(frames.framing_failure.as_deref(), Some(Error::BufferTooSmall { required, actual }) if *required == capacity + 1 && *actual == capacity)
         );
     }
 
@@ -1310,9 +1330,7 @@ mod tests {
                 2,
                 TransportKind::Datagram,
             ),
-            Err(ReceiveDecodeFailure::Malformed(
-                MalformedFrame::DatagramTrailingBytes
-            ))
+            Err(MalformedFrame::DatagramTrailingBytes)
         ));
         assert!(!framer.has_buffered_data());
 
@@ -1353,9 +1371,7 @@ mod tests {
             ),
             // A frame-count limit is reported as an invalid (over-limit) batch,
             // not the byte-labeled `ResponseTooLarge` (#674).
-            Err(ReceiveDecodeFailure::Malformed(
-                MalformedFrame::DatagramFrameLimit { limit: 1 }
-            ))
+            Err(MalformedFrame::DatagramFrameLimit { limit: 1 })
         ));
         assert!(!framer.has_buffered_data());
 
@@ -1399,19 +1415,19 @@ mod tests {
         .unwrap()
         .is_empty());
         buffers.receive_mut()[..2].copy_from_slice(&[0x00, 0x00]);
+        let batch = decode_frames_with_routing(
+            &envelope,
+            &mut framer,
+            routing,
+            &mut buffers,
+            2,
+            TransportKind::Stream,
+        )
+        .unwrap();
+        assert!(batch.is_empty());
         assert!(matches!(
-            decode_frames_with_routing(
-                &envelope,
-                &mut framer,
-                routing,
-                &mut buffers,
-                2,
-                TransportKind::Stream,
-            ),
-            Err(ReceiveDecodeFailure::Fatal {
-                error: Error::ResponseTooLarge { max_size: 5 },
-                discarded: 0,
-            })
+            batch.framing_failure.as_deref(),
+            Some(Error::ResponseTooLarge { max_size: 5 })
         ));
         assert!(framer.has_buffered_data());
     }
@@ -1425,46 +1441,68 @@ mod tests {
                 target: TargetSlot::CAMERA_1,
             },
         };
-        let mut framer = SonyFramer::new_with_limits(64, 16, 64);
-        let mut buffers = OwnerBuffers::new(OwnerLimits {
-            frames_per_receive: NonZeroUsize::new(8).unwrap(),
-            ..OwnerLimits::default()
-        });
-        let mut bytes = Vec::new();
-        for sequence in 0..3 {
-            // A delimited Sony response carrying an invalid padded VISCA ACK.
-            bytes.extend_from_slice(&[1, 0x11, 0, 4, 0, 0, 0, sequence, 0x90, 0x41, 0, 0xff]);
-        }
-        // This following header loses framing position: its declared frame
-        // exceeds the configured frame bound before a body is available.
-        bytes.extend_from_slice(&[1, 0x11, 0, 32, 0, 0, 0, 3]);
-        buffers.receive_mut()[..bytes.len()].copy_from_slice(&bytes);
-        let failure = decode_frames_with_routing(
-            &envelope,
-            &mut framer,
-            routing,
-            &mut buffers,
-            bytes.len(),
-            TransportKind::Stream,
-        )
-        .expect_err("oversized Sony frame is fatal");
-        assert!(matches!(
-            failure,
-            ReceiveDecodeFailure::Fatal {
-                error: Error::ResponseTooLarge { max_size: 16 },
-                discarded: 3,
+        let valid = [1, 0x11, 0, 3, 0, 0, 0, 1, 0x90, 0x51, 0xff];
+        let malformed = [1, 0x11, 0, 4, 0, 0, 0, 2, 0x90, 0x41, 0, 0xff];
+        let oversized_header = [1, 0x11, 0, 32, 0, 0, 0, 3];
+        let prefix = [valid.as_slice(), &malformed, &valid].concat();
+        for trailer in [oversized_header.as_slice(), &[]] {
+            let input = [prefix.as_slice(), trailer].concat();
+            for limit in [1, 8] {
+                let mut framing = AdapterFraming {
+                    transport: TransportKind::Stream,
+                    framing: EnvelopeFraming::Sony {
+                        envelope: envelope.clone(),
+                        framer: SonyFramer::new_with_limits(64, 16, 64),
+                        routing,
+                        terminal_prefix: false,
+                    },
+                };
+                let mut buffers = OwnerBuffers::new(OwnerLimits {
+                    frames_per_receive: NonZeroUsize::new(limit).unwrap(),
+                    ..OwnerLimits::default()
+                });
+                buffers.receive_mut()[..input.len()].copy_from_slice(&input);
+                let mut batch = framing.decode(&mut buffers, input.len()).unwrap();
+                let mut completions = 0;
+                let mut discards = 0;
+                let failure = loop {
+                    assert!(batch.len() <= limit);
+                    while let Some(frame) = batch.pop_front() {
+                        assert!(matches!(frame.response, DecodedResponse::Completion { .. }));
+                        completions += 1;
+                    }
+                    discards += batch.discarded;
+                    let failure = batch.framing_failure.take();
+                    buffers.recycle_frames(batch);
+                    if let Some(next) = framing.drain_terminal_prefix(&mut buffers) {
+                        assert!(failure.is_none());
+                        assert!(
+                            !trailer.is_empty(),
+                            "a healthy burst yields between batches"
+                        );
+                        batch = next;
+                    } else {
+                        break failure;
+                    }
+                };
+                if limit == 1 && trailer.is_empty() {
+                    assert_eq!((completions, discards), (1, 0));
+                } else {
+                    assert_eq!((completions, discards), (2, 1));
+                }
+                if trailer.is_empty() {
+                    assert!(failure.is_none());
+                } else {
+                    assert!(matches!(
+                        failure.as_deref(),
+                        Some(Error::ResponseTooLarge { max_size: 16 })
+                    ));
+                }
+                let recycled = buffers.take_frames();
+                assert!(recycled.framing_failure.is_none());
+                assert_eq!(recycled.discarded, 0);
             }
-        ));
-        assert!(matches!(
-            failure.owner_receive(),
-            OwnerReceive::Fatal(ReceiveFatal::FramingFailure { discarded: 3, .. })
-        ));
-        let recycled = buffers.take_frames();
-        assert!(recycled.is_empty());
-        assert_eq!(
-            recycled.discarded, 0,
-            "recycling clears the previous batch's count"
-        );
+        }
     }
 
     /// Issue #672: a delimited-but-unclassifiable frame on a stream is discarded
@@ -1534,9 +1572,7 @@ mod tests {
                 bytes.len(),
                 TransportKind::Datagram,
             ),
-            Err(ReceiveDecodeFailure::Malformed(
-                MalformedFrame::UnclassifiedResponse
-            ))
+            Err(MalformedFrame::UnclassifiedResponse)
         ));
         assert!(!framer.has_buffered_data());
     }
@@ -1758,23 +1794,25 @@ mod tests {
             // deliver it by guessing a new Sony boundary.
             let packet = [0x90, 0x41, 1, 0x11, 0, 3, 0, 0, 0, 1, 0x90, 0x41, 0xff];
             buffers.receive_mut()[..packet.len()].copy_from_slice(&packet);
-            let failure = decode_frames_with_routing(
+            let result = decode_frames_with_routing(
                 &envelope,
                 &mut framer,
                 routing,
                 &mut buffers,
                 packet.len(),
                 transport,
-            )
-            .unwrap_err();
+            );
             match transport {
-                TransportKind::Stream => assert!(
-                    matches!(failure, ReceiveDecodeFailure::Fatal { error: Error::InvalidResponse { expected, .. }, .. } if expected.contains("Sony header"))
-                ),
-                TransportKind::Datagram => assert!(matches!(
-                    failure,
-                    ReceiveDecodeFailure::Malformed(MalformedFrame::InvalidSonyHeader)
-                )),
+                TransportKind::Stream => {
+                    let frames = result.unwrap();
+                    assert!(frames.is_empty());
+                    assert!(
+                        matches!(frames.framing_failure.as_deref(), Some(Error::InvalidResponse { expected, .. }) if expected.contains("Sony header"))
+                    );
+                }
+                TransportKind::Datagram => {
+                    assert!(matches!(result, Err(MalformedFrame::InvalidSonyHeader)))
+                }
             }
             assert!(buffers.take_frames().is_empty());
             assert!(!framer.has_buffered_data());
@@ -1883,19 +1921,29 @@ impl ReceiveProbe {
         let outcome = ReceiveOutcome::copy_message(chunk, self.buffers.receive_mut());
         match self.adapter.classify_read(&mut self.buffers, Ok(outcome)) {
             OwnerReceive::Frames(mut frames) => {
-                let count = frames.len();
-                while let Some(frame) = frames.pop_front() {
-                    std::hint::black_box(frame);
+                let mut count = 0;
+                loop {
+                    count += frames.len();
+                    while let Some(frame) = frames.pop_front() {
+                        std::hint::black_box(frame);
+                    }
+                    let failure = frames.framing_failure.take();
+                    self.buffers.recycle_frames(frames);
+                    if let Some(error) = failure {
+                        return Err(Arc::unwrap_or_clone(error));
+                    }
+                    let Some(next) = self.adapter.drain_terminal_prefix(&mut self.buffers) else {
+                        return Ok(count);
+                    };
+                    frames = next;
                 }
-                self.buffers.recycle_frames(frames);
-                Ok(count)
             }
             OwnerReceive::NoProgress(_) => Ok(0),
             OwnerReceive::Transient(error) => Err(error),
             OwnerReceive::Fatal(ReceiveFatal::TransportClosed { cause }) => {
                 Err(cause.unwrap_or_else(|| Error::connection_closed(None)))
             }
-            OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause, .. }) => Err(cause),
+            OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause }) => Err(cause),
         }
     }
 }

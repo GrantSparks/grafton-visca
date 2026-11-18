@@ -398,6 +398,20 @@ impl SonyFramer {
     pub(crate) fn new(config: BufferConfig) -> Self {
         Self::from_buffer(FrameBuffer::new(config))
     }
+
+    /// Inspect only buffered Sony boundaries. A rejected header makes all
+    /// preceding complete frames the terminal prefix of the current read.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn has_buffered_position_loss(&self) -> bool {
+        let mut bytes = &self.buffer.buf[..];
+        loop {
+            match self.scan(bytes) {
+                FrameScan::Complete(frame) => bytes = &bytes[frame.bytes().len()..],
+                FrameScan::NeedMore => return false,
+                FrameScan::Rejected(_) => return true,
+            }
+        }
+    }
 }
 
 impl Framer for SonyFramer {

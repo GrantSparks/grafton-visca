@@ -635,6 +635,8 @@ pub(crate) struct FrameBatch {
     frames: VecDeque<DecodedFrame>,
     limit: usize,
     pub(crate) discarded: usize,
+    /// Stream position was lost after the last verified frame in this batch.
+    framing_failure: Option<Arc<Error>>,
 }
 
 impl FrameBatch {
@@ -646,7 +648,7 @@ impl FrameBatch {
         Self {
             frames: VecDeque::with_capacity(capacity.get()),
             limit: capacity.get(),
-            discarded: 0,
+            ..Self::default()
         }
     }
 
@@ -672,6 +674,7 @@ impl FrameBatch {
     fn clear(&mut self) {
         self.frames.clear();
         self.discarded = 0;
+        self.framing_failure = None;
     }
 }
 
@@ -696,7 +699,7 @@ impl From<Vec<DecodedFrame>> for FrameBatch {
         Self {
             limit: frames.len(),
             frames: frames.into(),
-            discarded: 0,
+            ..Self::default()
         }
     }
 }
@@ -706,7 +709,7 @@ impl From<VecDeque<DecodedFrame>> for FrameBatch {
         Self {
             limit: frames.len(),
             frames,
-            discarded: 0,
+            ..Self::default()
         }
     }
 }
@@ -731,7 +734,7 @@ pub(crate) enum NoProgressReason {
 #[derive(Debug)]
 pub(crate) enum ReceiveFatal {
     TransportClosed { cause: Option<Error> },
-    FramingFailure { cause: Error, discarded: usize },
+    FramingFailure { cause: Error },
 }
 
 impl OwnerReceive {
@@ -777,10 +780,7 @@ impl OwnerReceive {
     #[cfg(test)]
     pub(crate) fn consumed_error(error: Error, transport: TransportKind) -> Self {
         match transport {
-            TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure {
-                cause: error,
-                discarded: 0,
-            }),
+            TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure { cause: error }),
             TransportKind::Datagram => Self::NoProgress(NoProgressReason::MalformedDatagram),
         }
     }
@@ -1730,8 +1730,18 @@ impl RawRetention<'_> {
     }
 }
 
-/// Infallible inspection of retained stream input. Only discarding mutates it.
+/// Inspect and drain input already retained by the stream framer.
 pub(crate) trait RetainedStreamInput {
+    fn has_terminal_prefix(&self) -> bool {
+        false
+    }
+
+    /// The next bounded batch of a read whose buffered tail already proves
+    /// position loss. No transport I/O or new receive turn is needed.
+    fn drain_terminal_prefix(&mut self, _buffers: &mut OwnerBuffers) -> Option<FrameBatch> {
+        None
+    }
+
     fn retained(&mut self) -> Option<RetainedInput<'_>> {
         None
     }
