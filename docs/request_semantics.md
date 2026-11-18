@@ -442,6 +442,13 @@ without confirmation invalidates its key. Never-written and conclusively
 rejected attempts preserve previous knowledge. The owner commits either
 change before resolving the request's terminal outcome.
 
+The scheduler orders pan/tilt speed-mode setters by admission on each target.
+On profiles that require `Fine50` for speed codes above 24, an extended-speed
+write waits for earlier setters and for any setter already dispatched on that
+target. Immediately before the initial write or a retry, the owner checks the
+confirmed mode. Standard-speed commands and STOPs follow their usual scheduling
+rules.
+
 One `state_key_ledger!` row defines each key, its native value type, its
 `KnownState` variant and its typed cache accessor. The fixed table retains one
 slot per key without map allocation or eviction.

@@ -972,7 +972,13 @@ trait EngineMethods: EngineAccess {
             (_, SendingReply::Stop | SendingReply::AckThenCompletion) => false,
         }
     }
-    fn dispatch_blocked_in(&self, entry: &Entry, now: Instant, occupancy: &Occupancy) -> bool {
+    fn dispatch_blocked_in(
+        &self,
+        id: RequestId,
+        entry: &Entry,
+        now: Instant,
+        occupancy: &Occupancy,
+    ) -> bool {
         let target = entry.request.context().target;
         let state = &occupancy.targets[target];
         match entry.request.lane() {
@@ -994,7 +1000,8 @@ trait EngineMethods: EngineAccess {
                 !self
                     .stop_wait_bound_in(entry)
                     .is_some_and(|bound| now >= bound)
-                    && (self.hold_blocks_in(entry, target, occupancy)
+                    && (state.speed_mode_blocks(id, &entry.request)
+                        || self.hold_blocks_in(entry, target, occupancy)
                         || self.command_gate_in(entry, target, occupancy)
                         || (if entry.request.is_stop() {
                             state.commands
@@ -1617,7 +1624,7 @@ trait EngineMethods: EngineAccess {
     /// (spacing and the inquiry cooldown) is [`Self::candidate_send_at`]'s
     /// alone.
     #[cfg(test)]
-    fn dispatch_blocked(&self, entry: &Entry, now: Instant) -> bool {
+    fn dispatch_blocked(&self, id: RequestId, entry: &Entry, now: Instant) -> bool {
         let target = entry.request.context().target;
         match entry.request.lane() {
             Lane::Inquiry => {
@@ -1635,8 +1642,21 @@ trait EngineMethods: EngineAccess {
                 let Some(policy) = self.targets[target].policy else {
                     return true;
                 };
+                let speed_mode_conflict = self.entries.iter().any(|(other_id, other)| {
+                    if other.request.context().target != target
+                        || !other.request.sets_pan_tilt_speed_mode()
+                    {
+                        return false;
+                    }
+                    (*other_id < id && entry.request.sets_pan_tilt_speed_mode())
+                        || (entry.request.context().requires_extended_pan_tilt_speed
+                            && (*other_id < id
+                                || other.prior.is_some()
+                                || !other.lifecycle().is_ready()))
+                });
                 !self.stop_wait_ended(entry, now)
-                    && (self.raw_hold_blocks_dispatch(entry, target)
+                    && (speed_mode_conflict
+                        || self.raw_hold_blocks_dispatch(entry, target)
                         || self.raw_command_gate_blocks(entry, target)
                         || self.command_capacity_used_by(entry, target)
                             >= policy.command_sockets.get()
@@ -1647,7 +1667,8 @@ trait EngineMethods: EngineAccess {
 
     fn dispatch_eligible(&self, id: RequestId, now: Instant, occupancy: &Occupancy) -> bool {
         self.entries.get(&id).is_some_and(|entry| {
-            self.candidate_send_at(entry) <= now && !self.dispatch_blocked_in(entry, now, occupancy)
+            self.candidate_send_at(entry) <= now
+                && !self.dispatch_blocked_in(id, entry, now, occupancy)
         })
     }
 
@@ -4476,9 +4497,9 @@ trait EngineMethods: EngineAccess {
             .chain(self.raw_hold_wake(now))
             .chain(self.mode().ledger().wake())
             .min();
-        for entry in self.entries.values() {
+        for (id, entry) in self.entries.iter() {
             let candidate = if entry.lifecycle().is_ready()
-                && !self.dispatch_blocked_in(entry, now, &occupancy)
+                && !self.dispatch_blocked_in(*id, entry, now, &occupancy)
             {
                 Some(self.candidate_send_at(entry))
             } else if entry.lifecycle().pending_cancellation_socket().is_some() {

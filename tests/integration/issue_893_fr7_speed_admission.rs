@@ -124,3 +124,72 @@ facade_matrix! {
         wait!(session.close()).unwrap();
     }
 }
+
+// The plain setter waits for completion. A second blocking caller holds it
+// open while the first submits operations through the same session.
+#[cfg(feature = "blocking")]
+#[test]
+fn a_pending_mode_setter_holds_fast_drives_and_leaves_the_second_socket_for_stop() {
+    use std::time::Duration;
+
+    use grafton_visca::types::IndividualCameraId;
+    use grafton_visca_test_support::fake_camera::ZOOM_STOP;
+
+    const NORMAL: &[u8] = &[0x81, 0x01, 0x06, 0x45, 0x08, 0xff];
+    let wire = Fr7 {
+        peer: FakeCamera::visca(|command, reply| {
+            if command.first() != Some(&0x81) {
+                return;
+            }
+            if command == NORMAL {
+                reply.reply(frames::ack(1));
+            } else {
+                reply.reply(frames::ack(2)).reply(frames::complete(2));
+            }
+        }),
+    };
+    let config = SessionConfig::from_compile_time::<SonyFr7>().unwrap();
+    let session = grafton_visca::blocking::Session::open(wire.blocking_wire(), &config).unwrap();
+    let camera = session
+        .camera::<SonyFr7>(IndividualCameraId::CAMERA_1)
+        .unwrap();
+    camera
+        .pan_tilt()
+        .set_speed_mode(PanTiltSpeedMode::Fine50)
+        .unwrap();
+    let before = wire.peer.write_count();
+
+    std::thread::scope(|scope| {
+        let setter = scope.spawn(|| {
+            camera
+                .pan_tilt()
+                .set_speed_mode(PanTiltSpeedMode::Standard24)
+        });
+        let writes = wire.peer.wait_for_writes(before + 1);
+        let (sequence, command) = frames::sony_split(writes.last().unwrap()).unwrap();
+        assert_eq!(command, NORMAL);
+        let mut drive = camera.submit::<AppliedOnly, _>(&fast_drive()).unwrap();
+        // Observe beyond the FR7's 35 ms spacing, with the setter still pending.
+        let pending = drive.applied_with_timeout(Duration::from_millis(150));
+        let mut stop = camera
+            .submit::<AppliedOnly, _>(&grafton_visca::command::zoom::Stop)
+            .unwrap();
+        stop.applied()
+            .expect("the other socket serves an unrelated STOP");
+        wire.peer
+            .push(frames::sony_reply(sequence, &frames::complete(1)));
+        setter.join().unwrap().unwrap();
+        assert!(matches!(pending, Err(Error::ObservationTimeout { .. })));
+        assert_unsent(&drive.applied().unwrap_err());
+    });
+    let payloads = wire.peer.take_payloads();
+    assert_eq!(payloads[before..], [NORMAL, ZOOM_STOP]);
+    assert_eq!(
+        camera.state_cache().pan_tilt().speed_mode(),
+        Some(PanTiltSpeedMode::Standard24)
+    );
+    let metrics = session.metrics().unwrap();
+    assert_eq!(metrics.writes, 3);
+    assert_eq!(metrics.write_failures, 0);
+    session.close().unwrap();
+}

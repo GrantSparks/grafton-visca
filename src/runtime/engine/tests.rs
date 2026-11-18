@@ -34,6 +34,7 @@ mod retry_history;
 mod session_end;
 mod socketless_ack_conflicts;
 mod sony_socket_reuse;
+mod speed_mode_order;
 mod stop_quarantine;
 mod write_outcomes;
 
@@ -12794,6 +12795,6 @@ fn next_wake_ignores_a_stream_socket_hold_that_expired_after_the_last_turn() {
     // The waiting command supplies its pacing wake, so filtering the expired
     // hold cannot hide work from the owner's planner.
     assert_eq!(engine.next_wake(sampled_at), Some(now));
-    assert!(!engine.dispatch_blocked(engine.entry(id).unwrap(), sampled_at));
+    assert!(!engine.dispatch_blocked(id, engine.entry(id).unwrap(), sampled_at));
     engine.assert_invariants().unwrap();
 }

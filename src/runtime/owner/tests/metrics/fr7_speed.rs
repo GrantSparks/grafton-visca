@@ -37,17 +37,33 @@ fn drive_request(registration: &TargetRegistration, tuning: OperationalTuning) -
         .admit_with(|request, _, _, _| request.into_inner())
 }
 
-fn queued_mode_refusal(invalidate: bool) {
+fn complete_on_socket_one(state: &mut OwnerState, sequence: u32, now: Instant) {
+    let socket = Some(ViscaSocket::S1);
+    apply(
+        state,
+        frame(Some(sequence), DecodedResponse::Ack { socket }),
+        now,
+    );
+    apply(
+        state,
+        frame(Some(sequence), DecodedResponse::Completion { socket }),
+        now,
+    );
+}
+
+#[derive(Clone, Copy)]
+enum SetterOutcome {
+    Applied,
+    FailedAfterAck,
+    RejectedBeforeAck,
+}
+
+fn queued_mode_change(outcome: SetterOutcome) {
     let registration = TargetRegistration::new(
         crate::IndividualCameraId::CAMERA_1,
         ProfileSpec::from_compile_time::<SonyFr7>().unwrap(),
     );
-    let mut policy = owner_policy(EnvelopeKind::Sony);
-    policy.targets[TargetSlot::CAMERA_1]
-        .as_mut()
-        .unwrap()
-        .command_sockets = crate::types::CommandSocketCount::ONE;
-    let mut state = OwnerState::new(policy, Instant::now()).unwrap();
+    let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
     let initial = Instant::now();
     let _enabled = sent(
         &mut state,
@@ -55,26 +71,7 @@ fn queued_mode_refusal(invalidate: bool) {
         Some(1),
         initial,
     );
-    apply(
-        &mut state,
-        frame(
-            Some(1),
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        initial,
-    );
-    apply(
-        &mut state,
-        frame(
-            Some(1),
-            DecodedResponse::Completion {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        initial,
-    );
+    complete_on_socket_one(&mut state, 1, initial);
     let cache = crate::state_cache::StateCache::from_registry(
         state.state_cache_registry(),
         TargetSlot::CAMERA_1,
@@ -85,29 +82,31 @@ fn queued_mode_refusal(invalidate: bool) {
     );
 
     let now = initial + Duration::from_secs(1);
-    let _changing = sent(
+    let setter = sent(
         &mut state,
         mode_request(&registration, PanTiltSpeedMode::Standard24),
         Some(2),
         now,
     );
-    apply(
-        &mut state,
-        frame(
-            Some(2),
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        now,
-    );
+    if !matches!(outcome, SetterOutcome::RejectedBeforeAck) {
+        apply(
+            &mut state,
+            frame(
+                Some(2),
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            now,
+        );
+    }
     let request = drive_request(&registration, OperationalTuning::new());
     let permit = state.permits().try_acquire(&request).unwrap();
     let (input, observer, _admitted) = super::super::stage_admission(&mut state, request, permit);
     for effect in input.complete(&mut state, now) {
         assert!(
             !matches!(state.apply_effect(effect, now), AppliedEffect::Transmit(_)),
-            "the executing mode setter occupies the only socket"
+            "the pending mode setter blocks a fast drive even with a free socket"
         );
     }
     assert_eq!(
@@ -117,15 +116,33 @@ fn queued_mode_refusal(invalidate: bool) {
     );
 
     let now = now + Duration::from_millis(100);
-    let response = if invalidate {
-        DecodedResponse::Error {
-            socket: Some(ViscaSocket::S1),
-            code: 0x41.into(),
-        }
-    } else {
-        DecodedResponse::Completion {
-            socket: Some(ViscaSocket::S1),
-        }
+    for effect in state.advance(now) {
+        assert!(
+            !matches!(state.apply_effect(effect, now), AppliedEffect::Transmit(_)),
+            "a free socket and elapsed command spacing cannot authorize the drive"
+        );
+    }
+    let (response, expected_mode) = match outcome {
+        SetterOutcome::Applied => (
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+            Some(PanTiltSpeedMode::Standard24),
+        ),
+        SetterOutcome::FailedAfterAck => (
+            DecodedResponse::Error {
+                socket: Some(ViscaSocket::S1),
+                code: 0x41.into(),
+            },
+            None,
+        ),
+        SetterOutcome::RejectedBeforeAck => (
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x02.into(),
+            },
+            Some(PanTiltSpeedMode::Fine50),
+        ),
     };
     let mut staged = None;
     for effect in state.input(frame(Some(2), response), now) {
@@ -133,15 +150,31 @@ fn queued_mode_refusal(invalidate: bool) {
             staged = Some(write);
         }
     }
-    assert_eq!(
-        cache.pan_tilt().speed_mode(),
-        if invalidate {
-            None
-        } else {
-            Some(PanTiltSpeedMode::Standard24)
-        }
-    );
+    assert_eq!(cache.pan_tilt().speed_mode(), expected_mode);
     let staged = staged.expect("the queued drive becomes dispatchable after the setter ends");
+    if matches!(outcome, SetterOutcome::RejectedBeforeAck) {
+        let Some(RuntimeOutcome::Command(CommandOutcome::Failed(error))) = setter.try_recv() else {
+            panic!("the pre-ACK rejection must terminate the setter");
+        };
+        assert!(matches!(error, Error::SyntaxError));
+        state
+            .prepare_write(&staged)
+            .expect("the previous Fine50 confirmation still applies");
+        let effects = state.finish_write(
+            &staged,
+            WriteOutcome::Sent(TransmissionMeta::Allocated { sequence: 3 }),
+            now,
+        );
+        drain(&mut state, effects, None, now);
+        complete_on_socket_one(&mut state, 3, now);
+        assert!(matches!(
+            observer.try_recv(),
+            Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+        ));
+        assert_eq!(state.metrics().writes, 3);
+        assert_eq!(state.metrics().write_failures, 0);
+        return;
+    }
     let error = state.prepare_write(&staged).unwrap_err();
     assert!(matches!(error, Error::InvalidRequest { .. }));
     for effect in state.finish_write(&staged, WriteOutcome::NotSent(error), now) {
@@ -227,26 +260,7 @@ fn a_non_fr7_codec_requires_the_confirmed_fine_mode_for_fast_drives() {
         Some(1),
         now,
     );
-    apply(
-        &mut state,
-        frame(
-            Some(1),
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        now,
-    );
-    apply(
-        &mut state,
-        frame(
-            Some(1),
-            DecodedResponse::Completion {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        now,
-    );
+    complete_on_socket_one(&mut state, 1, now);
     let request = drive_request(&registration, OperationalTuning::new());
     let permit = state.permits().try_acquire(&request).unwrap();
     let (input, _observer, _) = super::super::stage_admission(&mut state, request, permit);
@@ -265,12 +279,17 @@ fn a_non_fr7_codec_requires_the_confirmed_fine_mode_for_fast_drives() {
 
 #[test]
 fn a_queued_drive_observes_the_new_applied_normal_mode_at_dispatch() {
-    queued_mode_refusal(false);
+    queued_mode_change(SetterOutcome::Applied);
 }
 
 #[test]
 fn a_queued_drive_observes_mode_invalidation_after_an_unconfirmed_setter() {
-    queued_mode_refusal(true);
+    queued_mode_change(SetterOutcome::FailedAfterAck);
+}
+
+#[test]
+fn a_queued_drive_keeps_the_confirmed_mode_after_a_pre_ack_rejection() {
+    queued_mode_change(SetterOutcome::RejectedBeforeAck);
 }
 
 #[test]
@@ -288,26 +307,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
         Some(1),
         initial,
     );
-    apply(
-        &mut state,
-        frame(
-            Some(1),
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        initial,
-    );
-    apply(
-        &mut state,
-        frame(
-            Some(1),
-            DecodedResponse::Completion {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        initial,
-    );
+    complete_on_socket_one(&mut state, 1, initial);
 
     let now = initial + Duration::from_secs(1);
     let request = drive_request(
@@ -334,8 +334,35 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
         ),
         mode_at,
     );
-    apply(
-        &mut state,
+    let expiry = now + ack_timeout;
+    for effect in state.advance(expiry) {
+        assert!(!matches!(
+            state.apply_effect(effect, expiry),
+            AppliedEffect::Transmit(_)
+        ));
+    }
+    let retry_at = state
+        .next_wake(expiry)
+        .expect("the retry has an engine-owned ready instant");
+    for effect in state.advance(retry_at) {
+        assert!(
+            !matches!(
+                state.apply_effect(effect, retry_at),
+                AppliedEffect::Transmit(_)
+            ),
+            "a ready retry cannot race the acknowledged mode setter"
+        );
+    }
+    let cache = crate::state_cache::StateCache::from_registry(
+        state.state_cache_registry(),
+        TargetSlot::CAMERA_1,
+    );
+    assert_eq!(
+        cache.pan_tilt().speed_mode(),
+        Some(PanTiltSpeedMode::Fine50)
+    );
+    let mut retry = None;
+    for effect in state.input(
         frame(
             Some(3),
             DecodedResponse::Error {
@@ -343,28 +370,14 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
                 code: 0x41.into(),
             },
         ),
-        mode_at,
-    );
-    let cache = crate::state_cache::StateCache::from_registry(
-        state.state_cache_registry(),
-        TargetSlot::CAMERA_1,
-    );
-    assert_eq!(cache.pan_tilt().speed_mode(), None);
-
-    let expiry = now + ack_timeout;
-    for effect in state.advance(expiry) {
-        let _applied = state.apply_effect(effect, expiry);
-    }
-    let retry_at = state
-        .next_wake(expiry)
-        .expect("the retry has an engine-owned ready instant");
-    let mut retry = None;
-    for effect in state.advance(retry_at) {
+        retry_at,
+    ) {
         if let AppliedEffect::Transmit(write) = state.apply_effect(effect, retry_at) {
             retry = Some(write);
         }
     }
-    let retry = retry.expect("the lost Sony ACK schedules a same-sequence retry");
+    assert_eq!(cache.pan_tilt().speed_mode(), None);
+    let retry = retry.expect("resolving the setter releases the held retry");
     let error = state.prepare_write(&retry).unwrap_err();
     for effect in state.finish_write(&retry, WriteOutcome::NotSent(error), retry_at) {
         let _applied = state.apply_effect(effect, retry_at);

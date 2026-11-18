@@ -478,6 +478,11 @@ impl RuntimeRequest {
         }
     }
 
+    pub(super) fn sets_pan_tilt_speed_mode(&self) -> bool {
+        self.applied_state()
+            .is_some_and(|projection| projection.key() == crate::StateKey::PanTiltSpeedMode)
+    }
+
     pub(crate) const fn applied_state(&self) -> Option<AppliedStateProjection> {
         match self {
             Self::Command { applied_state, .. } => *applied_state,
