@@ -558,35 +558,22 @@ mod blocking_standard {
     }
 
     #[test]
-    fn custom_blocking_session_rejects_zero_io_timeouts_at_construction() {
+    fn custom_transport_config_rejects_zero_io_timeouts_before_open() {
         for (transport_config, message) in [
             (
-                {
-                    let mut config = TransportConfig::default();
-
-                    config = config.with_read_timeout(Duration::ZERO);
-                    config
-                },
+                TransportConfig::default().with_read_timeout(Duration::ZERO),
                 "transport read timeout must be non-zero",
             ),
             (
-                {
-                    let mut config = TransportConfig::default();
-
-                    config = config.with_write_timeout(Duration::ZERO);
-                    config
-                },
+                TransportConfig::default().with_write_timeout(Duration::ZERO),
                 "transport write timeout must be non-zero",
             ),
         ] {
-            let transport = serial_wire(transport_config);
-            let config = SessionConfig::for_target(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                grafton_visca::profiles::ProfileSpec::from_compile_time::<PtzOpticsG2>()
-                    .expect("profile"),
-            );
-            let error = Session::open(transport, &config)
-                .expect_err("invalid custom transport config must fail at construction");
+            // HasTransportConfig requires the proof before a custom transport
+            // can be passed to Session::open.
+            let error = transport_config
+                .validated()
+                .expect_err("a custom transport must prove nonzero I/O timeouts");
             assert!(matches!(
                 error,
                 Error::InvalidRequest { reason: actual } if actual.as_ref() == message
