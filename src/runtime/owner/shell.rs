@@ -1352,7 +1352,6 @@ mod tests {
         };
         let staged = core.next_transmit(&mut effects, at).unwrap();
         core.finish_transmit(
-            None,
             &staged,
             WriteOutcome::Sent(TransmissionMeta::Known),
             at,

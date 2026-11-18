@@ -2438,7 +2438,12 @@ mod lifecycle_trace {
         )
     }
 
-    fn command(target: TargetSlot, wire: &str, ack: Duration) -> RuntimeRequest {
+    fn command(
+        target: TargetSlot,
+        wire: &str,
+        ack: Duration,
+        applied_state: Option<AppliedStateProjection>,
+    ) -> RuntimeRequest {
         RuntimeRequest::Command {
             not_executable: false,
             reply_shape: CommandReply::AckThenCompletion,
@@ -2460,10 +2465,7 @@ mod lifecycle_trace {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
             },
-            // Fixtures observe this exact write-only effect through StateCache.
-            applied_state: Some(AppliedStateProjection::set(
-                crate::KnownState::ExposureSpotlight(true),
-            )),
+            applied_state,
         }
     }
 
@@ -2657,7 +2659,16 @@ mod lifecycle_trace {
             };
 
             let request = match field(input, "kind").unwrap_or("command") {
-                "command" => command(target, wire, ack),
+                "command" => {
+                    let applied_state =
+                        field(input, "projection").map(|projection| match projection {
+                            "exposure-spotlight" => AppliedStateProjection::set(
+                                crate::KnownState::ExposureSpotlight(true),
+                            ),
+                            other => panic!("unknown fixture state projection {other}"),
+                        });
+                    command(target, wire, ack, applied_state)
+                }
                 "inquiry" => inquiry(target, wire, ack),
                 other => panic!("unknown fixture request kind {other}"),
             };
