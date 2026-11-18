@@ -65,6 +65,8 @@ macro_rules! runtime_matrix {
 ///
 /// * `wait!(expr)` — `expr.await` on the async facade, `expr` on the blocking
 ///   one;
+/// * `together!({ left }, { right })` — runs two bodies concurrently and
+///   returns their results. Available in scenarios without `paused:`.
 /// * `open!(camera, config)` — opens the facade's `Session` over that
 ///   facade's wire onto the `FakeCamera` `camera` (async sessions run on the
 ///   case's runtime);
@@ -299,6 +301,15 @@ macro_rules! facade_matrix {
                 false
             };
         }
+        macro_rules! together {
+            ($left:block, $right:block) => {
+                std::thread::scope(|scope| {
+                    let left = scope.spawn(|| $left);
+                    let right = $right;
+                    (left.join().expect("concurrent facade test body"), right)
+                })
+            };
+        }
         const FACADE: &str = "blocking";
         $body
     }};
@@ -383,6 +394,11 @@ macro_rules! facade_matrix {
         macro_rules! virtual_clock {
             () => {
                 $virtual
+            };
+        }
+        macro_rules! together {
+            ($left:block, $right:block) => {
+                futures_lite::future::zip(async { $left }, async { $right }).await
             };
         }
         const FACADE: &str = "async";

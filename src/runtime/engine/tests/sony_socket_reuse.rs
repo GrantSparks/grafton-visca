@@ -26,14 +26,12 @@ fn completion(sequence: u32) -> Input {
     )
 }
 
-fn projected_command() -> RuntimeRequest {
+fn projected_command(state: crate::KnownState) -> RuntimeRequest {
     let mut request = command(1);
     let RuntimeRequest::Command { applied_state, .. } = &mut request else {
         unreachable!()
     };
-    *applied_state = Some(AppliedStateProjection::set(
-        crate::KnownState::TallyBrightness(crate::types::TallyBrightness::High),
-    ));
+    *applied_state = Some(AppliedStateProjection::set(state));
     request
 }
 
@@ -49,12 +47,16 @@ fn reused_socket(
     transport: TransportKind,
 ) -> (ProtocolEngine, RequestId, RequestId) {
     let mut engine = engine(EnvelopeKind::Sony, transport);
-    let (first, first_id) = admit(&mut engine, 1, projected_command(), start);
+    let first = projected_command(crate::KnownState::TallyBrightness(
+        crate::types::TallyBrightness::High,
+    ));
+    let (first, first_id) = admit(&mut engine, 1, first, start);
     send_ok(&mut engine, &first, Some(FIRST), start);
     engine.handle(ack(FIRST, ViscaSocket::S1), start);
     engine.assert_invariants().unwrap();
     let later = start + Duration::from_millis(10);
-    let (second, second_id) = admit(&mut engine, 2, projected_command(), later);
+    let second = projected_command(crate::KnownState::NdFilterAuto(true));
+    let (second, second_id) = admit(&mut engine, 2, second, later);
     send_ok(&mut engine, &second, Some(SECOND), later);
     let reused = engine.handle(ack(SECOND, ViscaSocket::S1), later);
     assert!(ignored_reasons(&reused).is_empty(), "{reused:?}");
@@ -99,7 +101,12 @@ fn sony_socket_reuse_preserves_both_sequence_terminals_and_allows_the_other_sock
         // The old sequence's late completion cannot release its successor's socket.
         let first_completion = engine.handle(completion(FIRST), at);
         assert_applied(&first_completion, first);
-        assert!(projection(&first_completion, first).unwrap().is_known());
+        assert_eq!(
+            projection(&first_completion, first),
+            Some(AppliedStateProjection::set(
+                crate::KnownState::TallyBrightness(crate::types::TallyBrightness::High,)
+            ))
+        );
         assert_eq!(
             engine.socket_owner(camera(1), ViscaSocket::S1),
             Some(second)
@@ -107,7 +114,12 @@ fn sony_socket_reuse_preserves_both_sequence_terminals_and_allows_the_other_sock
         engine.assert_invariants().unwrap();
         let second_completion = engine.handle(completion(SECOND), at);
         assert_applied(&second_completion, second);
-        assert!(projection(&second_completion, second).unwrap().is_known());
+        assert_eq!(
+            projection(&second_completion, second),
+            Some(AppliedStateProjection::set(
+                crate::KnownState::NdFilterAuto(true)
+            ))
+        );
         assert_eq!(engine.socket_owner(camera(1), ViscaSocket::S1), None);
         assert_eq!(socket_of(&engine, third_id), Some(ViscaSocket::S2));
         engine.assert_invariants().unwrap();
@@ -270,4 +282,129 @@ fn sony_socket_reuse_resolves_an_open_cancellation_without_losing_the_request_se
         Some(second_id)
     );
     engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn same_key_setters_keep_admission_order_across_priorities_and_retry_backoff() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let mut first = projected_command(crate::KnownState::NdFilterAuto(false));
+    first.context_mut().control.class = ControlClass::Background;
+    let mut second = projected_command(crate::KnownState::NdFilterAuto(true));
+    second.context_mut().control.class = ControlClass::User;
+    let mut pending = [first, second]
+        .into_iter()
+        .enumerate()
+        .map(|(index, request)| {
+            admitted(&engine.handle_turn(
+                Input::Admit {
+                    ticket: AdmissionTicket(index as u64 + 1),
+                    request,
+                },
+                now,
+                EngineTurn::InputOnly,
+            ))
+        });
+    let first = pending.next().unwrap();
+    let second = pending.next().unwrap();
+
+    let writing = engine.advance(now);
+    assert_eq!(request_transmit(&writing).1, first);
+    let sent = send_ok(&mut engine, &writing, Some(FIRST), now);
+    assert!(request_transmit_optional(&sent).is_none());
+
+    let rejected = engine.handle(
+        response(
+            FIRST,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03.into(),
+            },
+        ),
+        now,
+    );
+    let (retried, _, ready_at) = retry_scheduled(&rejected).unwrap();
+    assert_eq!(retried, first);
+    assert!(ready_at > now);
+    assert!(projection(&rejected, first).is_none());
+    assert!(request_transmit_optional(&rejected).is_none());
+
+    let writing = engine.advance(ready_at);
+    assert_eq!(request_transmit(&writing).1, first);
+    send_ok(&mut engine, &writing, Some(FIRST), ready_at);
+    let accepted = engine.handle(ack(FIRST, ViscaSocket::S1), ready_at);
+    assert!(request_transmit_optional(&accepted).is_none());
+    let completed = engine.handle(completion(FIRST), ready_at);
+    assert_applied(&completed, first);
+    assert_eq!(
+        projection(&completed, first),
+        Some(AppliedStateProjection::set(
+            crate::KnownState::NdFilterAuto(false)
+        ))
+    );
+    assert_eq!(request_transmit(&completed).1, second);
+    send_ok(&mut engine, &completed, Some(SECOND), ready_at);
+    let completed = engine.handle(completion(SECOND), ready_at);
+    assert_applied(&completed, second);
+    assert_eq!(
+        projection(&completed, second),
+        Some(AppliedStateProjection::set(
+            crate::KnownState::NdFilterAuto(true)
+        ))
+    );
+}
+
+#[test]
+fn failed_setter_releases_its_key_with_the_correct_cache_evidence() {
+    for acknowledged in [false, true] {
+        let now = Instant::now();
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let mut first = projected_command(crate::KnownState::NdFilterAuto(false));
+        first.context_mut().retry = RetryPolicy::NEVER;
+        let (writing, first) = admit(&mut engine, 1, first, now);
+        send_ok(&mut engine, &writing, Some(FIRST), now);
+        let socket = acknowledged.then_some(ViscaSocket::S1);
+        if let Some(socket) = socket {
+            engine.handle(ack(FIRST, socket), now);
+        }
+        let (pending, second) = admit(
+            &mut engine,
+            2,
+            projected_command(crate::KnownState::NdFilterAuto(true)),
+            now,
+        );
+        assert!(request_transmit_optional(&pending).is_none());
+
+        let failure = engine.handle(
+            response(
+                FIRST,
+                DecodedResponse::Error {
+                    socket,
+                    code: 0x03.into(),
+                },
+            ),
+            now,
+        );
+        assert!(matches!(
+            terminal_failure(&failure, first),
+            Some(Error::CommandBufferFull | Error::CommandFailedAfterAck { .. })
+        ));
+        assert_eq!(
+            projection(&failure, first),
+            acknowledged.then_some(AppliedStateProjection::invalidate(
+                crate::StateKey::NdFilterAuto
+            ))
+        );
+        assert_eq!(request_transmit(&failure).1, second);
+
+        send_ok(&mut engine, &failure, Some(SECOND), now);
+        let completed = engine.handle(completion(SECOND), now);
+        assert_applied(&completed, second);
+        assert_eq!(
+            projection(&completed, second),
+            Some(AppliedStateProjection::set(
+                crate::KnownState::NdFilterAuto(true)
+            ))
+        );
+    }
 }

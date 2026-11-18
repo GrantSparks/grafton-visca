@@ -1000,7 +1000,7 @@ trait EngineMethods: EngineAccess {
                 !self
                     .stop_wait_bound_in(entry)
                     .is_some_and(|bound| now >= bound)
-                    && (state.speed_mode_blocks(id, &entry.request)
+                    && (state.state_write_blocks(id, &entry.request)
                         || self.hold_blocks_in(entry, target, occupancy)
                         || self.command_gate_in(entry, target, occupancy)
                         || (if entry.request.is_stop() {
@@ -1616,10 +1616,10 @@ trait EngineMethods: EngineAccess {
 
     /// The per-lane dispatch gate: whether protocol state, rather than
     /// pacing, keeps ready `entry` from being written. Raw holds, protocol
-    /// capacity, the raw command gate, the stream ledger and uncorrelated raw
-    /// shapes each block; a byte-stream STOP that has waited out its
-    /// [`Self::stop_wait_bound_in`] by `now` bypasses the command gates. Pacing
-    /// (spacing and the inquiry cooldown) is [`Self::candidate_send_at`]'s
+    /// capacity, ordered state writes, the raw command gate, the stream ledger
+    /// and uncorrelated raw shapes each block. A byte-stream STOP that has waited
+    /// out its [`Self::stop_wait_bound_in`] by `now` bypasses the command gates.
+    /// Pacing (spacing and the inquiry cooldown) is [`Self::candidate_send_at`]'s
     /// alone.
     #[cfg(test)]
     fn dispatch_blocked(&self, id: RequestId, entry: &Entry, now: Instant) -> bool {
@@ -1640,20 +1640,23 @@ trait EngineMethods: EngineAccess {
                 let Some(policy) = self.targets[target].policy else {
                     return true;
                 };
-                let speed_mode_conflict = self.entries.iter().any(|(other_id, other)| {
-                    if other.request.context().target != target
-                        || !other.request.sets_pan_tilt_speed_mode()
-                    {
+                let state_key = entry.request.applied_state_key();
+                let state_conflict = self.entries.iter().any(|(other_id, other)| {
+                    if other.request.context().target != target {
                         return false;
                     }
-                    (*other_id < id && entry.request.sets_pan_tilt_speed_mode())
-                        || (entry.request.context().requires_extended_pan_tilt_speed
+                    let Some(other_key) = other.request.applied_state_key() else {
+                        return false;
+                    };
+                    (*other_id < id && state_key == Some(other_key))
+                        || (other_key == crate::StateKey::PanTiltSpeedMode
+                            && entry.request.context().requires_extended_pan_tilt_speed
                             && (*other_id < id
                                 || other.prior.is_some()
                                 || !other.lifecycle().is_ready()))
                 });
                 !self.stop_wait_ended(entry, now)
-                    && (speed_mode_conflict
+                    && (state_conflict
                         || self.raw_hold_blocks_dispatch(entry, target)
                         || self.raw_command_gate_blocks(entry, target)
                         || self.command_capacity_used_by(entry, target)

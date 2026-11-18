@@ -192,6 +192,11 @@ establish a value. The owner commits effects before notifying observers or
 resolving the terminal outcome, independently of observer attachment. A fresh
 session starts every target at `Unknown`; target views remain isolated.
 
+The scheduler orders writes to the same `StateKey` on the same target by
+admission. A setter holds its place through retry backoff and socket
+reassignment until its terminal result, even after its observer detaches.
+Writes for different keys or targets can use otherwise available sockets.
+
 On an FR7, a pan/tilt drive using speed 25–50 waits for an in-flight
 speed-mode change on that target, including when the drive is ready to retry.
 The write requires a confirmed `Fine50`. An applied `Standard24` or an
