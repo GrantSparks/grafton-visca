@@ -810,4 +810,51 @@ mod async_facade {
         }
         session.shutdown().expect("owner shutdown");
     }
+
+    #[cfg(feature = "test-utils")]
+    #[test]
+    fn late_completion_while_cancel_caller_is_paused() {
+        use grafton_visca::{
+            error::Recovery,
+            testing::testkit::{ManualClock, ManualClockExecutor},
+        };
+
+        let clock = ManualClock::new();
+        let executor = ManualClockExecutor::local(&clock);
+        executor.run_until(async {
+            let (session, camera) = open(&executor).await;
+            let mut moving = running_zoom(&executor, &session, &camera).await;
+            let id = moving.id();
+            let budget = Duration::from_millis(10);
+            let deadline = clock.now() + budget;
+            let error = {
+                let mut cancel = std::pin::pin!(moving.cancel_with_timeout(budget));
+                assert!(future::poll_once(&mut cancel).await.is_none());
+                camera.wait_for_writes_async(&executor, 2).await;
+                assert!(clock.now() <= deadline, "owner accepted the cancel in time");
+
+                // Keep the caller suspended until the owner has delivered the
+                // original command's completion and released its terminal sender.
+                clock.advance(deadline + Duration::from_millis(1) - clock.now());
+                camera.push(frames::complete(1));
+                camera.wait_for_reads_async(&executor, 2).await;
+                assert_eq!(session.metrics().await.expect("owner metrics").active, 0);
+                cancel.await.expect_err("completion missed this wait")
+            };
+            assert!(
+                matches!(error, Error::ObservationTimeout { operation, .. } if operation == id),
+                "observed {error:?}"
+            );
+            assert_eq!(error.recovery(), Recovery::WaitAgain);
+            moving
+                .applied_with_timeout(Duration::ZERO)
+                .await
+                .expect("fresh wait recovers the cached completion");
+            assert_eq!(
+                camera.writes(),
+                vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()]
+            );
+            session.close().await.expect("owner remains healthy");
+        });
+    }
 }

@@ -403,6 +403,12 @@ even if that later motion is cancelled before writing. Other axes/targets and
 rejected requests do not supersede it. Established cached evidence and exact
 profile completion remain valid.
 
+`applied_with_timeout` and `cancel_with_timeout` use the owner's delivery
+time. A result delivered exactly at the deadline counts even if the caller
+resumes later. A terminal delivered after the deadline remains on the handle.
+The expired wait returns `ObservationTimeout`, and a fresh wait can observe
+the result.
+
 A motion observation reads one position snapshot, waits until at least
 `MotionQuery::window()` (default 100 ms, set with `with_window`) has elapsed on
 the owner clock, and reads a second. `true` means a selected axis moved by more
