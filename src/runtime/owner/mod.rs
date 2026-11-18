@@ -1062,7 +1062,13 @@ impl ReceiptCore<CommandOutcome> {
     }
 }
 
-#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
+#[cfg(all(
+    test,
+    any(
+        feature = "runtime-tokio",
+        all(feature = "runtime-smol", feature = "test-utils")
+    )
+))]
 impl ReceiptCore<RuntimeOutcome> {
     #[allow(clippy::panic)]
     fn command_id(&self) -> CommandRequestId {
