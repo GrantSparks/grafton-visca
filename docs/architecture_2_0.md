@@ -976,7 +976,11 @@ raw discard are infallible. Each raw discard consumes a nonzero byte span and
 retains any later input. The Sony framer supplies the decoded payload type
 and sequence with its validated frame span. A valid burst that exceeds
 `frames_per_receive` leaves the remaining frames buffered for the next
-receive. The framer retains at most `max_buffer_size + recv_buffer_size`
+receive turn. Every complete reply uses that physical read's receive instant
+for correlation. A partial reply takes the instant of the read that finishes
+it. Fairness can let a boundary through between batches while scheduler work
+waits for the complete replies, then uses the current time.
+The framer retains at most `max_buffer_size + recv_buffer_size`
 bytes across reads. If buffered Sony headers already prove position loss,
 the owner drains the verified prefix in bounded batches at the original
 receive instant and poisons the session before running due work. The scheduler

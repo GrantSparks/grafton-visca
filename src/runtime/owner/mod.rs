@@ -635,6 +635,8 @@ pub(crate) struct FrameBatch {
     frames: VecDeque<DecodedFrame>,
     limit: usize,
     pub(crate) discarded: usize,
+    /// Decoded without another transport read, from the previous read's bytes.
+    from_retained_read: bool,
     /// Stream position was lost after the last verified frame in this batch.
     framing_failure: Option<Arc<Error>>,
 }
@@ -674,6 +676,7 @@ impl FrameBatch {
     fn clear(&mut self) {
         self.frames.clear();
         self.discarded = 0;
+        self.from_retained_read = false;
         self.framing_failure = None;
     }
 }
@@ -1732,6 +1735,11 @@ impl RawRetention<'_> {
 
 /// Inspect and drain input already retained by the stream framer.
 pub(crate) trait RetainedStreamInput {
+    /// A complete frame or framing verdict can be decoded without reading.
+    fn has_ready_buffered_input(&mut self) -> bool {
+        false
+    }
+
     /// The next bounded batch of a read whose buffered tail already proves
     /// position loss. No transport I/O or new receive turn is needed.
     fn drain_terminal_prefix(&mut self, _buffers: &mut OwnerBuffers) -> Option<FrameBatch> {
@@ -2289,6 +2297,7 @@ impl OwnerState {
         &mut self,
         request: CancellationRequest,
         now: Instant,
+        engine_turn: EngineTurn,
     ) -> (VecDeque<Effect>, Result<(), Error>) {
         let Some(active) = self.active.get_mut(&request.id.request_id()) else {
             return (self.buffers.take_effects(), Ok(()));
@@ -2305,11 +2314,8 @@ impl OwnerState {
             // A refused cancellation leaves no provisional owner state.
             active.cancellation = Some(request.observer);
         }
-        self.engine.finish_input_turn_into(
-            turn,
-            EngineTurn::Complete,
-            &mut self.buffers.effect_scratch,
-        );
+        self.engine
+            .finish_input_turn_into(turn, engine_turn, &mut self.buffers.effect_scratch);
         (self.buffers.take_effects(), answer)
     }
 

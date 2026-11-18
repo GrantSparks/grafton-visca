@@ -459,6 +459,11 @@ impl SonyFramer {
         Self::from_buffer(FrameBuffer::new(config))
     }
 
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn has_buffered_verdict(&self) -> bool {
+        !matches!(self.scan(&self.buffer.buf), FrameScan::NeedMore)
+    }
+
     /// Inspect only buffered Sony boundaries. A rejected header makes all
     /// preceding complete frames the terminal prefix of the current read.
     #[cfg(any(feature = "async", feature = "blocking"))]

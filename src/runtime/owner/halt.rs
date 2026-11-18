@@ -77,6 +77,7 @@ impl OwnerState {
         deadline: Instant,
         cutoff: u64,
         remaining: crate::runtime::engine::NonZeroDuration,
+        engine_turn: EngineTurn,
     ) -> (HaltReceipt, VecDeque<Effect>) {
         // All admissions are input-only: no axis's write or observation can
         // delay admission of another STOP. Released ordinary permits and the
@@ -103,7 +104,7 @@ impl OwnerState {
                 ReceiptCore::admitted(admitted, completion, remaining.get())
             })
         });
-        let effects = self.finish_input_turn(turn, EngineTurn::Complete);
+        let effects = self.finish_input_turn(turn, engine_turn);
         (HaltReceipt { slots, deadline }, effects)
     }
 }

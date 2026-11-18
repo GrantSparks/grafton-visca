@@ -1253,7 +1253,14 @@ mod metrics {
                 AppliedEffect::None
             ));
         }
-        let (receipt, effects) = state.accept_halt(turn, prepared, halt_deadline, 2, remaining);
+        let (receipt, effects) = state.accept_halt(
+            turn,
+            prepared,
+            halt_deadline,
+            2,
+            remaining,
+            EngineTurn::Complete,
+        );
         for effect in effects {
             assert!(matches!(
                 state.apply_effect(effect, delivered),
@@ -1324,6 +1331,7 @@ mod metrics {
                 observer,
             },
             ready_at,
+            EngineTurn::Complete,
         );
         answer.unwrap();
         assert_eq!(
@@ -1418,6 +1426,7 @@ mod metrics {
                     observer,
                 },
                 now + Duration::from_millis(1),
+                EngineTurn::Complete,
             );
             match cancellation {
                 CancellationPolicy::Supported => {
@@ -1975,6 +1984,7 @@ mod metrics {
             now + ACK,
             1,
             crate::runtime::engine::NonZeroDuration::new(ACK).unwrap(),
+            EngineTurn::Complete,
         );
         for effect in effects {
             assert!(matches!(
