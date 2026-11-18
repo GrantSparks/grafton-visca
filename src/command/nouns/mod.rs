@@ -589,18 +589,8 @@ macro_rules! forward_inquiry {
             fn builtin_inquiry_syntax_retry(
                 &self,
                 authority: $crate::requests::BuiltinInquiryAuthority,
-            ) -> bool {
+            ) -> $crate::requests::BuiltinInquiryProtocol {
                 <$inner as $crate::Inquiry>::builtin_inquiry_syntax_retry(
-                    $crate::command::nouns::forward_request!(@inner self [$($value)*]),
-                    authority,
-                )
-            }
-            #[allow(private_interfaces)]
-            fn sony_payload_type(
-                &self,
-                authority: $crate::requests::BuiltinInquiryAuthority,
-            ) -> Option<$crate::protocol::sony::PayloadType> {
-                <$inner as $crate::Inquiry>::sony_payload_type(
                     $crate::command::nouns::forward_request!(@inner self [$($value)*]),
                     authority,
                 )
@@ -784,7 +774,7 @@ mod tests {
         );
         let _ = <Query as super::NounInquiryContract>::SOURCE;
         #[cfg(any(feature = "blocking", feature = "async"))]
-        assert!(crate::requests::builtin_inquiry_syntax_retry(&query));
+        assert!(crate::requests::builtin_inquiry_protocol(&query).syntax_retry);
     }
 
     #[test]

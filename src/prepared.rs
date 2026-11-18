@@ -614,13 +614,12 @@ where
     }
     let (wire, _, decoder) = encode(inquiry, registration, || bind_decoder(registration))?;
     let (context, _) = lower_request_context(inquiry, registration, tuning, class);
-    let sony_payload_type =
-        inquiry.sony_payload_type(crate::requests::BuiltinInquiryAuthority::new());
+    let protocol = crate::requests::builtin_inquiry_protocol(inquiry);
     Ok(PreparedInquiry {
-        wire: PreparedWire::Owned(wire.with_sony_payload_type(sony_payload_type)),
+        wire: PreparedWire::Owned(wire.with_sony_payload_type(protocol.sony_payload_type)),
         context,
         payload_shape: inquiry.payload_shape_for_profile(profile),
-        syntax: crate::requests::builtin_inquiry_syntax_retry(inquiry),
+        syntax: protocol.syntax_retry,
         decoder,
     })
 }

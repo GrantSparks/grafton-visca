@@ -36,6 +36,7 @@ SUITES = {
     "issue_892_payload_shape": "",
     "issue_975_lazy_settlement": "",
     "issue_979_owner_read_timeout": "",
+    "issue_1129_version_envelope": "",
 }
 
 

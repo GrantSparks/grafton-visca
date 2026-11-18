@@ -26,14 +26,21 @@ pub(crate) struct AppliedStateAuthority(private::SealedToken);
 #[doc(hidden)]
 pub(crate) struct RequestContractAuthority(private::SealedToken);
 
-/// Crate-only authority passed to the hidden built-in inquiry hooks.
+/// Crate-only authority passed to the hidden built-in inquiry metadata hook.
 ///
-/// The containing module is private and this token is not constructible by a
-/// downstream [`crate::request::Inquiry`] implementation. Generated built-in inquiries use the
-/// hook to authorize the narrow `0x02` retry; custom inquiries retain its
-/// default `false` result.
+/// The private token prevents a downstream inquiry from opting in to
+/// crate-selected replay and envelope behavior.
 #[doc(hidden)]
 pub(crate) struct BuiltinInquiryAuthority(private::SealedToken);
+
+// The trait is also compiled in encoding-only builds, which have no owner
+// to consume the protocol facts.
+#[cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
+#[derive(Default)]
+pub(crate) struct BuiltinInquiryProtocol {
+    pub(crate) syntax_retry: bool,
+    pub(crate) sony_payload_type: Option<crate::protocol::sony::PayloadType>,
+}
 
 mod private {
     #[derive(Debug, Clone, Copy)]
@@ -1182,32 +1189,20 @@ pub trait Inquiry: Request<Class = request::InquiryClass> {
         Ok(self.decoder())
     }
 
-    /// Returns whether this inquiry is one of the crate-generated built-ins
-    /// eligible for the narrow syntax-error replay policy.
-    ///
-    /// The private authority keeps this provenance closed: downstream/custom
-    /// inquiry implementations use the default and cannot opt themselves in.
+    /// Returns crate-authorized syntax-error replay and Sony framing facts.
     #[doc(hidden)]
     #[allow(private_interfaces)]
-    fn builtin_inquiry_syntax_retry(&self, _authority: BuiltinInquiryAuthority) -> bool {
-        false
-    }
-
-    /// Supplies the Sony payload type for a built-in inquiry with a distinct
-    /// envelope class.
-    #[doc(hidden)]
-    #[allow(private_interfaces)]
-    fn sony_payload_type(
+    fn builtin_inquiry_syntax_retry(
         &self,
         _authority: BuiltinInquiryAuthority,
-    ) -> Option<crate::protocol::sony::PayloadType> {
-        None
+    ) -> BuiltinInquiryProtocol {
+        BuiltinInquiryProtocol::default()
     }
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-/// Reads the closed built-in inquiry provenance during generic preparation.
-pub(crate) fn builtin_inquiry_syntax_retry<Q>(inquiry: &Q) -> bool
+/// Reads the closed built-in protocol facts during generic preparation.
+pub(crate) fn builtin_inquiry_protocol<Q>(inquiry: &Q) -> BuiltinInquiryProtocol
 where
     Q: Inquiry + ?Sized,
 {

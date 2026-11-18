@@ -536,6 +536,10 @@ fn inquiry_test_profiles() -> Vec<crate::ProfileSpec> {
 
 /// Generates every built-in inquiry item from the one table below.
 macro_rules! define_builtin_inquiries {
+    (@sony_payload_type) => { None };
+    (@sony_payload_type $payload_type:ident) => {
+        Some(crate::protocol::sony::PayloadType::$payload_type)
+    };
     (
         queryable {
             $(
@@ -873,20 +877,12 @@ macro_rules! define_builtin_inquiries {
                 fn builtin_inquiry_syntax_retry(
                     &self,
                     _authority: crate::requests::BuiltinInquiryAuthority,
-                ) -> bool {
-                    true
-                }
-
-                $(
-                    #[doc(hidden)]
-                    #[allow(private_interfaces)]
-                    fn sony_payload_type(
-                        &self,
-                        _authority: crate::requests::BuiltinInquiryAuthority,
-                    ) -> Option<crate::protocol::sony::PayloadType> {
-                        Some(crate::protocol::sony::PayloadType::$sony_payload_type)
+                ) -> crate::requests::BuiltinInquiryProtocol {
+                    crate::requests::BuiltinInquiryProtocol {
+                        syntax_retry: true,
+                        sony_payload_type: define_builtin_inquiries!(@sony_payload_type $($sony_payload_type)?),
                     }
-                )?
+                }
             }
 
             impl BuiltinInquiryCommandMarker for $struct {
