@@ -270,6 +270,7 @@ pub(super) fn owner_policy_for_registry_with_tuning(
             capacity: admission_capacity,
             wire,
             transport,
+            recv_buffer_size: config.buffer_config().recv_buffer_size(),
             command_spacing,
             inquiry_spacing,
             // A syntax-error inquiry retry needs to respect the strictest

@@ -1611,11 +1611,14 @@ fn coalesce(queue: &mut Queue) {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::num::NonZeroU64;
+    use std::num::{NonZeroU64, NonZeroUsize};
 
     use super::*;
 
     const TARGET: TargetSlot = TargetSlot::ALL[0];
+    const ONE_BYTE: PayloadShape = PayloadShape::Bytes(NonZeroUsize::MIN);
+    const FOUR_BYTES: PayloadShape = PayloadShape::Bytes(NonZeroUsize::new(4).unwrap());
+    const FOUR_NIBBLES: PayloadShape = PayloadShape::Nibbles(NonZeroUsize::new(4).unwrap());
 
     fn request(id: u64) -> RequestId {
         RequestId::from_nonzero(NonZeroU64::new(id).unwrap())
@@ -1979,7 +1982,7 @@ mod tests {
     fn disjoint_live_inquiries_keep_their_own_replies_in_either_order() {
         for reverse in [false, true] {
             let mut ledger = StreamLedger::new();
-            for (id, shape) in [(1, PayloadShape::Bytes(1)), (2, PayloadShape::Nibbles(4))] {
+            for (id, shape) in [(1, ONE_BYTE), (2, FOUR_NIBBLES)] {
                 ledger.push(TARGET, request(id), Owes::Reply(shape));
                 ledger.mark_written(TARGET, request(id), false);
             }
@@ -2001,17 +2004,14 @@ mod tests {
 
     #[test]
     fn disjoint_reply_retires_older_debt_but_malformed_nibbles_retire_nothing() {
-        let mut ledger = owed(&[Owes::Reply(PayloadShape::Bytes(1))]);
+        let mut ledger = owed(&[Owes::Reply(ONE_BYTE)]);
         ledger.latch_due(Instant::now());
         assert_eq!(
             ledger.inquiry_state(TARGET, PayloadShape::Unknown),
             LaneState::Latched
         );
-        assert_eq!(
-            ledger.inquiry_state(TARGET, PayloadShape::Nibbles(4)),
-            LaneState::Clear
-        );
-        ledger.push(TARGET, request(2), Owes::Reply(PayloadShape::Nibbles(4)));
+        assert_eq!(ledger.inquiry_state(TARGET, FOUR_NIBBLES), LaneState::Clear);
+        ledger.push(TARGET, request(2), Owes::Reply(FOUR_NIBBLES));
         ledger.mark_written(TARGET, request(2), false);
         let invalid = ledger.answer(TARGET, Answer::Reply(&[0, 0, 0, 0x10]), Evidence::Other);
         assert_eq!(invalid.resolved, Resolved::Nothing);
@@ -2019,17 +2019,14 @@ mod tests {
         assert_eq!(ledger.len(TARGET), 2);
         let valid = ledger.answer(TARGET, Answer::Reply(&[0, 1, 2, 3]), Evidence::Other);
         assert!(matches!(valid.resolved, Resolved::Live(entry) if entry.request == request(2)));
-        assert_eq!(
-            valid.replies_settled.iter().collect::<Vec<_>>(),
-            [PayloadShape::Bytes(1)]
-        );
+        assert_eq!(valid.replies_settled.iter().collect::<Vec<_>>(), [ONE_BYTE]);
         assert!(ledger.is_empty());
     }
 
     #[test]
     fn shape_legality_never_weakens_socketless_error_order_or_run_separators() {
-        let byte = Owes::Reply(PayloadShape::Bytes(4));
-        let nibble = Owes::Reply(PayloadShape::Nibbles(4));
+        let byte = Owes::Reply(FOUR_BYTES);
+        let nibble = Owes::Reply(FOUR_NIBBLES);
         let mut ledger = owed(&[Owes::Ack, byte, Owes::Ack, nibble, Owes::Ack]);
         // Even disjoint data classes compete for an unkeyed error, so an
         // inquiry is always a real separator between command debt runs.
@@ -2044,9 +2041,9 @@ mod tests {
         assert!(matches!(answered.resolved, Resolved::Debt(entry) if entry.owes == byte));
         assert_eq!(
             answered.replies_settled.iter().collect::<Vec<_>>(),
-            [PayloadShape::Bytes(4)]
+            [FOUR_BYTES]
         );
-        assert!(ledger.owes_reply(TARGET, PayloadShape::Nibbles(4)));
-        assert!(!ledger.owes_reply(TARGET, PayloadShape::Bytes(4)));
+        assert!(ledger.owes_reply(TARGET, FOUR_NIBBLES));
+        assert!(!ledger.owes_reply(TARGET, FOUR_BYTES));
     }
 }

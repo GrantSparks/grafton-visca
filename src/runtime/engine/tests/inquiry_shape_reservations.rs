@@ -1,9 +1,11 @@
 //! The C16 declaration cap is a union of actual retained engine facts.
+use std::num::NonZeroUsize;
+
 use super::*;
 
 fn reservation_engine(transport: TransportKind, capacity: usize, now: Instant) -> ProtocolEngine {
     let mut configured = policy(EnvelopeKind::Raw, transport);
-    configured.capacity = std::num::NonZeroUsize::new(capacity).unwrap();
+    configured.capacity = NonZeroUsize::new(capacity).unwrap();
     ProtocolEngine::new(
         configured,
         target_policies(&TargetSlot::ALL, TargetPolicy::test_default()),
@@ -41,12 +43,45 @@ fn assert_shape_capacity(effects: &[Effect], target: u8) {
 }
 
 #[test]
+fn impossible_raw_counts_cannot_reserve_inquiry_shapes() {
+    let now = Instant::now();
+    let target = camera(1);
+    for transport in [TransportKind::Stream, TransportKind::Datagram] {
+        let mut engine = reservation_engine(transport, 4, now);
+        engine.policy.recv_buffer_size = 64;
+        let turn = engine.begin_input_turn(now);
+        for exact in [PayloadShape::Bytes, PayloadShape::Nibbles] {
+            for length in [NonZeroUsize::new(62).unwrap(), NonZeroUsize::MAX] {
+                let error = engine
+                    .admit_in_turn(&turn, inquiry_with_shape(1, exact(length)))
+                    .expect_err("invalid shape has no admission ID");
+                assert!(matches!(error, Error::InvalidParameter { .. }), "{error:?}");
+                assert!(engine.tracked_inquiry_shapes(target).unwrap().is_empty());
+                assert_eq!(engine.active_len(), 0);
+            }
+        }
+        let valid_shape = PayloadShape::Bytes(NonZeroUsize::new(61).unwrap());
+        engine
+            .admit_in_turn(&turn, inquiry_with_shape(1, valid_shape))
+            .expect("valid shape still fits");
+        assert!(engine
+            .tracked_inquiry_shapes(target)
+            .unwrap()
+            .contains(valid_shape));
+        engine.assert_invariants().unwrap();
+    }
+}
+
+#[test]
 fn queued_exact_declarations_reserve_c16_independently_on_all_seven_targets() {
     let now = Instant::now();
     let mut engine = reservation_engine(TransportKind::Datagram, 128, now);
     let declarations: Vec<_> = (1..=14)
-        .map(PayloadShape::Bytes)
-        .chain([PayloadShape::Nibbles(4), PayloadShape::Unknown])
+        .map(|length| PayloadShape::Bytes(NonZeroUsize::new(length).unwrap()))
+        .chain([
+            PayloadShape::Nibbles(NonZeroUsize::new(4).unwrap()),
+            PayloadShape::Unknown,
+        ])
         .collect();
     let mut ticket = 0;
     for target in 1..=7 {
@@ -76,7 +111,7 @@ fn queued_exact_declarations_reserve_c16_independently_on_all_seven_targets() {
                 &mut engine,
                 ticket,
                 target,
-                PayloadShape::Bytes(15),
+                PayloadShape::Bytes(NonZeroUsize::new(15).unwrap()),
                 now,
                 EngineTurn::InputOnly,
             ),
@@ -89,7 +124,7 @@ fn queued_exact_declarations_reserve_c16_independently_on_all_seven_targets() {
             &mut engine,
             ticket,
             target,
-            PayloadShape::Nibbles(4),
+            PayloadShape::Nibbles(NonZeroUsize::new(4).unwrap()),
             now,
             EngineTurn::InputOnly,
         );
@@ -123,7 +158,7 @@ fn sending_waiting_backoff_ready_and_skew_holds_keep_the_same_reservation() {
             &mut engine,
             length as u64,
             1,
-            PayloadShape::Bytes(length),
+            PayloadShape::Bytes(NonZeroUsize::new(length).unwrap()),
             now,
             EngineTurn::Complete,
         );
@@ -145,7 +180,7 @@ fn sending_waiting_backoff_ready_and_skew_holds_keep_the_same_reservation() {
             &mut engine,
             17,
             1,
-            PayloadShape::Bytes(17),
+            PayloadShape::Bytes(NonZeroUsize::new(17).unwrap()),
             now,
             EngineTurn::InputOnly,
         ),
@@ -164,7 +199,7 @@ fn sending_waiting_backoff_ready_and_skew_holds_keep_the_same_reservation() {
             &mut engine,
             18,
             1,
-            PayloadShape::Bytes(17),
+            PayloadShape::Bytes(NonZeroUsize::new(17).unwrap()),
             now + Duration::from_millis(30),
             EngineTurn::InputOnly,
         ),
@@ -185,7 +220,7 @@ fn sending_waiting_backoff_ready_and_skew_holds_keep_the_same_reservation() {
             &mut engine,
             19,
             1,
-            PayloadShape::Bytes(17),
+            PayloadShape::Bytes(NonZeroUsize::new(17).unwrap()),
             ready_at,
             EngineTurn::InputOnly,
         ),
@@ -197,7 +232,8 @@ fn sending_waiting_backoff_ready_and_skew_holds_keep_the_same_reservation() {
     // finite datagram skew holds, after their admitted entries have ended.
     let mut engine = reservation_engine(TransportKind::Datagram, 64, now);
     for length in 1..=16 {
-        let mut request = inquiry_with_shape(1, PayloadShape::Bytes(length));
+        let mut request =
+            inquiry_with_shape(1, PayloadShape::Bytes(NonZeroUsize::new(length).unwrap()));
         request.context_mut().retry = RetryPolicy::NEVER;
         let write = engine.handle(
             Input::Admit {
@@ -217,7 +253,7 @@ fn sending_waiting_backoff_ready_and_skew_holds_keep_the_same_reservation() {
             &mut engine,
             19,
             1,
-            PayloadShape::Bytes(17),
+            PayloadShape::Bytes(NonZeroUsize::new(17).unwrap()),
             ready_at,
             EngineTurn::InputOnly,
         ),
@@ -231,7 +267,7 @@ fn sending_waiting_backoff_ready_and_skew_holds_keep_the_same_reservation() {
         &mut engine,
         20,
         1,
-        PayloadShape::Bytes(17),
+        PayloadShape::Bytes(NonZeroUsize::new(17).unwrap()),
         released_at,
         EngineTurn::Complete,
     );
@@ -248,7 +284,7 @@ fn unpaid_stream_declarations_survive_time_and_release_only_after_evidence_and_s
             &mut engine,
             length as u64,
             1,
-            PayloadShape::Bytes(length),
+            PayloadShape::Bytes(NonZeroUsize::new(length).unwrap()),
             now,
             EngineTurn::Complete,
         );
@@ -283,7 +319,7 @@ fn unpaid_stream_declarations_survive_time_and_release_only_after_evidence_and_s
             &mut engine,
             17,
             1,
-            PayloadShape::Bytes(17),
+            PayloadShape::Bytes(NonZeroUsize::new(17).unwrap()),
             latched_at,
             EngineTurn::InputOnly,
         ),
@@ -293,7 +329,7 @@ fn unpaid_stream_declarations_survive_time_and_release_only_after_evidence_and_s
         &mut engine,
         18,
         1,
-        PayloadShape::Bytes(1),
+        PayloadShape::Bytes(NonZeroUsize::MIN),
         latched_at,
         EngineTurn::InputOnly,
     );
@@ -308,7 +344,7 @@ fn unpaid_stream_declarations_survive_time_and_release_only_after_evidence_and_s
         &mut engine,
         19,
         2,
-        PayloadShape::Bytes(17),
+        PayloadShape::Bytes(NonZeroUsize::new(17).unwrap()),
         latched_at,
         EngineTurn::Complete,
     );
@@ -341,7 +377,7 @@ fn unpaid_stream_declarations_survive_time_and_release_only_after_evidence_and_s
             &mut engine,
             20,
             1,
-            PayloadShape::Bytes(17),
+            PayloadShape::Bytes(NonZeroUsize::new(17).unwrap()),
             latched_at,
             EngineTurn::InputOnly,
         ),
@@ -354,7 +390,7 @@ fn unpaid_stream_declarations_survive_time_and_release_only_after_evidence_and_s
         &mut engine,
         21,
         1,
-        PayloadShape::Bytes(17),
+        PayloadShape::Bytes(NonZeroUsize::new(17).unwrap()),
         released_at,
         EngineTurn::Complete,
     );
@@ -370,7 +406,7 @@ fn a_retry_cannot_share_its_overlap_with_a_queued_successor_at_wide_capacity() {
         &mut engine,
         1,
         1,
-        PayloadShape::Bytes(1),
+        PayloadShape::Bytes(NonZeroUsize::MIN),
         now,
         EngineTurn::Complete,
     );
@@ -380,13 +416,13 @@ fn a_retry_cannot_share_its_overlap_with_a_queued_successor_at_wide_capacity() {
         &mut engine,
         2,
         1,
-        PayloadShape::Nibbles(1),
+        PayloadShape::Nibbles(NonZeroUsize::MIN),
         now,
         EngineTurn::Complete,
     );
     let second_id = admitted(&second);
     assert!(request_transmit_optional(&second).is_none());
-    let mut disjoint = inquiry_with_shape(1, PayloadShape::Bytes(4));
+    let mut disjoint = inquiry_with_shape(1, PayloadShape::Bytes(NonZeroUsize::new(4).unwrap()));
     disjoint.context_mut().timeout.inquiry =
         NonZeroDuration::new(Duration::from_millis(300)).unwrap();
     let disjoint_write = engine.handle(

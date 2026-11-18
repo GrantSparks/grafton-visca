@@ -6,22 +6,25 @@
 //! datagrams may reorder every answer. Same-shape ambiguity and Unknown retain
 //! their documented residual, but no reply may bind outside its payload domain.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    num::NonZeroUsize,
+};
 
 use super::*;
 use crate::PayloadShape;
 
 const SHAPES: [PayloadShape; 11] = [
-    PayloadShape::Bytes(1),
-    PayloadShape::Nibbles(1),
-    PayloadShape::Nibbles(2),
-    PayloadShape::Nibbles(3),
-    PayloadShape::Bytes(4),
-    PayloadShape::Nibbles(4),
-    PayloadShape::Bytes(7),
-    PayloadShape::Nibbles(8),
-    PayloadShape::Nibbles(9),
-    PayloadShape::Nibbles(10),
+    PayloadShape::Bytes(NonZeroUsize::MIN),
+    PayloadShape::Nibbles(NonZeroUsize::MIN),
+    PayloadShape::Nibbles(NonZeroUsize::new(2).unwrap()),
+    PayloadShape::Nibbles(NonZeroUsize::new(3).unwrap()),
+    PayloadShape::Bytes(NonZeroUsize::new(4).unwrap()),
+    PayloadShape::Nibbles(NonZeroUsize::new(4).unwrap()),
+    PayloadShape::Bytes(NonZeroUsize::new(7).unwrap()),
+    PayloadShape::Nibbles(NonZeroUsize::new(8).unwrap()),
+    PayloadShape::Nibbles(NonZeroUsize::new(9).unwrap()),
+    PayloadShape::Nibbles(NonZeroUsize::new(10).unwrap()),
     PayloadShape::Unknown,
 ];
 const STEPS: usize = 1_200;
@@ -32,7 +35,7 @@ const REPLY_MS: u64 = 12;
 fn oracle_length(shape: PayloadShape) -> Option<usize> {
     match shape {
         PayloadShape::Unknown => None,
-        PayloadShape::Bytes(length) | PayloadShape::Nibbles(length) => Some(length),
+        PayloadShape::Bytes(length) | PayloadShape::Nibbles(length) => Some(length.get()),
     }
 }
 
@@ -122,7 +125,7 @@ impl Session {
     fn new(transport: TransportKind, capacity: usize, seed: u64) -> Self {
         let now = Instant::now();
         let mut configured = policy(EnvelopeKind::Raw, transport);
-        configured.capacity = std::num::NonZeroUsize::new(capacity).unwrap();
+        configured.capacity = NonZeroUsize::new(capacity).unwrap();
         configured.inquiry_spacing = Duration::from_millis(2);
         configured.raw_inquiry_release_hold = Duration::from_millis(5);
         configured.raw_release_grace = Duration::from_millis(8);
@@ -213,10 +216,10 @@ impl Session {
                 Self::payload(SHAPES[(tag as usize) % (SHAPES.len() - 1)], tag)
             }
             PayloadShape::Bytes(length) => {
-                std::iter::repeat_n(0x80 | ((tag % 127) as u8), length).collect()
+                std::iter::repeat_n(0x80 | ((tag % 127) as u8), length.get()).collect()
             }
             PayloadShape::Nibbles(length) => {
-                std::iter::repeat_n((tag % 15 + 1) as u8, length).collect()
+                std::iter::repeat_n((tag % 15 + 1) as u8, length.get()).collect()
             }
         }
     }
@@ -443,7 +446,7 @@ fn randomized_datagram_mixed_shapes_never_cross_bind() {
 fn queued_unknown_does_not_transitively_latch_disjoint_shapes() {
     let mut model = Session::new(TransportKind::Stream, 8, 1);
     let owed = model
-        .submit(1, PayloadShape::Bytes(1), AnswerMode::Skip)
+        .submit(1, PayloadShape::Bytes(NonZeroUsize::MIN), AnswerMode::Skip)
         .unwrap();
     assert!(model.records[&owed].written);
     model.tick(REPLY_MS + 1);
@@ -456,7 +459,11 @@ fn queued_unknown_does_not_transitively_latch_disjoint_shapes() {
         "Unknown overlaps the owed byte"
     );
     let position = model
-        .submit(1, PayloadShape::Nibbles(4), AnswerMode::After(1))
+        .submit(
+            1,
+            PayloadShape::Nibbles(NonZeroUsize::new(4).unwrap()),
+            AnswerMode::After(1),
+        )
         .unwrap();
     assert!(
         model.records[&position].written,
@@ -480,9 +487,14 @@ fn distinct_shape_debts_stay_bounded_at_single_request_capacity() {
     let mut model = Session::new(TransportKind::Stream, 1, 1);
     let bound = stream_ledger::max_entries_per_target(1);
     let attempts = MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET * 8 + 1;
+    model.engine.policy.recv_buffer_size = attempts + REPLY_FRAME_OVERHEAD;
     let mut first_written = None;
     for length in 1..=attempts {
-        if let Some(id) = model.submit(1, PayloadShape::Bytes(length), AnswerMode::Skip) {
+        if let Some(id) = model.submit(
+            1,
+            PayloadShape::Bytes(NonZeroUsize::new(length).unwrap()),
+            AnswerMode::Skip,
+        ) {
             if model.records[&id].written && first_written.is_none() {
                 first_written = Some(id);
             }
@@ -574,7 +586,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
     configured.wire =
         WireProtocol::new(EnvelopeKind::Raw, crate::transport::AddressingMode::Serial);
-    configured.capacity = std::num::NonZeroUsize::new(1).unwrap();
+    configured.capacity = NonZeroUsize::new(1).unwrap();
     configured.raw_inquiry_release_hold = Duration::from_millis(1);
     let mut engine = ProtocolEngine::new(
         configured,
@@ -636,7 +648,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
         let RuntimeRequest::Inquiry { payload_shape, .. } = &mut request else {
             unreachable!("the inquiry fixture has the inquiry class");
         };
-        *payload_shape = PayloadShape::Bytes(length);
+        *payload_shape = PayloadShape::Bytes(NonZeroUsize::new(length).unwrap());
         request
     }
 

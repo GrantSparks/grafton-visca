@@ -778,10 +778,12 @@ one would let its late answer reach a later request. At 32 total debt members,
 ordinary commands latch until debts are paid; urgent ACK-bearing STOPs and
 cancellations continue, and a disjoint inquiry can still cross the debt. Raw
 inquiries have a separate limit: at most **16 exact declarations per target**
-can be simultaneously admitted, owed, or retained in reply-skew holds. Admission
-derives their union from those authoritative records, including queued requests;
-there is no reservation mirror. A new seventeenth declaration is refused before
-admission with `InquiryShapeCapacityExhausted` (`PreAdmission` / `NotAccepted`,
+can be simultaneously admitted, owed, or retained in reply-skew holds. The
+raw owner checks that a declared count fits the configured reply frame
+with its three framing bytes before reserving a shape. Admission derives the
+union from authoritative records, including queued requests. A new
+seventeenth declaration is refused before admission with
+`InquiryShapeCapacityExhausted` (`PreAdmission` / `NotAccepted`,
 `Recovery::Abandon`). Existing declarations, command recovery, other targets and
 the healthy session remain available. Releasing all evidence for a declaration
 releases its reservation. This bounded resource policy is the explicit exception
@@ -1074,8 +1076,9 @@ The tables below follow the exhaustive lifecycle transitions in
 
 Raw inquiry replies have no wire identity. Each prepared inquiry carries its
 decoder-declared `PayloadShape`: exact unrestricted `Bytes(n)`, exact nibble
-`Nibbles(n)`, or conservative `Unknown`. Built-in declarations and canonical
-derived inquiries come from the decoder table. Pan/tilt preparation selects
+`Nibbles(n)`, or conservative `Unknown`. Exact lengths are nonzero. Built-in
+declarations and canonical derived inquiries come from the decoder table.
+Pan/tilt preparation selects
 shape and decoder from the same profile framing once and retains both through
 reusable polling templates. No adapter invents an inquiry identifier.
 

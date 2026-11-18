@@ -565,6 +565,10 @@ for the rules for inquiry and command debts, including
 `Error::CommandCorrelationLost`. To clear a debt on a camera that never answers
 any work, close and reopen the session.
 
+An exact raw inquiry shape that exceeds `recv_buffer_size - 3` data bytes
+returns `Error::InvalidParameter` before engine admission. The rejected
+declaration does not reserve a shape or leave a reply owed.
+
 The inquiry timeout itself is retryable and
 `requires_new_session() == false`: it proves only that this request received no
 answer. A response-bearing command on a raw-VISCA envelope can instead end as

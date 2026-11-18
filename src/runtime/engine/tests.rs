@@ -1502,7 +1502,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let first = inquiry_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: inquiry_with_shape(1, PayloadShape::Bytes(1)),
+                request: inquiry_with_shape(1, PayloadShape::Bytes(std::num::NonZeroUsize::MIN)),
             },
             start,
         );
@@ -1511,7 +1511,10 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let second = inquiry_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(2),
-                request: inquiry_with_shape(1, PayloadShape::Bytes(2)),
+                request: inquiry_with_shape(
+                    1,
+                    PayloadShape::Bytes(std::num::NonZeroUsize::new(2).unwrap()),
+                ),
             },
             start,
         );
@@ -4406,7 +4409,9 @@ fn fixture_shape(fields: &BTreeMap<String, String>) -> PayloadShape {
         "unknown" => PayloadShape::Unknown,
         declaration => {
             let (kind, length) = declaration.split_once(':').expect("declared payload shape");
-            let length = length.parse::<usize>().expect("payload length");
+            let length = length
+                .parse::<std::num::NonZeroUsize>()
+                .expect("positive payload length");
             match kind {
                 "bytes" => PayloadShape::Bytes(length),
                 "nibbles" => PayloadShape::Nibbles(length),

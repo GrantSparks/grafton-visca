@@ -1280,6 +1280,7 @@ mod tests {
                     crate::transport::AddressingMode::Ip,
                 ),
                 transport,
+                recv_buffer_size: crate::transport::BufferConfig::default().recv_buffer_size(),
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,

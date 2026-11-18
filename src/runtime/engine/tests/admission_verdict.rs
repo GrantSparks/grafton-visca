@@ -25,7 +25,13 @@ fn fixture(case: &str, start: Instant) -> (ProtocolEngine, RuntimeRequest, Insta
             let turn = engine.begin_input_turn(now);
             for length in 1..=MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET {
                 engine
-                    .admit_in_turn(&turn, inquiry_with_shape(1, PayloadShape::Bytes(length)))
+                    .admit_in_turn(
+                        &turn,
+                        inquiry_with_shape(
+                            1,
+                            PayloadShape::Bytes(std::num::NonZeroUsize::new(length).unwrap()),
+                        ),
+                    )
                     .unwrap();
             }
             request = inquiry_with_shape(1, PayloadShape::Unknown);

@@ -37,7 +37,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
-use crate::protocol::response::CameraErrorCode;
+use crate::protocol::response::{CameraErrorCode, REPLY_FRAME_OVERHEAD};
 use crate::target::{PerTarget, TargetSlot};
 pub(crate) use crate::transport::envelope::FrameSequence;
 use crate::{
@@ -112,8 +112,8 @@ impl RawHoldScope {
             Self::Socket(ViscaSocket::S2) => (1, 0),
             Self::PreAck => (2, 0),
             Self::Inquiry(PayloadShape::Unknown) => (3, 0),
-            Self::Inquiry(PayloadShape::Bytes(length)) => (4, length),
-            Self::Inquiry(PayloadShape::Nibbles(length)) => (5, length),
+            Self::Inquiry(PayloadShape::Bytes(length)) => (4, length.get()),
+            Self::Inquiry(PayloadShape::Nibbles(length)) => (5, length.get()),
             Self::AllResponses => (6, 0),
         }
     }
@@ -1435,6 +1435,22 @@ trait EngineMethods: EngineAccess {
             });
         }
         if let Some(shape) = request.payload_shape().filter(|_| self.mode().is_raw()) {
+            let max_payload = self
+                .policy
+                .recv_buffer_size
+                .saturating_sub(REPLY_FRAME_OVERHEAD);
+            match shape {
+                PayloadShape::Bytes(length) | PayloadShape::Nibbles(length)
+                    if length.get() > max_payload =>
+                {
+                    return Err(Error::invalid_parameter(
+                        "payload_shape",
+                        length.to_string(),
+                        format!("raw reply payload must be at most {max_payload} bytes"),
+                    ));
+                }
+                _ => {}
+            }
             let available = self
                 .tracked_inquiry_shapes(context.target)
                 .is_ok_and(|tracked| {

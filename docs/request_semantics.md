@@ -53,13 +53,17 @@ payload interpretation; a raw reply carries no caller-chosen route identifier.
 Affected-axis cardinality is reported by `AffectedAxes::axis_count`.
 
 An inquiry declares its structural reply evidence through `payload_shape()`.
-`PayloadShape::Bytes(n)` admits exactly `n` decoded data bytes;
-`Nibbles(n)` additionally requires every byte to be at most `0x0F`. The count
-excludes the VISCA address, reply header and terminator. Raw inquiries can use
-`with_payload_shape` to supply the shape their decoder accepts. Custom inquiries
-default to `Unknown`, which overlaps every shape. Known shapes overlap by
-length, pairwise: `Bytes(1)` and `Nibbles(4)` each overlap `Unknown` but do not
-overlap each other. Decoder value, padding and profile-range checks still apply.
+`PayloadShape::Bytes(n)` admits exactly `n` decoded data bytes.
+`PayloadShape::Nibbles(n)` also requires every byte to be at most `0x0F`.
+Both variants take `NonZeroUsize` and exclude the VISCA address, reply header
+and terminator from the count. Use `with_payload_shape` to declare the shape a
+raw inquiry's decoder accepts, for example
+`with_payload_shape(PayloadShape::Bytes(NonZeroUsize::MIN))` for one byte.
+The raw owner rejects an exact count greater than `recv_buffer_size - 3`
+with `Error::InvalidParameter` before it admits or writes the request.
+Custom inquiries default to `Unknown`, which overlaps every shape. Known
+shapes of equal length overlap, and different lengths can run independently.
+Decoder value, padding and profile-range checks still apply.
 
 Built-in inquiries and canonical `ViscaInquiry` derives take their shape from
 one column beside the decoder in the inquiry table. Pan/tilt position selects

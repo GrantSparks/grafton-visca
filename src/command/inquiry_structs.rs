@@ -24,6 +24,8 @@
 //! gate of the inquiry's noun-table row, which `crate::command::surface`
 //! projects into [`BuiltinInquiryGate`].
 
+use std::num::NonZeroUsize;
+
 use super::exposure_wire::{AntiFlickerMode, ExposureMode};
 use super::focus_wire::{AutoFocusSensitivity, FocusMode, FocusZone};
 use super::image_wire::{ImageFlipMode, NoiseReduction2DMode, SharpnessMode};
@@ -485,6 +487,7 @@ pub(crate) fn dispatch_with_framing(
 
 /// Select the same per-axis position grammar used by the canonical decoder.
 /// An unsupported profile supplies no correlation proof.
+#[allow(clippy::expect_used)]
 pub(crate) fn payload_shape_for_profile(
     kind: InquiryKind,
     profile: Option<&crate::ProfileSpec>,
@@ -494,7 +497,10 @@ pub(crate) fn payload_shape_for_profile(
             .pan_tilt_coordinates()
             .map(PanTiltFraming::for_conversion)
             .map_or(crate::PayloadShape::Unknown, |framing| {
-                crate::PayloadShape::Nibbles(framing.position_nibbles())
+                crate::PayloadShape::Nibbles(
+                    NonZeroUsize::new(framing.position_nibbles())
+                        .expect("pan and tilt position words have positive width"),
+                )
             }),
         _ => base_payload_shape(kind),
     }
@@ -535,7 +541,7 @@ macro_rules! define_builtin_inquiries {
             $(
                 $(#[$kind_meta:meta])*
                 $kind:ident $data:tt => |$payload:ident| $decode:expr;
-                shape: $shape:expr;
+                shape: $shape:ident($length:expr);
                 commands [
                     $(
                         $(#[$meta:meta])*
@@ -713,7 +719,9 @@ macro_rules! define_builtin_inquiries {
         /// Structural data-payload domain generated beside its canonical decoder.
         pub(crate) const fn base_payload_shape(kind: InquiryKind) -> crate::PayloadShape {
             match kind {
-                $(InquiryKind::$kind => $shape,)*
+                $(InquiryKind::$kind => crate::PayloadShape::$shape(const {
+                    NonZeroUsize::new($length).expect("built-in reply payloads have positive length")
+                }),)*
             }
         }
 
@@ -937,7 +945,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Power {
             status: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the current power state of the camera.
             PowerInquiry {
@@ -967,7 +975,7 @@ define_builtin_inquiries! {
                 },
             })
         };
-        shape: crate::PayloadShape::Bytes(7);
+        shape: Bytes(7);
         commands [
             /// Inquiry command to get the camera version information.
             VersionInquiry {
@@ -988,7 +996,7 @@ define_builtin_inquiries! {
             /// Current tilt position.
             tilt: i32,
         } => |payload| decode_pan_tilt_position(payload, PanTiltFraming::STANDARD);
-        shape: crate::PayloadShape::Nibbles(PanTiltFraming::STANDARD.position_nibbles());
+        shape: Nibbles(PanTiltFraming::STANDARD.position_nibbles());
         commands [
             /// Inquiry command to get the current pan/tilt position.
             PanTiltPositionInquiry {
@@ -1012,7 +1020,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ZoomPosition {
             position: crate::types::ZoomPosition::new(Nibbles::<4>::try_from(payload)?.value())?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current zoom position.
             ZoomPositionInquiry {
@@ -1036,7 +1044,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FocusPosition {
             position: crate::types::FocusPosition::new(Nibbles::<4>::try_from(payload)?.value())?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current focus position.
             FocusPositionInquiry {
@@ -1060,7 +1068,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ExposureMode {
             mode: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the current exposure mode setting.
             ExposureModeInquiry {
@@ -1081,7 +1089,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ExposureCompensation {
             value: ExposureCompensationLevel::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current exposure compensation value.
             ExposureCompensationInquiry {
@@ -1105,7 +1113,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ExposureCompensationMode {
             on: decode_builtin_bool::<ExposureCompensationModeInquiry>(&payload, "exposure_compensation_mode")?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the exposure compensation mode on/off status.
             ExposureCompensationModeInquiry {
@@ -1126,7 +1134,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Iris {
             position: crate::types::IrisLevel::new(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current iris position value.
             IrisInquiry {
@@ -1150,7 +1158,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Shutter {
             position: crate::types::ShutterSpeed::new(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current shutter speed setting.
             ShutterInquiry {
@@ -1174,7 +1182,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Brightness {
             position: crate::types::BrightnessLevel::new(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current brightness adjustment value.
             BrightnessInquiry {
@@ -1198,7 +1206,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::WhiteBalanceMode {
             mode: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the current white balance mode.
             WhiteBalanceModeInquiry {
@@ -1222,7 +1230,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ColorTemperature {
             temperature: u16::from(decode_byte(&payload)?),
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads color temperature as physical Kelvin.
             ///
@@ -1249,7 +1257,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::RedChannel {
             gain: crate::types::RgbGain::new(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current red gain value.
             RedGainInquiry {
@@ -1273,7 +1281,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::BlueChannel {
             gain: crate::types::RgbGain::new(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current blue gain value.
             BlueGainInquiry {
@@ -1297,7 +1305,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::SharpnessMode {
             mode: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the current sharpness mode setting.
             SharpnessModeInquiry {
@@ -1318,7 +1326,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Saturation {
             level: crate::types::SaturationLevel::new(Nibbles::<4>::try_from(payload)?.zero_extended_nibble()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current color saturation level.
             SaturationInquiry {
@@ -1342,7 +1350,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Hue {
             hue: crate::types::HueLevel::new(Nibbles::<4>::try_from(payload)?.zero_extended_nibble()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current hue adjustment value.
             HueInquiry {
@@ -1366,7 +1374,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Gain {
             gain: crate::types::GainLevel::new(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current gain value.
             GainInquiry {
@@ -1390,7 +1398,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::GainLimit {
             limit: crate::types::GainLimit::new(Nibbles::<1>::try_from(payload)?.value())?,
         });
-        shape: crate::PayloadShape::Nibbles(1);
+        shape: Nibbles(1);
         commands [
             /// Inquiry command to get the current gain limit setting.
             GainLimitInquiry {
@@ -1414,7 +1422,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Backlight {
             status: decode_builtin_bool::<BacklightInquiry>(&payload, "backlight_status")?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the backlight compensation mode.
             BacklightInquiry {
@@ -1435,7 +1443,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ImageFlip {
             state: decode_builtin_bool::<ImageFlipInquiry>(&payload, "vertical image flip")?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Queries the sourced vertical picture-flip register (`09 04 66`).
             ImageFlipInquiry {
@@ -1456,7 +1464,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FlipState {
             state: decode_enum::<ImageFlipMode>(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Queries the PTZOptics combined flip register (`09 04 A4`).
             FlipStateInquiry {
@@ -1477,7 +1485,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::NoiseReduction2DMode {
             mode: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the 2D noise reduction mode.
             NoiseReduction2DModeInquiry {
@@ -1498,7 +1506,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::NoiseReduction2D {
             level: crate::command::NoiseReduction2D::from_wire(decode_byte(&payload)?)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the 2D noise reduction level.
             NoiseReduction2DInquiry {
@@ -1522,7 +1530,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::NoiseReduction3D {
             level: crate::command::NoiseReduction3D::from_wire(decode_byte(&payload)?)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the 3D noise reduction level.
             ///
@@ -1552,7 +1560,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FocusZone {
             zone: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the current focus zone selection.
             FocusZoneInquiry {
@@ -1573,7 +1581,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::AutoFocusSensitivity {
             sensitivity: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the auto-focus sensitivity setting.
             AutoFocusSensitivityInquiry {
@@ -1597,7 +1605,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FocusNearLimit {
             position: crate::types::FocusPosition::new(Nibbles::<4>::try_from(payload)?.value())?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the focus near limit position.
             FocusNearLimitInquiry {
@@ -1621,7 +1629,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FocusMode {
             mode: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the current focus mode.
             FocusModeInquiry {
@@ -1642,7 +1650,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::MenuOpenClose {
             is_open: decode_builtin_bool::<MenuOpenCloseInquiry>(&payload, "menu_status")?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the menu open/close status.
             MenuOpenCloseInquiry {
@@ -1667,7 +1675,7 @@ define_builtin_inquiries! {
             position: NdFilterDensity::new(u16::from(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?))
                 .map_err(|error| Error::invalid_response(error.to_string(), payload.as_slice().to_vec()))?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Queries the sourced FR7 variable-ND density register.
             NdFilterInquiry {
@@ -1688,7 +1696,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::PictureEffect {
             effect: crate::command::resolution::decode_picture_effect_code(decode_byte(&payload)?)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the current picture effect mode.
             PictureEffectInquiry {
@@ -1711,7 +1719,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::AutoWhiteBalanceSensitivity {
             sensitivity: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the auto white balance sensitivity setting.
             AutoWhiteBalanceSensitivityInquiry {
@@ -1735,7 +1743,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::RedTuning {
             level: RgbTuning::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the red channel tuning level.
             RedTuningInquiry {
@@ -1761,7 +1769,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::BlueTuning {
             level: RgbTuning::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the blue channel tuning level.
             BlueTuningInquiry {
@@ -1787,7 +1795,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Gamma {
             value: crate::types::GammaLevel::new(decode_byte(&payload)?)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the current gamma curve setting.
             GammaInquiry {
@@ -1815,7 +1823,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::SharpnessPosition {
             position: crate::types::SharpnessLevel::new(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current sharpness position.
             SharpnessPositionInquiry {
@@ -1841,7 +1849,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::UsbAudio {
             on: decode_builtin_bool::<UsbAudioInquiry>(&payload, "usb_audio_status")?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the USB audio state.
             UsbAudioInquiry {
@@ -1864,7 +1872,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::NdFilterPreset {
             preset: NdFilterPreset::new(decode_byte(&payload)?)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the ND filter preset setting.
             NdFilterPresetInquiry {
@@ -1886,7 +1894,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::TallyRed {
             on: decode_builtin_bool::<TallyRedInquiry>(&payload, "tally_red_status")?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the red tally light status.
             TallyRedInquiry {
@@ -1907,7 +1915,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::TallyGreen {
             on: decode_builtin_bool::<TallyGreenInquiry>(&payload, "tally_green_status")?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the green tally light status.
             TallyGreenInquiry {
@@ -1928,7 +1936,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FlickerMode {
             mode: decode_enum(&payload)?,
         });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Inquiry command to get the current flicker mode setting.
             FlickerModeInquiry {
@@ -1949,7 +1957,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Contrast {
             level: crate::types::ContrastLevel::new(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current contrast level.
             ContrastInquiry {
@@ -1973,7 +1981,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Luminance {
             level: crate::types::LuminanceLevel::new(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?,
         });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Inquiry command to get the current luminance level.
             LuminanceInquiry {
@@ -1993,7 +2001,7 @@ define_builtin_inquiries! {
         Fr7AeLevel { /// Source-backed typed readback.
             value: crate::types::AeLevel,
         } => |payload| Ok(InquiryData::Fr7AeLevel { value: crate::command::sony_fr7_exposure::decode_ae_level(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 ae level (R7 p. 21).
             Fr7AeLevelInquiry {
@@ -2011,7 +2019,7 @@ define_builtin_inquiries! {
         Fr7AutoGain { /// Source-backed typed readback.
             value: bool,
         } => |payload| Ok(InquiryData::Fr7AutoGain { value: decode_builtin_bool::<Fr7AutoGainInquiry>(&payload, "Fr7AutoGain")? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 auto gain (R7 p. 21).
             Fr7AutoGainInquiry {
@@ -2029,7 +2037,7 @@ define_builtin_inquiries! {
         Fr7AutoShutter { /// Source-backed typed readback.
             value: bool,
         } => |payload| Ok(InquiryData::Fr7AutoShutter { value: decode_builtin_bool::<Fr7AutoShutterInquiry>(&payload, "Fr7AutoShutter")? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 auto shutter (R7 p. 21).
             Fr7AutoShutterInquiry {
@@ -2047,7 +2055,7 @@ define_builtin_inquiries! {
         Fr7AutoIris { /// Source-backed typed readback.
             value: bool,
         } => |payload| Ok(InquiryData::Fr7AutoIris { value: decode_builtin_bool::<Fr7AutoIrisInquiry>(&payload, "Fr7AutoIris")? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 auto iris (R7 p. 21).
             Fr7AutoIrisInquiry {
@@ -2065,7 +2073,7 @@ define_builtin_inquiries! {
         Fr7PresetWhite { /// Source-backed typed readback.
             value: crate::types::Kelvin,
         } => |payload| Ok(InquiryData::Fr7PresetWhite { value: crate::command::sony_fr7_white_balance::decode_white_kelvin(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 preset white (R7 p. 21).
             Fr7PresetWhiteInquiry {
@@ -2083,7 +2091,7 @@ define_builtin_inquiries! {
         Fr7MemoryColorTemperature { /// Source-backed typed readback.
             value: crate::types::Kelvin,
         } => |payload| Ok(InquiryData::Fr7MemoryColorTemperature { value: crate::command::sony_fr7_white_balance::decode_white_kelvin(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 memory temperature (R7 p. 21).
             Fr7MemoryColorTemperatureInquiry {
@@ -2101,7 +2109,7 @@ define_builtin_inquiries! {
         Fr7MemoryRedGain { /// Source-backed typed readback.
             value: crate::types::WhiteBalanceGain,
         } => |payload| Ok(InquiryData::Fr7MemoryRedGain { value: crate::command::sony_fr7_white_balance::decode_white_balance_gain(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 memory red gain (R7 p. 21).
             Fr7MemoryRedGainInquiry {
@@ -2119,7 +2127,7 @@ define_builtin_inquiries! {
         Fr7MemoryBlueGain { /// Source-backed typed readback.
             value: crate::types::WhiteBalanceGain,
         } => |payload| Ok(InquiryData::Fr7MemoryBlueGain { value: crate::command::sony_fr7_white_balance::decode_white_balance_gain(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 memory blue gain (R7 p. 21).
             Fr7MemoryBlueGainInquiry {
@@ -2137,7 +2145,7 @@ define_builtin_inquiries! {
         Fr7MemoryTint { /// Source-backed typed readback.
             value: crate::types::WhiteBalanceOffset,
         } => |payload| Ok(InquiryData::Fr7MemoryTint { value: crate::command::sony_fr7_white_balance::decode_tint_offset(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 memory tint (R7 p. 21).
             Fr7MemoryTintInquiry {
@@ -2155,7 +2163,7 @@ define_builtin_inquiries! {
         Fr7AtwColorTemperatureOffset { /// Source-backed typed readback.
             value: crate::types::WhiteBalanceOffset,
         } => |payload| Ok(InquiryData::Fr7AtwColorTemperatureOffset { value: crate::command::sony_fr7_white_balance::decode_tint_offset(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 atw temperature offset (R7 p. 21).
             Fr7AtwColorTemperatureOffsetInquiry {
@@ -2173,7 +2181,7 @@ define_builtin_inquiries! {
         Fr7AtwTintOffset { /// Source-backed typed readback.
             value: crate::types::WhiteBalanceOffset,
         } => |payload| Ok(InquiryData::Fr7AtwTintOffset { value: crate::command::sony_fr7_white_balance::decode_tint_offset(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 atw tint offset (R7 p. 21).
             Fr7AtwTintOffsetInquiry {
@@ -2191,7 +2199,7 @@ define_builtin_inquiries! {
         Fr7MasterBlack { /// Source-backed typed readback.
             value: crate::types::BlackLevel,
         } => |payload| Ok(InquiryData::Fr7MasterBlack { value: crate::command::sony_fr7_image::decode_black_level(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 master black (R7 p. 21).
             Fr7MasterBlackInquiry {
@@ -2209,7 +2217,7 @@ define_builtin_inquiries! {
         Fr7RedBlack { /// Source-backed typed readback.
             value: crate::types::BlackLevel,
         } => |payload| Ok(InquiryData::Fr7RedBlack { value: crate::command::sony_fr7_image::decode_black_level(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 red black (R7 p. 21).
             Fr7RedBlackInquiry {
@@ -2227,7 +2235,7 @@ define_builtin_inquiries! {
         Fr7BlueBlack { /// Source-backed typed readback.
             value: crate::types::BlackLevel,
         } => |payload| Ok(InquiryData::Fr7BlueBlack { value: crate::command::sony_fr7_image::decode_black_level(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 blue black (R7 p. 21).
             Fr7BlueBlackInquiry {
@@ -2245,7 +2253,7 @@ define_builtin_inquiries! {
         Fr7Detail { /// Source-backed typed readback.
             value: bool,
         } => |payload| Ok(InquiryData::Fr7Detail { value: decode_builtin_bool::<Fr7DetailInquiry>(&payload, "Fr7Detail")? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 detail (R7 p. 21).
             Fr7DetailInquiry {
@@ -2263,7 +2271,7 @@ define_builtin_inquiries! {
         Fr7Knee { /// Source-backed typed readback.
             value: bool,
         } => |payload| Ok(InquiryData::Fr7Knee { value: decode_builtin_bool::<Fr7KneeInquiry>(&payload, "Fr7Knee")? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 knee (R7 p. 22).
             Fr7KneeInquiry {
@@ -2281,7 +2289,7 @@ define_builtin_inquiries! {
         Fr7KneeMode { /// Source-backed typed readback.
             value: crate::command::KneeMode,
         } => |payload| Ok(InquiryData::Fr7KneeMode { value: crate::command::sony_fr7_image::decode_fr7_knee_mode(payload)? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 knee mode (R7 p. 22).
             Fr7KneeModeInquiry {
@@ -2299,7 +2307,7 @@ define_builtin_inquiries! {
         Fr7KneeSlope { /// Source-backed typed readback.
             value: crate::types::KneeSlope,
         } => |payload| Ok(InquiryData::Fr7KneeSlope { value: crate::command::sony_fr7_image::decode_knee_slope(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 knee slope (R7 p. 22).
             Fr7KneeSlopeInquiry {
@@ -2317,7 +2325,7 @@ define_builtin_inquiries! {
         Fr7KneePoint { /// Source-backed typed readback.
             value: crate::types::KneePoint,
         } => |payload| Ok(InquiryData::Fr7KneePoint { value: crate::command::sony_fr7_image::decode_knee_point(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 knee point (R7 p. 22).
             Fr7KneePointInquiry {
@@ -2335,7 +2343,7 @@ define_builtin_inquiries! {
         Fr7KneePermission { /// Source-backed typed readback.
             value: crate::command::KneePermission,
         } => |payload| Ok(InquiryData::Fr7KneePermission { value: crate::command::sony_fr7_image::decode_fr7_knee_permission(payload)? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 knee permission (R7 p. 22).
             Fr7KneePermissionInquiry {
@@ -2354,7 +2362,7 @@ define_builtin_inquiries! {
         Fr7ClearImageZoomPosition { /// Source-backed typed readback.
             value: crate::types::ClearImageZoomPosition,
         } => |payload| Ok(InquiryData::Fr7ClearImageZoomPosition { value: crate::command::sony_fr7_zoom::decode_clear_image_zoom_position(payload)? });
-        shape: crate::PayloadShape::Nibbles(4);
+        shape: Nibbles(4);
         commands [
             /// Reads Sony FR7 clear image position (R7 p. 22).
             Fr7ClearImageZoomPositionInquiry {
@@ -2372,7 +2380,7 @@ define_builtin_inquiries! {
         PresetSpeedSelection { /// Source-backed typed readback.
             value: crate::command::PresetSpeedSelection,
         } => |payload| Ok(InquiryData::PresetSpeedSelection { value: crate::command::sony_fr7_presets::decode_preset_speed_selection(payload)? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 speed selection (R7 p. 22).
             Fr7PresetSpeedSelectionInquiry {
@@ -2390,7 +2398,7 @@ define_builtin_inquiries! {
         Fr7CommonPresetSpeed { /// Source-backed typed readback.
             value: crate::types::PresetSpeed,
         } => |payload| Ok(InquiryData::Fr7CommonPresetSpeed { value: crate::command::sony_fr7_presets::decode_common_preset_speed(payload)? });
-        shape: crate::PayloadShape::Nibbles(2);
+        shape: Nibbles(2);
         commands [
             /// Reads Sony FR7 common speed (R7 p. 22).
             Fr7CommonPresetSpeedInquiry {
@@ -2408,7 +2416,7 @@ define_builtin_inquiries! {
         Fr7SeparatePresetMode { /// Source-backed typed readback.
             value: crate::command::PresetSeparateMode,
         } => |payload| Ok(InquiryData::Fr7SeparatePresetMode { value: crate::command::sony_fr7_presets::decode_separate_preset_mode(payload)? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 separate mode (R7 p. 22).
             Fr7SeparatePresetModeInquiry {
@@ -2427,7 +2435,7 @@ define_builtin_inquiries! {
         Fr7SeparatePresetSpeed { /// Source-backed typed readback.
             value: crate::types::PresetSpeed,
         } => |payload| Ok(InquiryData::Fr7SeparatePresetSpeed { value: crate::command::sony_fr7_presets::decode_separate_preset_speed(payload)? });
-        shape: crate::PayloadShape::Bytes(1);
+        shape: Bytes(1);
         commands [
             /// Reads Sony FR7 separate speed (R7 p. 22).
             Fr7SeparatePresetSpeedInquiry {
@@ -2446,7 +2454,7 @@ define_builtin_inquiries! {
         Fr7SeparatePresetDuration { /// Source-backed typed readback.
             value: std::time::Duration,
         } => |payload| Ok(InquiryData::Fr7SeparatePresetDuration { value: crate::command::sony_fr7_presets::decode_separate_preset_duration(payload)? });
-        shape: crate::PayloadShape::Nibbles(3);
+        shape: Nibbles(3);
         commands [
             /// Reads Sony FR7 separate duration (R7 p. 22).
             Fr7SeparatePresetDurationInquiry {
@@ -3234,8 +3242,8 @@ mod wire_decoder_regression_tests {
         fn check<C: GeneratedInquiry>() {
             let kind = C::KIND;
             let (length, radix) = match base_payload_shape(kind) {
-                crate::PayloadShape::Nibbles(length) => (length, 16u32),
-                crate::PayloadShape::Bytes(length) => (length, 256u32),
+                crate::PayloadShape::Nibbles(length) => (length.get(), 16u32),
+                crate::PayloadShape::Bytes(length) => (length.get(), 256u32),
                 crate::PayloadShape::Unknown => panic!("numeric inquiry has no shape: {kind:?}"),
             };
             assert!(length <= 4, "numeric sweep must remain bounded");

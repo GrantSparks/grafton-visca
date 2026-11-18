@@ -536,6 +536,8 @@ pub(crate) struct ProtocolPolicy {
     pub(crate) capacity: NonZeroUsize,
     pub(crate) wire: super::WireProtocol,
     pub(crate) transport: TransportKind,
+    /// Largest accepted whole reply frame for the selected transport.
+    pub(crate) recv_buffer_size: usize,
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
     pub(crate) inquiry_cooldown: Duration,
@@ -590,6 +592,7 @@ impl ProtocolPolicy {
             capacity: NonZeroUsize::MIN.saturating_add(15),
             wire: super::WireProtocol::new(EnvelopeKind::Raw, crate::transport::AddressingMode::Ip),
             transport: TransportKind::Datagram,
+            recv_buffer_size: crate::transport::BufferConfig::default().recv_buffer_size(),
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::from_millis(25),
