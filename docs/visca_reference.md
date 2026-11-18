@@ -227,6 +227,13 @@ Common payload types:
 
 In Sony VISCA-over-IP, the VISCA device address is fixed as camera `1`, so normal commands use `81 ... FF`.
 
+The typed `CAM_VersionInq` sends `81 09 00 02 FF` under the device-setting
+header `01 20`, with the normal sequence and a payload length of five. Sony
+documents this framing for the FR7 (R7 pp. 4–7) and BRC-H900 (R11 pp. 10–11).
+The camera returns seven data bytes in a sequenced VISCA reply (`01 11`)
+without using a VISCA socket. On raw VISCA transports the inquiry uses only
+the inner frame.
+
 Sony's sequence-number RESET is a control command with a one-byte `01`
 payload: `02 00 00 01 00 00 00 00 01`. The header sequence field is ignored,
 and successful processing resets the next VISCA sequence to zero. The camera

@@ -164,13 +164,6 @@ pub(crate) enum SonyResponse<'a> {
     Control { code: u16 },
 }
 
-#[cfg(any(feature = "blocking", feature = "async"))]
-impl RawVisca {
-    pub(crate) const fn addressing(&self) -> AddressingMode {
-        self.addressing
-    }
-}
-
 impl Envelope for RawVisca {
     const KIND: ProfileEnvelope = ProfileEnvelope::RawVisca;
 
@@ -184,6 +177,22 @@ impl Envelope for RawVisca {
         _kind: CommandKind,
         out: &mut bytes::BytesMut,
     ) -> Result<FrameMeta, Error> {
+        self.frame_visca_into(visca_bytes, out)?;
+        Ok(FrameMeta::Raw)
+    }
+}
+
+impl RawVisca {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const fn addressing(&self) -> AddressingMode {
+        self.addressing
+    }
+
+    pub(crate) fn frame_visca_into(
+        &self,
+        visca_bytes: &[u8],
+        out: &mut bytes::BytesMut,
+    ) -> Result<(), Error> {
         // Reject before touching `out` so a failure leaves it unchanged.
         if visca_bytes.is_empty() {
             return Err(empty_visca_message());
@@ -204,7 +213,7 @@ impl Envelope for RawVisca {
             out.extend_from_slice(&visca_bytes[1..]);
         }
 
-        Ok(FrameMeta::Raw)
+        Ok(())
     }
 }
 
@@ -224,8 +233,17 @@ impl Envelope for SonyEncapsulated {
         kind: CommandKind,
         out: &mut bytes::BytesMut,
     ) -> Result<FrameMeta, Error> {
-        self.frame_into_with_sequence(visca_bytes, kind, SonyRequestSequence::AllocateFresh, out)
-            .map(|sequence| FrameMeta::Sony { sequence })
+        let payload_type = match kind {
+            CommandKind::Command => PayloadType::ViscaCommand,
+            CommandKind::Inquiry => PayloadType::ViscaInquiry,
+        };
+        self.frame_into_with_sequence(
+            visca_bytes,
+            payload_type,
+            SonyRequestSequence::AllocateFresh,
+            out,
+        )
+        .map(|sequence| FrameMeta::Sony { sequence })
     }
 }
 
@@ -247,7 +265,7 @@ impl SonyEncapsulated {
     pub(crate) fn frame_into_with_sequence(
         &self,
         visca_bytes: &[u8],
-        kind: CommandKind,
+        payload_type: PayloadType,
         requested_sequence: SonyRequestSequence,
         out: &mut bytes::BytesMut,
     ) -> Result<u32, Error> {
@@ -267,10 +285,7 @@ impl SonyEncapsulated {
         let normalized_addr = normalize_address(visca_bytes[0], self.addressing);
 
         // Build Sony header
-        let header = match kind {
-            CommandKind::Inquiry => SonyHeader::new_inquiry(visca_bytes.len(), sequence),
-            CommandKind::Command => SonyHeader::new_command(visca_bytes.len(), sequence),
-        };
+        let header = SonyHeader::new(payload_type, visca_bytes.len(), sequence);
 
         // Write header + normalized address + remaining bytes directly into out
         out.clear();
@@ -659,7 +674,7 @@ mod tests {
         let retry = envelope
             .frame_into_with_sequence(
                 &visca_cmd,
-                CommandKind::Command,
+                PayloadType::ViscaCommand,
                 SonyRequestSequence::Replay(first.sequence().expect("Sony sequence")),
                 &mut out,
             )
@@ -690,7 +705,7 @@ mod tests {
         let meta = envelope
             .frame_into_with_sequence(
                 &visca_payload,
-                CommandKind::Command,
+                PayloadType::ViscaCommand,
                 SonyRequestSequence::AllocateFresh,
                 &mut out,
             )
@@ -712,7 +727,7 @@ mod tests {
         let meta = envelope
             .frame_into_with_sequence(
                 &visca_payload,
-                CommandKind::Command,
+                PayloadType::ViscaCommand,
                 SonyRequestSequence::AllocateFresh,
                 &mut out,
             )
@@ -742,7 +757,7 @@ mod tests {
             assert!(matches!(
                 envelope.frame_into_with_sequence(
                     &invalid_payload,
-                    CommandKind::Command,
+                    PayloadType::ViscaCommand,
                     requested_sequence,
                     &mut out,
                 ),
@@ -755,7 +770,7 @@ mod tests {
         let meta = envelope
             .frame_into_with_sequence(
                 &valid_payload,
-                CommandKind::Command,
+                PayloadType::ViscaCommand,
                 SonyRequestSequence::AllocateFresh,
                 &mut out,
             )
@@ -810,13 +825,21 @@ mod tests {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
         let mut out = bytes::BytesMut::from(&b"old frame"[..]);
 
-        for kind in [CommandKind::Command, CommandKind::Inquiry] {
+        for payload_type in [
+            PayloadType::ViscaCommand,
+            PayloadType::ViscaInquiry,
+            PayloadType::ViscaDeviceSetting,
+        ] {
             for requested_sequence in [
                 SonyRequestSequence::AllocateFresh,
                 SonyRequestSequence::Replay(7),
             ] {
-                let result =
-                    envelope.frame_into_with_sequence(&[], kind, requested_sequence, &mut out);
+                let result = envelope.frame_into_with_sequence(
+                    &[],
+                    payload_type,
+                    requested_sequence,
+                    &mut out,
+                );
                 assert!(
                     matches!(&result, Err(Error::InvalidRequest { reason: message }) if message.contains("must not be empty")),
                     "expected InvalidRequest for empty input, got {result:?}"
@@ -834,7 +857,7 @@ mod tests {
         let next = envelope
             .frame_into_with_sequence(
                 &valid_payload,
-                CommandKind::Command,
+                PayloadType::ViscaCommand,
                 SonyRequestSequence::AllocateFresh,
                 &mut out,
             )

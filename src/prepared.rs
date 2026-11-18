@@ -560,7 +560,7 @@ where
         .motion_axes()
         .map(|axes| crate::runtime::engine::MotionEffect { axes });
     Ok(PreparedCommand {
-        wire,
+        wire: PreparedWire::Owned(wire),
         context,
         reply_shape,
         not_executable,
@@ -614,8 +614,10 @@ where
     }
     let (wire, _, decoder) = encode(inquiry, registration, || bind_decoder(registration))?;
     let (context, _) = lower_request_context(inquiry, registration, tuning, class);
+    let sony_payload_type =
+        inquiry.sony_payload_type(crate::requests::BuiltinInquiryAuthority::new());
     Ok(PreparedInquiry {
-        wire,
+        wire: PreparedWire::Owned(wire.with_sony_payload_type(sony_payload_type)),
         context,
         payload_shape: inquiry.payload_shape_for_profile(profile),
         syntax: crate::requests::builtin_inquiry_syntax_retry(inquiry),
@@ -658,7 +660,7 @@ where
     })?;
     context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;
     Ok(PreparedOperation {
-        wire,
+        wire: PreparedWire::Owned(wire),
         context,
         reply_shape,
         not_executable,
@@ -687,14 +689,14 @@ fn encode<R: Request + ?Sized, T>(
     request: &R,
     registration: &crate::TargetRegistration,
     before_write: impl FnOnce() -> Result<T>,
-) -> Result<(PreparedWire, crate::requests::LoweredRequest, T)> {
+) -> Result<(EncodedMessage, crate::requests::LoweredRequest, T)> {
     let capacity = crate::requests::declared_max_size(request).min(MAX_BYTES);
     let (message, (lowered, result)) = EncodedMessage::encode(capacity, |bytes| {
         let (lowered, result) =
             crate::requests::encode_for_target(request, registration, bytes, before_write)?;
         Ok((lowered.written, (lowered, result)))
     })?;
-    Ok((PreparedWire::Owned(message), lowered, result))
+    Ok((message, lowered, result))
 }
 
 /// The timing and admission facts shared by every lowered request class.

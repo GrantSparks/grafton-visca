@@ -595,6 +595,16 @@ macro_rules! forward_inquiry {
                     authority,
                 )
             }
+            #[allow(private_interfaces)]
+            fn sony_payload_type(
+                &self,
+                authority: $crate::requests::BuiltinInquiryAuthority,
+            ) -> Option<$crate::protocol::sony::PayloadType> {
+                <$inner as $crate::Inquiry>::sony_payload_type(
+                    $crate::command::nouns::forward_request!(@inner self [$($value)*]),
+                    authority,
+                )
+            }
         }
     };
 

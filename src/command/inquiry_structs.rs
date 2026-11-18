@@ -549,6 +549,7 @@ macro_rules! define_builtin_inquiries {
                             bytes: $bytes:expr,
                             $(parameter: { $argument:ident: $argument_ty:ty = $sample:expr, byte: $argument_byte:ident },)?
                             source: $source:expr,
+                            $(sony_payload_type: $sony_payload_type:ident,)?
                             boolean: $boolean:expr,
                             typed: $typed:tt,
                             query: $query:expr,
@@ -875,6 +876,17 @@ macro_rules! define_builtin_inquiries {
                 ) -> bool {
                     true
                 }
+
+                $(
+                    #[doc(hidden)]
+                    #[allow(private_interfaces)]
+                    fn sony_payload_type(
+                        &self,
+                        _authority: crate::requests::BuiltinInquiryAuthority,
+                    ) -> Option<crate::protocol::sony::PayloadType> {
+                        Some(crate::protocol::sony::PayloadType::$sony_payload_type)
+                    }
+                )?
             }
 
             impl BuiltinInquiryCommandMarker for $struct {
@@ -981,6 +993,7 @@ define_builtin_inquiries! {
             VersionInquiry {
                 bytes: system_wire::VERSION_INQUIRY,
                 source: source!([(R7, "r7-sonyfr7-version-query"), (R11, "r11-sonybrch900-version-query"), (R8, "r8-sonyevih100-version-query"), (R12, "r12-sonybrc300-version-query"), (R21, "r21-nearusbrc300-version-query")]),
+                sony_payload_type: ViscaDeviceSetting,
                 boolean: None,
                 typed: (crate::command::VersionInfo, { info } => Ok(info)),
                 query: BuiltinInquiryQuery::Queryable,

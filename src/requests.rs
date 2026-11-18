@@ -26,7 +26,7 @@ pub(crate) struct AppliedStateAuthority(private::SealedToken);
 #[doc(hidden)]
 pub(crate) struct RequestContractAuthority(private::SealedToken);
 
-/// Crate-only authority passed to the hidden built-in inquiry provenance hook.
+/// Crate-only authority passed to the hidden built-in inquiry hooks.
 ///
 /// The containing module is private and this token is not constructible by a
 /// downstream [`crate::request::Inquiry`] implementation. Generated built-in inquiries use the
@@ -1191,6 +1191,17 @@ pub trait Inquiry: Request<Class = request::InquiryClass> {
     #[allow(private_interfaces)]
     fn builtin_inquiry_syntax_retry(&self, _authority: BuiltinInquiryAuthority) -> bool {
         false
+    }
+
+    /// Supplies the Sony payload type for a built-in inquiry with a distinct
+    /// envelope class.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn sony_payload_type(
+        &self,
+        _authority: BuiltinInquiryAuthority,
+    ) -> Option<crate::protocol::sony::PayloadType> {
+        None
     }
 }
 

@@ -37,7 +37,10 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
-use crate::protocol::response::{CameraErrorCode, REPLY_FRAME_OVERHEAD};
+use crate::protocol::{
+    response::{CameraErrorCode, REPLY_FRAME_OVERHEAD},
+    sony::PayloadType,
+};
 use crate::target::{PerTarget, TargetSlot};
 pub(crate) use crate::transport::envelope::FrameSequence;
 use crate::{
@@ -1565,10 +1568,13 @@ trait EngineMethods: EngineAccess {
         let owes = self.ledger_owes(entry);
         let framing = match self.policy.wire.encoder() {
             ProtocolEncoder::Raw(encoder) => encoder.plan(),
-            ProtocolEncoder::Sony(encoder) => encoder.plan(entry.current_sequence().map_or(
-                SonyRequestSequence::AllocateFresh,
-                SonyRequestSequence::Replay,
-            )),
+            ProtocolEncoder::Sony(encoder) => encoder.plan(
+                entry.current_sequence().map_or(
+                    SonyRequestSequence::AllocateFresh,
+                    SonyRequestSequence::Replay,
+                ),
+                entry.request.sony_payload_type(),
+            ),
         };
         let requires_extended_pan_tilt_speed =
             entry.request.context().requires_extended_pan_tilt_speed;
@@ -1597,7 +1603,6 @@ trait EngineMethods: EngineAccess {
                 target,
                 wire,
                 framing,
-                lane,
                 requires_extended_pan_tilt_speed,
             },
         });
@@ -3727,7 +3732,10 @@ trait EngineMethods: EngineAccess {
         let socket = pending.socket();
         let framing = match self.policy.wire.encoder() {
             ProtocolEncoder::Raw(encoder) => encoder.plan(),
-            ProtocolEncoder::Sony(encoder) => encoder.plan(SonyRequestSequence::AllocateFresh),
+            ProtocolEncoder::Sony(encoder) => encoder.plan(
+                SonyRequestSequence::AllocateFresh,
+                PayloadType::ViscaCommand,
+            ),
         };
         let Some(transmission) = self.allocate_transmission_id() else {
             self.finish(id, Error::RuntimeIdentityExhausted, now, effects);

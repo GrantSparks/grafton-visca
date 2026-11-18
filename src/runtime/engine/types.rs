@@ -1,5 +1,5 @@
 //! Inert values crossing the deterministic protocol-engine boundary.
-use crate::protocol::response::CameraErrorCode;
+use crate::protocol::{response::CameraErrorCode, sony::PayloadType};
 use crate::target::{PerTarget, TargetSlot};
 
 use std::{
@@ -32,10 +32,11 @@ impl EngineTurn {
     }
 }
 
-/// Prepared wire data. It has no target, routing, or scheduling authority.
+/// Prepared VISCA bytes and any Sony envelope classification selected for them.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EncodedMessage {
     bytes: SmallVec<[u8; INLINE_BYTES]>,
+    sony_payload_type: Option<PayloadType>,
 }
 
 impl EncodedMessage {
@@ -54,6 +55,7 @@ impl EncodedMessage {
         }
         Ok(Self {
             bytes: SmallVec::from_slice(bytes),
+            sony_payload_type: None,
         })
     }
 
@@ -76,7 +78,18 @@ impl EncodedMessage {
             });
         }
         bytes.truncate(written);
-        Ok((Self { bytes }, result))
+        Ok((
+            Self {
+                bytes,
+                sony_payload_type: None,
+            },
+            result,
+        ))
+    }
+
+    pub(crate) fn with_sony_payload_type(mut self, payload_type: Option<PayloadType>) -> Self {
+        self.sony_payload_type = payload_type;
+        self
     }
 
     /// Returns the inert wire bytes.
@@ -470,6 +483,15 @@ impl RuntimeRequest {
         matches!(self, Self::Inquiry { .. })
     }
 
+    pub(super) fn sony_payload_type(&self) -> PayloadType {
+        match self {
+            Self::Command { .. } => PayloadType::ViscaCommand,
+            Self::Inquiry { wire, .. } => {
+                wire.sony_payload_type.unwrap_or(PayloadType::ViscaInquiry)
+            }
+        }
+    }
+
     /// The protocol lane for dispatch eligibility and outcomes.
     pub(crate) const fn lane(&self) -> Lane {
         match self {
@@ -816,7 +838,6 @@ pub(crate) enum Transmission {
         target: TargetSlot,
         wire: Arc<EncodedMessage>,
         framing: super::WriteFraming,
-        lane: Lane,
         requires_extended_pan_tilt_speed: bool,
     },
     Cancel {
