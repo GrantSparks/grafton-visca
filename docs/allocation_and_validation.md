@@ -29,6 +29,9 @@ The following boundaries are release gates:
   warm-up, including malformed input, for both stream and datagram reads. Larger
   custom data replies can allocate owned payloads. Datagrams are decoded directly
   from the receive buffer; only byte streams use retained framer storage.
+  Raw stream decoding and retained-prefix inspection share one terminator search
+  per frame. Each received byte is checked at most once, even when a frame spans
+  several reads or the owner inspects the same retained prefix repeatedly.
 * One immutable wire authority adds one shared allocation at session construction.
   Raw write plans
   copy their encoder; Sony plans clone the existing allocator handle. Neither
@@ -89,6 +92,7 @@ The stable test boundaries are:
 | Built-in profile-aware response parsing | `tests/allocation/issue_548_allocation_baselines.rs::built_in_profile_response_parsing_does_not_reconstruct_profile_facts`, for the 4/4, 5/5 and 5/4 position grammars |
 | Profile-aware position preparation and decoder cloning | `tests/allocation/issue_548_allocation_baselines.rs::profiled_position_inquiry_preparation_and_decoder_clones_stay_inline`, for G2, BRC-300 and FR7 |
 | Warmed receive lowering, decoding and batch recycling | `tests/allocation/issue_548_allocation_baselines.rs::warmed_receive_decoding_and_batch_recycling_do_not_allocate`, through `testing::receive::ReceiveProbe` for raw/Sony streams and datagrams |
+| Raw stream delimiter search and fragmentation | `src/protocol/framer.rs::{fragmented_raw_stream_searches_each_byte_once,raw_stream_partitions_match_unfragmented_grammar}` count terminator comparisons and check decoded frames, oversized spans and retained tails across read partitions |
 | Warmed engine decisions and complete owner command/frame turns | `tests/allocation/issue_548_allocation_baselines.rs::warmed_owner_command_and_frame_turns_do_not_allocate`, through `testing::turns::TurnProbe`; raw/Sony streams and datagrams run the production turn driver, recursive exact-write handling, ACK/completion and terminal delivery. Admission and the bounded observer queue are staged outside the measurement. |
 | Warmed parked async actor selections | `tests/allocation/issue_548_allocation_baselines.rs::{warmed_tokio_parked_actor_turns_do_not_allocate,warmed_smol_parked_actor_turns_do_not_allocate,warmed_manual_clock_parked_actor_turns_do_not_allocate}`, through `testing::turns::SelectProbe`. Each measures 100 receive-woken turns of the actual actor run loop with connected idle boundary lanes, polling only the owner future so external executor/reactor bookkeeping is excluded. |
 | Built-in typed camera view selection | `tests/allocation/issue_548_allocation_baselines.rs::{blocking_builtin_camera_and_into_typed_views_do_not_allocate,async_builtin_camera_and_into_typed_views_do_not_allocate}` |
