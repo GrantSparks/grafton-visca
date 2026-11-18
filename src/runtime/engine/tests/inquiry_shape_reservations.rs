@@ -35,7 +35,7 @@ fn submit(
 fn assert_shape_capacity(effects: &[Effect], target: u8) {
     assert!(effects.iter().any(|effect| matches!(effect,
         Effect::AdmissionRejected { error: Error::InquiryShapeCapacityExhausted { camera: refused, capacity: 16 }, .. }
-            if *refused == camera(target).camera()
+            if *refused == camera(target).individual_camera()
     )), "{effects:?}");
     assert!(!effects
         .iter()

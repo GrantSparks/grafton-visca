@@ -21,8 +21,11 @@ use std::{
 
 #[cfg(feature = "blocking")]
 use crate::transport::BlockingTransport;
+use crate::transport::{AddressedBus, AddressingMode, SendSemantics, TransportIdentity};
 #[cfg(any(feature = "async", feature = "blocking"))]
-use crate::transport::{builder::TransportConfig, HasTransportConfig, ReceiveOutcome};
+use crate::transport::{
+    HasTransportConfig, ReceiveOutcome, ScriptedReceive, ValidatedTransportConfig,
+};
 use crate::Error;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::Result;
@@ -31,6 +34,47 @@ use crate::{executor::Executor, transport::AsyncTransport};
 
 /// Function type for dynamic response generation.
 pub type DynamicResponseFn = Arc<dyn Fn(&[u8]) -> Vec<Vec<u8>> + Send + Sync>;
+
+/// The transport model used by a scripted transport.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ScriptedTransportIdentity {
+    /// Standard TCP byte stream.
+    Tcp,
+    /// Standard UDP datagrams.
+    Udp,
+    /// Standard serial byte stream, with an optional Address Set report.
+    Serial {
+        /// The addressed bus reported during startup.
+        bus: Option<AddressedBus>,
+    },
+    /// A caller-defined transport.
+    Custom {
+        /// Whether reads expose stream bytes or datagrams.
+        semantics: SendSemantics,
+        /// How replies identify a target.
+        addressing: AddressingMode,
+    },
+}
+
+impl ScriptedTransportIdentity {
+    /// Borrow the identity as seen by a session.
+    #[must_use]
+    pub fn as_identity(&self) -> TransportIdentity<'_> {
+        match self {
+            Self::Tcp => TransportIdentity::Tcp,
+            Self::Udp => TransportIdentity::Udp,
+            Self::Serial { bus } => TransportIdentity::Serial { bus: bus.as_ref() },
+            Self::Custom {
+                semantics,
+                addressing,
+            } => TransportIdentity::Custom {
+                semantics: *semantics,
+                addressing: *addressing,
+            },
+        }
+    }
+}
 
 /// A step in a transport script defining what should happen when commands are sent.
 #[non_exhaustive]
@@ -77,6 +121,12 @@ impl Step {
     pub fn on_send(matches: Option<Vec<u8>>, responses: Vec<Vec<u8>>) -> Self {
         Self::OnSend { matches, responses }
     }
+    /// Answer every subsequent send using the response function.
+    #[must_use]
+    pub fn every_send(respond: DynamicResponseFn) -> Self {
+        Self::EverySend { respond }
+    }
+
     /// Schedules responses after a virtual delay.
     #[must_use]
     pub fn after(delay: Duration, responses: Vec<Vec<u8>>) -> Self {
@@ -211,6 +261,8 @@ impl ScriptCore {
 struct Script {
     /// The transport type, named in lock-poisoning panics.
     owner: &'static str,
+    identity: ScriptedTransportIdentity,
+    receive: Arc<Mutex<ScriptedReceive>>,
     core: Arc<Mutex<ScriptCore>>,
     replies_tx: flume::Sender<Vec<u8>>,
     replies_rx: flume::Receiver<Vec<u8>>,
@@ -218,10 +270,12 @@ struct Script {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl Script {
-    fn new(owner: &'static str, steps: Vec<Step>) -> Self {
+    fn new(owner: &'static str, identity: ScriptedTransportIdentity, steps: Vec<Step>) -> Self {
         let (replies_tx, replies_rx) = flume::unbounded();
         Self {
             owner,
+            identity,
+            receive: Arc::default(),
             core: Arc::new(Mutex::new(ScriptCore {
                 steps: steps.into(),
                 sent: Vec::new(),
@@ -235,6 +289,20 @@ impl Script {
         self.core
             .lock()
             .unwrap_or_else(|_| panic!("{} script mutex poisoned", self.owner))
+    }
+
+    fn read_pending(&self, dst: &mut [u8]) -> Option<ReceiveOutcome> {
+        self.receive
+            .lock()
+            .expect("scripted receive lock")
+            .read_pending(dst)
+    }
+
+    fn read_chunk(&self, reply: Vec<u8>, dst: &mut [u8]) -> ReceiveOutcome {
+        self.receive
+            .lock()
+            .expect("scripted receive lock")
+            .read_chunk(self.identity.as_identity().send_semantics(), reply, dst)
     }
 
     fn sent(&self) -> Vec<Vec<u8>> {
@@ -283,7 +351,7 @@ pub struct ScriptedTransport<E = Immediate> {
     script: Script,
     executor: E,
     shutdown_rx: Option<flume::Receiver<()>>,
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
 }
 
 #[cfg(feature = "async")]
@@ -301,12 +369,12 @@ impl<E: Clone> Clone for ScriptedTransport<E> {
 #[cfg(feature = "async")]
 impl ScriptedTransport<Immediate> {
     /// Create a new scripted transport with the given steps.
-    pub fn new(steps: impl Into<Vec<Step>>) -> Self {
+    pub fn new(identity: ScriptedTransportIdentity, steps: impl Into<Vec<Step>>) -> Self {
         Self {
-            script: Script::new("ScriptedTransport", steps.into()),
+            script: Script::new("ScriptedTransport", identity, steps.into()),
             executor: Immediate,
             shutdown_rx: None,
-            config: TransportConfig::default(),
+            config: ValidatedTransportConfig::default(),
         }
     }
 
@@ -350,7 +418,7 @@ impl<E> ScriptedTransport<E> {
     /// This allows tests to configure transport parameters such as socket,
     /// timeout, and buffer settings. Session admission capacity is configured
     /// on [`crate::config::SessionConfig`], not on the transport.
-    pub fn with_config(mut self, config: TransportConfig) -> Self {
+    pub fn with_config(mut self, config: ValidatedTransportConfig) -> Self {
         self.config = config;
         self
     }
@@ -426,15 +494,20 @@ impl<E> ScriptedTransport<E> {
             return Err(error);
         }
 
-        let replies_rx = self.script.replies_rx.clone();
         let next = async {
-            replies_rx
+            if let Some(outcome) = self.script.read_pending(dst) {
+                return Ok(outcome);
+            }
+            let reply = self
+                .script
+                .replies_rx
                 .recv_async()
                 .await
-                .map_err(|_| Error::io_timeout())
+                .map_err(|_| Error::io_timeout())?;
+            Ok(self.script.read_chunk(reply, dst))
         };
 
-        let reply = if let Some(shutdown_rx) = &self.shutdown_rx {
+        if let Some(shutdown_rx) = &self.shutdown_rx {
             // A signalled shutdown wins over a queued reply on the same poll.
             future::or(
                 async {
@@ -451,9 +524,7 @@ impl<E> ScriptedTransport<E> {
             .await
         } else {
             next.await
-        }?;
-
-        Ok(ReceiveOutcome::copy_message(&reply, dst))
+        }
     }
 }
 
@@ -473,14 +544,11 @@ impl AsyncTransport for ScriptedTransport<Immediate> {
 
 #[cfg(feature = "async")]
 impl<E> HasTransportConfig for ScriptedTransport<E> {
-    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
-        crate::transport::TransportIdentity::Custom {
-            semantics: crate::transport::SendSemantics::Stream,
-            addressing: crate::transport::AddressingMode::Ip,
-        }
+    fn identity(&self) -> TransportIdentity<'_> {
+        self.script.identity.as_identity()
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }
@@ -495,7 +563,7 @@ impl<E> HasTransportConfig for ScriptedTransport<E> {
 #[derive(Clone, Debug)]
 pub struct ScriptedBlockingTransport {
     script: Script,
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
     clock: Option<ManualClock>,
     scheduled: Arc<Mutex<Vec<ScheduledBatch>>>,
 }
@@ -510,10 +578,10 @@ struct ScheduledBatch {
 #[cfg(feature = "blocking")]
 impl ScriptedBlockingTransport {
     /// Create a new scripted blocking transport with the given steps.
-    pub fn new(steps: impl Into<Vec<Step>>) -> Self {
+    pub fn new(identity: ScriptedTransportIdentity, steps: impl Into<Vec<Step>>) -> Self {
         Self {
-            script: Script::new("ScriptedBlockingTransport", steps.into()),
-            config: TransportConfig::default(),
+            script: Script::new("ScriptedBlockingTransport", identity, steps.into()),
+            config: ValidatedTransportConfig::default(),
             clock: None,
             scheduled: Arc::new(Mutex::new(Vec::new())),
         }
@@ -574,7 +642,7 @@ impl ScriptedBlockingTransport {
     }
 
     /// Set a custom transport configuration.
-    pub fn with_config(mut self, config: TransportConfig) -> Self {
+    pub fn with_config(mut self, config: ValidatedTransportConfig) -> Self {
         self.config = config;
         self
     }
@@ -625,10 +693,14 @@ impl BlockingTransport for ScriptedBlockingTransport {
             return Err(error);
         }
 
+        if let Some(outcome) = self.script.read_pending(dst) {
+            return Ok(outcome);
+        }
+
         if let Some(clock) = &self.clock {
             return self
                 .receive_on_clock(clock, timeout)
-                .map(|reply| ReceiveOutcome::copy_message(&reply, dst))
+                .map(|reply| self.script.read_chunk(reply, dst))
                 .ok_or_else(Error::io_timeout);
         }
 
@@ -640,7 +712,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
             None => self.script.replies_rx.recv().ok(),
         };
         reply
-            .map(|reply| ReceiveOutcome::copy_message(&reply, dst))
+            .map(|reply| self.script.read_chunk(reply, dst))
             .ok_or_else(Error::io_timeout)
     }
 }
@@ -669,14 +741,11 @@ impl crate::testing::manual_clock::Source<Vec<u8>> for BlockingReplies<'_> {
 
 #[cfg(feature = "blocking")]
 impl HasTransportConfig for ScriptedBlockingTransport {
-    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
-        crate::transport::TransportIdentity::Custom {
-            semantics: crate::transport::SendSemantics::Stream,
-            addressing: crate::transport::AddressingMode::Ip,
-        }
+    fn identity(&self) -> TransportIdentity<'_> {
+        self.script.identity.as_identity()
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }
@@ -775,9 +844,7 @@ pub mod helpers {
     /// Auto-response mode: generate appropriate response for any VISCA command
     /// This is useful for tests that don't care about specific command details
     pub fn auto_respond_step() -> Step {
-        Step::EverySend {
-            respond: std::sync::Arc::new(|_| vec![ack(1), complete(1)]),
-        }
+        Step::every_send(std::sync::Arc::new(|_| vec![ack(1), complete(1)]))
     }
 
     /// Auto-response mode for Sony cameras: every send is answered with an ACK
@@ -785,15 +852,13 @@ pub mod helpers {
     /// echoes the request's sequence number (sequence 0 for a request that is
     /// not enveloped).
     pub fn sony_auto_respond_step() -> Step {
-        Step::EverySend {
-            respond: std::sync::Arc::new(|sent_bytes| {
-                let sequence = sony_sequence(sent_bytes).unwrap_or(0);
-                vec![
-                    sony_reply(sequence, &ack(1)),
-                    sony_reply(sequence, &complete(1)),
-                ]
-            }),
-        }
+        Step::every_send(std::sync::Arc::new(|sent_bytes| {
+            let sequence = sony_sequence(sent_bytes).unwrap_or(0);
+            vec![
+                sony_reply(sequence, &ack(1)),
+                sony_reply(sequence, &complete(1)),
+            ]
+        }))
     }
 
     /// Create a power inquiry response
@@ -869,10 +934,10 @@ mod tests {
     #[cfg(feature = "async")]
     fn assert_executor_delivers_at_its_deadline(executor: impl Executor) {
         let start = executor.now();
-        let mut transport = ScriptedTransport::new(vec![Step::after(
-            Duration::from_secs(30),
-            vec![helpers::ack(1)],
-        )])
+        let mut transport = ScriptedTransport::new(
+            ScriptedTransportIdentity::Tcp,
+            vec![Step::after(Duration::from_secs(30), vec![helpers::ack(1)])],
+        )
         .with_executor(executor.clone());
         executor.block_on(async {
             transport.send(&[0x81]).await.expect("send");
@@ -913,7 +978,8 @@ mod tests {
         let session = clock
             .open_blocking_session(
                 &participant,
-                ScriptedBlockingTransport::new(vec![]).on_clock(&clock),
+                ScriptedBlockingTransport::new(ScriptedTransportIdentity::Tcp, vec![])
+                    .on_clock(&clock),
                 crate::SessionConfig::from_compile_time::<crate::profiles::GenericVisca>()
                     .expect("profile"),
             )
@@ -937,10 +1003,10 @@ mod tests {
         let clock = ManualClock::new();
         let executor = ManualClockExecutor::local(&clock);
         let start = clock.now();
-        let mut transport = ScriptedTransport::new(vec![Step::after(
-            Duration::from_secs(30),
-            vec![helpers::ack(1)],
-        )])
+        let mut transport = ScriptedTransport::new(
+            ScriptedTransportIdentity::Tcp,
+            vec![Step::after(Duration::from_secs(30), vec![helpers::ack(1)])],
+        )
         .with_executor(executor.clone());
         executor.run_until(async {
             transport.send(&[0x81]).await.expect("send");
@@ -957,7 +1023,8 @@ mod tests {
     fn executor_free_transport_clones_dynamic_steps_and_prefers_shutdown() {
         futures_lite::future::block_on(async {
             let original = Step::DynamicResponse(Arc::new(|sent| vec![sent.to_vec()]));
-            let mut transport = ScriptedTransport::new(vec![original.clone()]);
+            let mut transport =
+                ScriptedTransport::new(ScriptedTransportIdentity::Tcp, vec![original.clone()]);
             transport.send(&[0x81, 1]).await.expect("send");
             let mut buffer = [0; 16];
             let count = transport
@@ -968,8 +1035,11 @@ mod tests {
             assert_eq!(&buffer[..count], &[0x81, 1]);
             for _ in 0..200 {
                 let (signal, shutdown) = flume::bounded(1);
-                let mut transport = ScriptedTransport::new(vec![helpers::auto_respond_step()])
-                    .with_shutdown(shutdown);
+                let mut transport = ScriptedTransport::new(
+                    ScriptedTransportIdentity::Tcp,
+                    vec![helpers::auto_respond_step()],
+                )
+                .with_shutdown(shutdown);
                 transport.send(&[0x81, 1]).await.expect("send");
                 signal.send(()).expect("shutdown signal");
                 assert!(matches!(
@@ -987,7 +1057,8 @@ mod tests {
             helpers::auto_respond_step(),
             helpers::sony_auto_respond_step(),
         ] {
-            let mut transport = ScriptedBlockingTransport::new(vec![step]);
+            let mut transport =
+                ScriptedBlockingTransport::new(ScriptedTransportIdentity::Tcp, vec![step]);
             for _ in 0..2 {
                 transport
                     .send_with_timeout(&[0x81, 1], Duration::ZERO)
@@ -1008,10 +1079,10 @@ mod tests {
     fn blocking_reads_and_delayed_batches_wait_on_virtual_time() {
         let clock = ManualClock::new();
         let _entered = clock.enter();
-        let mut transport = ScriptedBlockingTransport::new(vec![Step::after(
-            Duration::from_secs(30),
-            vec![helpers::ack(1)],
-        )])
+        let mut transport = ScriptedBlockingTransport::new(
+            ScriptedTransportIdentity::Tcp,
+            vec![Step::after(Duration::from_secs(30), vec![helpers::ack(1)])],
+        )
         .on_clock(&clock);
         let start = clock.now();
         let real = std::time::Instant::now();
@@ -1035,10 +1106,13 @@ mod tests {
     #[cfg(feature = "blocking")]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_basic() {
-        let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
-            matches: None,
-            responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
-        }]);
+        let mut transport = ScriptedBlockingTransport::new(
+            ScriptedTransportIdentity::Tcp,
+            vec![Step::OnSend {
+                matches: None,
+                responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
+            }],
+        );
 
         transport
             .send_with_timeout(
@@ -1062,7 +1136,7 @@ mod tests {
     #[cfg(feature = "blocking")]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_no_response() {
-        let mut transport = ScriptedBlockingTransport::new(vec![]);
+        let mut transport = ScriptedBlockingTransport::new(ScriptedTransportIdentity::Tcp, vec![]);
 
         transport
             .send_with_timeout(
@@ -1083,10 +1157,13 @@ mod tests {
         let executor = Arc::new(ManualClockExecutor::local(&clock));
 
         // Immediate replies use the same transport over the local executor.
-        let mut transport = ScriptedTransport::new(vec![Step::OnSend {
-            matches: None,
-            responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
-        }])
+        let mut transport = ScriptedTransport::new(
+            ScriptedTransportIdentity::Tcp,
+            vec![Step::OnSend {
+                matches: None,
+                responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
+            }],
+        )
         .with_executor(executor.clone());
 
         transport
@@ -1113,8 +1190,11 @@ mod tests {
         let exec = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Arrange: first recv() should see a transport-level timeout error
-        let mut transport: ScriptedTransport<Arc<TokioExecutor>> =
-            ScriptedTransport::new(vec![errors::transport_timeout()]).with_executor(exec);
+        let mut transport: ScriptedTransport<Arc<TokioExecutor>> = ScriptedTransport::new(
+            ScriptedTransportIdentity::Tcp,
+            vec![errors::transport_timeout()],
+        )
+        .with_executor(exec);
 
         // Act: send anything (no response will be produced)
         transport
@@ -1158,7 +1238,10 @@ mod tests {
     #[cfg(feature = "blocking")]
     #[allow(clippy::unwrap_used)]
     fn blocking_receive_surfaces_the_scripted_error_then_the_script_resumes() {
-        let mut transport = ScriptedBlockingTransport::new(scripted_connection_loss());
+        let mut transport = ScriptedBlockingTransport::new(
+            ScriptedTransportIdentity::Tcp,
+            scripted_connection_loss(),
+        );
         let mut buffer = [0u8; 16];
         assert_connection_lost(transport.recv_into_with_timeout(&mut buffer, Duration::ZERO));
         transport
@@ -1178,7 +1261,8 @@ mod tests {
         let clock = ManualClock::new();
         let executor = Arc::new(ManualClockExecutor::local(&clock));
         let mut transport =
-            ScriptedTransport::new(scripted_connection_loss()).with_executor(Arc::clone(&executor));
+            ScriptedTransport::new(ScriptedTransportIdentity::Tcp, scripted_connection_loss())
+                .with_executor(Arc::clone(&executor));
         executor.run_until(async {
             let mut buffer = [0u8; 16];
             assert_connection_lost(transport.recv_into(&mut buffer).await);
@@ -1196,12 +1280,15 @@ mod tests {
     #[cfg(feature = "blocking")]
     #[allow(clippy::unwrap_used)]
     fn blocking_send_releases_after_batches_in_script_order() {
-        let mut transport = ScriptedBlockingTransport::new(vec![
-            Step::after(Duration::from_secs(5), vec![vec![0x01]]),
-            Step::on_send(None, vec![vec![0x02]]),
-            Step::after(Duration::from_secs(5), vec![vec![0x03], vec![0x04]]),
-            Step::on_send(None, vec![vec![0x05]]),
-        ]);
+        let mut transport = ScriptedBlockingTransport::new(
+            ScriptedTransportIdentity::Tcp,
+            vec![
+                Step::after(Duration::from_secs(5), vec![vec![0x01]]),
+                Step::on_send(None, vec![vec![0x02]]),
+                Step::after(Duration::from_secs(5), vec![vec![0x03], vec![0x04]]),
+                Step::on_send(None, vec![vec![0x05]]),
+            ],
+        );
         transport
             .send_with_timeout(&[0x81], Duration::ZERO)
             .unwrap();
@@ -1228,10 +1315,12 @@ mod tests {
     #[test]
     #[cfg(feature = "blocking")]
     fn a_panicking_dynamic_response_does_not_poison_the_script() {
-        let transport =
-            ScriptedBlockingTransport::new(vec![Step::DynamicResponse(Arc::new(|_| {
+        let transport = ScriptedBlockingTransport::new(
+            ScriptedTransportIdentity::Tcp,
+            vec![Step::DynamicResponse(Arc::new(|_| {
                 panic!("dynamic response panics")
-            }))]);
+            }))],
+        );
         let mut sender = transport.clone();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             sender.send_with_timeout(&[0x81], Duration::ZERO)
@@ -1244,7 +1333,7 @@ mod tests {
     #[cfg(feature = "blocking")]
     #[should_panic(expected = "ScriptedBlockingTransport script mutex poisoned")]
     fn blocking_poison_panic_names_the_blocking_transport() {
-        let transport = ScriptedBlockingTransport::new(vec![]);
+        let transport = ScriptedBlockingTransport::new(ScriptedTransportIdentity::Tcp, vec![]);
         poison(&transport.script);
         let _ = transport.sent();
     }
@@ -1253,8 +1342,68 @@ mod tests {
     #[cfg(feature = "async")]
     #[should_panic(expected = "ScriptedTransport script mutex poisoned")]
     fn async_poison_panic_names_the_async_transport() {
-        let transport = ScriptedTransport::new(vec![]);
+        let transport = ScriptedTransport::new(ScriptedTransportIdentity::Tcp, vec![]);
         poison(&transport.script);
         let _ = transport.sent();
+    }
+}
+
+#[cfg(all(test, feature = "blocking"))]
+#[test]
+fn scripted_identity_and_receive_shape_follow_the_transport() {
+    let cases = [
+        (ScriptedTransportIdentity::Tcp, TransportIdentity::Tcp),
+        (ScriptedTransportIdentity::Udp, TransportIdentity::Udp),
+        (
+            ScriptedTransportIdentity::Serial { bus: None },
+            TransportIdentity::Serial { bus: None },
+        ),
+        (
+            ScriptedTransportIdentity::Custom {
+                semantics: SendSemantics::Datagram,
+                addressing: AddressingMode::Serial,
+            },
+            TransportIdentity::Custom {
+                semantics: SendSemantics::Datagram,
+                addressing: AddressingMode::Serial,
+            },
+        ),
+    ];
+    for (declared, expected) in cases {
+        let transport = ScriptedBlockingTransport::new(declared, []);
+        assert_eq!(transport.identity(), expected);
+    }
+
+    let step = Step::every_send(Arc::new(|_| vec![vec![1, 2, 3, 4]]));
+    let mut stream = ScriptedBlockingTransport::new(ScriptedTransportIdentity::Tcp, [step.clone()]);
+    let mut datagram = ScriptedBlockingTransport::new(ScriptedTransportIdentity::Udp, [step]);
+    let timeout = Duration::ZERO;
+    for _ in 0..2 {
+        let mut dst = [0; 2];
+        stream.send_with_timeout(&[0x81], timeout).expect("send");
+        assert_eq!(
+            stream
+                .recv_into_with_timeout(&mut dst, timeout)
+                .expect("first read"),
+            ReceiveOutcome::complete(2)
+        );
+        assert_eq!(dst, [1, 2]);
+        assert_eq!(
+            stream
+                .recv_into_with_timeout(&mut dst, timeout)
+                .expect("tail read"),
+            ReceiveOutcome::complete(2)
+        );
+        assert_eq!(dst, [3, 4]);
+
+        datagram.send_with_timeout(&[0x81], timeout).expect("send");
+        assert_eq!(
+            datagram
+                .recv_into_with_timeout(&mut dst, timeout)
+                .expect("datagram read"),
+            ReceiveOutcome::truncated(2)
+        );
+        assert_eq!(dst, [1, 2]);
+        assert!(datagram.recv_into_with_timeout(&mut dst, timeout).is_err());
     }
 }

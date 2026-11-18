@@ -308,6 +308,10 @@ impl StreamContext<'_> {
             } => {
                 self.stream.update_learning(target, |learning| {
                     learning.completion_sockets.learn_named();
+                    if learning.completion_sockets.is_named() {
+                        // The dropped completions were completion-only answers.
+                        learning.dropped_completion_owners = [None; 2];
+                    }
                 });
                 if let Some(owner) = self.socket_owner(target, *socket) {
                     self.settle_before_owner(target, owner, now, effects);
@@ -338,10 +342,9 @@ impl StreamContext<'_> {
                     .ok()
             }
             DecodedResponse::Completion { socket: None } => {
-                let holders = [ViscaSocket::S1, ViscaSocket::S2]
-                    .into_iter()
-                    .filter(|socket| self.socket_owner(target, *socket).is_some())
-                    .count();
+                let owners = [ViscaSocket::S1, ViscaSocket::S2]
+                    .map(|socket| self.socket_owner(target, socket));
+                let holders = owners.iter().flatten().count();
                 let held: SmallVec<[ViscaSocket; 2]> = [ViscaSocket::S1, ViscaSocket::S2]
                     .into_iter()
                     .filter(|socket| {
@@ -353,18 +356,18 @@ impl StreamContext<'_> {
                     // A `CompletionOnly` command's, unless an executing or
                     // quarantined command could have sent it.
                     if holders != 0 || !held.is_empty() {
-                        self.stream.learning[target]
-                            .completion_sockets
-                            .drop_ambiguous();
+                        self.stream.update_learning(target, |learning| {
+                            learning.completion_sockets.drop_ambiguous();
+                            learning.dropped_completion_owners = owners;
+                        });
                         return None;
                     }
                     return self
                         .take_stream_answer(target, Answer::Completion, evidence, now, effects)?
                         .ok();
                 }
-                if self.raw_hold(target, RawHoldScope::AllResponses).is_some() {
-                    return None;
-                }
+                // A stream-wide hold is for a NoReply command, which earns
+                // no completion. Any socket holder's completion still counts.
                 match (holders, held.as_slice()) {
                     (0, [socket]) => {
                         self.stream.update_learning(target, |learning| {
@@ -425,9 +428,9 @@ impl StreamContext<'_> {
                 // sockets in completions, the owner may have finished unseen,
                 // so a rejection code that another command could have earned
                 // disputes that command instead of failing the owner.
+                let unseen_completions =
+                    !self.stream.learning[target].completion_sockets.is_named();
                 if let Some(owner) = self.socket_owner(target, *socket) {
-                    let unseen_completions =
-                        !self.stream.learning[target].completion_sockets.is_named();
                     if unseen_completions
                         && code.refuses_before_start()
                         && self.stream.ledger.dispute(target, Answer::NamedRejection)
@@ -455,7 +458,7 @@ impl StreamContext<'_> {
                 // so the waiting command is disputed rather than left owing an
                 // answer that may have come.
                 if self.stream.holds.release_socket(target, *socket).is_some() {
-                    if code.refuses_before_start() {
+                    if unseen_completions && code.refuses_before_start() {
                         let _ = self.stream.ledger.dispute(target, Answer::NamedRejection);
                     }
                     return None;
@@ -782,6 +785,7 @@ impl StreamContext<'_> {
         }
         let learning = &mut self.stream.learning[target];
         learning.pending_socketless_completions = None;
+        learning.dropped_completion_owners = [None; 2];
         learning.socket_capacity_seen = Some(capacity);
         for socket in capacity.sockets() {
             self.stream

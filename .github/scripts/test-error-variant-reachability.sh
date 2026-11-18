@@ -104,6 +104,6 @@ expect_failure 'Error::UnsequencedCommandUnconfirmed production constructor occu
 
 # Exercise the shared scanner's literal and compound-cfg regression directly.
 rustc +1.98.0 --edition=2021 --deny warnings --test \
-    "${repository_root}/test-support/src/source_scan.rs" -o "${fixture}/scanner-tests"
+    "${repository_root}/src/test_support/source_scan.rs" -o "${fixture}/scanner-tests"
 "${fixture}/scanner-tests"
 echo 'Error reachability mutation fixtures passed.'

@@ -29,6 +29,7 @@ impl Inquiry for DownstreamInquiry {
     fn builtin_inquiry_syntax_retry(
         &self,
         _authority: grafton_visca::requests::BuiltinInquiryAuthority,
+        //~^ E0603 "module `requests` is private"
     ) -> bool {
         true
     }
@@ -38,5 +39,3 @@ fn main() {}
 
 // Downstream inquiries cannot name the crate-only authority that records
 // generated built-in provenance, so they retain the default `false` policy.
-//~ E0603
-//~ "module `requests` is private"

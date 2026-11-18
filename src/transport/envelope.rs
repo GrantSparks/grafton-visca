@@ -31,14 +31,14 @@ const MAX_SONY_VISCA_PAYLOAD_LENGTH: usize = 17;
 /// A zero upper half may indicate a camera returning only the low sixteen
 /// bits. Preserve that distinction until the engine selects its correlation
 /// index; outgoing metadata always carries the allocated full-width number.
-#[cfg(any(feature = "blocking", feature = "async", test))]
+#[cfg(any(feature = "blocking", feature = "async"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FrameSequence {
     Full32(u32),
     MaybeTruncated(u16),
 }
 
-#[cfg(any(feature = "blocking", feature = "async", test))]
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl FrameSequence {
     pub(crate) const fn from_reply_header(sequence_number: u32) -> Self {
         if sequence_number >> 16 == 0 {
@@ -152,7 +152,7 @@ pub struct SonyEncapsulated {
 }
 
 /// Owner-facing classification of a validated Sony response envelope.
-#[cfg(any(feature = "blocking", feature = "async", test))]
+#[cfg(any(feature = "blocking", feature = "async"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SonyResponse<'a> {
     /// A normal VISCA reply with required Sony correlation metadata.
@@ -305,24 +305,24 @@ impl SonyEncapsulated {
     }
 
     /// Parse one Sony response at the owner boundary without allocating.
-    #[cfg(any(feature = "blocking", feature = "async", test))]
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn extract_owner_response<'a>(
         &self,
-        framed: &'a [u8],
+        framed: crate::protocol::framer::SonyFrame<'a>,
     ) -> Result<SonyResponse<'a>, MalformedFrame> {
-        let (header, payload) = decode_sony_response_parts(framed)?;
-        match header.payload_type {
+        let payload = framed.payload();
+        match framed.payload_type() {
             PayloadType::ViscaReply => {
                 sony_visca_payload(payload)?;
                 Ok(SonyResponse::Visca {
                     payload,
-                    sequence: FrameSequence::from_reply_header(header.sequence_number),
+                    sequence: FrameSequence::from_reply_header(framed.sequence()),
                 })
             }
             PayloadType::ControlReply => Ok(SonyResponse::Control {
                 code: decode_sony_control_reply(payload)?,
             }),
-            _ => Err(SonyMalformed::PayloadType(header.payload_type).into()),
+            _ => Err(SonyMalformed::PayloadType(framed.payload_type()).into()),
         }
     }
 }
@@ -330,17 +330,8 @@ impl SonyEncapsulated {
 /// Copy verdicts for Sony envelope and payload grammar. Formatting happens
 /// only for outgoing request errors; malformed owner input stays allocation-free.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(
-    not(any(feature = "blocking", feature = "async", test)),
-    allow(dead_code)
-)]
+#[cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
 pub(crate) enum SonyMalformed {
-    #[error("Sony response too short for header")]
-    HeaderTooShort,
-    #[error("Invalid Sony header format")]
-    InvalidHeader,
-    #[error("Sony header length mismatch: header says {declared}, actual payload is {actual}")]
-    LengthMismatch { declared: u16, actual: usize },
     #[error("Unexpected Sony payload type in response: {0:?}")]
     PayloadType(PayloadType),
     #[error("Sony VISCA payload length must be between {MIN_SONY_VISCA_PAYLOAD_LENGTH} and {MAX_SONY_VISCA_PAYLOAD_LENGTH} bytes, got {actual}")]
@@ -361,23 +352,18 @@ impl From<SonyMalformed> for Error {
 
 /// Bounded classification of malformed owner input; the owner only counts
 /// these verdicts and never projects them into heap-allocated errors.
-#[cfg(any(feature = "blocking", feature = "async", test))]
+#[cfg(any(feature = "blocking", feature = "async"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MalformedFrame {
-    #[cfg(any(feature = "blocking", feature = "async"))]
     InvalidSource,
-    #[cfg(any(feature = "blocking", feature = "async"))]
     UnclassifiedResponse,
     Sony(SonyMalformed),
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    DatagramFrameLimit {
-        limit: usize,
-    },
-    #[cfg(any(feature = "blocking", feature = "async"))]
+    InvalidSonyHeader,
+    DatagramFrameLimit { limit: usize },
     DatagramTrailingBytes,
 }
 
-#[cfg(any(feature = "blocking", feature = "async", test))]
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl From<SonyMalformed> for MalformedFrame {
     fn from(verdict: SonyMalformed) -> Self {
         Self::Sony(verdict)
@@ -410,26 +396,8 @@ fn normalize_address(original_addr: u8, addressing: AddressingMode) -> u8 {
     }
 }
 
-/// Decode and length-check a Sony response without copying its payload.
-#[cfg(any(feature = "blocking", feature = "async", test))]
-fn decode_sony_response_parts(framed: &[u8]) -> Result<(SonyHeader, &[u8]), SonyMalformed> {
-    if framed.len() < SonyHeader::SIZE {
-        return Err(SonyMalformed::HeaderTooShort);
-    }
-    let header =
-        SonyHeader::decode(&framed[..SonyHeader::SIZE]).ok_or(SonyMalformed::InvalidHeader)?;
-    let actual = framed.len() - SonyHeader::SIZE;
-    if usize::from(header.payload_length) != actual {
-        return Err(SonyMalformed::LengthMismatch {
-            declared: header.payload_length,
-            actual,
-        });
-    }
-    Ok((header, &framed[SonyHeader::SIZE..]))
-}
-
 /// Decode the bounded payload grammar used by Sony control replies.
-#[cfg(any(feature = "blocking", feature = "async", test))]
+#[cfg(any(feature = "blocking", feature = "async"))]
 fn decode_sony_control_reply(payload: &[u8]) -> Result<u16, SonyMalformed> {
     match payload {
         [code] => Ok(u16::from(*code)),
@@ -455,6 +423,21 @@ fn sony_visca_payload(payload: &[u8]) -> Result<(), SonyMalformed> {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    use crate::{
+        protocol::framer::{FrameScan, Framer, SonyFrame, SonyFramer},
+        transport::BufferConfig,
+    };
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[allow(clippy::panic)]
+    fn frame_view(bytes: &[u8]) -> SonyFrame<'_> {
+        let FrameScan::Complete(frame) = SonyFramer::new(BufferConfig::for_udp()).scan(bytes)
+        else {
+            panic!("fixture must contain a complete Sony frame");
+        };
+        frame
+    }
 
     // Exact envelope identity tests
     //
@@ -929,6 +912,7 @@ mod tests {
         assert_eq!(normalize_address(0x88, AddressingMode::Ip), 0x81);
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
     fn owner_response_preserves_sony_sequence_provenance() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
@@ -942,7 +926,7 @@ mod tests {
             let mut framed = SonyHeader::new_reply(ack.len(), number).encode().to_vec();
             framed.extend_from_slice(&ack);
             assert_eq!(
-                envelope.extract_owner_response(&framed),
+                envelope.extract_owner_response(frame_view(&framed)),
                 Ok(SonyResponse::Visca {
                     payload: &ack,
                     sequence
@@ -951,6 +935,7 @@ mod tests {
         }
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
     fn sony_owner_rejects_unterminated_visca_replies() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
@@ -960,11 +945,12 @@ mod tests {
             .to_vec();
         framed.extend_from_slice(&unterminated_reply);
         assert_eq!(
-            envelope.extract_owner_response(&framed),
+            envelope.extract_owner_response(frame_view(&framed)),
             Err(MalformedFrame::Sony(SonyMalformed::PayloadTerminator))
         );
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
     fn every_sony_malformed_verdict_has_a_total_error_projection() {
         let frame = |kind, declared, payload: &[u8]| {
@@ -980,24 +966,6 @@ mod tests {
         };
         let oversized = [VISCA_TERMINATOR; MAX_SONY_VISCA_PAYLOAD_LENGTH + 1];
         let cases = [
-            (
-                vec![],
-                SonyMalformed::HeaderTooShort,
-                "Sony response too short for header",
-            ),
-            (
-                vec![0; SonyHeader::SIZE],
-                SonyMalformed::InvalidHeader,
-                "Invalid Sony header format",
-            ),
-            (
-                frame(PayloadType::ViscaReply, 4, &[0x90, 0x41, VISCA_TERMINATOR]),
-                SonyMalformed::LengthMismatch {
-                    declared: 4,
-                    actual: 3,
-                },
-                "Sony header length mismatch: header says 4, actual payload is 3",
-            ),
             (
                 frame(
                     PayloadType::ViscaCommand,
@@ -1026,7 +994,7 @@ mod tests {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
         for (framed, verdict, message) in cases {
             assert_eq!(
-                envelope.extract_owner_response(&framed),
+                envelope.extract_owner_response(frame_view(&framed)),
                 Err(MalformedFrame::Sony(verdict))
             );
             assert_eq!(verdict.to_string(), message);
@@ -1036,6 +1004,7 @@ mod tests {
         }
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
     fn sending_and_receiving_share_the_sony_visca_payload_rule() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
@@ -1047,7 +1016,7 @@ mod tests {
             let mut reply = SonyHeader::new_reply(payload.len(), 42).encode().to_vec();
             reply.extend_from_slice(&payload);
             assert_eq!(
-                envelope.extract_owner_response(&reply),
+                envelope.extract_owner_response(frame_view(&reply)),
                 Err(MalformedFrame::Sony(verdict))
             );
             let mut out = bytes::BytesMut::from(&b"unchanged"[..]);
@@ -1069,6 +1038,7 @@ mod tests {
         );
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
     fn sony_control_replies_are_classified_for_owner_diagnostics() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
@@ -1085,16 +1055,17 @@ mod tests {
 
         let ack = frame(&[0x01]);
         assert!(matches!(
-            envelope.extract_owner_response(&ack),
+            envelope.extract_owner_response(frame_view(&ack)),
             Ok(SonyResponse::Control { code: 0x0001 })
         ));
         let sequence_error = frame(&[0x0F, 0x01]);
         assert!(matches!(
-            envelope.extract_owner_response(&sequence_error),
+            envelope.extract_owner_response(frame_view(&sequence_error)),
             Ok(SonyResponse::Control { code: 0x0F01 })
         ));
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
     fn malformed_sony_control_reply_lengths_are_rejected() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
@@ -1107,7 +1078,7 @@ mod tests {
             let mut framed = header.encode().to_vec();
             framed.extend_from_slice(payload);
             assert!(matches!(
-                envelope.extract_owner_response(&framed),
+                envelope.extract_owner_response(frame_view(&framed)),
                 Err(MalformedFrame::Sony(SonyMalformed::ControlReplyLength))
             ));
         }

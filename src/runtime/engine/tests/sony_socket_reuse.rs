@@ -119,15 +119,15 @@ fn sony_socket_reuse_cancels_only_the_camera_named_successor_socket() {
     let start = Instant::now();
     let (mut engine, first, second) = reused_socket(start, TransportKind::Datagram);
     let at = start + Duration::from_millis(11);
-    let refused = engine.handle(Input::Cancel { id: first }, at);
+    let refused = engine.handle(engine.cancel_input(first), at);
     assert!(refused.iter().any(|effect| matches!(effect,
-        Effect::CancellationObservation { id, observation: CancellationObservation::Failed(Error::CancellationUnconfirmed) } if *id == first
+        Effect::CancellationObservation { id, observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed) } if *id == first
     )));
     assert!(!refused
         .iter()
         .any(|effect| matches!(effect, Effect::Transmit { .. })));
     assert!(engine.entry(first).is_some());
-    let cancelled = engine.handle(Input::Cancel { id: second }, at);
+    let cancelled = engine.handle(engine.cancel_input(second), at);
     let (_, cancelled_id, socket) = cancel_transmit(&cancelled);
     assert_eq!((cancelled_id, socket), (second, ViscaSocket::S1));
     engine.assert_invariants().unwrap();
@@ -230,7 +230,7 @@ fn sony_socket_reuse_resolves_an_open_cancellation_without_losing_the_request_se
     let (first, first_id) = admit(&mut engine, 1, command(1), start);
     send_ok(&mut engine, &first, Some(FIRST), start);
     engine.handle(ack(FIRST, ViscaSocket::S1), start);
-    let cancellation = engine.handle(Input::Cancel { id: first_id }, start);
+    let cancellation = engine.handle(engine.cancel_input(first_id), start);
     let (transmission, request, _) = cancel_transmit(&cancellation);
     engine.handle(
         Input::TransmissionFinished {
@@ -244,7 +244,7 @@ fn sony_socket_reuse_resolves_an_open_cancellation_without_losing_the_request_se
     send_ok(&mut engine, &second, Some(SECOND), start);
     let reused = engine.handle(ack(SECOND, ViscaSocket::S1), start);
     assert!(reused.iter().any(|effect| matches!(effect,
-        Effect::CancellationObservation { id, observation: CancellationObservation::Failed(Error::CancellationUnconfirmed) } if *id == first_id
+        Effect::CancellationObservation { id, observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed) } if *id == first_id
     )));
     let stale_cancel = engine.handle(
         response(

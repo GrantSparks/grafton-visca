@@ -14,7 +14,6 @@ mod contract {
 
 struct Tally;
 impl contract::StateValue for Tally {
-    const KEY: StateKey = StateKey::TallyMode;
     type Value = TallyMode;
     fn known(value: TallyMode) -> KnownState {
         KnownState::TallyMode(value)
@@ -25,9 +24,7 @@ struct MissingValue;
 
 fn main() {
     let _ = <contract::Clear<Tally> as contract::BuiltinStateProjection<MissingValue>>::project(
+    //~^ E0277 "the trait bound `MissingValue: BuiltinStateValue<grafton_visca::types::TallyMode>` is not satisfied"
         &MissingValue,
     );
 }
-
-//~ E0277
-//~ "the trait bound `MissingValue: BuiltinStateValue<grafton_visca::types::TallyMode>` is not satisfied"

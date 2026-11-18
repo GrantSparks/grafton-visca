@@ -7,8 +7,8 @@
 //! [`declarations`] blanks every `#[cfg(test)]` item so a positive gate reads
 //! the declaration region only.
 //!
-//! This is the integration-test twin of the scanner in `src/facade_parity.rs`;
-//! the crate's own scanner cannot be reached from an integration test binary.
+//! Library unit tests, repository integration gates and the standalone
+//! Error constructor inventory check share this scanner.
 
 /// Blanks comments and literal contents while preserving the line structure.
 ///

@@ -227,6 +227,70 @@ impl PanTiltSpeed {
     }
 }
 
+/// The speed domains of a validated profile's position-command grammar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PositionSpeeds(PositionSpeedGrammar);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PositionSpeedGrammar {
+    Paired {
+        pan: crate::capabilities::CapabilityRange<u8>,
+        tilt: crate::capabilities::CapabilityRange<u8>,
+    },
+    Single(crate::capabilities::CapabilityRange<u8>),
+}
+
+impl PositionSpeeds {
+    /// Called after domain validation has proved that both ranges fit the
+    /// checked speed wrappers.
+    pub(crate) fn from_domain(
+        domain: &crate::capabilities::PanTiltCaps,
+    ) -> crate::Result<Option<Self>> {
+        use crate::capabilities::{CapabilityRange, PanTiltWireCodec};
+        let Some(geometry) = domain.geometry else {
+            return Ok(None);
+        };
+        let (pan, tilt) = (domain.pan_speed, domain.tilt_speed);
+        let grammar = match geometry.coordinates.wire_codec() {
+            PanTiltWireCodec::SonyBrc300 => {
+                let shared = CapabilityRange::<u8>::new(
+                    Ord::max(pan.min(), tilt.min()),
+                    Ord::min(pan.max(), tilt.max()),
+                )
+                .map_err(|_| {
+                    crate::profiles::invalid_profile_fields(
+                        &[
+                            "capabilities.pan_tilt.pan_speed",
+                            "capabilities.pan_tilt.tilt_speed",
+                        ],
+                        "a one-speed position grammar requires a shared pan/tilt speed",
+                    )
+                })?;
+                PositionSpeedGrammar::Single(shared)
+            }
+            PanTiltWireCodec::StandardVisca | PanTiltWireCodec::SonyFr7 => {
+                PositionSpeedGrammar::Paired { pan, tilt }
+            }
+        };
+        Ok(Some(Self(grammar)))
+    }
+
+    pub(crate) fn lower(self, level: SpeedLevel) -> PanTiltSpeed {
+        let (pan_level, tilt_level, _, _) = level.baseline_speeds();
+        let (pan, tilt) = match self.0 {
+            PositionSpeedGrammar::Paired { pan, tilt } => (
+                pan_level.clamp(pan.min(), pan.max()),
+                tilt_level.clamp(tilt.min(), tilt.max()),
+            ),
+            PositionSpeedGrammar::Single(shared) => {
+                let speed = pan_level.clamp(shared.min(), shared.max());
+                (speed, speed)
+            }
+        };
+        PanTiltSpeed::new(PanSpeed(pan), TiltSpeed(tilt))
+    }
+}
+
 /// Descriptive F-stop values for iris control.
 ///
 /// The value encoding identifies an F-stop; it is not a camera's iris code.

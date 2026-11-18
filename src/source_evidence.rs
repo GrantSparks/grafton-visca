@@ -174,24 +174,74 @@ impl std::fmt::Display for PacketPattern {
     }
 }
 
+use crate::profiles::ProfileId;
+
 macro_rules! source_ids {
-    ($($id:ident),+ $(,)?) => {
-        /// Reference identities in the checked-in source catalog.
+    ($($id:ident: [$($model:ident),*]),+ $(,)?) => {
+        /// Reference identities and model scope in the checked-in source catalog.
+        // Supplemental catalog entries are recorded without checked rows.
+        #[allow(dead_code)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub(crate) enum SourceId { $($id),+ }
 
         impl SourceId {
+            #[cfg(test)]
             pub(crate) const ALL: &'static [Self] = &[$(Self::$id),+];
 
+            #[cfg(test)]
             pub(crate) const fn as_str(self) -> &'static str {
                 match self { $(Self::$id => stringify!($id)),+ }
+            }
+
+            pub(crate) const fn models(self) -> &'static [ProfileId] {
+                match self { $(Self::$id => &[$(ProfileId::$model),*]),+ }
             }
         }
     };
 }
 source_ids! {
-    R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14,
-    R15, R16, R17, R18, R19, R20, R21, B1,
+    R1: [PtzOpticsG2, PtzOptics30x],
+    R2: [],
+    R3: [],
+    R4: [],
+    R5: [],
+    R6: [],
+    R7: [SonyFr7],
+    R8: [SonyEviH100],
+    R9: [],
+    R10: [PtzOpticsG3],
+    R11: [SonyBrcH900],
+    R12: [SonyBrc300],
+    R13: [],
+    R14: [PtzOpticsG3],
+    R15: [],
+    R16: [],
+    R17: [],
+    R18: [],
+    R19: [],
+    R20: [PtzOpticsG2, PtzOpticsG3, PtzOptics30x],
+    R21: [NearusBrc300],
+    R22: [PtzOpticsG2, PtzOpticsG3, PtzOptics30x],
+    B1: [PtzOpticsG2, PtzOptics30x],
+}
+
+impl SourceId {
+    /// A reference contributing to the Generic VISCA intersection does not
+    /// establish coverage on its own.
+    const fn applies_to(self, model: ProfileId) -> bool {
+        if matches!(model, ProfileId::GenericVisca) {
+            return matches!(self, Self::R8 | Self::R12 | Self::R21);
+        }
+        let models = self.models();
+        let mut index = 0;
+        while index < models.len() {
+            if models[index] as usize == model as usize {
+                return true;
+            }
+            index += 1;
+        }
+        false
+    }
 }
 
 /// One exact positive provenance row. The owning ledger or inquiry supplies
@@ -200,7 +250,6 @@ source_ids! {
 pub(crate) struct Reference {
     pub(crate) id: SourceId,
     pub(crate) row: &'static str,
-    pub(crate) models: &'static [crate::profiles::ProfileId],
 }
 
 /// Evidence is explicit even for a raw-only or decode-only fact.
@@ -223,11 +272,7 @@ impl Source {
         let mut index = 0;
         while index < references.len() {
             let reference = references[index];
-            if reference.row.is_empty()
-                || reference.models.is_empty()
-                || reference.id.as_str().is_empty()
-                || reference.id as usize >= SourceId::ALL.len()
-            {
+            if reference.row.is_empty() || reference.id.models().is_empty() {
                 return false;
             }
             index += 1;
@@ -246,7 +291,7 @@ impl Source {
         }
     }
 
-    pub(crate) const fn covers_model(self, model: Option<crate::profiles::ProfileId>) -> bool {
+    pub(crate) const fn covers_model(self, model: Option<ProfileId>) -> bool {
         // A custom profile is an explicit caller-owned protocol authority.
         // It does not acquire a vendor provenance claim from this catalog.
         let Some(model) = model else { return true };
@@ -256,50 +301,61 @@ impl Source {
         let Self::References(references) = self else {
             return false;
         };
-        let mut any = false;
-        let mut evi = false;
-        let mut brc = false;
-        let mut nearus = false;
+        if matches!(model, ProfileId::GenericVisca) {
+            let mut evi = false;
+            let mut brc = false;
+            let mut nearus = false;
+            let mut index = 0;
+            while index < references.len() {
+                match references[index].id {
+                    SourceId::R8 => evi = true,
+                    SourceId::R12 => brc = true,
+                    SourceId::R21 => nearus = true,
+                    _ => {}
+                }
+                index += 1;
+            }
+            return evi && brc && nearus;
+        }
         let mut index = 0;
         while index < references.len() {
-            let reference = references[index];
-            let mut declared = 0;
-            while declared < reference.models.len() {
-                if reference.models[declared] as usize == model as usize {
-                    any = true;
-                    evi |= reference.id as usize == SourceId::R8 as usize;
-                    brc |= reference.id as usize == SourceId::R12 as usize;
-                    nearus |= reference.id as usize == SourceId::R21 as usize;
-                }
-                declared += 1;
+            if references[index].id.applies_to(model) {
+                return true;
             }
             index += 1;
         }
-        if model as usize == crate::profiles::ProfileId::GenericVisca as usize {
-            evi && brc && nearus
-        } else {
-            any
+        false
+    }
+
+    /// Every citation of a grant must apply to its enclosing profile.
+    pub(crate) const fn supports_grant(self, model: ProfileId) -> bool {
+        if !self.covers_model(Some(model)) {
+            return false;
         }
+        let Self::References(references) = self else {
+            return false;
+        };
+        let mut index = 0;
+        while index < references.len() {
+            if !references[index].id.applies_to(model) {
+                return false;
+            }
+            index += 1;
+        }
+        true
     }
 }
 
-/// Keep references next to the fact they justify, without repeating path names.
+/// Keep references next to the fact they justify. The source id owns its models.
 macro_rules! source {
-    ($id:ident, [$($model:ident),+ $(,)?], $row:literal) => {
-        $crate::source_evidence::Source::References(&[
-            $crate::source_evidence::Reference {
-                id: $crate::source_evidence::SourceId::$id,
-                row: $row,
-                models: &[$($crate::profiles::ProfileId::$model),+],
-            },
-        ])
+    ($id:ident, $row:literal $(,)?) => {
+        $crate::source_evidence::source!([($id, $row)])
     };
-    ([$(($id:ident, [$($model:ident),+], $row:literal)),+ $(,)?]) => {
+    ([$(($id:ident, $row:literal)),+ $(,)?]) => {
         $crate::source_evidence::Source::References(&[
             $($crate::source_evidence::Reference {
                 id: $crate::source_evidence::SourceId::$id,
                 row: $row,
-                models: &[$($crate::profiles::ProfileId::$model),+],
             }),+
         ])
     };
@@ -328,7 +384,6 @@ pub(crate) mod checked {
     #[derive(Debug)]
     struct Row<'a> {
         source: &'a str,
-        models: &'a str,
         subject: &'a str,
         packet: &'a str,
         polarity: &'a str,
@@ -364,17 +419,16 @@ pub(crate) mod checked {
             let mut rows = HashMap::new();
             for line in evidence.lines() {
                 let columns = columns(line);
-                if columns.len() != 7 || columns[0] == "Evidence key" || columns[0].starts_with('-')
+                if columns.len() != 6 || columns[0] == "Evidence key" || columns[0].starts_with('-')
                 {
                     continue;
                 }
                 let row = Row {
                     source: columns[1],
-                    models: columns[2],
-                    subject: columns[3],
-                    packet: columns[4],
-                    polarity: columns[5],
-                    location: columns[6],
+                    subject: columns[2],
+                    packet: columns[3],
+                    polarity: columns[4],
+                    location: columns[5],
                 };
                 if rows.insert(columns[0], row).is_some() {
                     return Err(format!("duplicate checked evidence key {}", columns[0]));
@@ -412,7 +466,12 @@ pub(crate) mod checked {
             model: ProfileId,
         ) -> Result<(), String> {
             let subject = format!("grant.{surface:?}");
-            self.validate(source, &subject, Some(&format!("{model:?}")), None, None)?;
+            if !source.supports_grant(model) {
+                return Err(format!(
+                    "{subject}: no source applies to model {model:?} for every grant reference"
+                ));
+            }
+            self.validate(source, &subject, Some(model), None, None)?;
             // Compare the finite packet set one selector at a time. A source
             // may list those choices separately even when one noun row stores
             // them together in a compound selector pattern.
@@ -427,10 +486,7 @@ pub(crate) mod checked {
                 unreachable!()
             };
             let mut documented = Vec::new();
-            for reference in references
-                .iter()
-                .filter(|reference| reference.models.contains(&model))
-            {
+            for reference in references {
                 let packet = self.rows[reference.row].packet;
                 let source_packets = packet
                     .split(';')
@@ -467,7 +523,7 @@ pub(crate) mod checked {
             &self,
             source: Source,
             subject: &str,
-            model: Option<&str>,
+            model: Option<ProfileId>,
             packet: Option<&str>,
             polarity: Option<&str>,
         ) -> Result<(), String> {
@@ -477,7 +533,6 @@ pub(crate) mod checked {
             if references.is_empty() {
                 return Err(format!("{subject}: empty source list"));
             }
-            let mut model_covered = model.is_none();
             for reference in references {
                 let id = reference.id.as_str();
                 if !self.catalog.contains(id) {
@@ -498,24 +553,7 @@ pub(crate) mod checked {
                         reference.row
                     ));
                 }
-                for declared in reference.models {
-                    if !row
-                        .models
-                        .split(',')
-                        .any(|candidate| candidate.trim() == format!("{declared:?}"))
-                    {
-                        return Err(format!(
-                            "{subject}: {} does not cover declared model {declared:?}",
-                            reference.row
-                        ));
-                    }
-                }
-                let applies = model.is_none_or(|model| {
-                    reference
-                        .models
-                        .iter()
-                        .any(|declared| format!("{declared:?}") == model)
-                });
+                let applies = model.is_none_or(|model| reference.id.applies_to(model));
                 if applies && packet.is_some_and(|packet| row.packet != packet) {
                     return Err(format!(
                         "{subject}: {} does not establish packet {}",
@@ -530,22 +568,11 @@ pub(crate) mod checked {
                         polarity.unwrap_or_default()
                     ));
                 }
-                if model.is_some_and(|model| {
-                    row.models
-                        .split(',')
-                        .any(|candidate| candidate.trim() == model)
-                }) {
-                    model_covered = true;
-                }
             }
-            if model_covered {
-                Ok(())
-            } else {
-                Err(format!(
-                    "{subject}: no source applies to model {}",
-                    model.unwrap_or_default()
-                ))
+            if !source.covers_model(model) {
+                return Err(format!("{subject}: no source applies to model {model:?}"));
             }
+            Ok(())
         }
     }
 
@@ -771,11 +798,11 @@ pub(crate) mod checked {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use super::{checked::Index, Source};
+    use super::{checked::Index, Source, SourceId};
     use crate::{capabilities::TypedSupportSurface, profiles::ProfileId};
     use std::collections::HashSet;
 
-    const FIXTURE: &str = "| R1 | primary |\n| R11 | primary |\nNo source documents 09 04 2B.\n<!-- BEGIN CHECKED SOURCE EVIDENCE -->\n| Evidence key | Source | Models | Subject | Packet | Boolean reply | Location |\n| positive | R1 | GenericVisca | inquiry.Power | 09 04 00 | on=02;off=03 | p. 1 |\n<!-- END CHECKED SOURCE EVIDENCE -->";
+    const FIXTURE: &str = "| R1 | primary |\n| R11 | primary |\nNo source documents 09 04 2B.\n<!-- BEGIN CHECKED SOURCE EVIDENCE -->\n| Evidence key | Source | Subject | Packet | Boolean reply | Location |\n| positive | R1 | inquiry.Power | 09 04 00 | on=02;off=03 | p. 1 |\n<!-- END CHECKED SOURCE EVIDENCE -->";
 
     #[test]
     fn every_checked_evidence_row_has_a_live_code_reference() {
@@ -821,17 +848,17 @@ mod tests {
         for (key, source, model) in [
             (
                 "r1-ptzopticsg2-pictureeffect-grant",
-                source!(R1, [PtzOpticsG2], "r1-ptzopticsg2-pictureeffect-grant"),
+                source!(R1, "r1-ptzopticsg2-pictureeffect-grant"),
                 ProfileId::PtzOpticsG2,
             ),
             (
                 "r14-ptzopticsg3-pictureeffect-grant",
-                source!(R14, [PtzOpticsG3], "r14-ptzopticsg3-pictureeffect-grant"),
+                source!(R14, "r14-ptzopticsg3-pictureeffect-grant"),
                 ProfileId::PtzOpticsG3,
             ),
             (
                 "r1-ptzoptics30x-pictureeffect-grant",
-                source!(R1, [PtzOptics30x], "r1-ptzoptics30x-pictureeffect-grant"),
+                source!(R1, "r1-ptzoptics30x-pictureeffect-grant"),
                 ProfileId::PtzOptics30x,
             ),
         ] {
@@ -883,9 +910,9 @@ mod tests {
         let index = Index::parse(&document).expect("fixture index");
         let error = index
             .validate_grant(
-                source!(R1, [GenericVisca], "positive"),
+                source!(R1, "positive"),
                 TypedSupportSurface::Iris,
-                ProfileId::GenericVisca,
+                ProfileId::PtzOpticsG2,
             )
             .expect_err("an alien grant packet must fail");
         assert!(error.contains("not the packet of any gated row"), "{error}");
@@ -897,43 +924,43 @@ mod tests {
         for (surface, source, key, foreign_packet) in [
             (
                 TypedSupportSurface::IrisSteps,
-                source!(R7, [SonyFr7], "r7-grant-irissteps"),
+                source!(R7, "r7-grant-irissteps"),
                 "r7-grant-irissteps",
                 "01 05 34",
             ),
             (
                 TypedSupportSurface::AutoIris,
-                source!(R7, [SonyFr7], "r7-grant-autoiris"),
+                source!(R7, "r7-grant-autoiris"),
                 "r7-grant-autoiris",
                 "01 7E 04 4B 02",
             ),
             (
                 TypedSupportSurface::OnePushWhiteBalance,
-                source!(R7, [SonyFr7], "r7-grant-onepushwhitebalance"),
+                source!(R7, "r7-grant-onepushwhitebalance"),
                 "r7-grant-onepushwhitebalance",
                 "01 04 35 0A",
             ),
             (
                 TypedSupportSurface::SeparatePresetSpeed,
-                source!(R7, [SonyFr7], "r7-grant-separatepresetspeed"),
+                source!(R7, "r7-grant-separatepresetspeed"),
                 "r7-grant-separatepresetspeed",
                 "01 7E 04 1C",
             ),
             (
                 TypedSupportSurface::SeparatePresetSpeed,
-                source!(R7, [SonyFr7], "r7-grant-separatepresetspeed"),
+                source!(R7, "r7-grant-separatepresetspeed"),
                 "r7-grant-separatepresetspeed",
                 "09 7E 04 1C",
             ),
             (
                 TypedSupportSurface::PresetRecallSpeed,
-                source!(R7, [SonyFr7], "r7-grant-presetrecallspeed"),
+                source!(R7, "r7-grant-presetrecallspeed"),
                 "r7-grant-presetrecallspeed",
                 "01 7E 01 0B",
             ),
             (
                 TypedSupportSurface::PresetRecallSpeedInquiry,
-                source!(R7, [SonyFr7], "r7-grant-presetrecallspeedinquiry"),
+                source!(R7, "r7-grant-presetrecallspeedinquiry"),
                 "r7-grant-presetrecallspeedinquiry",
                 "09 7E 01 0B",
             ),
@@ -957,7 +984,7 @@ mod tests {
             let packet = line
                 .trim_matches('|')
                 .split('|')
-                .nth(4)
+                .nth(3)
                 .expect("packet column")
                 .trim();
             let changed_line = line.replace(packet, &format!("{packet};{foreign_packet}"));
@@ -980,16 +1007,13 @@ mod tests {
         macro_rules! check {
             ($surface:ident, $model:ident, $query_source:ident, $query:literal,
              $control_source:ident, $control:literal) => {{
-                let combined = source!([
-                    ($query_source, [$model], $query),
-                    ($control_source, [$model], $control)
-                ]);
+                let combined = source!([($query_source, $query), ($control_source, $control)]);
                 index
                     .validate_grant(combined, TypedSupportSurface::$surface, ProfileId::$model)
                     .expect("a merged level family retains both checked source anchors");
                 for incomplete in [
-                    source!($query_source, [$model], $query),
-                    source!($control_source, [$model], $control),
+                    source!($query_source, $query),
+                    source!($control_source, $control),
                 ] {
                     let error = index
                         .validate_grant(
@@ -1010,7 +1034,7 @@ mod tests {
             PtzOpticsG2,
             R1,
             "r1-ptzopticsg2-noisereduction2d-grant",
-            R14,
+            R22,
             "r14-ptzopticsg2-noisereduction2dcontrol-grant"
         );
         check!(
@@ -1018,7 +1042,7 @@ mod tests {
             PtzOpticsG2,
             R1,
             "r1-ptzopticsg2-noisereduction3d-grant",
-            R14,
+            R22,
             "r14-ptzopticsg2-noisereduction3dcontrol-grant"
         );
         check!(
@@ -1026,7 +1050,7 @@ mod tests {
             PtzOpticsG3,
             R14,
             "r14-ptzopticsg3-noisereduction2d-grant",
-            R14,
+            R22,
             "r14-ptzopticsg3-noisereduction2dcontrol-grant"
         );
         check!(
@@ -1034,7 +1058,7 @@ mod tests {
             PtzOpticsG3,
             R14,
             "r14-ptzopticsg3-noisereduction3d-grant",
-            R14,
+            R22,
             "r14-ptzopticsg3-noisereduction3dcontrol-grant"
         );
         check!(
@@ -1042,7 +1066,7 @@ mod tests {
             PtzOptics30x,
             R1,
             "r1-ptzoptics30x-noisereduction2d-grant",
-            R14,
+            R22,
             "r14-ptzoptics30x-noisereduction2dcontrol-grant"
         );
         check!(
@@ -1050,7 +1074,7 @@ mod tests {
             PtzOptics30x,
             R1,
             "r1-ptzoptics30x-noisereduction3d-grant",
-            R14,
+            R22,
             "r14-ptzoptics30x-noisereduction3dcontrol-grant"
         );
         check!(
@@ -1092,7 +1116,7 @@ mod tests {
         let index = Index::parse(document).expect("checked source index");
         let error = index
             .validate_grant(
-                source!(R7, [SonyFr7], "r7-grant-sonyfr7whitebalance"),
+                source!(R7, "r7-grant-sonyfr7whitebalance"),
                 TypedSupportSurface::OnePushWhiteBalance,
                 ProfileId::SonyFr7,
             )
@@ -1109,18 +1133,14 @@ mod tests {
         for (key, source, surface, action, mode) in [
             (
                 "r1-ptzopticsg2-colortemperature-grant",
-                source!(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperature-grant"),
+                source!(R1, "r1-ptzopticsg2-colortemperature-grant"),
                 TypedSupportSurface::ColorTemperature,
                 "01 04 20",
                 "01 04 35 20",
             ),
             (
                 "r1-ptzopticsg2-onepushwhitebalance-grant",
-                source!(
-                    R1,
-                    [PtzOpticsG2],
-                    "r1-ptzopticsg2-onepushwhitebalance-grant"
-                ),
+                source!(R1, "r1-ptzopticsg2-onepushwhitebalance-grant"),
                 TypedSupportSurface::OnePushWhiteBalance,
                 "01 04 10 05",
                 "01 04 35 03",
@@ -1156,12 +1176,12 @@ mod tests {
             }
             .expect("white-balance modes retain explicit model evidence");
             for reference in references {
-                for model in reference.models {
+                for model in reference.id.models() {
                     index
                         .validate(
                             source,
                             &format!("command.{row:?}"),
-                            Some(&format!("{model:?}")),
+                            Some(*model),
                             Some(packet),
                             None,
                         )
@@ -1184,13 +1204,13 @@ mod tests {
             .split('|')
             .map(str::trim)
             .collect::<Vec<_>>();
-        let source = source!(R1, [PtzOpticsG2], "r1-ptzopticsg2-directzoom-grant");
+        let source = source!(R1, "r1-ptzopticsg2-directzoom-grant");
         let setter = crate::command::semantics::BuiltinCommand::ZoomPosition
             .packet()
             .expect("zoom packet")
             .to_string();
         for packet in [setter.clone(), format!("{setter};09 04 FF")] {
-            let changed_line = line.replace(columns[4], &packet);
+            let changed_line = line.replace(columns[3], &packet);
             let changed = document.replace(line, &changed_line);
             let index = Index::parse(&changed).expect("changed document still parses");
             let error = index
@@ -1206,7 +1226,7 @@ mod tests {
         let index = Index::parse(&renamed).expect("renamed row still parses");
         let error = index
             .validate_grant(
-                source!(R1, [PtzOpticsG2], "unrecognized-direct-zoom-summary"),
+                source!(R1, "unrecognized-direct-zoom-summary"),
                 TypedSupportSurface::DirectZoom,
                 ProfileId::PtzOpticsG2,
             )
@@ -1216,30 +1236,46 @@ mod tests {
     #[test]
     fn evidence_resolves_exact_ids_models_packets_and_polarity() {
         let index = Index::parse(FIXTURE).expect("fixture index");
-        let source = source!(R1, [GenericVisca], "positive");
+        let source = source!(R1, "positive");
+        assert_eq!(
+            SourceId::R1.models(),
+            &[ProfileId::PtzOpticsG2, ProfileId::PtzOptics30x]
+        );
+        assert!(source.supports_grant(ProfileId::PtzOptics30x));
+        assert!(!source.supports_grant(ProfileId::SonyFr7));
+        assert!(
+            !source!([(R1, "positive"), (R11, "foreign")]).supports_grant(ProfileId::PtzOpticsG2)
+        );
+        let common = source!([(R8, "evi"), (R12, "brc"), (R21, "nearus")]);
+        assert!(common.supports_grant(ProfileId::GenericVisca));
+        assert!(!source!([(R8, "evi"), (R12, "brc")]).supports_grant(ProfileId::GenericVisca));
+        assert!(
+            !source!([(R8, "evi"), (R12, "brc"), (R21, "nearus"), (R1, "foreign")])
+                .supports_grant(ProfileId::GenericVisca)
+        );
         assert!(index
             .validate(
                 source,
                 "inquiry.Power",
-                Some("GenericVisca"),
+                Some(ProfileId::PtzOpticsG2),
                 Some("09 04 00"),
                 Some("on=02;off=03")
             )
             .is_ok());
         assert!(index
-            .validate(source, "inquiry.Power", Some("ModelB"), None, None)
+            .validate(
+                source,
+                "inquiry.Power",
+                Some(ProfileId::SonyFr7),
+                None,
+                None
+            )
             .is_err());
         assert!(index
             .validate(source, "inquiry.Power", None, None, Some("on=03;off=02"))
             .is_err());
         assert!(index
-            .validate(
-                source!(R11, [GenericVisca], "positive"),
-                "inquiry.Power",
-                None,
-                None,
-                None
-            )
+            .validate(source!(R11, "positive"), "inquiry.Power", None, None, None)
             .is_err());
     }
 
@@ -1248,14 +1284,14 @@ mod tests {
         let index = Index::parse(FIXTURE).expect("fixture index");
         for source in [
             Source::Unsourced,
-            source!(R1, [GenericVisca], "09 04 2B"),
-            source!(R1, [GenericVisca], "positive"),
+            source!(R1, "09 04 2B"),
+            source!(R1, "positive"),
         ] {
             let error = index
                 .validate(
                     source,
                     "inquiry.IrisControl",
-                    Some("GenericVisca"),
+                    Some(ProfileId::PtzOpticsG2),
                     Some("09 04 2B"),
                     None,
                 )
@@ -1268,14 +1304,9 @@ mod tests {
         use crate::profiles::ProfileId;
         assert!(Source::Unsourced.covers_model(None));
         assert!(!Source::Unsourced.covers_model(Some(ProfileId::SonyFr7)));
-        assert!(!source!(R8, [GenericVisca], "one-manufacturer")
+        assert!(!source!(R8, "one-manufacturer").covers_model(Some(ProfileId::GenericVisca)));
+        assert!(source!([(R8, "evi"), (R12, "brc300"), (R21, "nearus")])
             .covers_model(Some(ProfileId::GenericVisca)));
-        assert!(source!([
-            (R8, [GenericVisca], "evi"),
-            (R12, [GenericVisca], "brc300"),
-            (R21, [GenericVisca], "nearus")
-        ])
-        .covers_model(Some(ProfileId::GenericVisca)));
     }
     #[test]
     fn source_packet_patterns_match_exact_bytes_and_documented_socket_nibbles() {

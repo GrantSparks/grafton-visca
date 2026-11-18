@@ -4,8 +4,7 @@
 //! source-backed PTZOptics mirror family; FR7 does not grant this opcode.
 //! They drive
 //! `disable_horizontal_flip` on all three noun surfaces against a fake camera
-//! and assert the absolute VISCA frame, then pin the state-cache consequence
-//! of the mirror opcode on the noun path.
+//! and assert the complete VISCA frame.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 #![cfg(any(
@@ -37,8 +36,6 @@ mod blocking_surface {
         blocking::Session,
         config::SessionConfig,
         profiles::{ProfileSpec, PtzOpticsG2},
-        state_cache::{StateEntry, StateKey},
-        types::ImageFlipMode,
     };
 
     use super::{acking_camera, FakeCamera, MIRROR_OFF, MIRROR_ON};
@@ -63,51 +60,6 @@ mod blocking_surface {
 
         camera.image().set_mirror(false).expect("mirror off");
         assert_eq!(fake.take_only_payload(), MIRROR_OFF);
-
-        session.shutdown().expect("shutdown");
-    }
-
-    #[test]
-    fn blocking_mirror_off_invalidates_the_cached_flip_pair() {
-        let (session, fake) =
-            session(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile"));
-        let camera = session
-            .camera::<PtzOpticsG2>(grafton_visca::types::IndividualCameraId::CAMERA_1)
-            .expect("camera");
-
-        // Only the combined opcode establishes both axes, so start from a
-        // known pair.
-        camera
-            .image()
-            .set_flip_mode(ImageFlipMode::Both)
-            .expect("combined flip");
-        let _ = fake.take_only_payload();
-        assert_eq!(
-            camera.state_cache().image().flip_mode(),
-            Some(ImageFlipMode::Both),
-        );
-
-        // The mirror opcode moves one axis and says nothing about the other,
-        // so the pair stops being known — in both directions.
-        camera.image().set_mirror(false).expect("mirror off");
-        assert_eq!(fake.take_only_payload(), MIRROR_OFF);
-        assert_eq!(
-            camera.state_cache().value(StateKey::ImageFlipMode),
-            StateEntry::Unknown,
-        );
-        assert_eq!(camera.state_cache().image().flip_mode(), None);
-
-        camera
-            .image()
-            .set_flip_mode(ImageFlipMode::Both)
-            .expect("combined flip");
-        let _ = fake.take_only_payload();
-        camera.image().set_mirror(true).expect("mirror on");
-        assert_eq!(fake.take_only_payload(), MIRROR_ON);
-        assert_eq!(
-            camera.state_cache().value(StateKey::ImageFlipMode),
-            StateEntry::Unknown,
-        );
 
         session.shutdown().expect("shutdown");
     }
@@ -160,11 +112,7 @@ mod async_surface {
     feature = "runtime-tokio"
 ))]
 mod runtime_profile_surface {
-    use grafton_visca::{
-        profiles::{ProfileSpec, PtzOpticsG2},
-        state_cache::{StateEntry, StateKey},
-        types::ImageFlipMode,
-    };
+    use grafton_visca::profiles::{ProfileSpec, PtzOpticsG2};
 
     use super::{async_surface::open, MIRROR_OFF, MIRROR_ON};
 
@@ -184,38 +132,6 @@ mod runtime_profile_surface {
 
         nouns.image().set_mirror(false).await.expect("mirror off");
         assert_eq!(fake.take_only_payload(), MIRROR_OFF);
-
-        session.shutdown().expect("shutdown");
-    }
-
-    #[tokio::test]
-    async fn dynamic_mirror_off_invalidates_the_cached_flip_pair() {
-        let (session, fake) =
-            open(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile")).await;
-        let camera = session
-            .camera::<grafton_visca::profiles::AnyProfile>(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-            )
-            .expect("dynamic camera");
-        let nouns = &camera;
-
-        nouns
-            .image()
-            .set_flip_mode(grafton_visca::types::ImageFlipMode::Both)
-            .await
-            .expect("combined flip");
-        let _ = fake.take_only_payload();
-        assert_eq!(
-            camera.state_cache().image().flip_mode(),
-            Some(ImageFlipMode::Both),
-        );
-
-        nouns.image().set_mirror(false).await.expect("mirror off");
-        assert_eq!(fake.take_only_payload(), MIRROR_OFF);
-        assert_eq!(
-            camera.state_cache().value(StateKey::ImageFlipMode),
-            StateEntry::Unknown,
-        );
 
         session.shutdown().expect("shutdown");
     }

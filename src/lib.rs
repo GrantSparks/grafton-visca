@@ -59,7 +59,7 @@
 //! - Use `r#async::Session::open` or `blocking::Session::open` when you already
 //!   own a custom transport and need to attach it to the owner.
 //! - Use [`crate::types::UnitInterval`] for normalized `0.0..=1.0` control values and
-//!   [`crate::types::CameraId`] for configured VISCA camera addresses.
+//!   [`crate::types::IndividualCameraId`] for configured VISCA camera addresses.
 //! - Use the typed [`crate::request::Request`] and [`crate::request::Inquiry`] contracts for built-in and custom
 //!   requests, and [`wire::ResponseParser`] for typed inquiry responses.
 //!
@@ -77,7 +77,7 @@
 //!   and the session metrics. A blocking session owns one native worker thread;
 //!   an async session owns one detached actor task. Every camera view is a
 //!   view onto this one owner, never a second connection.
-//! - **Target** — one registered camera: a [`crate::types::CameraId`] plus a validated
+//! - **Target** — one registered camera with an [`crate::types::IndividualCameraId`] plus a validated
 //!   profile. Targets are registered before the owner starts and are immutable
 //!   while it runs.
 //! - **Prepared** — a request that passed domain, profile, range, encoding,
@@ -626,20 +626,20 @@
 //! datagram fitted. A transport never allocates per frame. Zero bytes means
 //! the peer closed the connection; an idle timeout is *no data*, not a fault. A
 //! transport also declares its stream/datagram send semantics and its
-//! [`transport::TransportConfig`], which is what
+//! [`transport::ValidatedTransportConfig`], which is what
 //! [`transport::HasTransportConfig`] carries.
 //!
 //! ```rust
 //! use grafton_visca::Error;
 //! use grafton_visca::{
 //!     transport::BlockingTransport, transport::HasTransportConfig, transport::ReceiveOutcome,
-//!     transport::SendSemantics, transport::TransportConfig,
+//!     transport::SendSemantics, transport::ValidatedTransportConfig,
 //! };
 //! use std::time::Duration;
 //!
 //! struct MyTransport {
 //!     // Your transport state, plus the configuration the runtime reads.
-//!     config: TransportConfig,
+//!     config: ValidatedTransportConfig,
 //! }
 //!
 //! impl BlockingTransport for MyTransport {
@@ -670,7 +670,7 @@
 //!         }
 //!     }
 //!
-//!     fn transport_config(&self) -> &TransportConfig {
+//!     fn transport_config(&self) -> &ValidatedTransportConfig {
 //!         &self.config
 //!     }
 //! }
@@ -1014,7 +1014,7 @@ pub mod __macro_support {
         kind: InquiryKind,
         profile: &crate::ProfileSpec,
         lift: fn(crate::command::Response) -> crate::Result<R>,
-    ) -> crate::ResponseDecoder<R> {
+    ) -> crate::Result<crate::ResponseDecoder<R>> {
         crate::ResponseDecoder::for_builtin_profile(kind, profile, lift)
     }
 
@@ -1025,6 +1025,18 @@ pub mod __macro_support {
         profile: Option<&crate::ProfileSpec>,
     ) -> crate::PayloadShape {
         crate::command::inquiry_structs::payload_shape_for_profile(kind, profile)
+    }
+
+    /// Projects a checked f32 value onto the JSON number its serializer emits.
+    #[cfg(feature = "schemars")]
+    #[doc(hidden)]
+    pub fn f32_schema_decimal(value: f32) -> f64 {
+        // Widening before serialization would expose the binary rounding
+        // error in the schema and can exclude the value's canonical JSON.
+        serde_json::to_string(&value)
+            .ok()
+            .and_then(|decimal| decimal.parse().ok())
+            .unwrap_or_else(|| f64::from(value))
     }
 
     #[doc(hidden)]
@@ -1111,7 +1123,7 @@ pub(crate) mod noun_facade;
 pub(crate) mod noun_metadata;
 
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
-#[path = "../tests/integration/api_conventions.rs"]
+#[path = "api_conventions.rs"]
 mod api_conventions_source;
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 api_conventions_source::api_convention_tests!();
@@ -1342,6 +1354,17 @@ mod issue_871_gates;
 
 #[cfg(test)]
 mod generated_docs;
+
+#[cfg(test)]
+mod test_support {
+    #[allow(clippy::expect_used, clippy::panic)]
+    pub mod generated;
+
+    // The integration and standalone checks also use scanner entry points
+    // that the library unit tests do not need.
+    #[allow(dead_code, clippy::panic)]
+    pub mod source_scan;
+}
 
 #[cfg(all(test, feature = "blocking", feature = "serde"))]
 mod profile_probe;

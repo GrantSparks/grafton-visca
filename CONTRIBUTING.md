@@ -31,8 +31,9 @@ Before contributing, please:
 
 CI pins every toolchain to an exact version in `.github/workflows/ci.yml`.
 Compile-contract fixtures declare exact error codes and stable diagnostic
-anchors in their source, while public API listings generated from the base
-and proposed source are compared byte for byte. Reproducing a CI failure locally
+anchors beside the source lines they cover. For example, `//~^ E0603 "is private"`
+matches the preceding line. Public API listings generated from the base and
+proposed source are compared byte for byte. Reproducing a CI failure locally
 means using the same versions:
 
 ```bash
@@ -90,7 +91,7 @@ We maintain high code quality standards:
 
 ## Public API Conventions
 
-These conventions are normative for public changes. `tests/integration/api_conventions.rs`
+These conventions are normative for public changes. `src/api_conventions.rs`
 and the public-path, facade-parity, value and compile-contract gates enforce
 this grammar; update the declarations and their reviewed contracts together.
 
@@ -106,7 +107,7 @@ this grammar; update the declarations and their reviewed contracts together.
    `mode()` / `set_mode(Mode)`; a sub-feature uses `p_mode()` /
    `set_p_mode(PMode)`. Single steps are `p_up`, `p_down`, `p_reset`; counted
    steps are `p_up_by(steps)` and `p_down_by(steps)`; toggles are `toggle_p`.
-   Other actions use the closed verb list in `tests/integration/api_conventions.rs`, such
+   Other actions use the closed verb list in `src/api_conventions.rs`, such
    as `on`, `standby`, `home`, `stop`, `drive`, `recall`, `store`, `clear`,
    `one_push`, `navigate`, `enter`, `back` and `stop_all`. Do not introduce
    `enable_*`, `disable_*`, `*_on`, `*_off`, `increase_*`, `decrease_*`,
@@ -145,7 +146,10 @@ this grammar; update the declarations and their reviewed contracts together.
 12. **Complete gates.** A row's static bound and runtime gate list the same
     markers.
 13. **Evidence and callability.** A `Has*` marker is a source-backed claim,
-    implemented only for profiles with that evidence. Facade methods use the
+    implemented only for profiles with that evidence. A compile-time profile's
+    `DOMAINS`, `TRANSPORTS` and `TYPED_SUPPORT` match its specification.
+    Domain and transport markers also require the corresponding entry in
+    `DOMAINS` or `TRANSPORTS` at the first typed use. Facade methods use the
     sealed `Permits<gate::X>`, satisfied by evidenced compile-time profiles and
     `AnyProfile`. Generic code requiring a static guarantee uses
     `CompileTimeProfile + HasX`; code accepting runtime-checked cameras uses
@@ -222,7 +226,9 @@ display and ecosystem implementations should be shared by built-in and
 contributed values. The same attribute supports finite `f32`/`f64` domains;
 NaN and infinity are rejected and negative zero is normalized. Keep the scalar's union domain separate from the camera
 profile's supported domain: construction checks the former and request
-preparation checks the latter before I/O.
+preparation checks the latter before I/O. The generator owns all derives on
+a checked scalar. For `Default`, implement the trait using a constant
+constructed with the checked `new`.
 
 ```rust
 use grafton_visca::{value, wire::WireValue};
@@ -331,8 +337,7 @@ profile first grants them.
 
 ### 4. Adding a Built-in Command
 
-A built-in command is declared in five places, and every other projection is
-generated from them:
+Declare every built-in command in the following five places.
 
 1. **Ledger row** (`src/command/semantics.rs`): one `builtin_command_ledger!`
    row gives the command its `BuiltinCommand` identity and its class
@@ -340,8 +345,8 @@ generated from them:
    write-only state effect. Its `packet:` column owns one `PacketPattern` built from
    `command::bytes::constants`, with explicit selector bytes or nibble masks
    where needed. Sourced rows require a nonempty `Some(pattern)`; use `None`
-   only for unsourced rows. `source!` references contain the source ID, model
-   list and checked evidence key, without packet copies.
+   only for unsourced rows. A `source!` reference contains the source ID and checked
+   evidence key. Declare each source’s model set once in `source_ids!`.
 2. **Wire encoder** (`src/command/<domain>.rs`): fixed-body and single-parameter
    encoders use the crate-internal `visca_command!` generator. Other
    `WireEncode` implementations write through `FrameWriter`. Add or reuse
@@ -369,6 +374,12 @@ generated from them:
    request. The blocking and async methods, the semantic surface entry
    and the typed-request inventory are all expanded from it.
 
+For a `Set` or `Clear` row, implement `BuiltinStateValue` on the request.
+A write-only setter also needs a `state_key_ledger!` entry for its readback.
+Declare new typed gates in `typed_support_registry`, and add an evidence-backed
+grant in `profile_registry.rs` for each built-in profile that offers the gated
+method. The tables generate the corresponding facade and capability projections.
+
 The compiler rejects a ledger row without a noun row, a noun row whose kind
 disagrees with the ledger class, and a request type without a `rows:` entry
 whose noun rows disagree on their capability gate. For a value-selecting
@@ -383,7 +394,7 @@ keep those alternatives out of reference tuples and inline byte arrays.
 Then:
 
 - extend the wire golden (`src/issue_715_wire_golden.rs` and
-  `tests/fixtures/issue_715_wire_golden.txt`). Every successful case checks its
+  `testdata/issue_715_wire_golden.txt`). Every successful case checks its
   exact selected command row or inquiry body. Every `rows:` arm must have an
   encoded witness for its own request type; duplicate arm-to-row identities
   require explicit branch witnesses before coverage can be claimed;
@@ -442,6 +453,12 @@ duplicate production constructors and ignore copies inside tests.
 
 ### Unit Tests
 
+Unit tests and their required fixtures ship with the library. Keep the fixtures
+under `testdata/` and shared unit-test helpers under `src/test_support/`. A unit
+test may supplement its shipped inputs with repository data when it handles
+`NotFound` explicitly. Integration suites, compile contracts and repository
+gates live under `tests/` and use the unpublished `test-support/` helpers.
+
 Test the contract a change introduces: checked value boundaries, exact encoded
 bytes, decoder results, profile admission or owner lifecycle as applicable.
 Literal wire expectations must remain independent of the encoder:
@@ -460,7 +477,8 @@ fn zoom_stop_is_a_complete_visca_frame() {
 ### Integration Tests
 
 For camera control features, use the public utilities under
-`grafton_visca::testing::testkit` with the `test-utils` feature. Prefer
+`grafton_visca::testing::testkit` with the `test-utils` feature. Supply a `ScriptedTransportIdentity` that
+matches the connection model. Prefer
 `ScriptedBlockingTransport` or `ScriptedTransport` for protocol scripts and a
 real Tokio/smol executor for wall-clock timeout behavior. See
 `src/testing/testkit/README.md` and the existing operation-handle integration
@@ -544,7 +562,7 @@ bash .github/scripts/test-all-features.sh slowest 15 --all-features
 
 ### Built-in wire golden
 
-`tests/fixtures/issue_715_wire_golden.txt` pins the encoded bytes of every
+`testdata/issue_715_wire_golden.txt` pins the encoded bytes of every
 built-in command. After a deliberate encoder change, regenerate it with:
 
 ```bash
@@ -641,11 +659,11 @@ that did not exist in 1.2 as a migration source.
 The `release-validation` CI job enforces three parts of this record mechanically:
 
 - Every published release section is byte-for-byte immutable relative to the
-  pull request's merge base. A release is published once its `v<version>` tag
-  exists; a section below a published one counts as published even without a
-  tag. Only the top `## [Unreleased]` body and dated sections above the newest
-  published one that have no tag (prepared but never published) may change,
-  and such an untagged section may be folded back into Unreleased. A release
+  compared base. A release is published once its `v<version>` tag is reachable
+  from that base. Sections below a published one also count as published.
+  Only the top `## [Unreleased]` body and unpublished dated sections above the
+  newest published one may change. An unpublished section may be folded back
+  into Unreleased. A release
   cut that moves the prior Unreleased lines in order into one new strict dated
   section below an otherwise empty Unreleased heading is also accepted, but
   only once no unpublished section remains below it: fold those first. Each

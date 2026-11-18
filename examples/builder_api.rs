@@ -20,7 +20,7 @@ use grafton_visca::{
 #[derive(Debug)]
 struct CallerUdp {
     socket: UdpSocket,
-    config: TransportConfig,
+    config: grafton_visca::transport::ValidatedTransportConfig,
 }
 
 impl CallerUdp {
@@ -29,7 +29,7 @@ impl CallerUdp {
         socket.connect(address)?;
         Ok(Self {
             socket,
-            config: TransportConfig::for_udp(),
+            config: TransportConfig::for_udp().validated()?,
         })
     }
 }
@@ -39,7 +39,7 @@ impl HasTransportConfig for CallerUdp {
         TransportIdentity::Udp
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &grafton_visca::transport::ValidatedTransportConfig {
         &self.config
     }
 }

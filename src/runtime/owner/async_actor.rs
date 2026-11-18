@@ -86,9 +86,12 @@ where
             |source, context| match source {
                 BoundarySource::Cancellation => {
                     match lanes.cancellations.as_mut().poll_next(context) {
-                        Poll::Ready(Some(value)) => Poll::Ready(BoundaryPoll::Boundary(
-                            RetainedBoundary::Cancellation(value),
-                        )),
+                        Poll::Ready(Some(value)) => {
+                            let _ = lanes.halt_capacity.try_send(());
+                            Poll::Ready(BoundaryPoll::Boundary(RetainedBoundary::Cancellation(
+                                value,
+                            )))
+                        }
                         Poll::Ready(None) | Poll::Pending => Poll::Pending,
                     }
                 }
@@ -434,20 +437,14 @@ impl AsyncOwnerHandle {
     /// observe the outcome on the receipt's terminal slot and a failed
     /// cancellation on the returned observer.
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-    pub(crate) async fn cancel_test<T: Clone>(
+    pub(crate) async fn cancel_test(
         &self,
-        receipt: &ReceiptCore<T>,
+        id: super::CommandRequestId,
     ) -> Result<CancellationObserver, Error> {
         let (observer, cell) = CancellationObserver::pair();
         let deadline = self.deadline_after(Duration::from_secs(3600))?;
-        self.request_cancellation(
-            CancellationRequest {
-                id: receipt.id,
-                observer: cell,
-            },
-            deadline,
-        )
-        .await?;
+        self.request_cancellation(CancellationRequest { id, observer: cell }, deadline)
+            .await?;
         Ok(observer)
     }
 
@@ -485,6 +482,7 @@ impl CommandReceipt<AsyncOwnerHandle> {
 struct ActorLanes {
     shutdown: Pin<Box<RecvStream<'static, ()>>>,
     cancellations: Pin<Box<RecvStream<'static, CancellationBoundary>>>,
+    halt_capacity: flume::Sender<()>,
     admissions: Pin<Box<RecvStream<'static, AdmissionBoundary>>>,
     control: Pin<Box<RecvStream<'static, ControlBoundary>>>,
 }
@@ -494,6 +492,7 @@ impl ActorLanes {
         Self {
             shutdown: Box::pin(receivers.shutdown.clone().into_stream()),
             cancellations: Box::pin(receivers.cancellations.clone().into_stream()),
+            halt_capacity: receivers.halt_capacity.clone(),
             admissions: Box::pin(receivers.admissions.clone().into_stream()),
             control: Box::pin(receivers.control.clone().into_stream()),
         }

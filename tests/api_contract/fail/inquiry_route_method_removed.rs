@@ -9,7 +9,5 @@ fn main() {
     )
     .unwrap();
     let _ = inquiry.route();
+    //~^ E0599 "no method named `route`"
 }
-
-//~ E0599
-//~ "no method named `route`"

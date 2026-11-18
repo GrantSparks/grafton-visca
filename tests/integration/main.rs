@@ -5,7 +5,6 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-mod api_conventions;
 mod async_and_blocking_coexist;
 mod blocking_worker_resources;
 mod brc300_zoom_and_focus;
@@ -118,6 +117,7 @@ mod profile_builder_contract;
 mod profile_value_domains;
 mod raw_typed_owner_facade;
 mod rc3_g2_example_regressions;
+mod release_gate_citations;
 mod runtime_neutral_session_construction;
 mod serialization_test;
 mod timeout_category_tests;

@@ -13,13 +13,14 @@ use crate::{
     timeout::Deadline,
     transport::{
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
-        builder::TransportConfig,
+        builder::ValidatedTransportConfig,
         serial::{
             handshake::{Action, SerialStartup, StartupTiming},
             open_failed, port_builder, set_device_timeout, Config as SerialConfig, DevicePort,
             SERIAL_PORT_CLOSED,
         },
         stream_read, AddressedBus, BlockingTransport, HasTransportConfig, ReceiveOutcome,
+        ValidatedSerialConfig,
     },
 };
 
@@ -30,7 +31,7 @@ use crate::{
 pub struct SerialTransport {
     port: Box<dyn serialport::SerialPort + Send>,
     config: SerialConfig,
-    transport_config: TransportConfig,
+    transport_config: ValidatedTransportConfig,
     addressed_bus: Option<AddressedBus>,
 }
 
@@ -56,10 +57,13 @@ impl SerialTransport {
     /// [`crate::Error::ConnectionFailed`] when the port cannot be opened (including
     /// when another process holds it), and the startup errors documented on
     /// [`crate::transport::serial`].
+    #[cfg(test)]
     pub fn new(config: SerialConfig) -> Result<Self> {
-        let transport_config = config.transport_config();
-        transport_config.validate()?;
+        Self::open_validated(config.validated()?)
+    }
 
+    pub(crate) fn open_validated(config: ValidatedSerialConfig) -> Result<Self> {
+        let (config, transport_config) = config.into_parts();
         let mut port = port_builder(&config)
             .open()
             .map_err(|error| open_failed(&config, error))?;
@@ -126,7 +130,7 @@ impl HasTransportConfig for SerialTransport {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.transport_config
     }
 }
@@ -493,7 +497,7 @@ mod tests {
     /// Helper to create a SerialTransport with a test port directly.
     fn create_test_transport(port: TestSerialPort) -> SerialTransport {
         let config = SerialConfig::new("/dev/test");
-        let transport_config = config.transport_config();
+        let transport_config = config.transport_config().validated().unwrap();
         SerialTransport {
             port: Box::new(port),
             config,
@@ -1075,7 +1079,10 @@ mod tests {
         let config = SerialConfig::new(path.clone());
 
         let first = SerialTransport::new(config.clone()).expect("first opener succeeds");
-        assert_eq!(first.transport_config(), &config.transport_config());
+        assert_eq!(
+            first.transport_config().as_config(),
+            &config.transport_config()
+        );
 
         let second = SerialTransport::new(config).expect_err("the port is held exclusively");
         assert!(matches!(

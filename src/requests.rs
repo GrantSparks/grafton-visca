@@ -328,14 +328,15 @@ impl AffectedAxes {
     ///
     /// A motion observation over this set requires the profile to declare
     /// pan/tilt, zoom, focus, iris, *and* ND-filter position inquiries. Use
-    /// [`Self::MOVEMENT`] for the three mechanical movement axes that every
-    /// profile with motion support declares.
+    /// [`Self::MOVEMENT`] to select the three mechanical axes on profiles that
+    /// provide position inquiries for them.
     pub const ALL: Self = Self::from_nonzero_bits(Self::VALID_BITS);
 
     /// The three mechanical movement axes: pan/tilt, zoom, and focus.
     ///
-    /// This is the "wait for everything that moves" selection used by
-    /// [`crate::types::IdleWait::default`] and the named wait presets.
+    /// [`crate::types::IdleWait::default`] and the named wait presets select
+    /// these axes. For a profile with fewer position inquiries, select the
+    /// axes it can observe.
     pub const MOVEMENT: Self =
         Self::from_nonzero_bits(Self::PAN_TILT_BIT | Self::ZOOM_BIT | Self::FOCUS_BIT);
 
@@ -496,11 +497,16 @@ enum DecoderInner<R> {
     },
     Builtin {
         kind: crate::command::InquiryKind,
-        framing: Option<crate::command::pan_tilt_wire::PanTiltFraming>,
+        framing: crate::command::pan_tilt_wire::PanTiltFraming,
         lift: fn(crate::command::Response) -> Result<R>,
     },
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    PanTiltPosition {
+        coordinates: crate::profiles::PanTiltCoordinateConversion,
+        lift: fn(crate::types::PanTiltPosition) -> Result<R>,
+    },
     ColorTemperature {
-        steps: Option<Arc<[u16]>>,
+        steps: Arc<[u16]>,
         lift: fn(crate::types::Kelvin) -> Result<R>,
     },
     Shared(Arc<SharedDecoder<R>>),
@@ -539,34 +545,39 @@ impl<R> ResponseDecoder<R> {
         kind: crate::command::InquiryKind,
         profile: &crate::ProfileSpec,
         lift: fn(crate::command::Response) -> Result<R>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        use crate::command::{pan_tilt_wire::PanTiltFraming, InquiryKind};
+        let framing = if kind == InquiryKind::PanTiltPosition {
+            PanTiltFraming::for_conversion(require_pan_tilt_coordinates(profile)?)
+        } else {
+            PanTiltFraming::STANDARD
+        };
+        Ok(Self {
             inner: DecoderInner::Builtin {
                 kind,
-                framing: profile
-                    .pan_tilt_coordinates()
-                    .map(crate::command::pan_tilt_wire::PanTiltFraming::for_conversion),
+                framing,
                 lift,
             },
-        }
+        })
     }
 
     /// Shares the profile's existing table and returns typed Kelvin directly.
     pub(crate) fn for_color_temperature(
         profile: &crate::ProfileSpec,
         lift: fn(crate::types::Kelvin) -> Result<R>,
-    ) -> Self {
-        Self {
-            inner: DecoderInner::ColorTemperature {
-                steps: profile
-                    .capabilities()
-                    .white_balance
-                    .as_ref()
-                    .filter(|domain| !domain.color_temperature_steps.is_empty())
-                    .map(|domain| Arc::clone(&domain.color_temperature_steps)),
-                lift,
-            },
-        }
+    ) -> Result<Self> {
+        let steps = profile
+            .capabilities()
+            .white_balance
+            .as_ref()
+            .filter(|domain| !domain.color_temperature_steps.is_empty())
+            .map(|domain| Arc::clone(&domain.color_temperature_steps))
+            .ok_or(Error::FeatureNotSupported {
+                feature: "color-temperature inquiry",
+            })?;
+        Ok(Self {
+            inner: DecoderInner::ColorTemperature { steps, lift },
+        })
     }
 
     /// Creates a decoder that owns immutable decoding context.
@@ -591,26 +602,35 @@ impl<R> ResponseDecoder<R> {
                 framing,
                 lift,
             } => {
-                use crate::command::{
-                    inquiry_structs, pan_tilt_wire::PanTiltFraming, InquiryKind, Payload,
-                };
-                let framing = match (kind, framing) {
-                    (InquiryKind::PanTiltPosition, None) => {
-                        return Err(Error::FeatureNotSupported {
-                            feature: "pan/tilt coordinate conversion",
-                        });
-                    }
-                    (_, Some(framing)) => *framing,
-                    _ => PanTiltFraming::STANDARD,
-                };
-                inquiry_structs::dispatch_with_framing(*kind, Payload::new(payload), framing)
+                use crate::command::{inquiry_structs, Payload};
+                inquiry_structs::dispatch_with_framing(*kind, Payload::new(payload), *framing)
                     .and_then(lift)
                     .map_err(|error| inquiry_structs::reply_value_error(error, payload))
             }
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            DecoderInner::PanTiltPosition { coordinates, lift } => {
+                use crate::command::{
+                    inquiry_structs, pan_tilt_wire::PanTiltFraming, InquiryData, InquiryKind,
+                    Payload, Response,
+                };
+                inquiry_structs::dispatch_with_framing(
+                    InquiryKind::PanTiltPosition,
+                    Payload::new(payload),
+                    PanTiltFraming::for_conversion(*coordinates),
+                )
+                .and_then(|response| match response {
+                    Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
+                        crate::types::PanTiltPosition::from_degrees(
+                            coordinates.pan_degrees(pan),
+                            coordinates.tilt_degrees(tilt),
+                        )
+                        .and_then(lift)
+                    }
+                    _ => Err(Error::UnexpectedResponseType),
+                })
+                .map_err(|error| inquiry_structs::reply_value_error(error, payload))
+            }
             DecoderInner::ColorTemperature { steps, lift } => {
-                let steps = steps.as_ref().ok_or(Error::FeatureNotSupported {
-                    feature: "color-temperature conversion",
-                })?;
                 let response = crate::command::inquiry_structs::dispatch(
                     crate::command::InquiryKind::ColorTemperature,
                     crate::command::Payload::new(payload),
@@ -635,6 +655,28 @@ impl<R> ResponseDecoder<R> {
     }
 }
 
+fn require_pan_tilt_coordinates(
+    profile: &crate::ProfileSpec,
+) -> Result<crate::profiles::PanTiltCoordinateConversion> {
+    profile
+        .pan_tilt_coordinates()
+        .ok_or(Error::FeatureNotSupported {
+            feature: "pan/tilt coordinate conversion",
+        })
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl ResponseDecoder<crate::types::PanTiltPosition> {
+    pub(crate) fn for_pan_tilt_position(profile: &crate::ProfileSpec) -> Result<Self> {
+        Ok(Self {
+            inner: DecoderInner::PanTiltPosition {
+                coordinates: require_pan_tilt_coordinates(profile)?,
+                lift: Ok,
+            },
+        })
+    }
+}
+
 impl<R> Clone for ResponseDecoder<R> {
     fn clone(&self) -> Self {
         let inner = match &self.inner {
@@ -652,8 +694,13 @@ impl<R> Clone for ResponseDecoder<R> {
                 framing: *framing,
                 lift: *lift,
             },
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            DecoderInner::PanTiltPosition { coordinates, lift } => DecoderInner::PanTiltPosition {
+                coordinates: *coordinates,
+                lift: *lift,
+            },
             DecoderInner::ColorTemperature { steps, lift } => DecoderInner::ColorTemperature {
-                steps: steps.as_ref().map(Arc::clone),
+                steps: Arc::clone(steps),
                 lift: *lift,
             },
             DecoderInner::Shared(decode) => DecoderInner::Shared(Arc::clone(decode)),
@@ -670,6 +717,8 @@ impl<R> fmt::Debug for ResponseDecoder<R> {
             DecoderInner::Builtin { .. } | DecoderInner::ColorTemperature { .. } => {
                 "inline-builtin"
             }
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            DecoderInner::PanTiltPosition { .. } => "inline-builtin",
             DecoderInner::Shared(_) => "shared-context",
         };
         formatter
@@ -726,7 +775,7 @@ mod bound_temperature_decoder_tests {
         matches!(
             &decoder.inner,
             DecoderInner::ColorTemperature {
-                steps: Some(stored),
+                steps: stored,
                 ..
             } if Arc::ptr_eq(stored, steps)
         )
@@ -737,7 +786,7 @@ mod bound_temperature_decoder_tests {
     {
         let steps: Arc<[u16]> = Arc::from([3100, 4200, 6300]);
         let profile = custom_profile(Arc::clone(&steps))?;
-        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile);
+        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile)?;
         let cloned = decoder.clone();
 
         assert!(shares_steps(&decoder, &steps));
@@ -756,7 +805,7 @@ mod bound_temperature_decoder_tests {
         ));
         assert!(matches!(
             RawTemperatureInquiry
-                .decoder_for_profile(&profile)
+                .decoder_for_profile(&profile)?
                 .decode(&[1])?,
             Response::Inquiry(InquiryData::ColorTemperature { temperature: 1 })
         ));
@@ -771,14 +820,11 @@ mod bound_temperature_decoder_tests {
     #[test]
     fn custom_temperature_table_encodes_and_decodes_the_same_steps() -> Result<()> {
         let profile = custom_profile(Arc::from([3100, 4200, 6300]))?;
-        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile);
+        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile)?;
         let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
         for (kelvin, wire) in [(3100, 0), (4200, 1), (6300, 2)] {
             let temperature = Kelvin::new(kelvin)?;
-            let command = crate::command::white_balance::SetColorTemperature::for_target(
-                &target,
-                temperature,
-            )?;
+            let command = crate::command::white_balance::SetColorTemperature::new(temperature);
             crate::Request::validate_for_target(&command, &target)?;
             let mut buffer = [0; 7];
             let length = super::write_for_target(&command, &target, &mut buffer)?;
@@ -791,16 +837,13 @@ mod bound_temperature_decoder_tests {
     #[test]
     fn bound_temperature_decoder_requires_a_declared_table() -> Result<()> {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>()?;
-        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile);
         assert!(matches!(
-            decoder.decode(&[0]),
-            Err(Error::FeatureNotSupported {
-                feature: "color-temperature conversion"
-            })
+            ColorTemperatureInquiry.decoder_for_profile(&profile),
+            Err(Error::FeatureNotSupported { .. })
         ));
         assert!(matches!(
             RawTemperatureInquiry
-                .decoder_for_profile(&profile)
+                .decoder_for_profile(&profile)?
                 .decode(&[0])?,
             Response::Inquiry(InquiryData::ColorTemperature { temperature: 0 })
         ));
@@ -810,7 +853,7 @@ mod bound_temperature_decoder_tests {
     #[test]
     fn bound_temperature_decoder_rejects_unknown_steps_with_original_payload() -> Result<()> {
         let profile = custom_profile(Arc::from([3100, 4200, 6300]))?;
-        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile);
+        let decoder = ColorTemperatureInquiry.decoder_for_profile(&profile)?;
         assert!(matches!(
             decoder.decode(&[3]),
             Err(Error::InvalidResponse { actual, .. }) if actual == [3]
@@ -1050,13 +1093,14 @@ pub trait Inquiry: Request<Class = request::InquiryClass> {
     /// Returns a decoder owning any immutable runtime-profile context it needs.
     ///
     /// Most inquiries are profile-independent and use [`Self::decoder`].
-    /// Profile-sensitive built-ins override this during pure preparation.
+    /// Profile-sensitive inquiries bind their decoding facts during pure
+    /// preparation and may reject a profile that cannot decode their reply.
     #[doc(hidden)]
     fn decoder_for_profile(
         &self,
         _profile: &crate::ProfileSpec,
-    ) -> ResponseDecoder<Self::Response> {
-        self.decoder()
+    ) -> Result<ResponseDecoder<Self::Response>> {
+        Ok(self.decoder())
     }
 
     /// Returns whether this inquiry is one of the crate-generated built-ins
@@ -1085,8 +1129,41 @@ pub trait OperationCommand<K>: Request<Class = request::OperationClass<K>>
 where
     K: completion::Kind,
 {
-    /// Returns the non-empty set of axes affected by this operation.
+    /// Returns the affected axes. Profile-dependent built-ins report a
+    /// conservative superset before preparation selects the exact axes.
     fn affected_axes(&self) -> AffectedAxes;
+
+    /// Resolves the exact motion axes against the receiving target.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn affected_axes_for_target(
+        &self,
+        _target: &crate::TargetRegistration,
+        _authority: RequestContractAuthority,
+    ) -> Result<AffectedAxes> {
+        Ok(self.affected_axes())
+    }
+
+    /// Validates the receiving target and retains lowered bytes for target-bound movement.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    fn prepare_movement(
+        &self,
+        target: &crate::TargetRegistration,
+        _authority: RequestContractAuthority,
+    ) -> Result<Option<crate::prepared::PreparedMovement>> {
+        self.validate_for_target(target)?;
+        Ok(None)
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) fn prepare_movement<K: completion::Kind, O: OperationCommand<K> + ?Sized>(
+    operation: &O,
+    target: &crate::TargetRegistration,
+) -> Result<Option<crate::prepared::PreparedMovement>> {
+    operation.prepare_movement(target, RequestContractAuthority::new())
 }
 
 #[cfg(test)]

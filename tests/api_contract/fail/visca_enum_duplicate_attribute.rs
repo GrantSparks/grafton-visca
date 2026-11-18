@@ -1,6 +1,8 @@
 use grafton_visca::value_enum;
 
 #[value_enum(wire = u8, wire = u16)]
+//~^ "duplicate `value_enum` attribute `wire`"
+//~^^ "first `wire` specified here"
 enum DuplicateEnumAttribute {
     First = 1,
 }
@@ -9,11 +11,8 @@ enum DuplicateEnumAttribute {
 enum DuplicateVariantAttribute {
     #[wire(1)]
     #[wire(2)]
+    //~^ "duplicate variant wire code"
     First,
 }
 
 fn main() {}
-
-//~ "duplicate `value_enum` attribute `wire`"
-//~ "first `wire` specified here"
-//~ "duplicate variant wire code"

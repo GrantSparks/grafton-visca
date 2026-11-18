@@ -11,7 +11,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
     let actor_task = tokio::spawn(actor.run(harness.driver));
 
     let first = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), first.id);
+    assert_eq!(started.recv_async().await.unwrap(), first.id());
     gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
@@ -23,7 +23,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
         .expect("the fixed completion deadline must be representable");
 
     let second = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), second.id);
+    assert_eq!(started.recv_async().await.unwrap(), second.id());
     gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     assert_eq!(handle.snapshot().await.unwrap().active, 2);
 
@@ -72,7 +72,7 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
     let actor_task = tokio::spawn(actor.run(harness.driver));
 
     let receipt = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+    assert_eq!(started.recv_async().await.unwrap(), receipt.id());
     gates.send_async(Ok(TransmissionMeta::Known)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
@@ -203,7 +203,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id());
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
@@ -262,7 +262,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
             .await
             .expect("the queued successor writes at the bounded release")
             .unwrap(),
-        successor.id
+        successor.id()
     );
     let post_h_polls = reads.load(Ordering::Relaxed) - reads_before_h;
     assert!(
@@ -355,7 +355,7 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id());
 
     let deadline = initial + OBSERVER;
     let expiring_handle = handle.clone();
@@ -472,7 +472,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         )
         .await;
     let a = a_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), a.id());
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
@@ -496,7 +496,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         )
         .await;
     let c = c_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), c.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), c.id());
 
     let (_b_completion, b_admitted) = handle
         .core
@@ -585,7 +585,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
             .await,
         TurnOutcome::Continue
     );
-    assert_eq!(harness.writes.recv_async().await.unwrap(), b.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), b.id());
 }
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
@@ -628,7 +628,7 @@ async fn raw_stream_more_than_sixty_four_retained_turns_release_by_progress() {
     const RETAINED_TURNS: usize = 65;
     policy.limits.frames_per_receive = std::num::NonZeroUsize::new(RETAINED_TURNS + 1).unwrap();
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
-    let mut harness = boundary_stream_harness(false);
+    let mut harness = boundary_stream_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
     while harness.reads_observed.try_recv().is_ok() {}
@@ -646,7 +646,7 @@ async fn raw_stream_more_than_sixty_four_retained_turns_release_by_progress() {
             .await
             .expect("verified progress releases the retained raw prefix")
             .unwrap(),
-        successor.id
+        successor.id()
     );
     assert_eq!(
         harness.discards.load(Ordering::Relaxed),
@@ -676,7 +676,7 @@ async fn raw_stream_split_tail_at_tombstone_boundary_precedes_release() {
     let now = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(now);
     let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
-    let mut harness = boundary_stream_harness(false);
+    let mut harness = boundary_stream_harness();
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
@@ -691,7 +691,7 @@ async fn raw_stream_split_tail_at_tombstone_boundary_precedes_release() {
         .await
         .unwrap();
 
-    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id());
     reads
         .send_async(ScriptedRawRead::Complete(raw_inquiry_reply(0xb2)))
         .await
@@ -714,7 +714,7 @@ async fn raw_stream_prefix_fault_tail_keeps_boundary_input_precedence() {
     let now = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(now);
     let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
-    let mut harness = boundary_stream_harness(false);
+    let mut harness = boundary_stream_harness();
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
@@ -735,7 +735,7 @@ async fn raw_stream_prefix_fault_tail_keeps_boundary_input_precedence() {
         .await
         .unwrap();
 
-    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id());
     reads
         .send_async(ScriptedRawRead::Complete(raw_inquiry_reply(0xb2)))
         .await
@@ -756,7 +756,7 @@ async fn raw_stream_prefix_idle_tail_keeps_boundary_input_precedence() {
     let now = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(now);
     let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
-    let mut harness = boundary_stream_harness(false);
+    let mut harness = boundary_stream_harness();
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
@@ -772,7 +772,7 @@ async fn raw_stream_prefix_idle_tail_keeps_boundary_input_precedence() {
         .await
         .unwrap();
 
-    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id());
     reads
         .send_async(ScriptedRawRead::Complete(raw_inquiry_reply(0xb2)))
         .await
@@ -794,7 +794,7 @@ async fn raw_stream_orphan_prefix_is_reset_before_successor_dispatch() {
     let now = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(now);
     let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
-    let mut harness = boundary_stream_harness(false);
+    let mut harness = boundary_stream_harness();
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
@@ -805,7 +805,7 @@ async fn raw_stream_orphan_prefix_is_reset_before_successor_dispatch() {
     }
     runtime.advance(Duration::from_secs(1));
     let _ = handle.snapshot().await.unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id());
     assert_eq!(
         harness.discards.load(Ordering::Relaxed),
         1,
@@ -828,38 +828,6 @@ async fn raw_stream_orphan_prefix_is_reset_before_successor_dispatch() {
     handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
-/// A decoder that claims to discard but retains the old prefix makes safe
-/// correlation release impossible. Fail closed instead of dispatching the
-/// successor behind unverifiable framing state.
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn raw_stream_nonclearing_decoder_poisons_at_release() {
-    let now = Instant::now();
-    let runtime = ManualRuntime::with_polling_sleeps(now);
-    let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
-    let mut harness = boundary_stream_harness(true);
-    let reads = harness.reads.clone();
-    let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
-
-    reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
-    while !harness.buffered.load(Ordering::Acquire) {
-        tokio::task::yield_now().await;
-    }
-    runtime.advance(Duration::from_secs(1));
-    let _ = handle.snapshot().await.unwrap();
-
-    assert!(matches!(
-        successor.terminal().await.unwrap(),
-        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::StreamPoisoned { .. })
-    ));
-    assert_eq!(
-        harness.discards.load(Ordering::Relaxed),
-        1,
-        "a non-clearing decoder fails on the first unverifiable discard"
-    );
-    assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
-}
 /// An ambiguous retained prefix consumes elapsed grace, not a fixed number
 /// of immediately-ready actor turns. At expiry it is discarded and the
 /// successor remains usable (#713).
@@ -869,7 +837,7 @@ async fn raw_stream_ambiguous_prefix_expires_without_poisoning_successor() {
     let now = Instant::now();
     let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(now);
     let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
-    let mut harness = boundary_stream_harness(false);
+    let mut harness = boundary_stream_harness();
     // Only an identity-weak prefix is unresolved at an inquiry release.
     // The default named-terminal fixture is intentionally discarded by
     // policy, which is correct for its other stale-prefix tests but cannot
@@ -897,7 +865,7 @@ async fn raw_stream_ambiguous_prefix_expires_without_poisoning_successor() {
         .await
         .expect("the successor writes after the orphan grace")
         .unwrap();
-    assert_eq!(successor_id, successor.id);
+    assert_eq!(successor_id, successor.id());
     assert_eq!(harness.discards.load(Ordering::Relaxed), 1);
 
     reads
@@ -922,7 +890,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let (handle, mut actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
-    let mut harness = boundary_stream_harness(false);
+    let mut harness = boundary_stream_harness();
     let mut driver = harness.driver.take().unwrap();
     // Make retained bytes deliberately unkeyed so the engine assigns a
     // grace deadline rather than discarding immediately.
@@ -946,7 +914,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         )
         .await;
     let a = a_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), a.id());
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
@@ -1003,7 +971,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         TurnOutcome::Continue
     );
     assert!(actor.core.coordinator.release().await_until().is_none());
-    assert_eq!(harness.writes.recv_async().await.unwrap(), _b.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), _b.id());
 
     // B's rejection creates its own inquiry hold as soon as it is answered,
     // at the same instant as its dispatch. C waits behind the new hold and
@@ -1062,7 +1030,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         TurnOutcome::Continue
     );
     assert!(actor.core.coordinator.release().await_until().is_none());
-    assert_eq!(harness.writes.recv_async().await.unwrap(), c.id);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), c.id());
 }
 /// Production adapter/framer coverage for the original literal-byte hole:
 /// a raw reply split at the exact tombstone boundary remains attributed to
@@ -1079,7 +1047,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             chunks,
             sent,
         },
@@ -1156,7 +1124,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
         let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
             ChunkedStreamTransport {
                 addressing: crate::transport::AddressingMode::Ip,
-                config: crate::transport::builder::TransportConfig::default(),
+                config: crate::transport::ValidatedTransportConfig::default(),
                 chunks,
                 sent,
             },
@@ -1246,7 +1214,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             chunks,
             sent,
         },
@@ -1300,7 +1268,7 @@ async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             chunks,
             sent,
         },
@@ -1347,7 +1315,7 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             chunks,
             sent,
         },
@@ -1408,7 +1376,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Serial,
-            config,
+            config: config.validated().unwrap(),
             chunks,
             sent,
         },
@@ -1514,7 +1482,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Serial,
-            config,
+            config: config.validated().unwrap(),
             chunks,
             sent,
         },
@@ -1622,7 +1590,9 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
             addressing,
             config: crate::transport::builder::TransportConfig {
                 ..crate::transport::builder::TransportConfig::default()
-            },
+            }
+            .validated()
+            .unwrap(),
             chunks,
             sent,
         },
@@ -1751,7 +1721,7 @@ async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             chunks,
             sent,
         },
@@ -1827,7 +1797,7 @@ async fn owed_stream_inquiry_fixture() -> (
 ) {
     let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
     let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
-    let mut harness = boundary_stream_harness(false);
+    let mut harness = boundary_stream_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let predecessor = within(handle.submit(timed_out_inquiry()), "A is admitted")
         .await
@@ -1836,7 +1806,7 @@ async fn owed_stream_inquiry_fixture() -> (
         within(harness.writes.recv_async(), "A is written")
             .await
             .unwrap(),
-        predecessor.id
+        predecessor.id()
     );
     handle.metrics().await.unwrap();
     runtime.advance(MINIMUM_FIXTURE_INQUIRY_TIMEOUT);
@@ -1899,7 +1869,7 @@ async fn raw_stream_owed_split_reply_settles_before_the_window_and_reopens_after
         within(harness.writes.recv_async(), "B is written after the skew")
             .await
             .unwrap(),
-        successor.id
+        successor.id()
     );
     harness
         .reads
@@ -1940,7 +1910,7 @@ async fn raw_stream_owed_prefix_at_window_end_latches_instead_of_releasing() {
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
         RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source }))
-            if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera } if *camera == TargetSlot::CAMERA_1.camera())
+            if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera } if *camera == TargetSlot::CAMERA_1.individual_camera())
     ));
     runtime.advance(Duration::from_secs(5));
     let snapshot = within(handle.snapshot(), "the actor answers a snapshot")
@@ -1990,7 +1960,7 @@ async fn raw_stream_owed_prefix_at_window_end_latches_instead_of_releasing() {
         )
         .await
         .unwrap(),
-        reopened.id
+        reopened.id()
     );
     harness
         .reads
@@ -2034,7 +2004,7 @@ async fn raw_stream_latched_target_still_writes_stop_and_ack_bearing_commands() 
             )
             .await
             .unwrap(),
-            receipt.id
+            receipt.id()
         );
         harness
             .reads
@@ -2084,7 +2054,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     let (adapter, adapter_policy) = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
             addressing: crate::transport::AddressingMode::Ip,
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::ValidatedTransportConfig::default(),
             chunks,
             sent,
         },

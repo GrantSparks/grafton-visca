@@ -68,8 +68,8 @@ impl From<SonyPositionLost> for Error {
 
 /// The complete decision of one bounded frame grammar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FrameScan<R> {
-    Complete(usize),
+pub(crate) enum FrameScan<F, R> {
+    Complete(F),
     NeedMore,
     Rejected(R),
 }
@@ -140,21 +140,54 @@ mod private {
     impl Sealed for super::SonyFramer {}
 }
 
+/// A framed input borrows the exact byte span proved by its grammar.
+pub(crate) trait FramedInput {
+    fn bytes(&self) -> &[u8];
+}
+
+impl FramedInput for &[u8] {
+    fn bytes(&self) -> &[u8] {
+        self
+    }
+}
+
+/// One complete Sony frame, with its already decoded reply identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SonyFrame<'a> {
+    bytes: &'a [u8],
+    payload_type: PayloadType,
+    sequence: u32,
+}
+
+impl<'a> SonyFrame<'a> {
+    pub(crate) fn payload(self) -> &'a [u8] {
+        &self.bytes[SonyHeader::SIZE..]
+    }
+
+    pub(crate) const fn payload_type(self) -> PayloadType {
+        self.payload_type
+    }
+
+    pub(crate) const fn sequence(self) -> u32 {
+        self.sequence
+    }
+}
+
+impl FramedInput for SonyFrame<'_> {
+    fn bytes(&self) -> &[u8] {
+        self.bytes
+    }
+}
+
 /// One bounded frame grammar with allocation-free borrowed visitation.
 pub(crate) trait Framer: private::Sealed {
     type Rejection: std::fmt::Debug + Copy;
+    type Frame<'a>: FramedInput + Copy;
     fn buffer(&self) -> &FrameBuffer;
     fn buffer_mut(&mut self) -> &mut FrameBuffer;
     fn from_buffer(buffer: FrameBuffer) -> Self;
-    fn frame_len(&self, input: &[u8]) -> FrameScan<Self::Rejection>;
+    fn scan<'a>(&self, input: &'a [u8]) -> FrameScan<Self::Frame<'a>, Self::Rejection>;
     fn discard_rejected(&mut self, rejection: Self::Rejection);
-    fn next_frame_len(&mut self) -> FrameScan<Self::Rejection> {
-        let next = self.frame_len(&self.buffer().buf);
-        if let FrameScan::Rejected(rejection) = next {
-            self.discard_rejected(rejection);
-        }
-        next
-    }
 
     /// Push bytes without changing retained input if the hard bound is exceeded.
     fn push_slice(&mut self, chunk: &[u8]) -> Result<(), BufferOverflow> {
@@ -172,14 +205,18 @@ pub(crate) trait Framer: private::Sealed {
     /// The visitor's output cannot borrow the framer's buffer.
     fn visit_next_frame<T>(
         &mut self,
-        visit: impl FnOnce(&[u8]) -> T,
+        visit: impl FnOnce(Self::Frame<'_>) -> T,
     ) -> Option<Result<T, Self::Rejection>> {
-        let length = match self.next_frame_len() {
-            FrameScan::Complete(length) => length,
+        let frame = match self.scan(&self.buffer().buf) {
+            FrameScan::Complete(frame) => frame,
             FrameScan::NeedMore => return None,
-            FrameScan::Rejected(error) => return Some(Err(error)),
+            FrameScan::Rejected(rejection) => {
+                self.discard_rejected(rejection);
+                return Some(Err(rejection));
+            }
         };
-        let value = visit(&self.buffer().buf[..length]);
+        let length = frame.bytes().len();
+        let value = visit(frame);
         self.buffer_mut().buf.advance(length);
         Some(Ok(value))
     }
@@ -222,11 +259,13 @@ pub(crate) trait Framer: private::Sealed {
     /// Owned output is only a test convenience; production uses borrowed visits.
     #[cfg(test)]
     fn drain_frames(&mut self) -> impl Iterator<Item = Result<Bytes, Self::Rejection>> + '_ {
-        std::iter::from_fn(move || self.visit_next_frame(Bytes::copy_from_slice))
+        std::iter::from_fn(move || {
+            self.visit_next_frame(|frame| Bytes::copy_from_slice(frame.bytes()))
+        })
     }
     #[cfg(all(test, feature = "blocking"))]
     fn drain_on_eof(&mut self) -> Option<Result<Bytes, Self::Rejection>> {
-        self.visit_next_frame(Bytes::copy_from_slice)
+        self.visit_next_frame(|frame| Bytes::copy_from_slice(frame.bytes()))
     }
 }
 
@@ -278,23 +317,51 @@ impl RawFramer {
         Some(RawBufferedInput::Incomplete { target, kind })
     }
 
-    /// Discard one delimited frame, or the entire sole incomplete fragment.
-    pub(crate) fn discard_first_input(&mut self) {
-        if let Some(position) = self
+    /// Borrow the first retained raw input and its discard operation.
+    pub(crate) fn retained_input(
+        &mut self,
+        target_for_source: impl FnMut(u8) -> Option<TargetSlot>,
+    ) -> Option<RetainedRawFrame<'_>> {
+        let evidence = self.buffered_raw_incomplete_prefix(target_for_source)?;
+        let length = NonZeroUsize::new(self.buffered_len())?;
+        Some(RetainedRawFrame {
+            evidence,
+            length,
+            buffer: &mut self.buffer.buf,
+        })
+    }
+}
+
+/// A nonempty retained raw buffer and the proof needed to discard its first input.
+#[derive(Debug)]
+pub(crate) struct RetainedRawFrame<'a> {
+    pub(crate) evidence: RawBufferedInput,
+    length: NonZeroUsize,
+    buffer: &'a mut BytesMut,
+}
+
+impl RetainedRawFrame<'_> {
+    pub(crate) const fn len(&self) -> NonZeroUsize {
+        self.length
+    }
+
+    /// Discard one delimited frame, or the sole incomplete fragment.
+    pub(crate) fn discard_first(self) -> NonZeroUsize {
+        let count = self
             .buffer
-            .buf
             .iter()
             .position(|byte| *byte == VISCA_TERMINATOR)
-        {
-            self.buffer.buf.advance(position + 1);
-        } else {
-            self.buffer.buf.clear();
-        }
+            .map_or(self.length, |position| {
+                NonZeroUsize::MIN.saturating_add(position)
+            });
+        self.buffer.advance(count.get());
+        count
     }
 }
 
 impl Framer for RawFramer {
     type Rejection = OversizedRawFrame;
+    type Frame<'a> = &'a [u8];
 
     fn discard_rejected(&mut self, rejection: Self::Rejection) {
         self.buffer.buf.advance(rejection.through.get());
@@ -308,7 +375,7 @@ impl Framer for RawFramer {
     fn from_buffer(buffer: FrameBuffer) -> Self {
         Self { buffer }
     }
-    fn frame_len(&self, input: &[u8]) -> FrameScan<Self::Rejection> {
+    fn scan<'a>(&self, input: &'a [u8]) -> FrameScan<Self::Frame<'a>, Self::Rejection> {
         let Some(position) = input.iter().position(|byte| *byte == VISCA_TERMINATOR) else {
             return FrameScan::NeedMore;
         };
@@ -320,7 +387,7 @@ impl Framer for RawFramer {
                 through,
             })
         } else {
-            FrameScan::Complete(length)
+            FrameScan::Complete(&input[..length])
         }
     }
 }
@@ -339,6 +406,7 @@ impl SonyFramer {
 
 impl Framer for SonyFramer {
     type Rejection = SonyPositionLost;
+    type Frame<'a> = SonyFrame<'a>;
 
     fn discard_rejected(&mut self, _rejection: Self::Rejection) {
         self.buffer.buf.clear();
@@ -352,23 +420,28 @@ impl Framer for SonyFramer {
     fn from_buffer(buffer: FrameBuffer) -> Self {
         Self { buffer }
     }
-    fn frame_len(&self, input: &[u8]) -> FrameScan<Self::Rejection> {
-        if input.len() >= 2 && PayloadType::from_bytes([input[0], input[1]]).is_none() {
-            return FrameScan::Rejected(SonyPositionLost::InvalidHeader);
-        }
-        let Some(header_bytes) = input.get(..SonyHeader::SIZE) else {
+    fn scan<'a>(&self, input: &'a [u8]) -> FrameScan<Self::Frame<'a>, Self::Rejection> {
+        let &[first, second, ..] = input else {
             return FrameScan::NeedMore;
         };
-        // The payload type was checked above. Framing needs only the total
-        // length field, so no second fallible header decode is necessary.
-        let payload_length = u16::from_be_bytes([header_bytes[2], header_bytes[3]]);
+        let Some(payload_type) = PayloadType::from_bytes([first, second]) else {
+            return FrameScan::Rejected(SonyPositionLost::InvalidHeader);
+        };
+        let Some(header) = input.get(..SonyHeader::SIZE) else {
+            return FrameScan::NeedMore;
+        };
+        let payload_length = u16::from_be_bytes([header[2], header[3]]);
         let length = SonyHeader::SIZE + usize::from(payload_length);
         if length > self.buffer.max_frame_size {
             FrameScan::Rejected(SonyPositionLost::Oversized {
                 max_size: self.buffer.max_frame_size,
             })
         } else if input.len() >= length {
-            FrameScan::Complete(length)
+            FrameScan::Complete(SonyFrame {
+                bytes: &input[..length],
+                payload_type,
+                sequence: u32::from_be_bytes([header[4], header[5], header[6], header[7]]),
+            })
         } else {
             FrameScan::NeedMore
         }
@@ -388,6 +461,28 @@ mod tests {
 
     fn sony_framer() -> SonyFramer {
         SonyFramer::new_with_limits(256, usize::MAX, usize::MAX)
+    }
+
+    #[test]
+    fn discard_reports_through_the_first_terminator() {
+        let mut framer = raw_framer();
+        framer.push_slice(&[0x90, 0xff, 0x90]).unwrap();
+        let prefix = framer
+            .retained_input(|_| Some(TargetSlot::CAMERA_1))
+            .unwrap();
+        assert_eq!(prefix.discard_first().get(), 2);
+        assert_eq!(framer.buffered_len(), 1);
+    }
+
+    #[test]
+    fn discard_reports_the_whole_undelimited_fragment() {
+        let mut framer = raw_framer();
+        framer.push_slice(&[0x90, 0x41]).unwrap();
+        let prefix = framer
+            .retained_input(|_| Some(TargetSlot::CAMERA_1))
+            .unwrap();
+        assert_eq!(prefix.discard_first().get(), 2);
+        assert!(framer.is_empty());
     }
 
     #[test]
@@ -1146,7 +1241,7 @@ mod tests {
             assert_eq!(framer.buffered_len(), 2);
             framer.push_slice(&packet[2..]).unwrap();
             let frame = framer
-                .visit_next_frame(|frame| frame.to_vec())
+                .visit_next_frame(|frame| frame.bytes().to_vec())
                 .unwrap()
                 .unwrap();
             assert_eq!(frame, packet);
@@ -1247,7 +1342,7 @@ mod tests {
         // Reject as soon as the two-byte type is known, without waiting for a
         // complete header or for a later reply to arrive behind it.
         framer.push_slice(&[0x90]).unwrap();
-        assert_eq!(framer.frame_len(&[0x90]), FrameScan::NeedMore);
+        assert_eq!(framer.scan(&[0x90]), FrameScan::NeedMore);
         framer.push_slice(&[0x41]).unwrap();
         assert_eq!(
             framer.drain_frames().next(),

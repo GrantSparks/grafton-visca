@@ -40,7 +40,7 @@ fn fixture(scenario: Scenario) -> (ProtocolEngine, RequestId, Instant) {
             retry_scheduled(&timeout).unwrap().2
         }
         Scenario::CancelledAck => {
-            engine.handle(Input::Cancel { id }, start);
+            engine.handle(engine.cancel_input(id), start);
             engine.advance(start + Duration::from_millis(20));
             start + Duration::from_millis(50)
         }
@@ -60,7 +60,7 @@ fn fixture(scenario: Scenario) -> (ProtocolEngine, RequestId, Instant) {
             if matches!(scenario, Scenario::Completion) {
                 start + Duration::from_millis(40)
             } else {
-                let cancel = engine.handle(Input::Cancel { id }, start);
+                let cancel = engine.handle(engine.cancel_input(id), start);
                 let (transmission, request, _) = cancel_transmit(&cancel);
                 finish_write_input_only(
                     &mut engine,

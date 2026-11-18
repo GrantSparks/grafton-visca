@@ -23,3 +23,5 @@ test-utils = ["grafton-visca/test-utils"]
 grafton-visca = { path = "..", default-features = false }
 flume = "0.12"
 serde_json = "1.0"
+proc-macro2 = "1.0"
+syn = { version = "2", default-features = false, features = ["parsing"] }

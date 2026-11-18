@@ -584,6 +584,13 @@ macro_rules! typed_support_registry {
                     marker_doc: "Marker trait indicating source-backed support for power standby.",
                     diagnostic: "profile `{Self}` does not declare power standby support",
                 },
+                {
+                    surface: PanTiltPositioning,
+                    marker: HasPanTiltPositioning,
+                    surface_doc: "Degree-based pan/tilt positioning, limits and readback.",
+                    marker_doc: "Marker trait indicating source-backed support for degree-based pan/tilt positioning, limits and readback.",
+                    diagnostic: "profile `{Self}` does not declare degree-based pan/tilt positioning support",
+                },
             ]
         }
     };

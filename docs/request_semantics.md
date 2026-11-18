@@ -203,12 +203,12 @@ inquiries retain the index under both decoder entry points (#974).
 | `NoiseReduction2dOff` | Plain | — |
 | `NoiseReduction3d` | Plain | — |
 | `NoiseReduction3dOff` | Plain | — |
-| `ImageFlipOff` | Plain | Invalidate `ImageFlipMode` |
-| `ImageFlipHorizontal` | Plain | Invalidate `ImageFlipMode` |
-| `ImageFlipHorizontalOff` | Plain | Invalidate `ImageFlipMode` |
-| `ImageFlipVertical` | Plain | Invalidate `ImageFlipMode` |
-| `ImageFlipBoth` | Plain | Set `ImageFlipMode` |
-| `ImageFlipCombined` | Plain | Set `ImageFlipMode` |
+| `ImageFlipOff` | Plain | — |
+| `ImageFlipHorizontal` | Plain | — |
+| `ImageFlipHorizontalOff` | Plain | — |
+| `ImageFlipVertical` | Plain | — |
+| `ImageFlipBoth` | Plain | — |
+| `ImageFlipCombined` | Plain | — |
 | `ImageFreezeOn` | Plain | Set `ImageFreeze` |
 | `ImageFreezeOff` | Plain | Set `ImageFreeze` |
 | `PictureEffect` | Plain | — |
@@ -426,20 +426,19 @@ end physical movement with a pan/tilt STOP or `stop_all()` (#839).
 
 ### Applied-state effects
 
-`AppliedStateEffectRequirement` is closed to `Set`, `Clear`, and `Invalidate`.
+`AppliedStateEffectRequirement` has two verbs, `Set` and `Clear`.
 The later typed conversion must attach the selected requirement to a prepared
 write. The owner applies a typed `KnownState` only after exact application,
 independent of observer attachment. Its variant implies the key; values are
 never encoded as scalar arrays for the cache:
 
-- `Set` replaces a known state value supplied by the request.
+- `Set` replaces a known state value supplied by the request. A pan/tilt limit
+  records the corner and the applied `PanTiltPosition` decoded from the units
+  written to the camera.
 - `Clear` establishes a known absence: a pan/tilt limit clear becomes
-  `KnownState::PanTiltLimits(PanTiltLimitUpdate::clear(corner))`. It is retained
+  `KnownState::PanTiltLimit(PanTiltLimitUpdate::clear(corner))`. It is retained
   as `StateEntry::Set`, so the corner and its known removal remain observable.
   A deterministic boolean `Off` is likewise `Set` with `false`.
-- `Invalidate` marks a state unknown when the command's result cannot be
-  represented exactly (for example a single-axis image-flip command cannot establish the
-  complete `ImageFlipMode` value).
 
 A write with any state requirement that may have taken effect but terminates
 without confirmation invalidates its key. Never-written and conclusively
@@ -453,13 +452,12 @@ slot per key without map allocation or eviction.
 Current write-only state keys are:
 
 <!-- BEGIN WRITE-ONLY STATE KEYS -->
-`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `ImageFlipMode`, `MotionSyncSpeed`, `ExposureWideDynamicRange`, `MotionSyncEnabled`.
+`PanTiltLimit`, `PresetsRecallSpeed`, `FocusLock`, `ExposureSpotlight`, `ExposureAutoSlowShutter`, `NdFilterMode`, `NdFilterAuto`, `ImageFreeze`, `ZoomDigitalZoom`, `StreamingMulticast`, `StreamingNdiQuality`, `TallyBrightness`, `PanTiltSpeedMode`, `TallyMode`, `MotionSyncSpeed`, `ExposureWideDynamicRange`, `MotionSyncEnabled`.
 <!-- END WRITE-ONLY STATE KEYS -->
 
-USB-audio is intentionally not in this list because the built-in inquiry
-inventory has a typed USB-audio status response. A future write-only property
-must add a key and explicit ledger rows before it can be exposed by a typed
-facade.
+Use the typed inquiries for USB-audio status and combined image orientation.
+A future write-only property must add a key and explicit ledger rows before it
+can be exposed by a typed facade.
 
 ## Conversion dependencies
 

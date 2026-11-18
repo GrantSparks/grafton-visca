@@ -7,46 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+2.0 is a breaking upgrade from 1.x, with owner-backed sessions, matching
+blocking and async camera APIs, checked values and source-backed profiles.
+See [the migration guide](docs/migration_2_0.md) for caller changes.
 
-- **BREAKING**: Outgoing `transport::FrameMeta::Sony` exposes its complete
-  sequence as `u32`; `transport::FrameSequence` is removed from the public API.
-  Sony reply identity is decoded once and carried directly to the engine's
-  matching correlation index. Owner probes and engine fixtures now exercise
-  the same lower-16 path as production for small sequences (#1031).
-- **BREAKING**: Async TCP transports no longer expose `split` or separate reader
-  and writer halves. Sessions and caller-owned transports use the whole TCP
-  transport, with consistent ownership across Tokio and smol (#1034).
-- **BREAKING**: `Executor` provides spawning, sleeping, reusable timers and a
-  clock; its overridable `timeout` method is removed. Async Sony RESET and
-  serial startup use the shared operation-first deadline race (#1024).
-- **BREAKING**: `#[value_enum]` payload variants require a `#[value]` checked
-  scalar whose wire domain excludes every active unit variant's code. Primitive
-  payloads and overlapping domains now fail at compile time, including
-  conditional variants and biased wire mappings (#1027).
-- **BREAKING**: Picture-effect setters accept only values in the selected profile's
-  `ImageCaps::picture_effects` inventory. PTZOptics G2, G3 and 30X admit Off and
-  BlackAndWhite; custom profiles can list documented checked extension codes.
-  `UnknownPictureEffect` rejects the `FF` frame terminator. The inventory replaces
-  `ImageCaps::picture_effect`, removes its `Copy` implementation, and changes the
-  persisted `ProfileSpec` image key; regenerate saved specs (#1023).
-- **BREAKING**: `CapabilityRange::new` and `CapabilityDomain::new` return checked
-  results instead of panicking. Domains take a third `gaps` argument accepting
-  a static slice or owned vector; pass an empty vector for a contiguous domain.
-  The former `CapabilityDomain::with_gaps` constructor is removed. Invalid
-  hand-built digital zoom limits now return no digital range (#1029).
-- **BREAKING**: `Request::policy()` returns the policy selected by its sealed
-  class: `request::CommandPolicy`, `OperationPolicy`, or `InquiryPolicy`.
-  Custom requests replace flat policy constants and accessors with this method;
-  raw policies share the same canonical `request` home. Commands and operations
-  use `CommandRetryClass`, which excludes inquiry retry semantics, while
-  inquiries use `InquiryRetryClass`. The former class-agnostic policy enums
-  leave the public API; persisted command and operation policies reject the
-  former `"inquiry"` retry alias. STOP policies select `CommandRetryClass::Standard`,
-  matching their existing refusal and retry behavior (#1016, #1026, #909, #970).
-- **BREAKING**: `Session`'s `Debug` output lists its registered target IDs in
-  camera-number order, as in `Session { targets: [IndividualCameraId(1)], .. }`,
-  instead of their count (#1033).
+Raw serial and Sony UDP remain accepted known limitations. Source-backed
+packet fixtures and software tests do not establish physical-camera
+verification.
 
 ### Added
 
@@ -57,42 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values through `state_cache().exposure().wide_dynamic_range()` and
   `state_cache().motion_sync().enabled()`. Both keys stay unknown until applied,
   and uncertain writes invalidate them (#1028).
-
-### Fixed
-
-- Zero-spacing cancellation finishes every staged write before running due work
-  or dispatching a ready retry. Both owners preserve write and stream-ledger
-  order; the input-boundary audit includes cancellation writes (#1021).
-- Dropping a Tokio session connect future aborts its selected-runtime connector
-  instead of leaving it dialing. Async session opening returns the published
-  terminal error when the executor drops the actor during spawning (#1024).
-- Socket-cancel support comes solely from the registered target, so the public
-  owner-turn probe works on every built-in profile, including PTZOptics (#1025).
-- Buffered partial frames no longer let eager idle or transient-fault receives
-  starve command deadlines, controls or shutdown. Failed raw-release probes
-  retain their escalating pause, and malformed or discarded input spends the
-  release fairness budget on both owner shells (#1020).
-- Blocking TCP writes on Unix retain an OS `TimedOut` as the `StreamPoisoned`
-  source, matching Tokio and smol. Blocking UDP receives honour their full
-  precise read budget after an early idle result (#1014).
-- Generated integer scalar JSON Schemas describe their checked bounds and sparse
-  membership while preserving scalar metadata and named references. Biased
-  values retain their serialized semantic units (#1010).
-- Integer capability-range denormalization stays within the declared inclusive
-  bounds, including large `i32` singleton ranges, and preserves exact endpoints
-  and nearest-integer rounding with halves away from zero (#1011).
-
-## [2.0.0] - 2026-11-17
-
-2.0 is a breaking upgrade from 1.x, with owner-backed sessions, matching
-blocking and async camera APIs, checked values and source-backed profiles.
-See [the migration guide](docs/migration_2_0.md) for caller changes.
-
-Raw serial and Sony UDP remain accepted known limitations. Source-backed
-packet fixtures and software tests do not establish physical-camera
-verification.
-
-### Added
 
 - `wire::Nibbles` provides total fixed-width `value`, `signed` and `halves`
   accessors for exact nibble layouts. Zero-extension helpers require enough
@@ -157,6 +88,105 @@ verification.
   draining periodic background tasks, and panicked task joins return an error.
 
 ### Changed
+
+- Published library packages include their self-contained unit tests and fixture
+  data. Repository integration suites and compile contracts stay in the source
+  checkout (#1064).
+- **BREAKING**: `PanTiltLimitUpdate::set` and `position` use `PanTiltPosition`
+  in applied degrees. Serialized limit positions also use degrees (#1049).
+
+- **BREAKING**: Per-target `Error` variants and constructors and
+  `DiagnosticEvent` target fields use `IndividualCameraId`. Their debug and
+  display text use the individual identity, and schemas bound targets to
+  camera IDs 1 through 7 (#1056).
+
+- **BREAKING**: Diagnostic events use the same `OperationId` as handles and
+  errors. `DiagnosticId` and the numeric `OperationId::get` and
+  `OperationId::as_nonzero` accessors are removed (#1055).
+
+- **BREAKING**: `DiagnosticEvent::AppliedState` and `cache_updates` report
+  exact cache commits. Invalidations emit `DiagnosticEvent::StateInvalidated`
+  and increment `cache_invalidations` (#1043).
+
+- **BREAKING**: The `ImageFlipMode` state-cache key and `ImageState::flip_mode`
+  are removed. Read the combined orientation with `image().flip_mode()` (#1053).
+- **BREAKING**: Removed the `Stop` variant of `types::PanTiltDirection`.
+  End a continuous drive with `pan_tilt().stop()` (#1058).
+- Variable zoom and focus drives and pan/tilt movement requests resolve speed
+  against the receiving camera during preparation. Their `new` constructors
+  capture the movement intent before choosing a camera (#1039).
+
+- **BREAKING**: `PanTiltCaps::geometry` now contains optional
+  `PanTiltGeometry` facts for degree positioning. Generic VISCA withholds
+  degree positioning, limits, pan/tilt readback and settlement. Select a
+  camera-specific profile for `home`, `reset` and preset recall. Generic
+  VISCA focus positions are limited to the shared `0x1000..=0xC000` interval.
+  Regenerate saved profile specs for the new geometry field (#1038).
+
+- **BREAKING**: Downstream `CompileTimeProfile` implementations declare
+  `DOMAINS` and `TRANSPORTS` to match their specifications. Typed noun access
+  and transport construction require the corresponding declaration (#1051).
+- **BREAKING**: `HasTransportConfig::transport_config` returns a
+  `&ValidatedTransportConfig` built with `TransportConfig::validated`. Use
+  the checked value when wrapping an existing TCP stream, UDP socket or
+  serial stream with an async transport. IPv4-mapped endpoints use their
+  configured IPv4 TTL from the first packet (#1044).
+- **BREAKING**: Scripted testkit transports require a
+  `ScriptedTransportIdentity` at construction. Scripted streams preserve
+  unread bytes across reads, datagrams report truncation, and
+  `Step::every_send` constructs a persistent responder (#1042).
+
+- **BREAKING**: `zoom::{SetNormalized, NormalizedInquiry}`, `presets::Recall`,
+  and `white_balance::SetColorTemperature` use infallible `new` constructors.
+  Preparation validates the receiving profile and binds normalized zoom
+  requests and replies to its chosen optical or combined range. Normalized zoom
+  encoding and decoding require the target profile. A recall reports all
+  possible axes until preparation selects its exact axes (#1039).
+- **BREAKING**: Removed `Error::InquiryNotCancellable`. Cancellation is
+  available through command operation handles (#1052).
+- **BREAKING**: Outgoing `transport::FrameMeta::Sony` exposes its complete
+  sequence as `u32`; `transport::FrameSequence` is removed from the public API.
+  Sony reply identity is decoded once and carried directly to the engine's
+  matching correlation index. Owner probes and engine fixtures now exercise
+  the same lower-16 path as production for small sequences (#1031).
+- **BREAKING**: Async TCP transports no longer expose `split` or separate reader
+  and writer halves. Sessions and caller-owned transports use the whole TCP
+  transport, with consistent ownership across Tokio and smol (#1034).
+- **BREAKING**: `Executor` provides spawning, sleeping, reusable timers and a
+  clock; its overridable `timeout` method is removed. Async Sony RESET and
+  serial startup use the shared operation-first deadline race (#1024).
+- **BREAKING**: `#[value_enum]` payload variants require a `#[value]` checked
+  scalar whose wire domain excludes every active unit variant's code. Primitive
+  payloads and overlapping domains now fail at compile time, including
+  conditional variants and biased wire mappings (#1027).
+- **BREAKING**: Picture-effect setters accept only values in the selected profile's
+  `ImageCaps::picture_effects` inventory. PTZOptics G2, G3 and 30X admit Off and
+  BlackAndWhite; custom profiles can list documented checked extension codes.
+  `UnknownPictureEffect` rejects the `FF` frame terminator. The inventory replaces
+  `ImageCaps::picture_effect`, removes its `Copy` implementation, and changes the
+  persisted `ProfileSpec` image key; regenerate saved specs (#1023).
+- **BREAKING**: `CapabilityRange::new` and `CapabilityDomain::new` return checked
+  results instead of panicking. Domains take a third `gaps` argument accepting
+  a static slice or owned vector; pass an empty vector for a contiguous domain.
+  The former `CapabilityDomain::with_gaps` constructor is removed. Invalid
+  hand-built digital zoom limits now return no digital range (#1029).
+- **BREAKING**: `Request::policy()` returns the policy selected by its sealed
+  class: `request::CommandPolicy`, `OperationPolicy`, or `InquiryPolicy`.
+  Custom requests replace flat policy constants and accessors with this method;
+  raw policies share the same canonical `request` home. Commands and operations
+  use `CommandRetryClass`, which excludes inquiry retry semantics, while
+  inquiries use `InquiryRetryClass`. The former class-agnostic policy enums
+  leave the public API; persisted command and operation policies reject the
+  former `"inquiry"` retry alias. STOP policies select `CommandRetryClass::Standard`,
+  matching their existing refusal and retry behavior (#1016, #1026, #909, #970).
+- **BREAKING**: `Session`'s `Debug` output lists its registered target IDs in
+  camera-number order, as in `Session { targets: [IndividualCameraId(1)], .. }`,
+  instead of their count (#1033).
+- **BREAKING**: `#[value]` refuses derives it does not generate on checked
+  scalars. Implement custom defaults using a checked constant (#1057).
+- **BREAKING**: The hidden `Inquiry::decoder_for_profile` hook returns a
+  `Result`. Profile-bound built-in and derived inquiries reject a target
+  missing the required decoding facts before encoding and I/O (#1050).
 
 - Release publication uses software, source, tag and package-provenance gates.
   Hardware smoke checks are optional and private; publishing device inventories,
@@ -763,6 +793,59 @@ verification.
   helpers. Use `ManualClockExecutor::local` and its `run_until` driver instead.
 
 ### Fixed
+
+- Raw streams keep a tracked rejection dispute intact when a socket-naming
+  camera sends an older command's late error. Once a command's own
+  socket-naming terminal arrives, its outstanding cancellation no longer
+  intercepts a subsequent STOP rejection (#1062).
+- Raw streams retain possible socket occupancy when a dropped completion
+  could have freed a live socket. A later socketless ACK holds the possible
+  sockets without assigning one to the wrong command. A `NoReply` hold
+  allows socketless completions to reach the usual holder rules (#1063).
+- Dropping an async halt before the owner accepts it leaves later motion
+  eligible and reports each prepared STOP as a pre-admission rejection.
+  Halts submitted after an accepted shutdown are rejected at the handle (#1037).
+- If an operation ends during cancellation, `cancel()` reports its terminal
+  outcome. A camera error after ACK retains its unconfirmed recovery guidance
+  and the camera's error as its source (#1036).
+- Custom profiles with one-speed pan/tilt positioning require an overlapping
+  pan and tilt speed range. Coarse absolute and relative moves use the
+  validated shared range (#1040).
+
+- Sony EVI-H100 admits its documented −20° and +90° tilt endpoints and
+  preserves their sourced wire words. Regenerate saved EVI-H100 profile specs
+  to use the corrected endpoint quantization (#1045).
+
+- Extending a disputed raw-stream ACK deadline emits a phase transition.
+  If the extended deadline expires, it emits one `DeadlineExpired` and
+  increments `ack_timeouts` once (#1067).
+- Zero-spacing cancellation finishes every staged write before running due work
+  or dispatching a ready retry. Both owners preserve write and stream-ledger
+  order; the input-boundary audit includes cancellation writes (#1021).
+- Dropping a Tokio session connect future aborts its selected-runtime connector
+  instead of leaving it dialing. Async session opening returns the published
+  terminal error when the executor drops the actor during spawning (#1024).
+- Socket-cancel support comes solely from the registered target, so the public
+  owner-turn probe works on every built-in profile, including PTZOptics (#1025).
+- Buffered partial frames no longer let eager idle or transient-fault receives
+  starve command deadlines, controls or shutdown. Failed raw-release probes
+  retain their escalating pause, and malformed or discarded input spends the
+  release fairness budget on both owner shells (#1020).
+- Blocking TCP writes on Unix retain an OS `TimedOut` as the `StreamPoisoned`
+  source, matching Tokio and smol. Blocking UDP receives honour their full
+  precise read budget after an early idle result (#1014).
+- Generated integer scalar JSON Schemas describe their checked bounds and sparse
+  membership while preserving scalar metadata and named references. Biased
+  values retain their serialized semantic units (#1010).
+- Integer capability-range denormalization stays within the declared inclusive
+  bounds, including large `i32` singleton ranges, and preserves exact endpoints
+  and nearest-integer rounding with halves away from zero (#1011).
+- `OperationalTuning::with_retry_budget`, `with_initial_retry_backoff` and
+  `with_maximum_retry_backoff` may each be set on their own at session open
+  or when retuning. The resulting initial backoff must fit the effective
+  ceiling and budget, and each override must meet its own floor (#1041).
+- Generated floating-point scalar JSON Schemas use canonical JSON decimals for
+  checked bounds and enumerate distinct values for sparse domains (#1057).
 
 - Pre-ACK cancellation retains the later of the original ACK deadline and the
   cancellation ambiguity deadline on raw datagram, raw stream and Sony sessions,

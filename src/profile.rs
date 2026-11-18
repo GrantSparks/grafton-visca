@@ -32,7 +32,7 @@ pub(crate) fn invalid_profile_fields(fields: &[&str], reason: impl fmt::Display)
     }
 }
 
-/// Largest retry backoff ceiling or total budget an explicit override may set.
+/// Largest duration an explicit retry timing override may set.
 ///
 /// The one-hour override limit keeps caller-selected replay policy bounded.
 /// It is not a limit on valid profile response deadlines or retry windows
@@ -133,6 +133,23 @@ impl TransportCompatibility {
     pub const fn with_serial(mut self) -> Self {
         self.serial = true;
         self
+    }
+
+    /// Projects the enabled standard transport kinds.
+    #[must_use]
+    pub const fn transport_set(self) -> capabilities::TransportSet {
+        use crate::transport::StandardTransport;
+        let mut set = capabilities::TransportSet::empty();
+        if self.supports(StandardTransport::Tcp) {
+            set = set.with(StandardTransport::Tcp);
+        }
+        if self.supports(StandardTransport::Udp) {
+            set = set.with(StandardTransport::Udp);
+        }
+        if self.supports(StandardTransport::Serial) {
+            set = set.with(StandardTransport::Serial);
+        }
+        set
     }
 
     /// Answers the standard profile support matrix in one place.
@@ -339,7 +356,7 @@ impl PanTiltCoordinateConversion {
             || tilt_degrees_to_units == 0.0
         {
             return Err(invalid_profile_fields(
-                &["capabilities.pan_tilt.coordinates"],
+                &["capabilities.pan_tilt.geometry.coordinates"],
                 "units-per-degree scales must be finite and nonzero",
             ));
         }
@@ -907,6 +924,8 @@ impl RetryBounds {
 #[cfg_attr(feature = "serde", derive(serde::Serialize), serde(transparent))]
 pub struct ProfileSpec {
     facts: ProfileFacts,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    position_speeds: Option<crate::types::PositionSpeeds>,
 }
 
 /// Every protocol fact of one profile.
@@ -1132,13 +1151,31 @@ impl ProfileSpec {
                 "compile-time permission set must match the returned profile specification",
             ));
         }
+        if capabilities::DomainSet::from_capabilities(facts) != P::DOMAINS {
+            return Err(invalid_profile_fields(
+                &["CompileTimeProfile::DOMAINS", "capabilities"],
+                "compile-time domain set must match the present capability records",
+            ));
+        }
+        if profile.transports().transport_set() != P::TRANSPORTS {
+            return Err(invalid_profile_fields(
+                &["CompileTimeProfile::TRANSPORTS", "transports"],
+                "compile-time transport set must match the standard transport compatibility",
+            ));
+        }
         Ok(profile)
     }
 
     /// The only constructor: every spec has passed validation.
     pub(crate) fn from_facts(facts: ProfileFacts) -> Result<Self> {
+        let facts = facts.validate()?;
+        let position_speeds = match &facts.capabilities.pan_tilt {
+            Some(domain) => crate::types::PositionSpeeds::from_domain(domain)?,
+            None => None,
+        };
         let profile = Self {
-            facts: facts.validate()?,
+            facts,
+            position_speeds,
         };
         profile.validate_stop_paths()?;
         Ok(profile)
@@ -1203,13 +1240,26 @@ impl ProfileSpec {
         &self.facts.encodings
     }
 
-    /// Returns profile-specified pan/tilt coordinate facts when pan/tilt is supported.
-    #[must_use]
-    pub const fn pan_tilt_coordinates(&self) -> Option<PanTiltCoordinateConversion> {
+    pub(crate) const fn pan_tilt_geometry(&self) -> Option<&capabilities::PanTiltGeometry> {
         match &self.facts.capabilities.pan_tilt {
-            Some(domain) => Some(domain.coordinates),
+            Some(domain) => domain.geometry.as_ref(),
             None => None,
         }
+    }
+
+    /// Returns the pan/tilt coordinate facts for profiles with sourced geometry.
+    #[must_use]
+    pub const fn pan_tilt_coordinates(&self) -> Option<PanTiltCoordinateConversion> {
+        match self.pan_tilt_geometry() {
+            Some(geometry) => Some(geometry.coordinates),
+            None => None,
+        }
+    }
+
+    pub(crate) fn position_speeds(&self) -> Result<crate::types::PositionSpeeds> {
+        self.position_speeds.ok_or(Error::FeatureNotSupported {
+            feature: "degree-based pan/tilt positioning",
+        })
     }
 
     /// Returns compatible standard transports.
@@ -1352,9 +1402,6 @@ impl ProfileSpec {
             tuning.ack_timeout(),
             tuning.settlement_timeout(),
             tuning.inquiry_timeout(),
-            tuning.initial_retry_backoff(),
-            tuning.maximum_retry_backoff(),
-            tuning.retry_budget(),
         ]
         .into_iter()
         .chain(command_overrides)
@@ -1440,56 +1487,56 @@ impl ProfileSpec {
                 .into(),
             });
         }
-        match (
-            tuning.initial_retry_backoff(),
-            tuning.maximum_retry_backoff(),
-            tuning.retry_budget(),
-        ) {
-            (None, None, None) => {}
-            (Some(initial), Some(maximum), Some(budget))
-                if !initial.is_zero() && maximum >= initial && budget >= initial => {}
-            _ => {
-                return Err(Error::InvalidRequest {
-                    reason:
-                        "retry timing requires non-zero ordered backoff and a sufficient budget"
-                            .into(),
-                });
-            }
-        }
-        // The profile's request-independent retry floor: every request's own
-        // bound is at least this, so an override below it could only shorten
-        // retry timing.
+        // Each request can raise the profile floor, so checking the ordering
+        // here also proves it for the bounds lowered during preparation.
         let floor = RetryBounds::for_request(
             self.facts.timing.busy_timeout,
             Duration::ZERO,
             Duration::ZERO,
         );
-        if undercuts(tuning.initial_retry_backoff(), floor.initial_backoff)
-            || undercuts(tuning.maximum_retry_backoff(), floor.maximum_backoff)
-            || undercuts(tuning.retry_budget(), floor.total_budget)
-        {
-            return Err(Error::InvalidRequest {
-                reason: format!(
-                    "operational retry timing cannot undercut the profile retry bounds \
-                     (initial backoff {:?}, backoff ceiling {:?}, budget {:?})",
-                    floor.initial_backoff, floor.maximum_backoff, floor.total_budget,
-                )
-                .into(),
-            });
+        for (setter, value, minimum) in [
+            (
+                "with_initial_retry_backoff",
+                tuning.initial_retry_backoff(),
+                floor.initial_backoff,
+            ),
+            (
+                "with_maximum_retry_backoff",
+                tuning.maximum_retry_backoff(),
+                floor.maximum_backoff,
+            ),
+            (
+                "with_retry_budget",
+                tuning.retry_budget(),
+                floor.total_budget,
+            ),
+        ] {
+            if undercuts(value, minimum) {
+                return Err(Error::InvalidRequest {
+                    reason: format!("{setter} cannot undercut the profile's {minimum:?} floor")
+                        .into(),
+                });
+            }
+            if value.is_some_and(|duration| duration > MAXIMUM_RETRY_TIMING) {
+                return Err(Error::InvalidRequest {
+                    reason: format!("{setter} cannot exceed {MAXIMUM_RETRY_TIMING:?}").into(),
+                });
+            }
         }
-        // The ordering rule above keeps `initial` below both of these, so
-        // bounding the ceiling and the budget bounds all three (see
-        // [`MAXIMUM_RETRY_TIMING`]).
-        if tuning
-            .maximum_retry_backoff()
-            .is_some_and(|maximum| maximum > MAXIMUM_RETRY_TIMING)
-            || tuning
-                .retry_budget()
-                .is_some_and(|budget| budget > MAXIMUM_RETRY_TIMING)
-        {
-            return Err(Error::InvalidRequest {
-                reason: "retry backoff ceiling and budget cannot exceed one hour".into(),
-            });
+        let effective = tuning.lengthen_retry_bounds(floor);
+        for (bound, maximum) in [
+            ("backoff ceiling", effective.maximum_backoff),
+            ("retry budget", effective.total_budget),
+        ] {
+            if effective.initial_backoff > maximum {
+                return Err(Error::InvalidRequest {
+                    reason: format!(
+                        "with_initial_retry_backoff ({:?}) exceeds the effective {bound} ({maximum:?})",
+                        effective.initial_backoff,
+                    )
+                    .into(),
+                });
+            }
         }
         Ok(())
     }
@@ -1640,6 +1687,16 @@ impl ProfileFacts {
         }
         let caps = &self.capabilities;
         let queries = self.position_inquiries;
+        let required_for_settlement = |axes: AffectedAxes| {
+            if caps
+                .pan_tilt
+                .is_some_and(|domain| domain.geometry.is_none())
+            {
+                AffectedAxes::from_bits(axes.bits() & !AffectedAxes::PAN_TILT.bits()).ok()
+            } else {
+                Some(axes)
+            }
+        };
         let can_query = |axis| queries.is_some_and(|available| available.contains(axis));
         if caps.inquiry_support == capabilities::InquirySupport::None && queries.is_some() {
             return Err(invalid_profile_fields(
@@ -1667,7 +1724,7 @@ impl ProfileFacts {
                 .filter_map(|command| match command.classification() {
                     BuiltinRequestClass::Targeted {
                         axes: BuiltinAxisSelection::Exact(axes),
-                    } if row_gate(*command).permits(caps) => Some(axes),
+                    } if row_gate(*command).permits(caps) => required_for_settlement(axes),
                     _ => None,
                 })
                 .fold(None, |all: Option<AffectedAxes>, axes| {
@@ -1680,8 +1737,12 @@ impl ProfileFacts {
                 ));
             }
         }
-        if let Some(presets) = &caps.presets {
-            if !crate::position_inquiries::permits(caps, presets.recall_axes) {
+        if let Some(axes) = caps
+            .presets
+            .as_ref()
+            .and_then(|presets| required_for_settlement(presets.recall_axes))
+        {
+            if !crate::position_inquiries::permits(caps, axes) {
                 return Err(invalid_profile_fields(
                     &[
                         "capabilities.presets.recall_axes",
@@ -1691,7 +1752,7 @@ impl ProfileFacts {
                     "preset recall must name axes whose settlement inquiries are permitted",
                 ));
             }
-            if !self.supports_operation_complete && !can_query(presets.recall_axes) {
+            if !self.supports_operation_complete && !can_query(axes) {
                 return Err(invalid_profile_fields(
                     &[
                         "supports_operation_complete",
@@ -1711,7 +1772,7 @@ impl ProfileFacts {
 ///
 /// Implementations build their facts through the same [`ProfileSpecBuilder`]
 /// used by custom runtime profiles, or delegate to a built-in [`crate::profiles::ProfileId::spec`].
-/// `TYPED_SUPPORT` and `ID` must agree with the returned specification;
+/// `TYPED_SUPPORT`, `DOMAINS`, `TRANSPORTS` and `ID` must agree with the returned specification;
 /// [`crate::profiles::ProfileSpec::from_compile_time`] checks that contract before registration.
 /// Support marker implementations remain separate evidence-backed claims.
 ///
@@ -1719,6 +1780,12 @@ impl ProfileFacts {
 pub trait CompileTimeProfile {
     /// The exact optional typed-surface grants evidenced for this profile.
     const TYPED_SUPPORT: capabilities::TypedSupportSet;
+
+    /// The exact set of present capability records.
+    const DOMAINS: capabilities::DomainSet;
+
+    /// The exact set of permitted standard transports.
+    const TRANSPORTS: capabilities::TransportSet;
 
     /// Built-in identity, or `None` for a downstream/custom profile.
     const ID: Option<ProfileId>;
@@ -1965,19 +2032,21 @@ mod tests {
         let mut caps =
             Capabilities::runtime_baseline("Downstream runtime camera", 1).expect("baseline");
         caps.pan_tilt = Some(PanTiltCaps {
-            pan_range: CapabilityRange::<i32>::new(-100, 100).expect("valid capability bounds"),
-            tilt_ranges: TiltRanges::Single(
-                CapabilityRange::<i32>::new(-50, 50).expect("valid capability bounds"),
-            ),
+            geometry: Some(crate::capabilities::PanTiltGeometry {
+                pan_range: CapabilityRange::<i32>::new(-100, 100).expect("valid capability bounds"),
+                tilt_ranges: TiltRanges::Single(
+                    CapabilityRange::<i32>::new(-50, 50).expect("valid capability bounds"),
+                ),
+                coordinates: conversion(
+                    CoordinateSystem::SignedCentered,
+                    PanTiltWireCodec::StandardVisca,
+                    10.0,
+                    10.0,
+                ),
+                endpoint_quantization: EndpointQuantization::Exact,
+            }),
             pan_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
             tilt_speed: CapabilityRange::<u8>::new(1, 8).expect("valid capability bounds"),
-            coordinates: conversion(
-                CoordinateSystem::SignedCentered,
-                PanTiltWireCodec::StandardVisca,
-                10.0,
-                10.0,
-            ),
-            endpoint_quantization: EndpointQuantization::Exact,
             simultaneous: true,
             preset_recovery_time: Duration::ZERO,
             variable_speed: false,
@@ -2013,10 +2082,22 @@ mod tests {
             recall_delay: Duration::ZERO,
             names: None,
         });
+        caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::PanTiltPositioning);
         caps.inquiry_support = capabilities::InquirySupport::Partial;
         caps
     }
-    fn runtime_builder(capabilities: Capabilities) -> ProfileSpecBuilder {
+    fn runtime_builder(mut capabilities: Capabilities) -> ProfileSpecBuilder {
+        if capabilities
+            .pan_tilt
+            .is_some_and(|domain| domain.geometry.is_some())
+        {
+            capabilities.typed_support =
+                capabilities
+                    .typed_support
+                    .union(TypedSupportSet::from_surface(
+                        TypedSupportSurface::PanTiltPositioning,
+                    ));
+        }
         ProfileSpec::builder(capabilities)
             .transports(TransportCompatibility::new().with_tcp(5678))
             .envelope(ProfileEnvelope::RawVisca)
@@ -2067,7 +2148,16 @@ mod tests {
     struct CommunityProfile;
 
     impl CompileTimeProfile for CommunityProfile {
-        const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::EMPTY;
+        const DOMAINS: capabilities::DomainSet = capabilities::DomainSet::from_domains(&[
+            capabilities::Domain::PanTilt,
+            capabilities::Domain::Zoom,
+            capabilities::Domain::Focus,
+            capabilities::Domain::Presets,
+        ]);
+        const TRANSPORTS: capabilities::TransportSet =
+            TransportCompatibility::new().with_tcp(5678).transport_set();
+        const TYPED_SUPPORT: TypedSupportSet =
+            TypedSupportSet::from_surface(TypedSupportSurface::PanTiltPositioning);
         const ID: Option<crate::profiles::ProfileId> = None;
 
         fn spec() -> Result<ProfileSpec> {
@@ -2082,7 +2172,10 @@ mod tests {
             .expect("matching compile-time declaration");
         assert_eq!(declared, lowered);
         assert_eq!(lowered.capabilities().profile_id, None);
-        assert_eq!(lowered.capabilities().typed_support, TypedSupportSet::EMPTY);
+        assert_eq!(
+            lowered.capabilities().typed_support,
+            <CommunityProfile as CompileTimeProfile>::TYPED_SUPPORT
+        );
         lowered
             .ensure_compile_time::<CommunityProfile>()
             .expect("the exact facts bind the typed view");
@@ -2092,6 +2185,10 @@ mod tests {
     fn compile_time_declarations_must_match_their_returned_specification() {
         struct WrongIdentity;
         impl CompileTimeProfile for WrongIdentity {
+            const DOMAINS: capabilities::DomainSet =
+                <CommunityProfile as CompileTimeProfile>::DOMAINS;
+            const TRANSPORTS: capabilities::TransportSet =
+                <CommunityProfile as CompileTimeProfile>::TRANSPORTS;
             const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::EMPTY;
             const ID: Option<crate::profiles::ProfileId> =
                 Some(crate::profiles::ProfileId::GenericVisca);
@@ -2103,6 +2200,10 @@ mod tests {
 
         struct WrongPermissionSet;
         impl CompileTimeProfile for WrongPermissionSet {
+            const DOMAINS: capabilities::DomainSet =
+                <CommunityProfile as CompileTimeProfile>::DOMAINS;
+            const TRANSPORTS: capabilities::TransportSet =
+                <CommunityProfile as CompileTimeProfile>::TRANSPORTS;
             const TYPED_SUPPORT: TypedSupportSet =
                 TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
             const ID: Option<crate::profiles::ProfileId> = None;
@@ -2111,6 +2212,51 @@ mod tests {
                 CommunityProfile::spec()
             }
         }
+
+        struct WrongDomains;
+        impl CompileTimeProfile for WrongDomains {
+            const ID: Option<ProfileId> = CommunityProfile::ID;
+            const TYPED_SUPPORT: TypedSupportSet =
+                <CommunityProfile as CompileTimeProfile>::TYPED_SUPPORT;
+            const DOMAINS: capabilities::DomainSet = capabilities::DomainSet::empty();
+            const TRANSPORTS: capabilities::TransportSet =
+                <CommunityProfile as CompileTimeProfile>::TRANSPORTS;
+
+            fn spec() -> Result<ProfileSpec> {
+                CommunityProfile::spec()
+            }
+        }
+
+        struct WrongTransports;
+        impl CompileTimeProfile for WrongTransports {
+            const ID: Option<ProfileId> = CommunityProfile::ID;
+            const TYPED_SUPPORT: TypedSupportSet =
+                <CommunityProfile as CompileTimeProfile>::TYPED_SUPPORT;
+            const DOMAINS: capabilities::DomainSet =
+                <CommunityProfile as CompileTimeProfile>::DOMAINS;
+            const TRANSPORTS: capabilities::TransportSet = capabilities::TransportSet::empty();
+
+            fn spec() -> Result<ProfileSpec> {
+                CommunityProfile::spec()
+            }
+        }
+
+        let domain_error = ProfileSpec::from_compile_time::<WrongDomains>()
+            .expect_err("declared domains must match the present capability records");
+        assert!(
+            domain_error
+                .to_string()
+                .contains("CompileTimeProfile::DOMAINS"),
+            "{domain_error}"
+        );
+        let transport_error = ProfileSpec::from_compile_time::<WrongTransports>()
+            .expect_err("declared transports must match compatibility");
+        assert!(
+            transport_error
+                .to_string()
+                .contains("CompileTimeProfile::TRANSPORTS"),
+            "{transport_error}"
+        );
 
         let identity_error = ProfileSpec::from_compile_time::<WrongIdentity>()
             .expect_err("a built-in id cannot name custom facts")
@@ -2194,6 +2340,7 @@ mod tests {
         // mismatch. The same check runs in from_facts before publishing a spec.
         let forged = ProfileSpec {
             facts: facts.clone(),
+            position_speeds: None,
         };
         assert!(
             crate::command::surface::row_gate(StopCommand::Fr7ZoomHighResolutionStop.row())
@@ -2210,7 +2357,10 @@ mod tests {
                 if feature == crate::command::surface::surface_entry(
                     StopCommand::Fr7ZoomHighResolutionStop.row()).feature()));
         facts.capabilities.profile_id = None;
-        let custom = ProfileSpec { facts };
+        let custom = ProfileSpec {
+            facts,
+            position_speeds: None,
+        };
         custom
             .validate_stop_paths()
             .expect("custom specs explicitly own their protocol authority");
@@ -2503,7 +2653,7 @@ mod tests {
             for pan_axis in [true, false] {
                 let mut caps = valid_runtime_capabilities();
                 let pan_tilt = caps.pan_tilt.as_mut().expect("pan/tilt");
-                pan_tilt.coordinates =
+                pan_tilt.geometry.as_mut().expect("geometry").coordinates =
                     conversion(CoordinateSystem::SignedCentered, codec, 10.0, 10.0);
                 let field = if pan_axis {
                     pan_tilt.pan_speed =
@@ -2723,23 +2873,58 @@ mod tests {
         let profile = runtime_builder(valid_runtime_capabilities())
             .build()
             .expect("valid runtime profile");
-        let tuning = |initial: u64, maximum: u64, budget: u64| {
-            OperationalTuning::new()
-                .with_initial_retry_backoff(Duration::from_millis(initial))
-                .with_maximum_retry_backoff(Duration::from_millis(maximum))
-                .with_retry_budget(Duration::from_millis(budget))
-        };
-        for (initial, maximum, budget) in [(49, 500, 10_000), (50, 499, 10_000), (50, 500, 9_999)] {
-            let error =
-                invalid_request_message(profile.validate_tuning(tuning(initial, maximum, budget)))
-                    .expect("a shortened retry bound must be rejected");
-            assert!(
-                error.contains("cannot undercut the profile retry bounds"),
-                "{initial}/{maximum}/{budget}: {error}"
+        type Setter = fn(OperationalTuning, Duration) -> OperationalTuning;
+        let fields: [(&str, Setter, u64); 3] = [
+            (
+                "with_initial_retry_backoff",
+                OperationalTuning::with_initial_retry_backoff,
+                50,
+            ),
+            (
+                "with_maximum_retry_backoff",
+                OperationalTuning::with_maximum_retry_backoff,
+                500,
+            ),
+            (
+                "with_retry_budget",
+                OperationalTuning::with_retry_budget,
+                10_000,
+            ),
+        ];
+        for mask in 0..8 {
+            let tuning = fields.iter().enumerate().fold(
+                OperationalTuning::new(),
+                |tuning, (index, &(_, setter, floor))| {
+                    if mask & (1 << index) != 0 {
+                        setter(tuning, Duration::from_millis(floor))
+                    } else {
+                        tuning
+                    }
+                },
             );
+            assert!(
+                profile.validate_tuning(tuning).is_ok(),
+                "overrides {mask:03b}"
+            );
+            for (index, &(name, setter, floor)) in fields.iter().enumerate() {
+                if mask & (1 << index) != 0 {
+                    let error = invalid_request_message(
+                        profile.validate_tuning(setter(tuning, Duration::from_millis(floor - 1))),
+                    )
+                    .expect("a shortened retry bound must be rejected");
+                    assert!(error.contains(name), "{name}: {error}");
+                }
+            }
+            if mask & 1 != 0 {
+                let wider = tuning.with_initial_retry_backoff(Duration::from_secs(2));
+                let error = invalid_request_message(profile.validate_tuning(wider))
+                    .expect("the initial backoff must fit the unchanged ceiling");
+                assert!(error.contains("with_initial_retry_backoff") && error.contains("500ms"));
+                assert!(profile
+                    .validate_tuning(wider.with_maximum_retry_backoff(Duration::from_secs(3)))
+                    .is_ok());
+            }
         }
-        assert!(profile.validate_tuning(tuning(50, 500, 10_000)).is_ok());
-        assert!(profile.validate_tuning(tuning(200, 2_000, 30_000)).is_ok());
 
         // A profile busy timeout raises the floors it governs.
         let busy = ProfileSpec::builder(valid_runtime_capabilities())
@@ -2765,9 +2950,16 @@ mod tests {
             .position_inquiries(AffectedAxes::PAN_TILT | AffectedAxes::ZOOM | AffectedAxes::FOCUS)
             .build()
             .expect("valid busy-timeout profile");
-        assert!(busy.validate_tuning(tuning(50, 11_999, 12_000)).is_err());
-        assert!(busy.validate_tuning(tuning(50, 12_000, 11_999)).is_err());
-        assert!(busy.validate_tuning(tuning(50, 12_000, 12_000)).is_ok());
+        let tuning = OperationalTuning::new();
+        assert!(busy
+            .validate_tuning(tuning.with_maximum_retry_backoff(Duration::from_millis(11_999)))
+            .is_err());
+        assert!(busy
+            .validate_tuning(tuning.with_retry_budget(Duration::from_millis(11_999)))
+            .is_err());
+        assert!(busy
+            .validate_tuning(tuning.with_retry_budget(Duration::from_secs(12)))
+            .is_ok());
     }
 
     #[test]
@@ -2917,7 +3109,13 @@ mod tests {
     #[test]
     fn grouped_ranges_fit_the_selected_wire_and_typed_domains() {
         let mut caps = valid_runtime_capabilities();
-        let pt = caps.pan_tilt.as_mut().expect("pan/tilt");
+        let pt = caps
+            .pan_tilt
+            .as_mut()
+            .expect("pan/tilt")
+            .geometry
+            .as_mut()
+            .expect("geometry");
         pt.coordinates = conversion(
             CoordinateSystem::SignedCentered,
             PanTiltWireCodec::SonyBrc300,
@@ -2930,12 +3128,24 @@ mod tests {
             CapabilityRange::<i32>::new(-0x8000, 0x7FFF).expect("valid capability bounds"),
         );
         assert!(runtime_builder(caps.clone()).build().is_ok());
-        caps.pan_tilt.as_mut().expect("pan/tilt").pan_range =
+        caps.pan_tilt
+            .as_mut()
+            .expect("pan/tilt")
+            .geometry
+            .as_mut()
+            .expect("geometry")
+            .pan_range =
             CapabilityRange::<i32>::new(-0x80001, 0x7FFFF).expect("valid capability bounds");
         assert!(runtime_builder(caps).build().is_err());
 
         let mut caps = valid_runtime_capabilities();
-        caps.pan_tilt.as_mut().expect("pan/tilt").tilt_ranges = TiltRanges::Single(
+        caps.pan_tilt
+            .as_mut()
+            .expect("pan/tilt")
+            .geometry
+            .as_mut()
+            .expect("geometry")
+            .tilt_ranges = TiltRanges::Single(
             CapabilityRange::<i32>::new(-0x8000, 0x8000).expect("valid capability bounds"),
         );
         assert!(runtime_builder(caps).build().is_err());
@@ -3019,6 +3229,215 @@ mod tests {
     }
 
     #[test]
+    fn position_speed_grammars_validate_shared_speed_before_lowering() {
+        use crate::{command::pan_tilt_wire::PanTiltFraming, types::SpeedLevel};
+        for codec in [
+            PanTiltWireCodec::StandardVisca,
+            PanTiltWireCodec::SonyBrc300,
+            PanTiltWireCodec::SonyFr7,
+        ] {
+            for (pan_max, tilt_min) in [(4, 5), (5, 5), (8, 5)] {
+                let mut facts = ProfileId::PtzOpticsG2.raw_facts();
+                facts.capabilities.profile_id = None;
+                let pan_tilt = facts.capabilities.pan_tilt.as_mut().expect("pan/tilt");
+                let coordinates = conversion(CoordinateSystem::SignedCentered, codec, 14.4, 14.4);
+                pan_tilt.geometry.as_mut().expect("geometry").coordinates = coordinates;
+                pan_tilt.pan_speed = CapabilityRange::<u8>::new(1, pan_max).expect("pan range");
+                pan_tilt.tilt_speed = CapabilityRange::<u8>::new(tilt_min, 24).expect("tilt range");
+
+                let result = ProfileSpec::from_facts(facts.clone());
+                #[cfg(feature = "serde")]
+                let restored = serde_json::from_value::<ProfileSpec>(
+                    serde_json::to_value(&facts).expect("profile JSON"),
+                );
+                if codec == PanTiltWireCodec::SonyBrc300 && pan_max < tilt_min {
+                    let assert_refusal = |reason: &str| {
+                        assert!(
+                            reason.contains("capabilities.pan_tilt.pan_speed"),
+                            "{reason}"
+                        );
+                        assert!(
+                            reason.contains("capabilities.pan_tilt.tilt_speed"),
+                            "{reason}"
+                        );
+                    };
+                    assert_refusal(&result.expect_err("disjoint ranges").to_string());
+                    #[cfg(feature = "serde")]
+                    assert_refusal(&restored.expect_err("disjoint ranges").to_string());
+                    continue;
+                }
+                let spec = result.expect("compatible ranges");
+                #[cfg(feature = "serde")]
+                assert_eq!(restored.expect("compatible persisted ranges"), spec);
+                let speeds = spec.position_speeds().expect("position speeds");
+                for level in [
+                    SpeedLevel::Slowest,
+                    SpeedLevel::Slow,
+                    SpeedLevel::Medium,
+                    SpeedLevel::Fast,
+                    SpeedLevel::Fastest,
+                ] {
+                    let lowered = speeds.lower(level);
+                    assert!(PanTiltFraming::for_conversion(coordinates)
+                        .move_speeds(lowered.pan, lowered.tilt)
+                        .is_ok());
+                    let (baseline_pan, baseline_tilt, _, _) = level.baseline_speeds();
+                    let expected = if codec == PanTiltWireCodec::SonyBrc300 {
+                        let shared = baseline_pan.clamp(tilt_min, pan_max);
+                        (shared, shared)
+                    } else {
+                        (
+                            baseline_pan.clamp(1, pan_max),
+                            baseline_tilt.clamp(tilt_min, 24),
+                        )
+                    };
+                    assert_eq!(
+                        (lowered.pan.value(), lowered.tilt.value()),
+                        expected,
+                        "{codec:?} {level:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sourced_pan_tilt_endpoints_prepare_to_their_wire_words() {
+        use crate::{
+            request::{builtin::PanTiltAbsolute, Request},
+            types::{Degrees, PanSpeed, TiltSpeed},
+            CameraId, IndividualCameraId, MountPosition, TargetRegistration,
+        };
+
+        #[derive(Clone, Copy)]
+        struct Axis {
+            degrees: [f32; 2],
+            words: [u32; 2],
+            nibbles: usize,
+        }
+
+        let axis = |degrees, words, nibbles| Axis {
+            degrees,
+            words,
+            nibbles,
+        };
+        let ptzoptics_pan = axis([-170.0, 170.0], [0xF670, 0x0990], 4);
+        let ptzoptics_tilt = axis([-30.0, 90.0], [0xFE50, 0x0510], 4);
+        let fr7_pan = axis([-170.0, 170.0], [0x09CA7, 0xF6359], 5);
+        // The BRC limits use exact wire words with approximate degree scales.
+        let brc300_pan = axis([-35416.0 / 208.0, 35416.0 / 208.0], [0x08A58, 0xF75A8], 5);
+        let brc300_tilt = axis([-6250.0 / 208.0, 18749.0 / 208.0], [0xE796, 0x493D], 4);
+        let cases = [
+            (ProfileId::PtzOpticsG2, None, ptzoptics_pan, ptzoptics_tilt),
+            (ProfileId::PtzOpticsG3, None, ptzoptics_pan, ptzoptics_tilt),
+            (ProfileId::PtzOptics30x, None, ptzoptics_pan, ptzoptics_tilt),
+            (
+                ProfileId::SonyFr7,
+                None,
+                fr7_pan,
+                axis([-30.0, 195.0], [0xFE45B, 0x0B3B0], 5),
+            ),
+            (
+                ProfileId::SonyFr7,
+                Some(MountPosition::Ceiling),
+                fr7_pan,
+                axis([-210.0, 15.0], [0xF3E7D, 0x00DD2], 5),
+            ),
+            (
+                ProfileId::SonyBrcH900,
+                None,
+                axis([-39902.0 / 236.0, 39902.0 / 236.0], [0x09BDE, 0xF6422], 5),
+                axis([-7080.0 / 236.0, 21240.0 / 236.0], [0xE458, 0x52F8], 4),
+            ),
+            (
+                ProfileId::SonyEviH100,
+                None,
+                axis([-170.0, 170.0], [0xE1E5, 0x1E1B], 4),
+                axis([-20.0, 90.0], [0xFC75, 0x0FF0], 4),
+            ),
+            (ProfileId::SonyBrc300, None, brc300_pan, brc300_tilt),
+            (ProfileId::NearusBrc300, None, brc300_pan, brc300_tilt),
+        ];
+        // Generic VISCA's member sources do not agree on degree endpoints.
+        for (id, mount, pan, tilt) in cases {
+            let spec = id.spec().expect("built-in spec");
+            let mut target = TargetRegistration::new(IndividualCameraId::CAMERA_1, spec);
+            if let Some(mount) = mount {
+                target = target.with_mount(mount).expect("supported mount");
+            }
+            let pan_range = target
+                .profile()
+                .capabilities()
+                .pan_tilt
+                .as_ref()
+                .expect("pan/tilt")
+                .geometry
+                .expect("geometry")
+                .pan_range_degrees();
+            let tilt_range = target.tilt_range_degrees().expect("tilt range");
+            assert_eq!(
+                pan_range,
+                pan.degrees[0]..=pan.degrees[1],
+                "{id:?} {mount:?}"
+            );
+            assert_eq!(
+                tilt_range,
+                tilt.degrees[0]..=tilt.degrees[1],
+                "{id:?} {mount:?}"
+            );
+
+            let request_at = |pan, tilt| {
+                PanTiltAbsolute::for_target(
+                    Degrees::new(pan).expect("pan degrees"),
+                    Degrees::new(tilt).expect("tilt degrees"),
+                    PanSpeed::new(1).expect("pan speed"),
+                    TiltSpeed::new(1).expect("tilt speed"),
+                    &target,
+                )
+            };
+            let word = |nibbles: &[u8]| {
+                nibbles
+                    .iter()
+                    .fold(0, |word, &nibble| (word << 4) | u32::from(nibble))
+            };
+            for i in 0..2 {
+                let request =
+                    request_at(pan.degrees[i], tilt.degrees[i]).expect("source endpoints");
+                let mut frame = [0; PanTiltAbsolute::MAX_SIZE];
+                let len = request
+                    .write_into(CameraId::CAMERA_1, &mut frame)
+                    .expect("absolute frame");
+                assert_eq!(len, 7 + pan.nibbles + tilt.nibbles);
+                let tilt_start = 6 + pan.nibbles;
+                assert_eq!(
+                    word(&frame[6..tilt_start]),
+                    pan.words[i],
+                    "{id:?} {mount:?}"
+                );
+                assert_eq!(
+                    word(&frame[tilt_start..len - 1]),
+                    tilt.words[i],
+                    "{id:?} {mount:?}"
+                );
+            }
+            for (outside_pan, outside_tilt) in [
+                (pan.degrees[0] - 0.5, 0.0),
+                (pan.degrees[1] + 0.5, 0.0),
+                (0.0, tilt.degrees[0] - 0.5),
+                (0.0, tilt.degrees[1] + 0.5),
+            ] {
+                assert!(
+                    matches!(
+                        request_at(outside_pan, outside_tilt),
+                        Err(Error::InvalidParameter { .. })
+                    ),
+                    "{id:?} {mount:?} admitted {outside_pan}° pan, {outside_tilt}° tilt"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn coordinate_conversion_uses_selected_bounds_and_one_endpoint_policy() {
         let spec = ProfileSpec::from_compile_time::<crate::profiles::SonyFr7>().expect("FR7");
         let desktop = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, spec);
@@ -3063,7 +3482,13 @@ mod tests {
                 .is_err());
         }
         let mut caps = valid_runtime_capabilities();
-        caps.pan_tilt.as_mut().expect("pan/tilt").coordinates = conversion(
+        caps.pan_tilt
+            .as_mut()
+            .expect("pan/tilt")
+            .geometry
+            .as_mut()
+            .expect("geometry")
+            .coordinates = conversion(
             CoordinateSystem::UnsignedCentered,
             PanTiltWireCodec::StandardVisca,
             10.0,
@@ -3198,12 +3623,10 @@ mod tests {
             .build()
             .expect("command-only digital zoom profile");
         let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile);
-        let request = crate::command::zoom::SetNormalized::for_target(
-            &target,
+        let request = crate::command::zoom::SetNormalized::new(
             crate::units::UnitInterval::MAX,
             crate::ZoomDomain::OpticalPlusDigital,
-        )
-        .expect("combined normalized control does not require inquiries");
+        );
         crate::Request::validate_for_target(&request, &target).expect("control admission");
     }
 
@@ -3385,6 +3808,7 @@ mod tests {
             facts.capabilities.typed_support = TypedSupportSet::from_surfaces(&[
                 TypedSupportSurface::Iris,
                 TypedSupportSurface::NdFilter,
+                TypedSupportSurface::PanTiltPositioning,
             ]);
             facts.capabilities.presets = None;
             facts.encodings = capabilities::ProfileEncodings::default();
@@ -3406,6 +3830,7 @@ mod tests {
                 crate::target::TargetSlot::CAMERA_1,
                 ProfileSpec {
                     facts: facts.clone(),
+                    position_speeds: None,
                 },
             );
             assert!(matches!(
@@ -3420,7 +3845,10 @@ mod tests {
         }
 
         check(PanTiltPositionInquiry, AffectedAxes::PAN_TILT, |caps| {
-            caps.pan_tilt = None
+            caps.pan_tilt = None;
+            caps.typed_support = caps
+                .typed_support
+                .without(TypedSupportSurface::PanTiltPositioning);
         });
         check(ZoomPositionInquiry, AffectedAxes::ZOOM, |caps| {
             caps.zoom = None
@@ -3889,7 +4317,7 @@ mod tests {
             ("/capabilities", "focus"),
             ("/capabilities/zoom", "optical_ratio"),
             ("/capabilities/image", "picture_effects"),
-            ("/capabilities/pan_tilt/coordinates", "wire_codec"),
+            ("/capabilities/pan_tilt/geometry/coordinates", "wire_codec"),
         ] {
             let mut missing = value.clone();
             missing
@@ -3908,7 +4336,7 @@ mod tests {
         invalid["capabilities"]["default_camera_id"] = serde_json::json!(8);
         assert!(serde_json::from_value::<ProfileSpec>(invalid).is_err());
         let mut invalid = value.clone();
-        invalid["capabilities"]["pan_tilt"]["coordinates"]["pan_degrees_to_units"] =
+        invalid["capabilities"]["pan_tilt"]["geometry"]["coordinates"]["pan_degrees_to_units"] =
             serde_json::json!(0);
         assert!(serde_json::from_value::<ProfileSpec>(invalid).is_err());
         let restored: ProfileSpec = serde_json::from_value(value).expect("current grouped shape");

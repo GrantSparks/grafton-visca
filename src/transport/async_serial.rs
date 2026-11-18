@@ -6,7 +6,7 @@
 use crate::{
     transport::{
         async_io::{AsyncReadExt, AsyncWriteExt},
-        builder::TransportConfig,
+        builder::{TransportConfig, ValidatedTransportConfig},
         serial::SERIAL_PORT_CLOSED,
         stream_read, AddressedBus, AsyncTransport, HasTransportConfig, ReceiveOutcome,
     },
@@ -24,7 +24,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Serial<S: AsyncReadExt + AsyncWriteExt> {
     pub(crate) stream: S,
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
     addressed_bus: Option<AddressedBus>,
 }
 
@@ -34,7 +34,7 @@ impl<S: AsyncReadExt + AsyncWriteExt> Serial<S> {
     /// The stream should already be configured and connected to the serial port.
     /// Any initialization (I/F Clear, Address Set) should be performed by the
     /// runtime-specific connector before constructing this transport.
-    pub fn new(stream: S, config: TransportConfig) -> Self {
+    pub fn new(stream: S, config: ValidatedTransportConfig) -> Self {
         Self {
             stream,
             config,
@@ -50,7 +50,7 @@ impl<S: AsyncReadExt + AsyncWriteExt> Serial<S> {
 
     /// Get the transport configuration.
     pub fn config(&self) -> &TransportConfig {
-        &self.config
+        self.config.as_config()
     }
 }
 
@@ -75,7 +75,7 @@ impl<S: AsyncReadExt + AsyncWriteExt> HasTransportConfig for Serial<S> {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }
@@ -116,7 +116,12 @@ mod tests {
 
     #[tokio::test]
     async fn command_submission_never_flushes_a_serial_device() {
-        let mut transport = Serial::new(FlushCountingIo::default(), TransportConfig::for_serial());
+        let mut transport = Serial::new(
+            FlushCountingIo::default(),
+            TransportConfig::for_serial()
+                .validated()
+                .expect("valid connector test configuration"),
+        );
         let command = [0x81, 0x01, 0x04, 0x00, 0xFF];
 
         transport

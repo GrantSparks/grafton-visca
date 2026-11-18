@@ -83,7 +83,7 @@ pub(in crate::runtime::owner) fn answer_position(
     let admitted = state
         .admit_in_turn(&turn, request, permit, observer)
         .unwrap();
-    reply.try_send(Ok(admitted)).unwrap();
+    reply.into_request().try_send(Ok(admitted)).unwrap();
     let effects = state.finish_input_turn(turn, EngineTurn::Complete);
     drive(state, effects, now);
     // Honor the actual prepared inquiry spacing, including between axes.

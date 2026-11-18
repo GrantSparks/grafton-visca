@@ -32,7 +32,9 @@ use std::{
 use super::frames;
 use crate::{
     command::bytes::VISCA_TERMINATOR,
-    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig, ReceiveOutcome},
+    transport::{
+        builder::ValidatedTransportConfig, AsyncTransport, HasTransportConfig, ReceiveOutcome,
+    },
     Error,
 };
 
@@ -88,7 +90,7 @@ pub struct ViscaCameraSimulator {
     inner: Arc<SimulatorInner>,
     // Each clone gets its own receiver to avoid missing broadcasts
     receiver: Option<Arc<Mutex<broadcast::Receiver<Vec<u8>>>>>,
-    transport_config: TransportConfig,
+    transport_config: ValidatedTransportConfig,
 }
 
 impl Clone for ViscaCameraSimulator {
@@ -560,9 +562,7 @@ impl ViscaCameraSimulator {
         Self {
             inner,
             receiver: Some(Arc::new(Mutex::new(rx))),
-            transport_config: TransportConfig {
-                ..TransportConfig::default()
-            },
+            transport_config: ValidatedTransportConfig::default(),
         }
     }
 
@@ -1161,7 +1161,7 @@ impl HasTransportConfig for ViscaCameraSimulator {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.transport_config
     }
 }

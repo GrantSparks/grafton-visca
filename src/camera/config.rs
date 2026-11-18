@@ -245,6 +245,12 @@ impl<P: CompileTimeProfile> CameraConfig<P> {
     where
         P: SupportsTcp,
     {
+        const {
+            assert!(
+                P::TRANSPORTS.contains(crate::transport::StandardTransport::Tcp),
+                "profile marker `SupportsTcp` requires its transport in TRANSPORTS",
+            );
+        }
         Self::typed(TransportOptions::tcp(address))
     }
     /// Selects UDP using the profile's default port for a host-only address.
@@ -252,6 +258,12 @@ impl<P: CompileTimeProfile> CameraConfig<P> {
     where
         P: SupportsUdp,
     {
+        const {
+            assert!(
+                P::TRANSPORTS.contains(crate::transport::StandardTransport::Udp),
+                "profile marker `SupportsUdp` requires its transport in TRANSPORTS",
+            );
+        }
         Self::typed(TransportOptions::udp(address))
     }
     /// Selects an individual camera on a serial VISCA bus.
@@ -259,6 +271,12 @@ impl<P: CompileTimeProfile> CameraConfig<P> {
     where
         P: SupportsSerial,
     {
+        const {
+            assert!(
+                P::TRANSPORTS.contains(crate::transport::StandardTransport::Serial),
+                "profile marker `SupportsSerial` requires its transport in TRANSPORTS",
+            );
+        }
         Self::typed(TransportOptions::serial(port, baud_rate))
     }
 }
@@ -454,7 +472,7 @@ pub(crate) fn serial_device_config(
     baud_rate: u32,
     transport: Option<TransportConfig>,
     startup: SerialStartup,
-) -> crate::Result<SerialConfig> {
+) -> crate::Result<crate::transport::ValidatedSerialConfig> {
     let transport = transport.unwrap_or_else(TransportConfig::for_serial);
     let config = SerialConfig::new(port.to_owned())
         .with_baud_rate(baud_rate)
@@ -464,8 +482,7 @@ pub(crate) fn serial_device_config(
         .with_buffer_config(transport.buffer_config());
     // Serial consumes only timeouts and buffers. TCP-only options do not
     // participate in serial validation, matching the opened device facts.
-    config.transport_config().validate()?;
-    Ok(config)
+    config.validated()
 }
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -492,17 +509,17 @@ pub(crate) struct ConnectionPlan {
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) enum ConnectionTransport {
     Network(NetworkConnection),
-    Serial(SerialConfig),
+    Serial(crate::transport::ValidatedSerialConfig),
 }
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl ConnectionTransport {
     /// The already-resolved endpoint or serial device path.
     #[cfg(all(test, feature = "serde", feature = "blocking"))]
-    pub(crate) fn endpoint(&self) -> &str {
+    pub(crate) fn endpoint(&self) -> String {
         match self {
-            Self::Network(network) => &network.endpoint,
-            Self::Serial(serial) => serial.port(),
+            Self::Network(network) => network.endpoint.to_string(),
+            Self::Serial(serial) => serial.as_config().port().to_owned(),
         }
     }
 
@@ -510,7 +527,7 @@ impl ConnectionTransport {
     #[allow(clippy::panic)]
     pub(crate) fn into_serial(self) -> SerialConfig {
         match self {
-            Self::Serial(serial) => serial,
+            Self::Serial(serial) => serial.into_parts().0,
             Self::Network(_) => panic!("test requires a serial plan"),
         }
     }
@@ -529,8 +546,8 @@ impl ConnectionTransport {
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) struct NetworkConnection {
     pub(crate) kind: crate::transport::NetworkTransport,
-    pub(crate) endpoint: String,
-    pub(crate) transport_config: TransportConfig,
+    pub(crate) endpoint: crate::transport::NetworkEndpoint,
+    pub(crate) transport_config: crate::transport::ValidatedTransportConfig,
 }
 
 /// A single-camera plan retains the registration already proved by its config.
@@ -680,6 +697,9 @@ mod tests {
                 struct $name;
 
                 impl CompileTimeProfile for $name {
+                    const DOMAINS: crate::capabilities::DomainSet = Base::DOMAINS;
+                    const TRANSPORTS: crate::capabilities::TransportSet =
+                        ($transports).transport_set();
                     const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::empty();
                     const ID: Option<crate::profiles::ProfileId> = None;
 
@@ -698,7 +718,9 @@ mod tests {
                             .maximum_command_sockets(base.maximum_command_sockets())
                             .supports_operation_complete(base.supports_operation_complete())
                             .supports_command_cancel(base.supports_command_cancel())
-                            .position_inquiries(crate::AffectedAxes::MOVEMENT)
+                            .position_inquiries(
+                                crate::AffectedAxes::ZOOM | crate::AffectedAxes::FOCUS,
+                            )
                             .build()
                     }
                 }
@@ -737,6 +759,7 @@ mod tests {
                 .map(|plan| plan.connection.transport.into_network())
                 .expect("downstream plan")
                 .endpoint
+                .to_string()
         };
         assert_eq!(
             endpoint(CameraConfig::tcp("camera.local")),
@@ -761,13 +784,8 @@ mod tests {
             "camera.local:9877"
         );
 
-        // A downstream marker declaration cannot bypass runtime profile facts.
-        // Both typed and explicit transport selection are refused before I/O.
-        impl SupportsTcp for UdpOnly {}
+        // Explicit transport selection remains runtime checked for typed profiles.
         impl SupportsUdp for UdpOnly {}
-        assert!(CameraConfig::<UdpOnly>::tcp("/never-resolved")
-            .validate()
-            .is_err());
         for transport in [
             TransportOptions::tcp("/never-resolved"),
             TransportOptions::serial("/never-opened", 9600),
@@ -800,7 +818,8 @@ mod tests {
                 .connection_plan()
                 .map(|plan| plan.connection.transport.into_network())
                 .expect("UDP plan")
-                .endpoint,
+                .endpoint
+                .to_string(),
             "camera.local:9877"
         );
     }
@@ -814,6 +833,11 @@ mod tests {
         struct Malformed;
 
         impl CompileTimeProfile for Malformed {
+            const DOMAINS: crate::capabilities::DomainSet = crate::capabilities::DomainSet::empty();
+            const TRANSPORTS: crate::capabilities::TransportSet =
+                crate::profiles::TransportCompatibility::new()
+                    .with_tcp(5678)
+                    .transport_set();
             const TYPED_SUPPORT: crate::capabilities::TypedSupportSet =
                 crate::capabilities::TypedSupportSet::empty();
             const ID: Option<crate::profiles::ProfileId> = None;
@@ -880,26 +904,29 @@ mod tests {
             .map(|plan| plan.connection.transport.into_network())
             .expect("TCP plan");
         assert_eq!(tcp.kind, NetworkTransport::Tcp);
-        assert_eq!(tcp.endpoint, "camera.local:5678");
+        assert_eq!(tcp.endpoint.to_string(), "camera.local:5678");
         assert_eq!(
-            tcp.transport_config.connect_timeout,
+            tcp.transport_config.as_config().connect_timeout,
             Duration::from_millis(17)
         );
-        assert_eq!(tcp.transport_config.read_timeout, Duration::from_millis(19));
         assert_eq!(
-            tcp.transport_config.write_timeout,
+            tcp.transport_config.as_config().read_timeout,
+            Duration::from_millis(19)
+        );
+        assert_eq!(
+            tcp.transport_config.as_config().write_timeout,
             Duration::from_millis(23)
         );
         assert_eq!(
-            tcp.transport_config.buffer_config,
+            tcp.transport_config.as_config().buffer_config,
             transport_config.buffer_config
         );
-        assert_eq!(tcp.transport_config.tcp_nodelay, Some(false));
+        assert_eq!(tcp.transport_config.as_config().tcp_nodelay, Some(false));
         assert_eq!(
-            tcp.transport_config.tcp_keepalive,
+            tcp.transport_config.as_config().tcp_keepalive,
             transport_config.tcp_keepalive
         );
-        assert_eq!(tcp.transport_config.ttl, Some(41));
+        assert_eq!(tcp.transport_config.as_config().ttl, Some(41));
 
         let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
             .with_transport_config(transport_config)
@@ -907,27 +934,30 @@ mod tests {
             .map(|plan| plan.connection.transport.into_network())
             .expect("UDP plan");
         assert_eq!(udp.kind, NetworkTransport::Udp);
-        assert_eq!(udp.endpoint, "camera.local:1259");
+        assert_eq!(udp.endpoint.to_string(), "camera.local:1259");
         assert_eq!(
-            udp.transport_config.connect_timeout,
+            udp.transport_config.as_config().connect_timeout,
             Duration::from_millis(17)
         );
-        assert_eq!(udp.transport_config.read_timeout, Duration::from_millis(19));
         assert_eq!(
-            udp.transport_config.write_timeout,
+            udp.transport_config.as_config().read_timeout,
+            Duration::from_millis(19)
+        );
+        assert_eq!(
+            udp.transport_config.as_config().write_timeout,
             Duration::from_millis(23)
         );
         assert_eq!(
-            udp.transport_config.buffer_config,
+            udp.transport_config.as_config().buffer_config,
             transport_config.buffer_config
         );
-        assert_eq!(udp.transport_config.ttl, Some(41));
+        assert_eq!(udp.transport_config.as_config().ttl, Some(41));
 
         let sony = CameraConfig::<SonyFr7>::udp("camera.local")
             .connection_plan()
             .map(|plan| plan.connection.transport.into_network())
             .expect("Sony UDP plan");
-        assert_eq!(sony.endpoint, "camera.local:52381");
+        assert_eq!(sony.endpoint.to_string(), "camera.local:52381");
 
         let mut connector_calls = 0;
         let unsupported = CameraConfig::<SonyFr7>::typed(TransportOptions::Custom)
@@ -1022,66 +1052,6 @@ mod tests {
         assert_eq!(session_config.tuning(), OperationalTuning::new());
     }
 
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    #[test]
-    fn invalid_buffer_bounds_fail_during_network_preflight() {
-        use crate::{
-            camera::CameraConfig,
-            profiles::PtzOpticsG2,
-            transport::{BufferConfig, TransportConfig},
-            Error,
-        };
-
-        for (buffer_config, message) in [
-            (
-                BufferConfig {
-                    recv_buffer_size: 0,
-                    max_buffer_size: 64,
-                },
-                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
-            ),
-            (
-                BufferConfig {
-                    recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE - 1,
-                    max_buffer_size: 64,
-                },
-                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
-            ),
-            (
-                BufferConfig {
-                    recv_buffer_size: 64,
-                    max_buffer_size: 0,
-                },
-                "transport maximum buffer must be non-zero",
-            ),
-            (
-                BufferConfig {
-                    recv_buffer_size: 65,
-                    max_buffer_size: 64,
-                },
-                "transport receive buffer cannot exceed maximum buffer",
-            ),
-        ] {
-            for config in [
-                CameraConfig::<PtzOpticsG2>::tcp("camera.local:5678"),
-                CameraConfig::<PtzOpticsG2>::udp("camera.local:1259"),
-            ] {
-                let error = config
-                    .with_transport_config(TransportConfig {
-                        buffer_config,
-                        ..TransportConfig::default()
-                    })
-                    .connection_plan()
-                    .map(|plan| plan.connection.transport.into_network())
-                    .expect_err("invalid buffer bounds must fail in preflight");
-                assert!(matches!(
-                    error,
-                    Error::InvalidRequest { reason: actual } if actual.as_ref() == message
-                ));
-            }
-        }
-    }
-
     #[cfg(any(
         feature = "transport-serial-tokio",
         all(feature = "blocking", feature = "transport-serial")
@@ -1150,64 +1120,6 @@ mod tests {
         assert_eq!(configured.startup, selected);
     }
 
-    #[cfg(any(
-        feature = "transport-serial-tokio",
-        all(feature = "blocking", feature = "transport-serial")
-    ))]
-    #[test]
-    fn invalid_buffer_bounds_fail_during_serial_preflight() {
-        use crate::{
-            camera::CameraConfig,
-            profiles::PtzOpticsG2,
-            transport::{BufferConfig, TransportConfig},
-            Error,
-        };
-
-        for (buffer_config, message) in [
-            (
-                BufferConfig {
-                    recv_buffer_size: 0,
-                    max_buffer_size: 64,
-                },
-                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
-            ),
-            (
-                BufferConfig {
-                    recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE - 1,
-                    max_buffer_size: 64,
-                },
-                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
-            ),
-            (
-                BufferConfig {
-                    recv_buffer_size: 64,
-                    max_buffer_size: 0,
-                },
-                "transport maximum buffer must be non-zero",
-            ),
-            (
-                BufferConfig {
-                    recv_buffer_size: 65,
-                    max_buffer_size: 64,
-                },
-                "transport receive buffer cannot exceed maximum buffer",
-            ),
-        ] {
-            let error = CameraConfig::<PtzOpticsG2>::serial("/dev/not-opened", 9_600)
-                .with_transport_config(TransportConfig {
-                    buffer_config,
-                    ..TransportConfig::default()
-                })
-                .connection_plan()
-                .map(|plan| plan.connection.transport.into_serial())
-                .expect_err("invalid buffer bounds must fail before serial-device open");
-            assert!(matches!(
-                error,
-                Error::InvalidRequest { reason: actual } if actual.as_ref() == message
-            ));
-        }
-    }
-
     #[test]
     #[cfg(feature = "serde")]
     fn test_transport_options_serialization() {
@@ -1235,6 +1147,8 @@ mod tests {
         use crate::profiles::{CompileTimeProfile, GenericVisca, ProfileId, ProfileSpec};
         struct Community;
         impl CompileTimeProfile for Community {
+            const DOMAINS: crate::capabilities::DomainSet = GenericVisca::DOMAINS;
+            const TRANSPORTS: crate::capabilities::TransportSet = GenericVisca::TRANSPORTS;
             const TYPED_SUPPORT: crate::capabilities::TypedSupportSet = GenericVisca::TYPED_SUPPORT;
             const ID: Option<ProfileId> = GenericVisca::ID;
             fn spec() -> crate::Result<ProfileSpec> {

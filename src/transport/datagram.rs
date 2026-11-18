@@ -79,6 +79,44 @@ pub enum ReceiveOutcome {
     },
 }
 
+/// Shared read state for the scripted transports and the workspace fake camera.
+#[doc(hidden)]
+#[derive(Debug, Default)]
+pub struct ScriptedReceive {
+    pending: Option<(Vec<u8>, usize)>,
+}
+
+impl ScriptedReceive {
+    /// Deliver the unread part of a prior stream chunk before reading another chunk.
+    pub fn read_pending(&mut self, dst: &mut [u8]) -> Option<ReceiveOutcome> {
+        let (chunk, offset) = self.pending.take()?;
+        Some(self.read_stream(chunk, offset, dst))
+    }
+
+    /// Deliver a newly received stream chunk or datagram.
+    pub fn read_chunk(
+        &mut self,
+        semantics: super::SendSemantics,
+        chunk: Vec<u8>,
+        dst: &mut [u8],
+    ) -> ReceiveOutcome {
+        match semantics {
+            super::SendSemantics::Stream => self.read_stream(chunk, 0, dst),
+            super::SendSemantics::Datagram => ReceiveOutcome::copy_message(&chunk, dst),
+        }
+    }
+
+    fn read_stream(&mut self, chunk: Vec<u8>, offset: usize, dst: &mut [u8]) -> ReceiveOutcome {
+        let copied = (chunk.len() - offset).min(dst.len());
+        let next = offset + copied;
+        dst[..copied].copy_from_slice(&chunk[offset..next]);
+        if next < chunk.len() {
+            self.pending = Some((chunk, next));
+        }
+        ReceiveOutcome::complete(copied)
+    }
+}
+
 impl ReceiveOutcome {
     /// Reports a complete payload copied into the receive buffer.
     pub const fn complete(bytes: usize) -> Self {

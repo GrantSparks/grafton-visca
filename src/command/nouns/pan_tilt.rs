@@ -33,24 +33,40 @@ crate::command::nouns::forward_request!(Reset, builtin::PanTiltReset, Targeted, 
 /// Keep the movement area clear; dropping the operation handle does not stop motion.
 #[derive(Debug, Clone, Copy)]
 pub struct Drive {
-    inner: builtin::PanTiltDrive,
+    preview: Option<builtin::PanTiltDrive>,
     direction: PanTiltDirection,
     speed: Speed<PanTiltSpeed>,
 }
 impl Drive {
-    /// Resolves a coarse or exact speed using the target's independent axis ranges.
+    /// Captures a movement intent to resolve against the receiving camera.
+    pub fn new(direction: PanTiltDirection, speed: impl Into<Speed<PanTiltSpeed>>) -> Self {
+        Self {
+            preview: None,
+            direction,
+            speed: speed.into(),
+        }
+    }
+
+    /// Creates a movement intent with a preview for direct encoding.
     pub fn for_target(
         target: &TargetRegistration,
         direction: PanTiltDirection,
         speed: impl Into<Speed<PanTiltSpeed>>,
     ) -> crate::Result<Self> {
-        let speed = speed.into();
-        let resolved = lower_speed(target, speed, false)?;
-        Ok(Self {
-            inner: builtin::PanTiltDrive::new(direction, resolved.pan, resolved.tilt)?,
-            direction,
-            speed,
-        })
+        let mut request = Self::new(direction, speed);
+        request.preview = Some(request.lower(target)?);
+        Ok(request)
+    }
+
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::PanTiltDrive> {
+        #[cfg(test)]
+        builtin::record_request_value_validation();
+        let resolved = lower_drive_speed(target, self.speed)?;
+        Ok(builtin::PanTiltDrive::new(
+            self.direction,
+            resolved.pan,
+            resolved.tilt,
+        ))
     }
 
     /// Returns the requested movement direction.
@@ -58,18 +74,14 @@ impl Drive {
     pub const fn direction(self) -> PanTiltDirection {
         self.direction
     }
+
     /// Returns the requested coarse or exact speed.
     #[must_use]
     pub const fn speed(self) -> Speed<PanTiltSpeed> {
         self.speed
     }
 }
-crate::command::nouns::forward_request!(
-    Drive,
-    builtin::PanTiltDrive,
-    AppliedOnly,
-    rows = [PanTiltDrive]
-);
+crate::command::nouns::movement_intent!(Drive, builtin::PanTiltDrive, AppliedOnly, PanTiltDrive);
 
 /// Stops pan/tilt movement using speed fields accepted by the registered target.
 #[derive(Debug, Clone, Copy)]
@@ -94,93 +106,123 @@ crate::command::nouns::forward_request!(
 /// Moves to an absolute position in degrees. Keep the movement area clear.
 #[derive(Debug, Clone, Copy)]
 pub struct Absolute {
-    inner: builtin::PanTiltAbsolute,
+    preview: Option<builtin::PanTiltAbsolute>,
     position: PanTiltPosition,
     speed: Speed<PanTiltSpeed>,
 }
 impl Absolute {
-    /// Converts degrees and resolves speed through the target's position grammar.
+    /// Captures a movement intent to resolve against the receiving camera.
+    pub fn new(position: PanTiltPosition, speed: impl Into<Speed<PanTiltSpeed>>) -> Self {
+        Self {
+            preview: None,
+            position,
+            speed: speed.into(),
+        }
+    }
+
+    /// Creates a movement intent with a preview for direct encoding.
     pub fn for_target(
         target: &TargetRegistration,
         position: PanTiltPosition,
         speed: impl Into<Speed<PanTiltSpeed>>,
     ) -> crate::Result<Self> {
-        let speed = speed.into();
-        let resolved = lower_speed(target, speed, true)?;
-        Ok(Self {
-            inner: builtin::PanTiltAbsolute::for_target(
-                position.pan,
-                position.tilt,
-                resolved.pan,
-                resolved.tilt,
-                target,
-            )?,
-            position,
-            speed,
-        })
+        let mut request = Self::new(position, speed);
+        request.preview = Some(request.lower(target)?);
+        Ok(request)
     }
-    /// Returns the requested absolute position in degrees.
+
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::PanTiltAbsolute> {
+        let speed = match self.speed {
+            Speed::Exact(speed) => speed,
+            Speed::Level(level) => target.profile().position_speeds()?.lower(level),
+        };
+        builtin::PanTiltAbsolute::for_target(
+            self.position.pan,
+            self.position.tilt,
+            speed.pan,
+            speed.tilt,
+            target,
+        )
+    }
+
+    /// Returns the requested movement position.
     #[must_use]
     pub const fn position(self) -> PanTiltPosition {
         self.position
     }
+
     /// Returns the requested coarse or exact speed.
     #[must_use]
     pub const fn speed(self) -> Speed<PanTiltSpeed> {
         self.speed
     }
 }
-crate::command::nouns::forward_request!(
+crate::command::nouns::movement_intent!(
     Absolute,
     builtin::PanTiltAbsolute,
     Targeted,
-    rows = [PanTiltAbsolute]
+    PanTiltAbsolute
 );
 
 /// Moves by a relative offset in degrees. Keep the movement area clear.
 #[derive(Debug, Clone, Copy)]
 pub struct Relative {
-    inner: builtin::PanTiltRelative,
+    preview: Option<builtin::PanTiltRelative>,
     offset: PanTiltPosition,
     speed: Speed<PanTiltSpeed>,
 }
 impl Relative {
-    /// Converts an offset and resolves speed through the target's position grammar.
+    /// Captures a movement intent to resolve against the receiving camera.
+    pub fn new(offset: PanTiltPosition, speed: impl Into<Speed<PanTiltSpeed>>) -> Self {
+        Self {
+            preview: None,
+            offset,
+            speed: speed.into(),
+        }
+    }
+
+    /// Creates a movement intent with a preview for direct encoding.
     pub fn for_target(
         target: &TargetRegistration,
         offset: PanTiltPosition,
         speed: impl Into<Speed<PanTiltSpeed>>,
     ) -> crate::Result<Self> {
-        let speed = speed.into();
-        let resolved = lower_speed(target, speed, true)?;
-        Ok(Self {
-            inner: builtin::PanTiltRelative::for_target(
-                offset.pan,
-                offset.tilt,
-                resolved.pan,
-                resolved.tilt,
-                target,
-            )?,
-            offset,
-            speed,
-        })
+        let mut request = Self::new(offset, speed);
+        request.preview = Some(request.lower(target)?);
+        Ok(request)
     }
-    /// Returns the requested relative offset in degrees.
+
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::PanTiltRelative> {
+        let speed = match self.speed {
+            Speed::Exact(speed) => speed,
+            Speed::Level(level) => target.profile().position_speeds()?.lower(level),
+        };
+        builtin::PanTiltRelative::for_target(
+            self.offset.pan,
+            self.offset.tilt,
+            speed.pan,
+            speed.tilt,
+            target,
+        )
+    }
+
+    /// Returns the requested movement offset.
     #[must_use]
     pub const fn offset(self) -> PanTiltPosition {
         self.offset
     }
+
     /// Returns the requested coarse or exact speed.
     #[must_use]
     pub const fn speed(self) -> Speed<PanTiltSpeed> {
         self.speed
     }
 }
-crate::command::nouns::forward_request!(
+crate::command::nouns::movement_intent!(
     Relative,
     builtin::PanTiltRelative,
     Targeted,
-    rows = [PanTiltRelative]
+    PanTiltRelative
 );
 
 /// Sets one movement-limit corner from an absolute position in degrees.
@@ -282,15 +324,11 @@ crate::command::nouns::forward_request!(
     rows = [VariableSpeedMode]
 );
 
-fn lower_speed(
+fn lower_drive_speed(
     target: &TargetRegistration,
     speed: Speed<PanTiltSpeed>,
-    position: bool,
 ) -> crate::Result<PanTiltSpeed> {
-    use crate::{
-        capabilities::PanTiltWireCodec,
-        types::{PanSpeed, TiltSpeed},
-    };
+    use crate::types::{PanSpeed, TiltSpeed};
     let facts =
         target
             .profile()
@@ -304,18 +342,10 @@ fn lower_speed(
         Speed::Exact(speed) => speed,
         Speed::Level(level) => {
             let (pan, tilt, _, _) = level.baseline_speeds();
-            if position && facts.coordinates.wire_codec() == PanTiltWireCodec::SonyBrc300 {
-                let speed = pan.clamp(
-                    facts.pan_speed.min().max(facts.tilt_speed.min()),
-                    facts.pan_speed.max().min(facts.tilt_speed.max()),
-                );
-                PanTiltSpeed::new(PanSpeed::new(speed)?, TiltSpeed::new(speed)?)
-            } else {
-                PanTiltSpeed::new(
-                    PanSpeed::new(pan.clamp(facts.pan_speed.min(), facts.pan_speed.max()))?,
-                    TiltSpeed::new(tilt.clamp(facts.tilt_speed.min(), facts.tilt_speed.max()))?,
-                )
-            }
+            PanTiltSpeed::new(
+                PanSpeed::new(pan.clamp(facts.pan_speed.min(), facts.pan_speed.max()))?,
+                TiltSpeed::new(tilt.clamp(facts.tilt_speed.min(), facts.tilt_speed.max()))?,
+            )
         }
     };
     require_speed("pan speed", resolved.pan.value(), facts.pan_speed)?;
@@ -396,6 +426,27 @@ mod tests {
         );
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[test]
+    fn position_intent_uses_the_receiver_even_with_a_different_wire_preview() {
+        let preview_target = target(ProfileId::SonyBrc300);
+        let receiving_target = TargetRegistration::new(
+            crate::IndividualCameraId::CAMERA_2,
+            ProfileId::SonyEviH100.spec().expect("EVI profile"),
+        );
+        let origin = PanTiltPosition::from_degrees(0.0, 0.0).expect("zero degrees");
+        let request = Absolute::for_target(&preview_target, origin, SpeedLevel::Fastest)
+            .expect("BRC one-speed preview");
+        assert_eq!(&wire(&request)[..6], &[0x81, 1, 6, 2, 0x18, 0]);
+        let mut frame = [0; Absolute::MAX_SIZE];
+        let len = crate::requests::write_for_target(&request, &receiving_target, &mut frame)
+            .expect("EVI paired-speed frame");
+        assert_eq!(
+            &frame[..len],
+            &[0x82, 1, 6, 2, 0x18, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0xff]
+        );
+    }
+
     #[test]
     fn exact_speeds_are_checked_and_every_profile_lowers_coarse_speeds() {
         let zero = PanTiltPosition::from_degrees(0.0, 0.0).expect("finite position");
@@ -411,8 +462,10 @@ mod tests {
             ProfileId::GenericVisca,
         ] {
             let target = target(id);
-            Absolute::for_target(&target, zero, SpeedLevel::Fastest).expect("coarse absolute");
-            Relative::for_target(&target, zero, SpeedLevel::Fastest).expect("coarse relative");
+            if target.profile().pan_tilt_coordinates().is_some() {
+                Absolute::for_target(&target, zero, SpeedLevel::Fastest).expect("coarse absolute");
+                Relative::for_target(&target, zero, SpeedLevel::Fastest).expect("coarse relative");
+            }
             Drive::for_target(&target, PanTiltDirection::Up, SpeedLevel::Fastest)
                 .expect("coarse drive");
         }
@@ -434,6 +487,5 @@ mod tests {
             stop.admission_control_class(crate::requests::RequestContractAuthority::new()),
             crate::ControlClass::Urgent
         );
-        assert!(Drive::for_target(&brc, PanTiltDirection::Stop, SpeedLevel::Medium).is_err());
     }
 }

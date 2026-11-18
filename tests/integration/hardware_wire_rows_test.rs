@@ -24,7 +24,7 @@
 //! Transport: raw TCP `{VISCA_CAMERA_IP}:5678` through the blocking facade.
 //!
 //! Tests and the wire rows they exercise (cross-checked against
-//! `tests/fixtures/issue_715_wire_golden.txt`):
+//! `testdata/issue_715_wire_golden.txt`):
 //!
 //! | Test | Rows |
 //! |---|---|
@@ -794,12 +794,16 @@ fn absolute_pan_tilt_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks
         .pan_tilt
         .as_ref()
         .expect("pan/tilt domain")
+        .geometry
+        .expect("geometry")
         .coordinates
         .pan_degrees_to_units();
     let tilt_units = capabilities
         .pan_tilt
         .as_ref()
         .expect("pan/tilt domain")
+        .geometry
+        .expect("geometry")
         .coordinates
         .tilt_degrees_to_units();
     let slowest = SpeedLevel::Slowest;
@@ -811,12 +815,16 @@ fn absolute_pan_tilt_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks
             .pan_tilt
             .as_ref()
             .expect("pan/tilt domain")
+            .geometry
+            .expect("geometry")
             .pan_range
             .as_inclusive(),
         capabilities
             .pan_tilt
             .as_ref()
             .expect("pan/tilt domain")
+            .geometry
+            .expect("geometry")
             .tilt_ranges
             .range(None)
             .as_inclusive(),
@@ -840,6 +848,8 @@ fn absolute_pan_tilt_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks
         .pan_tilt
         .as_ref()
         .expect("pan/tilt domain")
+        .geometry
+        .expect("geometry")
         .pan_range
         .as_inclusive()
         .contains(&target_pan)
@@ -853,6 +863,8 @@ fn absolute_pan_tilt_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks
                 .pan_tilt
                 .as_ref()
                 .expect("pan/tilt domain")
+                .geometry
+                .expect("geometry")
                 .pan_range
                 .as_inclusive()
         );
@@ -1450,8 +1462,8 @@ fn tilt_polarity_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Er
     hw!(
         hw,
         "profile.pan_tilt tilt_range={:?} tilt_degrees_to_units={} pan_tolerance_raw={PAN_TOLERANCE_RAW}",
-        capabilities.pan_tilt.as_ref().expect("pan/tilt domain").tilt_ranges.range(None).as_inclusive(),
-        capabilities.pan_tilt.as_ref().expect("pan/tilt domain").coordinates.tilt_degrees_to_units()
+        capabilities.pan_tilt.as_ref().expect("pan/tilt domain").geometry.expect("geometry").tilt_ranges.range(None).as_inclusive(),
+        capabilities.pan_tilt.as_ref().expect("pan/tilt domain").geometry.expect("geometry").coordinates.tilt_degrees_to_units()
     );
     // An axis at a limit cannot show a change; never move it there.
     if p0.tilt
@@ -1459,6 +1471,8 @@ fn tilt_polarity_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Er
             .pan_tilt
             .as_ref()
             .expect("pan/tilt domain")
+            .geometry
+            .expect("geometry")
             .tilt_ranges
             .range(None)
             .as_inclusive()
@@ -1468,6 +1482,8 @@ fn tilt_polarity_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Er
                 .pan_tilt
                 .as_ref()
                 .expect("pan/tilt domain")
+                .geometry
+                .expect("geometry")
                 .tilt_ranges
                 .range(None)
                 .as_inclusive()
@@ -1481,6 +1497,8 @@ fn tilt_polarity_body(camera: &Camera<AnyProfile>, hw: &Hw) -> Result<Checks, Er
                 .pan_tilt
                 .as_ref()
                 .expect("pan/tilt domain")
+                .geometry
+                .expect("geometry")
                 .tilt_ranges
                 .range(None)
                 .as_inclusive()

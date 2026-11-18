@@ -85,10 +85,7 @@ fn response_counter_distinguishes_silence_from_positive_liveness() {
         grafton_visca::error::Recovery::Resubmit { .. }
     ));
     assert!(!error.requires_new_session());
-    // The probe is bounded by the profile's own retry budget: ten seconds
-    // for a 1 s inquiry deadline. Tuning may lengthen that bound but never
-    // shorten it (#828 M3), so a faster liveness verdict is a caller-side
-    // deadline, not a tuning value.
+    // The raw stream writes one inquiry and waits for its reply deadline.
     assert!(started.elapsed() < Duration::from_secs(10));
     let after = silent.metrics().expect("metrics after probe");
     assert_eq!(before.received_frames, 0);

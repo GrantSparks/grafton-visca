@@ -303,7 +303,7 @@ macro_rules! sample_arguments {
 }
 
 macro_rules! inquiry_gate_of {
-    ([mapped [$($request:tt)*] |$reply:ident, $profile:ident| $mapping:expr]) => {
+    ([with_decoder [$($request:tt)*] => $decoder:path]) => {
         inquiry_gate_of!([$($request)*])
     };
     ([checked $($request:tt)*]) => { inquiry_gate_of!([$($request)*]) };
@@ -451,8 +451,15 @@ macro_rules! source_agreement_row {
                     assert!(row_gate(row).validate($profile, "admitted command discovery").is_ok(),
                         "{} {:?} admits a request its discovery gate refuses", $profile.name(), row);
                     let prepared = prepare!($kind, &request, $profile);
-                    assert!(prepared.is_ok(), "{} {:?} passed target validation but failed class-specific preparation: {prepared:?}",
-                        $profile.name(), row);
+                    if $profile.capabilities().profile_id == Some(crate::profiles::ProfileId::GenericVisca)
+                        && matches!(row, BuiltinCommand::PanTiltHome | BuiltinCommand::PanTiltReset | BuiltinCommand::PresetRecall)
+                    {
+                        assert!(matches!(prepared, Err(crate::Error::FeatureNotSupported { .. })),
+                            "{row:?} requires pan/tilt settlement");
+                    } else {
+                        assert!(prepared.is_ok(), "{} {:?} passed target validation but failed class-specific preparation: {prepared:?}",
+                            $profile.name(), row);
+                    }
                     if row_gate(row).validate(&$denied, "denied command discovery").is_err() {
                         builtin::reset_request_write_count();
                         let result = prepare!($kind, &request, &$denied);

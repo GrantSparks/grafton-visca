@@ -15,7 +15,7 @@ mod motion;
 use crate::observability::DiagnosticEvent;
 mod diagnostics;
 
-use motion::{Admitted, MotionRegistry, MotionStamp};
+use motion::{Admitted, AdmittedOperation, MotionRegistry, MotionStamp};
 #[cfg(feature = "async")]
 mod async_actor;
 #[cfg(feature = "async")]
@@ -76,6 +76,8 @@ use turn::{
     TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
 
+#[cfg(all(test, feature = "runtime-tokio"))]
+use std::sync::atomic::AtomicUsize;
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
@@ -95,9 +97,10 @@ use crate::{
 use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind};
 
 use super::engine::{
-    AdmissionSlot, AppliedStateProjection, CancellationObservation, CommandOutcome, DeadlineKind,
-    DecodedFrame, DecodedResponse, Effect, EngineTurn, IgnoreReason, Input, InputTurn,
-    InquiryOutcome, Lane, Lifecycle, ProtocolEngine, ProtocolPolicy, RequestId, RuntimeOutcome,
+    AdmissionSlot, AdmittedId, AppliedStateProjection, CancellationConclusion,
+    CancellationObservation, CommandOutcome, CommandRequestId, DeadlineKind, DecodedFrame,
+    DecodedResponse, Effect, EngineTurn, IgnoreReason, Input, InputTurn, InquiryOutcome, Lane,
+    Lifecycle, MotionEffect, ProtocolEngine, ProtocolPolicy, RequestId, RuntimeOutcome,
     RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, Transmission, TransmissionId,
     TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
 };
@@ -408,6 +411,7 @@ pub(crate) struct OwnerMetrics {
     pub(crate) terminal: u64,
     pub(crate) cancellations: u64,
     pub(crate) cache_updates: u64,
+    pub(crate) cache_invalidations: u64,
     pub(crate) ack_timeouts: u64,
     pub(crate) completion_timeouts: u64,
     pub(crate) inquiry_timeouts: u64,
@@ -534,7 +538,7 @@ impl AdmissionPermitPool {
             AdmissionSlot::Ordinary
         } else if request.is_stop() {
             return Err(Error::ControlReserveExhausted {
-                target: target.camera(),
+                target: target.individual_camera(),
                 reserve: usize::from(self.0.reserves[target]),
             });
         } else {
@@ -941,20 +945,64 @@ pub(crate) enum TerminalSlot {
 }
 
 pub(crate) trait TerminalLane: Clone + Send + std::fmt::Debug + 'static {
+    type Id: Copy + Send + std::fmt::Debug;
+
+    fn identity(admitted: AdmittedId) -> Result<Self::Id, Error>;
+    fn request_id(id: Self::Id) -> RequestId;
     fn slot(cell: Arc<ObserverCell<Self>>) -> TerminalSlot;
 }
 impl TerminalLane for CommandOutcome {
+    type Id = CommandRequestId;
+
+    fn identity(admitted: AdmittedId) -> Result<Self::Id, Error> {
+        match admitted {
+            AdmittedId::Command(id) => Ok(id),
+            AdmittedId::Inquiry(_) => Err(Error::InvalidState {
+                reason: "command receipt received an inquiry identity".into(),
+            }),
+        }
+    }
+
+    fn request_id(id: Self::Id) -> RequestId {
+        id.request_id()
+    }
+
     fn slot(cell: Arc<ObserverCell<Self>>) -> TerminalSlot {
         TerminalSlot::Command(cell)
     }
 }
 impl TerminalLane for InquiryOutcome {
+    type Id = RequestId;
+
+    fn identity(admitted: AdmittedId) -> Result<Self::Id, Error> {
+        match admitted {
+            AdmittedId::Inquiry(id) => Ok(id),
+            AdmittedId::Command(_) => Err(Error::InvalidState {
+                reason: "inquiry receipt received a command identity".into(),
+            }),
+        }
+    }
+
+    fn request_id(id: Self::Id) -> RequestId {
+        id
+    }
+
     fn slot(cell: Arc<ObserverCell<Self>>) -> TerminalSlot {
         TerminalSlot::Inquiry(cell)
     }
 }
 #[cfg(test)]
 impl TerminalLane for RuntimeOutcome {
+    type Id = AdmittedId;
+
+    fn identity(admitted: AdmittedId) -> Result<Self::Id, Error> {
+        Ok(admitted)
+    }
+
+    fn request_id(id: Self::Id) -> RequestId {
+        id.request_id()
+    }
+
     fn slot(cell: Arc<ObserverCell<Self>>) -> TerminalSlot {
         TerminalSlot::Test(cell)
     }
@@ -1003,38 +1051,52 @@ pub(crate) type CancellationObserver = Observer<Error>;
 /// intent instead of creating a second one.
 #[derive(Debug)]
 pub(crate) struct CancellationRequest {
-    pub(crate) id: RequestId,
+    pub(crate) id: CommandRequestId,
     pub(crate) observer: Arc<ObserverCell<Error>>,
+}
+
+#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
+impl ReceiptCore<CommandOutcome> {
+    fn command_id(&self) -> CommandRequestId {
+        self.identity
+    }
+}
+
+#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
+impl ReceiptCore<RuntimeOutcome> {
+    #[allow(clippy::panic)]
+    fn command_id(&self) -> CommandRequestId {
+        match self.identity {
+            AdmittedId::Command(id) => id,
+            AdmittedId::Inquiry(_) => panic!("test cancellation requires an admitted command"),
+        }
+    }
 }
 
 /// Exact, linear observation authority shared by the mode-specific receipt
 /// wrappers. It is deliberately neither cloneable nor publicly nameable.
 #[derive(Debug)]
-pub(crate) struct ReceiptCore<T = CommandOutcome> {
-    motion: Option<MotionStamp>,
-    pub(crate) id: RequestId,
+pub(crate) struct ReceiptCore<T: TerminalLane = CommandOutcome> {
+    pub(crate) identity: T::Id,
     pub(crate) completion: TerminalObserver<T>,
     pub(crate) configured_timeout: Duration,
 }
 
-impl<T: Clone> ReceiptCore<T> {
-    fn admitted(admitted: Admitted, completion: TerminalObserver<T>, timeout: Duration) -> Self {
-        let mut core = Self::new(admitted.id, completion, timeout);
-        core.motion = admitted.motion;
-        core
-    }
-
-    fn new(id: RequestId, completion: TerminalObserver<T>, configured_timeout: Duration) -> Self {
-        Self {
-            motion: None,
-            id,
+impl<T: TerminalLane> ReceiptCore<T> {
+    fn admitted(
+        admitted: Admitted,
+        completion: TerminalObserver<T>,
+        configured_timeout: Duration,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            identity: T::identity(admitted.identity)?,
             completion,
             configured_timeout,
-        }
+        })
     }
 
-    const fn id(&self) -> RequestId {
-        self.id
+    pub(crate) fn id(&self) -> RequestId {
+        T::request_id(self.identity)
     }
 
     const fn configured_timeout(&self) -> Duration {
@@ -1049,7 +1111,7 @@ impl<T: Clone> ReceiptCore<T> {
         if outcome.within(deadline) {
             Ok(outcome.value)
         } else {
-            Err(observation_timeout(self.id))
+            Err(observation_timeout(self.id()))
         }
     }
 
@@ -1129,6 +1191,7 @@ pub(crate) fn cancellation_outcome(
 #[derive(Debug)]
 pub(crate) struct OperationObservation {
     core: ReceiptCore,
+    motion: MotionStamp,
     cancellation_timeout: Duration,
     terminal: Option<Observed<CommandOutcome>>,
     settled: Option<Result<crate::Settlement, Error>>,
@@ -1137,9 +1200,14 @@ pub(crate) struct OperationObservation {
 }
 
 impl OperationObservation {
-    pub(crate) fn new(core: ReceiptCore, cancellation_timeout: Duration) -> Self {
+    pub(crate) fn new(
+        core: ReceiptCore,
+        motion: MotionStamp,
+        cancellation_timeout: Duration,
+    ) -> Self {
         Self {
             core,
+            motion,
             cancellation_timeout,
             terminal: None,
             settled: None,
@@ -1148,8 +1216,13 @@ impl OperationObservation {
         }
     }
 
+    #[cfg(test)]
+    fn command_id(&self) -> CommandRequestId {
+        self.core.identity
+    }
+
     pub(crate) const fn id(&self) -> RequestId {
-        self.core.id()
+        self.core.identity.request_id()
     }
 
     /// The configured observer deadline for application.
@@ -1184,9 +1257,9 @@ impl OperationObservation {
             .map(|event| application_outcome(cancellation_outcome(&event.value)))
     }
 
-    /// The cancellation verdict, once known. The terminal outcome always
-    /// decides it, so the answer does not depend on the order in which the
-    /// owner emits a cancellation failure and a later terminal outcome.
+    /// The cancellation verdict, once known. An on-time terminal outcome
+    /// takes precedence. The cancellation slot answers only when the
+    /// cancellation attempt ended while the operation was still live.
     pub(crate) fn cancellation(
         &mut self,
         deadline: Instant,
@@ -1223,7 +1296,7 @@ impl OperationObservation {
             }
         };
         CancellationRequest {
-            id: self.core.id(),
+            id: self.core.identity,
             observer,
         }
     }
@@ -1249,35 +1322,25 @@ impl OperationObservation {
     }
 
     pub(crate) fn check_settlement(&mut self) -> Result<(), Error> {
-        if let Some(stamp) = &self.core.motion {
-            if let Err(error) =
-                stamp.check(crate::OperationId::from_nonzero(self.id().as_nonzero()))
-            {
-                self.settled = Some(Err(error.clone()));
-                return Err(error);
-            }
-        }
-        Ok(())
+        self.motion
+            .check(crate::OperationId::from_nonzero(self.id().as_nonzero()))
+            .inspect_err(|error| self.settled = Some(Err(error.clone())))
     }
 
-    pub(crate) fn commit_settlement(
+    pub(crate) fn commit_position_observation(
         &mut self,
         result: Result<crate::Settlement, Error>,
-        polled: bool,
     ) -> Result<crate::Settlement, Error> {
-        if polled {
-            if let Some(stamp) = &self.core.motion {
-                return stamp.commit(
-                    crate::OperationId::from_nonzero(self.id().as_nonzero()),
-                    result,
-                    &mut self.settled,
-                );
-            }
-        }
-        if let Ok(evidence) = result {
-            self.settled = Some(Ok(evidence));
-        }
-        result
+        self.motion.commit(
+            crate::OperationId::from_nonzero(self.id().as_nonzero()),
+            result,
+            &mut self.settled,
+        )
+    }
+
+    pub(crate) fn commit_completion(&mut self, evidence: crate::Settlement) -> crate::Settlement {
+        self.settled = Some(Ok(evidence));
+        evidence
     }
 }
 
@@ -1586,45 +1649,93 @@ impl LiveTuning {
     }
 }
 
-/// Evidence and a nonzero progress measure for one retained input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RetainedInput {
-    pub(crate) len: std::num::NonZeroUsize,
-    pub(crate) evidence: RetainedEvidence,
+/// Raw retention carries a discard operation. Sony retention only requires a read.
+#[derive(Debug)]
+pub(crate) enum RetainedInput<'a> {
+    Raw(RawRetention<'a>),
+    Sony,
 }
 
-/// Raw-prefix facts or explicit non-raw retention, never independent flags.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RetainedEvidence {
-    Complete,
-    Malformed,
-    Incomplete {
-        target: TargetSlot,
-        kind: crate::protocol::framer::RawIncompletePrefix,
+#[derive(Debug)]
+pub(crate) enum RawRetention<'a> {
+    Framed(crate::protocol::framer::RetainedRawFrame<'a>),
+    #[cfg(all(test, feature = "runtime-tokio"))]
+    Flag {
+        evidence: RawPrefixEvidence,
+        buffered: &'a mut bool,
     },
-    NotRaw,
+    #[cfg(all(test, feature = "runtime-tokio"))]
+    AtomicFlag {
+        evidence: RawPrefixEvidence,
+        buffered: &'a AtomicBool,
+        discards: Option<&'a AtomicUsize>,
+    },
 }
 
-impl RetainedEvidence {
-    fn raw(self) -> Option<RawPrefixEvidence> {
+impl RetainedInput<'_> {
+    pub(crate) fn evidence(&self) -> Option<RawPrefixEvidence> {
         match self {
-            Self::Complete => Some(RawPrefixEvidence::Complete),
-            Self::Malformed => Some(RawPrefixEvidence::Malformed),
-            Self::Incomplete { target, kind } => {
-                Some(RawPrefixEvidence::Incomplete { target, kind })
+            Self::Raw(raw) => Some(raw.evidence()),
+            Self::Sony => None,
+        }
+    }
+}
+
+impl RawRetention<'_> {
+    fn len(&self) -> std::num::NonZeroUsize {
+        match self {
+            Self::Framed(frame) => frame.len(),
+            #[cfg(all(test, feature = "runtime-tokio"))]
+            Self::Flag { .. } => std::num::NonZeroUsize::MIN,
+            #[cfg(all(test, feature = "runtime-tokio"))]
+            Self::AtomicFlag { .. } => std::num::NonZeroUsize::MIN,
+        }
+    }
+
+    fn evidence(&self) -> RawPrefixEvidence {
+        use crate::protocol::framer::RawBufferedInput;
+        match self {
+            Self::Framed(frame) => match frame.evidence {
+                RawBufferedInput::Complete => RawPrefixEvidence::Complete,
+                RawBufferedInput::Malformed => RawPrefixEvidence::Malformed,
+                RawBufferedInput::Incomplete { target, kind } => {
+                    RawPrefixEvidence::Incomplete { target, kind }
+                }
+            },
+            #[cfg(all(test, feature = "runtime-tokio"))]
+            Self::Flag { evidence, .. } => *evidence,
+            #[cfg(all(test, feature = "runtime-tokio"))]
+            Self::AtomicFlag { evidence, .. } => *evidence,
+        }
+    }
+
+    pub(crate) fn discard_first(self) -> std::num::NonZeroUsize {
+        match self {
+            Self::Framed(frame) => frame.discard_first(),
+            #[cfg(all(test, feature = "runtime-tokio"))]
+            Self::Flag { buffered, .. } => {
+                *buffered = false;
+                std::num::NonZeroUsize::MIN
             }
-            Self::NotRaw => None,
+            #[cfg(all(test, feature = "runtime-tokio"))]
+            Self::AtomicFlag {
+                buffered, discards, ..
+            } => {
+                use std::sync::atomic::Ordering;
+                if let Some(discards) = discards {
+                    discards.fetch_add(1, Ordering::Relaxed);
+                }
+                buffered.store(false, Ordering::Release);
+                std::num::NonZeroUsize::MIN
+            }
         }
     }
 }
 
 /// Infallible inspection of retained stream input. Only discarding mutates it.
 pub(crate) trait RetainedStreamInput {
-    fn retained(&self) -> Option<RetainedInput> {
+    fn retained(&mut self) -> Option<RetainedInput<'_>> {
         None
-    }
-    fn discard_first(&mut self) -> Result<(), Error> {
-        Ok(())
     }
 }
 
@@ -1831,7 +1942,7 @@ impl OwnerState {
         error: ErrorKind,
     ) {
         self.record(DiagnosticEvent::AdmissionRejected {
-            target: target.camera(),
+            target: target.individual_camera(),
             lane: diagnostics::lane(lane),
             error,
         });
@@ -1868,48 +1979,43 @@ impl OwnerState {
     /// is preserved. The result says whether due work may advance now or must
     /// wait for a tail until the engine's grace deadline. Both owner shells use
     /// this one loop (#776).
-    ///
-    /// Every error means the owner can no longer prove a safe release; the
-    /// caller ends the session with a framing failure.
     #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn resolve_retained_raw_input<I>(
         &mut self,
         input: &mut I,
         now: Instant,
-    ) -> Result<RawReleaseResolution, Error>
+    ) -> RawReleaseResolution
     where
         I: RetainedStreamInput + ?Sized,
     {
-        loop {
-            let Some(retained) = input.retained() else {
-                // No retained input clears the previous grace scope.
-                let _ = self.engine.resolve_raw_release_gate(now, None);
-                return Ok(RawReleaseResolution::Advance);
-            };
-            let Some(evidence) = retained.evidence.raw() else {
-                let _ = self.engine.resolve_raw_release_gate(now, None);
-                return Ok(RawReleaseResolution::Advance);
-            };
-            match self.engine.resolve_raw_release_gate(now, Some(evidence)) {
-                RawReleaseGateAction::Advance => return Ok(RawReleaseResolution::Advance),
-                RawReleaseGateAction::AwaitInputUntil(deadline) => {
-                    return Ok(RawReleaseResolution::AwaitInputUntil(deadline));
-                }
-                RawReleaseGateAction::DiscardFirst => {
-                    input.discard_first()?;
-                    if input
-                        .retained()
-                        .is_some_and(|after| after.len >= retained.len)
-                    {
-                        return Err(Error::InvalidState {
-                            reason: "raw stream decoder did not consume the discarded prefix"
-                                .into(),
-                        });
+        if let Some(RetainedInput::Raw(mut raw)) = input.retained() {
+            let mut remaining = raw.len().get();
+            loop {
+                match self
+                    .engine
+                    .resolve_raw_release_gate(now, Some(raw.evidence()))
+                {
+                    RawReleaseGateAction::Advance => return RawReleaseResolution::Advance,
+                    RawReleaseGateAction::AwaitInputUntil(deadline) => {
+                        return RawReleaseResolution::AwaitInputUntil(deadline);
                     }
-                    self.record_ignored(IgnoreReason::MalformedFrame);
+                    RawReleaseGateAction::DiscardFirst => {
+                        remaining -= raw.discard_first().get();
+                        self.record_ignored(IgnoreReason::MalformedFrame);
+                    }
                 }
+                if remaining == 0 {
+                    break;
+                }
+                let Some(RetainedInput::Raw(next)) = input.retained() else {
+                    break;
+                };
+                raw = next;
             }
         }
+        // No retained raw input clears the previous grace scope.
+        let _ = self.engine.resolve_raw_release_gate(now, None);
+        RawReleaseResolution::Advance
     }
 
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
@@ -1973,7 +2079,7 @@ impl OwnerState {
                 }
             }
             self.record(DiagnosticEvent::FrameReceived {
-                target: frame.target.camera(),
+                target: frame.target.individual_camera(),
                 response: diagnostics::response(&frame.response),
             });
         }
@@ -2080,7 +2186,7 @@ impl OwnerState {
         }
         self.record(DiagnosticEvent::WriteFinished {
             id: diagnostics::id(staged.request),
-            target: staged.target().camera(),
+            target: staged.target().individual_camera(),
             cancellation: matches!(staged.kind, Transmission::Cancel { .. }),
             success,
         });
@@ -2097,23 +2203,56 @@ impl OwnerState {
     ) -> Result<Admitted, Error> {
         let summary = RequestSummary::new(&request);
         let context = *request.context();
-        let slot = permit.slot();
         let verdict = {
             let motion_admission = context.motion.map(|motion| {
                 self.motion
                     .begin_admission(context.target, motion.axes, context.submission_order)
             });
-            let verdict = self.engine.admit_in_turn(&turn.0, request, slot);
+            let verdict = self
+                .engine
+                .admit_owner_in_turn(&turn.0, request, permit.slot());
             match motion_admission {
-                Some(admission) => admission
-                    .admit(verdict)
-                    .map(|(id, stamp)| (id, Some(stamp))),
-                None => verdict.map(|id| (id, None)),
+                Some(admission) => admission.admit(verdict),
+                None => verdict,
             }
         };
-        let (id, motion) = verdict.inspect_err(|error| {
+        self.finish_admission(verdict.map(|id| (id, ())), summary, permit, observer)
+            .map(|(admitted, ())| admitted)
+    }
+
+    fn admit_operation_in_turn(
+        &mut self,
+        turn: &OwnerInputTurn,
+        request: RuntimeRequest,
+        motion: MotionEffect,
+        permit: AdmissionPermit,
+        observer: impl Into<TerminalSlot>,
+    ) -> Result<AdmittedOperation, Error> {
+        let summary = RequestSummary::new(&request);
+        let context = *request.context();
+        let admission =
+            self.motion
+                .begin_admission(context.target, motion.axes, context.submission_order);
+        let verdict = self
+            .engine
+            .admit_owner_in_turn(&turn.0, request, permit.slot());
+        let verdict = admission.admit_operation(verdict);
+        let (admitted, motion) = self.finish_admission(verdict, summary, permit, observer)?;
+        Ok(AdmittedOperation { admitted, motion })
+    }
+
+    fn finish_admission<T>(
+        &mut self,
+        verdict: Result<(AdmittedId, T), Error>,
+        summary: RequestSummary,
+        permit: AdmissionPermit,
+        observer: impl Into<TerminalSlot>,
+    ) -> Result<(Admitted, T), Error> {
+        let (identity, retained) = verdict.inspect_err(|error| {
             self.record_admission_rejection(summary.target, summary.lane, error);
         })?;
+        let slot = permit.slot();
+        let id = identity.request_id();
         self.active
             .insert(id, ActiveRequest::new(permit, observer.into(), summary));
         self.metrics.admitted = self.metrics.admitted.saturating_add(1);
@@ -2123,10 +2262,10 @@ impl OwnerState {
         }
         self.record(DiagnosticEvent::Admitted {
             id: diagnostics::id(id),
-            target: summary.target.camera(),
+            target: summary.target.individual_camera(),
             lane: diagnostics::lane(summary.lane),
         });
-        Ok(Admitted { id, motion })
+        Ok((Admitted { identity }, retained))
     }
 
     /// Deliver a cancellation failure to the observer installed after the
@@ -2156,7 +2295,7 @@ impl OwnerState {
         request: CancellationRequest,
         now: Instant,
     ) -> (VecDeque<Effect>, Result<(), Error>) {
-        let Some(active) = self.active.get_mut(&request.id) else {
+        let Some(active) = self.active.get_mut(&request.id.request_id()) else {
             return (self.buffers.take_effects(), Ok(()));
         };
         if active.cancellation.is_some() {
@@ -2295,7 +2434,7 @@ impl OwnerState {
                 if let Some(target) = self.active.get(&id).map(|active| active.summary().target) {
                     self.record(DiagnosticEvent::Transition {
                         id: diagnostics::id(id),
-                        target: target.camera(),
+                        target: target.individual_camera(),
                         from: diagnostics::phase(from),
                         to: diagnostics::phase(to),
                     });
@@ -2321,7 +2460,7 @@ impl OwnerState {
                 if let Some(target) = self.active.get(&id).map(|active| active.summary().target) {
                     self.record(DiagnosticEvent::RetryScheduled {
                         id: diagnostics::id(id),
-                        target: target.camera(),
+                        target: target.individual_camera(),
                         attempt,
                     });
                 }
@@ -2341,7 +2480,7 @@ impl OwnerState {
                 if let Some(target) = self.active.get(&id).map(|active| active.summary().target) {
                     self.record(DiagnosticEvent::DeadlineExpired {
                         id: diagnostics::id(id),
-                        target: target.camera(),
+                        target: target.individual_camera(),
                         deadline: diagnostics::deadline(deadline),
                         will_retry,
                     });
@@ -2353,7 +2492,7 @@ impl OwnerState {
                 if let Some(target) = self.active.get(&id).map(|active| active.summary().target) {
                     self.record(DiagnosticEvent::CancellationRecorded {
                         id: diagnostics::id(id),
-                        target: target.camera(),
+                        target: target.individual_camera(),
                     });
                 }
                 AppliedEffect::None
@@ -2361,13 +2500,13 @@ impl OwnerState {
             Effect::CancellationObservation { id, observation } => {
                 let target = self.active.get(&id).map(|active| active.summary().target);
                 let diagnostic = diagnostics::cancellation(&observation);
-                if let CancellationObservation::Failed(error) = observation {
+                if let CancellationObservation::AttemptFailed(error) = observation {
                     self.cancellation_failed(id, error, delivered_at);
                 }
                 if let Some(target) = target {
                     self.record(DiagnosticEvent::CancellationObserved {
                         id: diagnostics::id(id),
-                        target: target.camera(),
+                        target: target.individual_camera(),
                         observation: diagnostic,
                     });
                 }
@@ -2379,12 +2518,24 @@ impl OwnerState {
                 if let Ok(mut cache) = self.target_cache[effect.target].lock() {
                     cache.apply(effect.projection);
                 }
-                self.metrics.cache_updates = self.metrics.cache_updates.saturating_add(1);
-                self.record(DiagnosticEvent::AppliedState {
-                    id: diagnostics::id(effect.request),
-                    target: effect.target.camera(),
-                    key: effect.projection.key(),
-                });
+                let id = diagnostics::id(effect.request);
+                let target = effect.target.individual_camera();
+                let event = match effect.projection {
+                    AppliedStateProjection::Set(value) => {
+                        self.metrics.cache_updates = self.metrics.cache_updates.saturating_add(1);
+                        DiagnosticEvent::AppliedState {
+                            id,
+                            target,
+                            key: value.key(),
+                        }
+                    }
+                    AppliedStateProjection::Invalidate { key } => {
+                        self.metrics.cache_invalidations =
+                            self.metrics.cache_invalidations.saturating_add(1);
+                        DiagnosticEvent::StateInvalidated { id, target, key }
+                    }
+                };
+                self.record(event);
                 AppliedEffect::None
             }
             Effect::Terminal { id, outcome } => {
@@ -2401,7 +2552,7 @@ impl OwnerState {
                     }
                     self.record(DiagnosticEvent::Terminal {
                         id: diagnostics::id(id),
-                        target: target.camera(),
+                        target: target.individual_camera(),
                         outcome: diagnostic,
                     });
                 }

@@ -8,11 +8,11 @@ use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
-        self, Capabilities, CapabilityDomain, CapabilityRange, CoordinateSystem,
+        self, Capabilities, CapabilityDomain, CapabilityRange, CoordinateSystem, Domain, DomainSet,
         EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, InquirySupport,
         MenuCaps, PanTiltCaps, PanTiltWireCodec, PowerCaps, PresetCaps, RgbGainRanges,
-        RgbTuningRanges, ShutterSpeedEntry, TiltRanges, TypedSupportSet, TypedSupportSurface,
-        WhiteBalanceCaps, ZoomCaps,
+        RgbTuningRanges, ShutterSpeedEntry, TiltRanges, TransportSet, TypedSupportSet,
+        TypedSupportSurface, WhiteBalanceCaps, ZoomCaps,
     },
     config::SessionConfig,
     profiles::{
@@ -21,6 +21,11 @@ use grafton_visca::{
     },
     types::{AffectedAxes, ExposureMode, FocusZone, WhiteBalanceMode},
 };
+
+const SYNTHETIC_TRANSPORTS: TransportCompatibility = TransportCompatibility::new()
+    .with_tcp(5678)
+    .with_udp(1259)
+    .with_serial();
 
 fn synthetic_spec(
     model: &str,
@@ -33,17 +38,19 @@ fn synthetic_spec(
     caps.typed_support = typed_support;
     caps.inquiry_support = InquirySupport::Full;
     caps.pan_tilt = Some(PanTiltCaps {
-        pan_range: CapabilityRange::<i32>::new(-1700, 1700)?,
-        tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-300, 900)?),
+        geometry: Some(grafton_visca::capabilities::PanTiltGeometry {
+            pan_range: CapabilityRange::<i32>::new(-1700, 1700)?,
+            tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-300, 900)?),
+            coordinates: PanTiltCoordinateConversion::new(
+                CoordinateSystem::SignedCentered,
+                PanTiltWireCodec::StandardVisca,
+                10.0,
+                10.0,
+            )?,
+            endpoint_quantization: EndpointQuantization::Exact,
+        }),
         pan_speed: CapabilityRange::<u8>::new(1, 24)?,
         tilt_speed: CapabilityRange::<u8>::new(1, 20)?,
-        coordinates: PanTiltCoordinateConversion::new(
-            CoordinateSystem::SignedCentered,
-            PanTiltWireCodec::StandardVisca,
-            10.0,
-            10.0,
-        )?,
-        endpoint_quantization: EndpointQuantization::Exact,
         simultaneous: true,
         preset_recovery_time: Duration::ZERO,
         variable_speed: false,
@@ -177,12 +184,7 @@ fn synthetic_spec(
         position_inquiries = position_inquiries.union(AffectedAxes::ND_FILTER);
     }
     let mut builder = ProfileSpec::builder(caps)
-        .transports(
-            TransportCompatibility::new()
-                .with_tcp(5678)
-                .with_udp(1259)
-                .with_serial(),
-        )
+        .transports(SYNTHETIC_TRANSPORTS)
         .envelope(ProfileEnvelope::RawVisca)
         .timing(
             ProfileTiming::builder()
@@ -243,7 +245,21 @@ macro_rules! synthetic_profile_impl {
         pub struct $profile;
         synthetic_profile_default!($default, $profile);
         impl CompileTimeProfile for $profile {
-            const TYPED_SUPPORT: TypedSupportSet = $typed_support;
+            const DOMAINS: DomainSet = {
+                let mut domains = DomainSet::from_domains(&[
+                    Domain::PanTilt, Domain::Zoom, Domain::Focus, Domain::Presets,
+                    Domain::Power, Domain::Exposure, Domain::WhiteBalance,
+                ]);
+                if $typed_support.contains(TypedSupportSurface::Contrast) {
+                    domains = domains.with(Domain::Image);
+                }
+                if $typed_support.contains(TypedSupportSurface::MenuDisplay) {
+                    domains = domains.with(Domain::Menu);
+                }
+                domains
+            };
+            const TRANSPORTS: TransportSet = SYNTHETIC_TRANSPORTS.transport_set();
+            const TYPED_SUPPORT: TypedSupportSet = $typed_support.union(TypedSupportSet::from_surface(TypedSupportSurface::PanTiltPositioning));
             const ID: Option<ProfileId> = None;
             fn spec() -> grafton_visca::Result<ProfileSpec> {
                 synthetic_spec($model, <Self as CompileTimeProfile>::TYPED_SUPPORT, $ambiguity_timeout,
@@ -252,6 +268,7 @@ macro_rules! synthetic_profile_impl {
         }
         impl capabilities::HasPower for $profile {}
         impl capabilities::HasPanTilt for $profile {}
+        impl capabilities::HasPanTiltPositioning for $profile {}
         impl capabilities::HasZoom for $profile {}
         impl capabilities::HasFocus for $profile {}
         impl capabilities::HasPresets for $profile {}

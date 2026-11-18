@@ -32,12 +32,12 @@ macro_rules! noun_request {
 
 pub(crate) use noun_request;
 
-/// Builds the raw inquiry before evaluating any response mapping.
+/// Builds the wire inquiry without binding a custom profile decoder.
 ///
 /// Fallible and target/profile-bound forms mirror `noun_request!`; the
 /// inferred request type comes from the inquiry expression itself.
 macro_rules! noun_inquiry_request {
-    ($profile:expr, $target:expr; mapped [$($request:tt)*] |$reply:ident, $binding:ident| $mapping:expr) => {
+    ($profile:expr, $target:expr; with_decoder [$($request:tt)*] => $decoder:path) => {
         $crate::noun_facade::noun_inquiry_request!($profile, $target; $($request)*)
     };
     ($profile:expr, $target:expr; checked $request:expr) => {{
@@ -61,20 +61,17 @@ macro_rules! noun_inquiry_request {
 
 pub(crate) use noun_inquiry_request;
 
-/// Converts a decoded inquiry using the selected profile after protocol decoding.
-macro_rules! noun_inquiry_response {
-    ($value:expr, $selected_profile:expr; mapped [$($request:tt)*] |$reply:ident, $profile:ident| $mapping:expr) => {{
-        let $reply = $value;
-        let $profile = $selected_profile;
-        let response: $crate::Result<_> = $mapping;
-        response
-    }};
-    ($value:expr, $selected_profile:expr; $($request:tt)*) => {
-        $crate::Result::Ok($value)
+/// Selects either the inquiry's decoder or a profile-bound noun decoder.
+macro_rules! noun_inquire {
+    ([$($await:tt)*] $camera:expr, $request:expr; with_decoder [$($raw_request:tt)*] => $decoder:path) => {
+        $camera.core().inquire_with_decoder(&$request, $decoder) $($await)*
+    };
+    ([$($await:tt)*] $camera:expr, $request:expr; $($raw_request:tt)*) => {
+        $camera.inquire(&$request) $($await)*
     };
 }
 
-pub(crate) use noun_inquiry_response;
+pub(crate) use noun_inquire;
 
 /// Proves a static marker's runtime bit at the method's monomorphization.
 macro_rules! assert_profile_gate {
@@ -88,14 +85,35 @@ macro_rules! assert_profile_gate {
             }
         }
     };
-    ($profile:ident; [typed $base:ident]; [$($marker:ident $(+ $extra:ident)*)?]) => {
-        $crate::noun_facade::assert_profile_gate!(@marker $profile, $base);
+    (@domain $profile:ident, $marker:ident) => {
+        const {
+            if let Some(domains) = <$profile as $crate::profiles::CameraProfile>::DOMAINS {
+                assert!(
+                    domains.contains($crate::command::surface::domain_gate!($marker)),
+                    concat!("profile marker `", stringify!($marker), "` requires its domain record"),
+                );
+            }
+        }
+    };
+    (@getter $profile:ident; [domain $marker:ident]) => {
+        $crate::noun_facade::assert_profile_gate!(@domain $profile, $marker)
+    };
+    (@getter $profile:ident; [typed $marker:ident]) => {};
+    (@getter $profile:ident; [always]) => {};
+    (@refinements $profile:ident; [$($marker:ident $(+ $extra:ident)*)?]) => {
         $($crate::noun_facade::assert_profile_gate!(@marker $profile, $marker);
           $($crate::noun_facade::assert_profile_gate!(@marker $profile, $extra);)*)?
     };
-    ($profile:ident; $base:tt; [$($marker:ident $(+ $extra:ident)*)?]) => {
-        $($crate::noun_facade::assert_profile_gate!(@marker $profile, $marker);
-          $($crate::noun_facade::assert_profile_gate!(@marker $profile, $extra);)*)?
+    ($profile:ident; [typed $base:ident]; $refinements:tt) => {
+        $crate::noun_facade::assert_profile_gate!(@marker $profile, $base);
+        $crate::noun_facade::assert_profile_gate!(@refinements $profile; $refinements);
+    };
+    ($profile:ident; [domain $base:ident]; $refinements:tt) => {
+        $crate::noun_facade::assert_profile_gate!(@domain $profile, $base);
+        $crate::noun_facade::assert_profile_gate!(@refinements $profile; $refinements);
+    };
+    ($profile:ident; [always]; $refinements:tt) => {
+        $crate::noun_facade::assert_profile_gate!(@refinements $profile; $refinements);
     };
 }
 
@@ -139,16 +157,16 @@ pub(crate) use noun_parameter_value;
 /// parameters keep their declared type.
 macro_rules! static_noun_facade {
     (@accessor [always] $($rest:tt)*) => {
-        $crate::noun_facade::static_noun_facade!(@emit [] [] $($rest)*);
+        $crate::noun_facade::static_noun_facade!(@emit [always] [] [] $($rest)*);
     };
     (@accessor [domain $marker:ident] $($rest:tt)*) => {
-        $crate::noun_facade::static_noun_facade!(@emit [$marker] [$marker] $($rest)*);
+        $crate::noun_facade::static_noun_facade!(@emit [domain $marker] [$marker] [$marker] $($rest)*);
     };
     (@accessor [typed $marker:ident] $($rest:tt)*) => {
-        $crate::noun_facade::static_noun_facade!(@emit [$marker] [$marker] $($rest)*);
+        $crate::noun_facade::static_noun_facade!(@emit [typed $marker] [$marker] [$marker] $($rest)*);
     };
 
-    (@emit [$($struct_bound:ident)?] [$($getter_bound:ident)?]
+    (@emit $noun_gate:tt [$($struct_bound:ident)?] [$($getter_bound:ident)?]
         $accessor:ident $getter:ident $doc:tt { $($methods:tt)* }) => {
         #[doc = $doc]
         #[must_use]
@@ -189,12 +207,13 @@ macro_rules! static_noun_facade {
             pub fn $getter(&self) -> $accessor<'_, P>
             $(where P: $crate::capabilities::Permits<$crate::capabilities::permit_gate!($getter_bound)>)?
             {
+                $crate::noun_facade::assert_profile_gate!(@getter P; $noun_gate);
                 $accessor::new(self)
             }
         }
     };
 
-    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] inquiry $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty;
+    (@method [$($async:tt)?] [$($await:tt)*] $noun_gate:tt [$(#[$doc:meta])*] inquiry $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         #[doc = ""]
@@ -203,15 +222,14 @@ macro_rules! static_noun_facade {
         $(where P: $crate::capabilities::Permits<$crate::capabilities::permit_gate!($gate)> $(+ $crate::capabilities::Permits<$crate::capabilities::permit_gate!($extra)>)*)?
         {
             $($crate::noun_facade::noun_parameter_value!([$($coercion)?]; $arg; $ty);)*
-            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
+            $crate::noun_facade::assert_profile_gate!(P; $noun_gate; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_inquiry_request!(
                 self.camera.profile(), self.camera.registration(); $($request)*
             )?;
-            let reply = self.camera.inquire(&request) $($await)*?;
-            $crate::noun_facade::noun_inquiry_response!(reply, self.camera.profile(); $($request)*)
+            $crate::noun_facade::noun_inquire!([$($await)*] self.camera, request; $($request)*)
         }
     };
-    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] plain
+    (@method [$($async:tt)?] [$($await:tt)*] $noun_gate:tt [$(#[$doc:meta])*] plain
         $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
@@ -221,12 +239,12 @@ macro_rules! static_noun_facade {
         $(where P: $crate::capabilities::Permits<$crate::capabilities::permit_gate!($gate)> $(+ $crate::capabilities::Permits<$crate::capabilities::permit_gate!($extra)>)*)?
         {
             $($crate::noun_facade::noun_parameter_value!([$($coercion)?]; $arg; $ty);)*
-            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
+            $crate::noun_facade::assert_profile_gate!(P; $noun_gate; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.execute(&request) $($await)*
         }
     };
-    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] applied
+    (@method [$($async:tt)?] [$($await:tt)*] $noun_gate:tt [$(#[$doc:meta])*] applied
         $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
@@ -237,12 +255,12 @@ macro_rules! static_noun_facade {
         $(where P: $crate::capabilities::Permits<$crate::capabilities::permit_gate!($gate)> $(+ $crate::capabilities::Permits<$crate::capabilities::permit_gate!($extra)>)*)?
         {
             $($crate::noun_facade::noun_parameter_value!([$($coercion)?]; $arg; $ty);)*
-            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
+            $crate::noun_facade::assert_profile_gate!(P; $noun_gate; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::AppliedOnly, _>(&request) $($await)*
         }
     };
-    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] targeted
+    (@method [$($async:tt)?] [$($await:tt)*] $noun_gate:tt [$(#[$doc:meta])*] targeted
         $method:ident($($(#[$coercion:ident])? $arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
@@ -253,7 +271,7 @@ macro_rules! static_noun_facade {
         $(where P: $crate::capabilities::Permits<$crate::capabilities::permit_gate!($gate)> $(+ $crate::capabilities::Permits<$crate::capabilities::permit_gate!($extra)>)*)?
         {
             $($crate::noun_facade::noun_parameter_value!([$($coercion)?]; $arg; $ty);)*
-            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
+            $crate::noun_facade::assert_profile_gate!(P; $noun_gate; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::Targeted, _>(&request) $($await)*
         }
@@ -371,6 +389,10 @@ mod tests {
     }
 
     impl crate::CompileTimeProfile for NonCopyProfile {
+        const DOMAINS: crate::capabilities::DomainSet =
+            <crate::profiles::GenericVisca as crate::CompileTimeProfile>::DOMAINS;
+        const TRANSPORTS: crate::capabilities::TransportSet =
+            <crate::profiles::GenericVisca as crate::CompileTimeProfile>::TRANSPORTS;
         const TYPED_SUPPORT: crate::capabilities::TypedSupportSet =
             <crate::profiles::GenericVisca as crate::CompileTimeProfile>::TYPED_SUPPORT;
         const ID: Option<crate::profiles::ProfileId> =
@@ -414,23 +436,17 @@ mod tests {
     }
 
     #[test]
-    fn inquiry_mapping_uses_the_reply_and_profile_without_rebuilding_the_request() {
+    fn custom_inquiry_decoder_is_bound_separately_from_the_wire_request() {
         let constructed = std::cell::Cell::new(0);
         let request = noun_inquiry_request!(
             (), ();
-            mapped[{
+            with_decoder [{
                 constructed.set(constructed.get() + 1);
                 7_u8
-            }] | reply,
-            profile | Ok(u16::from(reply) + profile)
+            }] => unused_decoder
         )
         .expect("inquiry request");
-        let mapped: crate::Result<u16> = noun_inquiry_response!(
-            request, 100_u16;
-            mapped [{ panic!("the inquiry expression must not run twice") }]
-                |reply, profile| Ok(u16::from(reply) + profile)
-        );
-        assert_eq!(mapped.expect("mapped reply"), 107);
+        assert_eq!(request, 7);
         assert_eq!(constructed.get(), 1);
     }
 
@@ -443,30 +459,13 @@ mod tests {
         assert_eq!(request.expect("target-bound inquiry"), 7);
     }
 
-    #[test]
-    fn inquiry_mapping_preserves_conversion_errors() {
-        let mapped: crate::Result<u8> = noun_inquiry_response!(
-            7_u8, ();
-            mapped [7_u8] |reply, profile| {
-                let _ = (reply, profile);
-                Err(crate::Error::FeatureNotSupported { feature: "coordinate conversion" })
-            }
-        );
-        assert!(matches!(
-            mapped,
-            Err(crate::Error::FeatureNotSupported {
-                feature: "coordinate conversion"
-            })
-        ));
-    }
-
     #[cfg(feature = "async")]
     #[test]
     fn speed_futures_are_send_for_coarse_and_exact_inputs() {
         fn assert_send<T: ::core::future::Future + Send>(future: T) {
             drop(future);
         }
-        let _compile_send: fn(&crate::async_session::Camera<crate::profiles::GenericVisca>) =
+        let _compile_send: fn(&crate::async_session::Camera<crate::profiles::PtzOpticsG2>) =
             |camera| {
                 use crate::types::{FocusSpeed, PanTiltDirection, PanTiltPosition, ZoomSpeed};
                 let position = PanTiltPosition::from_degrees(0.0, 0.0).expect("finite position");

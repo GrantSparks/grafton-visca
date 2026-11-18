@@ -26,6 +26,7 @@ impl Request for DownstreamUrgent {
     fn admission_control_class(
         &self,
         _authority: grafton_visca::requests::RequestContractAuthority,
+        //~^ E0603 "module `requests` is private"
     ) -> ControlClass {
         ControlClass::Urgent
     }
@@ -35,5 +36,3 @@ fn main() {}
 
 // Downstream custom requests may choose ordinary classes, but cannot name the
 // crate-only admission authority that grants the urgent safety lane.
-//~ E0603
-//~ "module `requests` is private"

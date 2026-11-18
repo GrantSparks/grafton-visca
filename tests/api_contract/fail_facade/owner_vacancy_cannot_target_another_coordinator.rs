@@ -10,9 +10,7 @@ owner_coordinator_contract!({
         {
             let vacancy = vacancy(turn);
             second.retain(vacancy, 7);
+            //~^ E0599 "no method named `retain` found for struct `OwnerCoordinator<u32>`"
         }
     }
 });
-
-//~ E0599
-//~ "no method named `retain` found for struct `OwnerCoordinator<u32>`"

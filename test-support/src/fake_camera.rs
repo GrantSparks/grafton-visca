@@ -404,10 +404,9 @@ impl FakeCamera {
         &self.shared.reads_rx
     }
 
-    fn on_read(&self, read: Read, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+    fn record_read(&self) {
         self.state().reads += 1;
         self.shared.progress.notify_all();
-        read.map(|bytes| ReceiveOutcome::copy_message(&bytes, dst))
     }
 
     fn wait_until(
@@ -462,10 +461,11 @@ impl FakeCamera {
 #[derive(Debug)]
 struct Wire {
     camera: FakeCamera,
+    receive: grafton_visca::transport::ScriptedReceive,
     /// The clock a blocking read waits on; real time without one.
     #[cfg(feature = "test-utils")]
     clock: Option<ManualClock>,
-    config: TransportConfig,
+    config: grafton_visca::transport::ValidatedTransportConfig,
     semantics: SendSemantics,
     addressing: Option<AddressingMode>,
     kind: Option<TransportKind>,
@@ -476,14 +476,32 @@ impl Wire {
     fn new(camera: FakeCamera) -> Self {
         Self {
             camera,
+            receive: Default::default(),
             #[cfg(feature = "test-utils")]
             clock: None,
-            config: TransportConfig::default(),
+            config: Default::default(),
             semantics: SendSemantics::Datagram,
             addressing: None,
             kind: None,
             bus: None,
         }
+    }
+
+    fn read_pending(&mut self, dst: &mut [u8]) -> Option<ReceiveOutcome> {
+        let outcome = self.receive.read_pending(dst)?;
+        let _ = self.camera.begin_receive();
+        self.camera.record_read();
+        Some(outcome)
+    }
+
+    fn on_read(
+        &mut self,
+        semantics: SendSemantics,
+        read: Read,
+        dst: &mut [u8],
+    ) -> Result<ReceiveOutcome, Error> {
+        self.camera.record_read();
+        read.map(|bytes| self.receive.read_chunk(semantics, bytes, dst))
     }
 }
 
@@ -523,7 +541,9 @@ macro_rules! wire_builders {
         impl $wire {
             /// Use `config` as the transport configuration.
             pub fn with_config(mut self, config: TransportConfig) -> Self {
-                self.0.config = config;
+                self.0.config = config
+                    .validated()
+                    .expect("valid test transport configuration");
                 self
             }
 
@@ -577,7 +597,7 @@ macro_rules! wire_builders {
                 }
             }
 
-            fn transport_config(&self) -> &TransportConfig {
+            fn transport_config(&self) -> &grafton_visca::transport::ValidatedTransportConfig {
                 self.0
                     .camera
                     .shared
@@ -615,8 +635,12 @@ impl grafton_visca::transport::BlockingTransport for BlockingWire {
         dst: &mut [u8],
         timeout: Duration,
     ) -> Result<ReceiveOutcome, Error> {
+        if let Some(outcome) = self.0.read_pending(dst) {
+            return Ok(outcome);
+        }
+        let semantics = self.identity().send_semantics();
         match self.0.read_within(timeout) {
-            Some(read) => self.0.camera.on_read(read, dst),
+            Some(read) => self.0.on_read(semantics, read, dst),
             None => Err(Error::io_timeout()),
         }
     }
@@ -638,6 +662,10 @@ impl grafton_visca::transport::AsyncTransport for AsyncWire {
     }
 
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        if let Some(outcome) = self.0.read_pending(dst) {
+            return Ok(outcome);
+        }
+        let semantics = self.identity().send_semantics();
         let read = self
             .0
             .camera
@@ -645,7 +673,7 @@ impl grafton_visca::transport::AsyncTransport for AsyncWire {
             .recv_async()
             .await
             .map_err(|_| Error::connection_closed(None))?;
-        self.0.camera.on_read(read, dst)
+        self.0.on_read(semantics, read, dst)
     }
 }
 

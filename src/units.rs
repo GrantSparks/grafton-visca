@@ -278,6 +278,28 @@ mod tests {
         let schema = schemars::schema_for!(UnitInterval);
         assert_eq!(schema.get("minimum"), Some(&serde_json::json!(0.0)));
         assert_eq!(schema.get("maximum"), Some(&serde_json::json!(1.0)));
+
+        let schema = schemars::schema_for!(Degrees);
+        let minimum = schema.get("minimum").and_then(serde_json::Value::as_f64);
+        let maximum = schema.get("maximum").and_then(serde_json::Value::as_f64);
+        assert_eq!(minimum, Some(-3.402_823_5e38));
+        assert_eq!(maximum, Some(3.402_823_5e38));
+        for angle in [Degrees::MIN, Degrees::MAX] {
+            let value = serde_json::to_value(angle).unwrap().as_f64().unwrap();
+            assert!(value >= minimum.unwrap() && value <= maximum.unwrap());
+            let json = serde_json::to_string(&angle).unwrap();
+            let decimal = json.parse::<f64>().unwrap();
+            assert!(decimal >= minimum.unwrap() && decimal <= maximum.unwrap());
+        }
+
+        #[crate::value(valid_values = [-0.0, 0.0, 0.1, 0.100000001, 1.5])]
+        struct HalfSteps(f32);
+
+        let schema = schemars::schema_for!(HalfSteps);
+        assert_eq!(
+            schema.get("enum"),
+            Some(&serde_json::json!([0.0, 0.1, 1.5]))
+        );
     }
 
     #[test]

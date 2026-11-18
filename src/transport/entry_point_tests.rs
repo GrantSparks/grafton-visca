@@ -83,7 +83,7 @@ fn maximum_supported_transport_bounds_validate() {
     );
     for ttl in [1, 255] {
         config.ttl = Some(ttl);
-        config.validate().expect("supported boundary values");
+        config.validated().expect("supported boundary values");
     }
 }
 
@@ -115,7 +115,7 @@ fn per_transport_defaults_are_internally_consistent() {
             config.write_timeout,
             TransportConfig::default().write_timeout
         );
-        config.validate().expect("every default is valid");
+        config.validated().expect("every default is valid");
     }
 }
 
@@ -133,15 +133,17 @@ fn camera_config_agrees_with_the_transport_defaults() {
         tcp.connection_plan()
             .map(|plan| plan.connection.transport.into_network())
             .expect("TCP plan")
-            .transport_config,
-        TransportConfig::for_tcp()
+            .transport_config
+            .as_config(),
+        &TransportConfig::for_tcp()
     );
     assert_eq!(
         udp.connection_plan()
             .map(|plan| plan.connection.transport.into_network())
             .expect("UDP plan")
-            .transport_config,
-        TransportConfig::for_udp()
+            .transport_config
+            .as_config(),
+        &TransportConfig::for_udp()
     );
 }
 
@@ -158,7 +160,7 @@ fn camera_config_honours_an_explicit_generic_buffer_choice() {
         .map(|plan| plan.connection.transport.into_network())
         .expect("explicit TCP plan");
     assert_eq!(
-        tcp.transport_config.buffer_config(),
+        tcp.transport_config.as_config().buffer_config(),
         BufferConfig::default()
     );
 
@@ -298,7 +300,7 @@ mod blocking {
             (&tcp, TransportConfig::for_tcp(), TransportIdentity::Tcp),
             (&udp, TransportConfig::for_udp(), TransportIdentity::Udp),
         ] {
-            assert_eq!(transport.transport_config(), &expected);
+            assert_eq!(transport.transport_config().as_config(), &expected);
             assert_eq!(transport.identity(), identity);
         }
     }
@@ -384,7 +386,10 @@ mod blocking {
                 serial.recv_into_with_timeout(&mut dst, Duration::ZERO),
                 Err(Error::Timeout { .. })
             ));
-            assert_eq!(serial.transport_config(), &TransportConfig::for_serial());
+            assert_eq!(
+                serial.transport_config().as_config(),
+                &TransportConfig::for_serial()
+            );
             assert_eq!(
                 serial.identity().addressing(),
                 AddressingMode::Serial,
@@ -505,8 +510,14 @@ mod facades {
         let udp = tokio_adapters::UdpTransport::connect(&udp_address)
             .await
             .expect("Tokio UDP connects");
-        assert_eq!(tcp.transport_config(), &TransportConfig::for_tcp());
-        assert_eq!(udp.transport_config(), &TransportConfig::for_udp());
+        assert_eq!(
+            tcp.transport_config().as_config(),
+            &TransportConfig::for_tcp()
+        );
+        assert_eq!(
+            udp.transport_config().as_config(),
+            &TransportConfig::for_udp()
+        );
         assert_eq!(tcp.identity().addressing(), AddressingMode::Ip);
         assert_eq!(udp.identity().addressing(), AddressingMode::Ip);
 
@@ -520,8 +531,14 @@ mod facades {
                     .expect("smol UDP connects"),
             )
         });
-        assert_eq!(smol_tcp.transport_config(), &TransportConfig::for_tcp());
-        assert_eq!(smol_udp.transport_config(), &TransportConfig::for_udp());
+        assert_eq!(
+            smol_tcp.transport_config().as_config(),
+            &TransportConfig::for_tcp()
+        );
+        assert_eq!(
+            smol_udp.transport_config().as_config(),
+            &TransportConfig::for_udp()
+        );
         assert_eq!(smol_tcp.identity().addressing(), AddressingMode::Ip);
         assert_eq!(smol_udp.identity().addressing(), AddressingMode::Ip);
     }

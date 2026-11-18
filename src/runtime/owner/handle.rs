@@ -158,20 +158,25 @@ macro_rules! owner_handle_methods {
             where
                 K: crate::completion::Kind,
             {
+                self.off_worker("submit_operation")?;
                 prepared
-                    .admit_with(|request, affected_axes, settlement, timeouts| $($block)* {
-                        self.submit_with_timeout(request, timeouts.applied) $($await)*
-                            .map(|core| super::receipt::OperationReceipt {
-                                observation: super::OperationObservation::new(
-                                    core,
-                                    timeouts.cancellation,
-                                ),
-                                affected_axes,
-                                settlement,
-                                owner: self.clone(),
-                            })
+                    .admit_with(|request, motion, settlement, timeouts| $($block)* {
+                        let (completion, reply) = self.core.enqueue_operation(request, motion)?;
+                        let admitted = self.boundary_reply(&reply) $($await)* ??;
+                        let core = super::ReceiptCore::admitted(admitted.admitted, completion, timeouts.applied)?;
+                        Ok(super::receipt::OperationReceipt {
+                            observation: super::OperationObservation::new(
+                                core,
+                                admitted.motion,
+                                timeouts.cancellation,
+                            ),
+                            affected_axes: motion.axes,
+                            settlement,
+                            owner: self.clone(),
+                        })
                     })
                     $($await)*
+
             }
 
             /// Fails immediately when shared boundary/engine capacity is
@@ -219,38 +224,43 @@ macro_rules! owner_handle_methods {
                 started: std::time::Instant,
             ) -> Result<crate::HaltReport, crate::Error> {
                 self.off_worker("halt")?;
-                if let Some(error) = self.core.terminal_error() {
-                    return Err(error);
-                }
                 let deadline = super::receipt::observer_deadline(started, prepared.budget)?;
                 let validity = super::boundary::AdmissionValidity::until(deadline);
                 let rejected_target = prepared.target;
                 let rejected_count = prepared.requests.iter().flatten().count();
-                let (reply, receiver) = flume::bounded(1);
-                let boundary =
-                    super::boundary::CancellationBoundary::Halt(super::halt::HaltBoundary {
-                        prepared,
-                        validity: validity.clone(),
-                        reply,
-                    });
-                let answer = match self
-                    .send_lane_until(&self.core.cancellations, boundary, deadline)
-                    $($await)*
-                {
-                    Some(sent) => {
-                        sent?;
-                        self.boundary_reply_until(&receiver, deadline) $($await)*
+                let record_rejection = |error: &crate::Error| {
+                    for _ in 0..rejected_count {
+                        self.core.record_pre_admission_rejection(
+                            rejected_target,
+                            super::Lane::Command,
+                            error,
+                        );
                     }
-                    None => None,
+                };
+                let (reply, receiver) = flume::bounded(1);
+                let mut boundary = super::boundary::CancellationBoundary::Halt(
+                    super::halt::HaltBoundary {
+                        prepared,
+                        claim: validity.clone().into(),
+                        reply,
+                    },
+                );
+                let answer = loop {
+                    match self.core.try_enqueue_cancellation(boundary).inspect_err(record_rejection)? {
+                        None => break self.boundary_reply_until(&receiver, deadline) $($await)*,
+                        Some(waiting) => boundary = waiting,
+                    }
+                    match self.boundary_reply_until(&self.core.halt_capacity, deadline) $($await)* {
+                        Some(result) => result.inspect_err(record_rejection)?,
+                        None => break None,
+                    }
                 };
                 let receipt = match answer {
                     Some(answer) => answer??,
                     None => {
                         if validity.expire_before_admission() {
                             let error = crate::Error::admission_timeout();
-                            for _ in 0..rejected_count {
-                                self.core.record_pre_admission_rejection(rejected_target, super::Lane::Command, &error);
-                            }
+                            record_rejection(&error);
                             return Err(error);
                         }
                         self.boundary_reply(&receiver) $($await)* ??
@@ -288,7 +298,7 @@ macro_rules! owner_handle_methods {
                 if let Some(error) = self.core.terminal_error() {
                     return Err(error);
                 }
-                let id = request.id;
+                let id = request.id.request_id();
                 let (reply, receiver) = flume::bounded(1);
                 let boundary = super::boundary::CancellationBoundary::Cancel { request, reply };
                 match self
@@ -394,7 +404,7 @@ macro_rules! owner_handle_methods {
                 self.core.shutdown()
             }
 
-            /// Proves the polled axes idle: snapshots every `poll.interval`
+            /// Proves the sampled axes idle by taking snapshots every `poll.interval`
             /// until two consecutive ones agree, before one absolute
             /// `deadline` (see [`crate::prepared::SettlementPoll`]). The owner
             /// keeps the session progressing between samples. Errors are the
@@ -664,12 +674,11 @@ macro_rules! owner_handle_methods {
                                 )
                             })
                             .map_err(|error| super::settlement_error(error, self.observation.id()));
-                        self.observation.commit_settlement(result, true)
+                        self.observation.commit_position_observation(result)
                     }
-                    None => self.observation.commit_settlement(
-                        Ok(crate::Settlement::profile_completion(self.affected_axes)),
-                        false,
-                    ),
+                    None => Ok(self.observation.commit_completion(
+                        crate::Settlement::profile_completion(self.affected_axes),
+                    )),
                 }
             }
         }

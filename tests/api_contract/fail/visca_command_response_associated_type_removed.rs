@@ -1,4 +1,5 @@
 use grafton_visca::{__macro_support::InquiryKind, command::ViscaCommand, types::CameraId, Error};
+//~^ E0432 "unresolved import `grafton_visca::command::ViscaCommand`"
 
 struct CustomCommand;
 
@@ -19,6 +20,3 @@ impl ViscaCommand for CustomCommand {
 }
 
 fn main() {}
-
-//~ E0432
-//~ "unresolved import `grafton_visca::command::ViscaCommand`"

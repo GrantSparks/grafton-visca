@@ -92,10 +92,8 @@ impl TargetRegistration {
 
     pub(crate) fn from_profile(target: TargetSlot, profile: ProfileSpec) -> Self {
         let mount = profile
-            .capabilities()
-            .pan_tilt
-            .as_ref()
-            .is_some_and(|domain| domain.tilt_ranges.supports_mount_selection())
+            .pan_tilt_geometry()
+            .is_some_and(|geometry| geometry.tilt_ranges.supports_mount_selection())
             .then_some(MountPosition::Desktop);
         Self {
             target,
@@ -110,10 +108,8 @@ impl TargetRegistration {
     pub fn with_mount(mut self, mount: MountPosition) -> Result<Self> {
         if !self
             .profile
-            .capabilities()
-            .pan_tilt
-            .as_ref()
-            .is_some_and(|domain| domain.tilt_ranges.supports_mount_selection())
+            .pan_tilt_geometry()
+            .is_some_and(|geometry| geometry.tilt_ranges.supports_mount_selection())
         {
             return Err(Error::FeatureNotSupported {
                 feature: "mount-dependent tilt range",
@@ -141,24 +137,20 @@ impl TargetRegistration {
         self.mount
     }
 
-    /// Returns effective tilt bounds, absent when the profile has no pan/tilt domain.
+    /// Returns effective tilt bounds when the profile declares degree positioning.
     #[must_use]
     pub fn tilt_range(&self) -> Option<crate::capabilities::CapabilityRange<i32>> {
         self.profile
-            .capabilities()
-            .pan_tilt
-            .as_ref()
-            .map(|domain| domain.tilt_ranges.range(self.mount))
+            .pan_tilt_geometry()
+            .map(|geometry| geometry.tilt_ranges.range(self.mount))
     }
 
     /// Returns the effective nominal tilt bounds in degrees.
     #[must_use]
     pub fn tilt_range_degrees(&self) -> Option<RangeInclusive<f32>> {
         self.profile
-            .capabilities()
-            .pan_tilt
-            .as_ref()
-            .map(|domain| domain.tilt_range_degrees(self.mount))
+            .pan_tilt_geometry()
+            .map(|geometry| geometry.tilt_range_degrees(self.mount))
     }
 
     fn convert_coordinates(
@@ -167,20 +159,18 @@ impl TargetRegistration {
         tilt: f32,
         kind: crate::profiles::CoordinateKind,
     ) -> Result<(i32, i32)> {
-        let domain =
-            self.profile
-                .capabilities()
-                .pan_tilt
-                .as_ref()
-                .ok_or(Error::FeatureNotSupported {
-                    feature: "pan/tilt",
-                })?;
-        let position = domain.coordinates.checked_units(
+        let geometry = self
+            .profile
+            .pan_tilt_geometry()
+            .ok_or(Error::FeatureNotSupported {
+                feature: "degree-based pan/tilt positioning",
+            })?;
+        let position = geometry.coordinates.checked_units(
             crate::types::PanTiltPosition::from_degrees(pan, tilt)?,
             crate::profiles::PanTiltRanges {
-                pan_units: domain.pan_range,
-                tilt_units: domain.tilt_ranges.range(self.mount),
-                endpoint_quantization: domain.endpoint_quantization,
+                pan_units: geometry.pan_range,
+                tilt_units: geometry.tilt_ranges.range(self.mount),
+                endpoint_quantization: geometry.endpoint_quantization,
             },
             kind,
         )?;
@@ -200,17 +190,15 @@ impl TargetRegistration {
     }
 
     pub(crate) fn validate_pan_tilt_offset(&self, pan: i32, tilt: i32) -> Result<()> {
-        let domain =
-            self.profile
-                .capabilities()
-                .pan_tilt
-                .as_ref()
-                .ok_or(Error::FeatureNotSupported {
-                    feature: "pan/tilt",
-                })?;
+        let geometry = self
+            .profile
+            .pan_tilt_geometry()
+            .ok_or(Error::FeatureNotSupported {
+                feature: "degree-based pan/tilt positioning",
+            })?;
         for (parameter, value, range) in [
-            ("pan offset", pan, domain.pan_range),
-            ("tilt offset", tilt, domain.tilt_ranges.range(self.mount)),
+            ("pan offset", pan, geometry.pan_range),
+            ("tilt offset", tilt, geometry.tilt_ranges.range(self.mount)),
         ] {
             let span = i64::from(range.max()) - i64::from(range.min());
             if i64::from(value).abs() > span {

@@ -14,7 +14,6 @@ mod contract {
 
 struct Tally;
 impl contract::StateValue for Tally {
-    const KEY: StateKey = StateKey::TallyMode;
     type Value = TallyMode;
     fn known(value: TallyMode) -> KnownState {
         KnownState::TallyMode(value)
@@ -35,6 +34,5 @@ fn main() {
     let _ = <contract::Clear<Tally> as contract::BuiltinStateProjection<Value>>::project(&Value(
         TallyMode::Off,
     ));
-    let _ = <contract::Invalidate<Tally> as contract::BuiltinStateProjection<()>>::project(&());
     let _ = <contract::NoState as contract::BuiltinStateProjection<()>>::project(&());
 }

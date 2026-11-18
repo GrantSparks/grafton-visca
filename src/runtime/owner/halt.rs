@@ -1,5 +1,5 @@
 //! One owner halt transaction; STOP slots live only in its bounded report.
-use super::boundary::AdmissionValidity;
+use super::boundary::{AdmissionRejection, BoundaryClaim};
 use super::{Effect, EngineTurn, OwnerInputTurn, OwnerState, ReceiptCore, TerminalObserver};
 use crate::{prepared::PreparedHalt, Error, HaltOutcome, HaltReport};
 use std::collections::VecDeque;
@@ -8,8 +8,23 @@ use std::time::Instant;
 #[derive(Debug)]
 pub(super) struct HaltBoundary {
     pub(super) prepared: PreparedHalt,
-    pub(super) validity: AdmissionValidity,
+    pub(super) claim: BoundaryClaim,
     pub(super) reply: flume::Sender<Result<HaltReceipt, Error>>,
+}
+
+impl HaltBoundary {
+    pub(super) fn reject(self, state: &mut OwnerState, rejection: AdmissionRejection) {
+        if rejection.record {
+            for _ in self.prepared.requests.iter().flatten() {
+                state.record_admission_rejection(
+                    self.prepared.target,
+                    super::Lane::Command,
+                    &rejection.error,
+                );
+            }
+        }
+        let _ = self.reply.try_send(Err(rejection.error));
+    }
 }
 
 #[derive(Debug)]
@@ -85,7 +100,7 @@ impl OwnerState {
                 })?;
                 let (completion, observer) = TerminalObserver::pair();
                 let admitted = self.admit_in_turn(&turn, request.into_inner(), permit, observer)?;
-                Ok(ReceiptCore::admitted(admitted, completion, remaining.get()))
+                ReceiptCore::admitted(admitted, completion, remaining.get())
             })
         });
         let effects = self.finish_input_turn(turn, EngineTurn::Complete);

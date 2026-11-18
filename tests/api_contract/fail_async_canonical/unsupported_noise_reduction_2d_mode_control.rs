@@ -7,9 +7,7 @@ fn sony_evi_h100_cannot_set_2d_noise_reduction_mode(camera: &Camera<SonyEviH100>
     let _ = camera
         .image()
         .set_noise_reduction_2d_mode(NoiseReduction2DMode::Manual);
+        //~^ E0277 "camera profile `grafton_visca::profiles::SonyEviH100` does not support `grafton_visca::capabilities::gate::NoiseReduction2DMode`"
 }
 
 fn main() {}
-
-//~ E0277
-//~ "camera profile `grafton_visca::profiles::SonyEviH100` does not support `grafton_visca::capabilities::gate::NoiseReduction2DMode`"

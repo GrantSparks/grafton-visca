@@ -5,15 +5,18 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+use crate::transport::{connect::preflight, TransportConfig};
+
 use crate::{
     timeout::Deadline,
     transport::{
         address::resolve_blocking,
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
-        builder::TransportConfig,
-        connect::{connect_deadline, preflight, AttemptFailure, TcpAttempts},
+        builder::ValidatedTransportConfig,
+        connect::{connect_deadline, AttemptFailure, TcpAttempts},
         socket_options::{configured_tcp_socket, TcpConnectionConfig},
-        stream_read, BlockingTransport, HasTransportConfig, ReceiveOutcome,
+        stream_read, BlockingTransport, HasTransportConfig, NetworkEndpoint, ReceiveOutcome,
     },
     Error,
 };
@@ -34,7 +37,7 @@ fn arm_read(stream: &mut TcpStream, timeout: Duration) -> std::io::Result<()> {
 /// into another user-space buffer. Framing is handled by the runtime layer.
 pub struct Tcp {
     stream: TcpStream,
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
 }
 
 impl std::fmt::Debug for Tcp {
@@ -51,14 +54,22 @@ impl Tcp {
     /// `config.connect_timeout`, and each resolved address is tried in order.
     /// See [`crate::transport::connect`] for the error contract shared with
     /// the async connectors.
+    #[cfg(test)]
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
-        let endpoint = preflight(address, &config)?;
+        let (endpoint, config) = preflight(address, config)?;
+        Self::connect_endpoint(&endpoint, config)
+    }
+
+    pub(crate) fn connect_endpoint(
+        endpoint: &NetworkEndpoint,
+        config: ValidatedTransportConfig,
+    ) -> Result<Self, Error> {
         let options = TcpConnectionConfig::from(config);
         let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
         let stream = connect_resolved(
-            &endpoint,
+            endpoint,
             options,
-            resolve_blocking(&endpoint, deadline)?,
+            resolve_blocking(endpoint, deadline)?,
             deadline,
             connect_one,
             Instant::now,
@@ -69,7 +80,7 @@ impl Tcp {
 
 /// Drive the same address plan used by the async connectors after resolution.
 fn connect_resolved(
-    endpoint: &str,
+    endpoint: impl std::fmt::Display,
     options: TcpConnectionConfig,
     addresses: Vec<SocketAddr>,
     deadline: Deadline,
@@ -107,7 +118,7 @@ impl HasTransportConfig for Tcp {
         crate::transport::TransportIdentity::Tcp
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }
@@ -210,7 +221,10 @@ mod tests {
             "127.0.0.1:9".parse().expect("local address"),
         ];
         let options = TcpConnectionConfig::from(
-            TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(800)),
+            TransportConfig::for_tcp()
+                .with_connect_timeout(Duration::from_millis(800))
+                .validated()
+                .expect("valid connector test configuration"),
         );
         let started = Instant::now();
         let clock = std::cell::Cell::new(started);
@@ -258,7 +272,10 @@ mod tests {
             "192.0.2.2:5678".parse().expect("second address"),
         ];
         let options = TcpConnectionConfig::from(
-            TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(800)),
+            TransportConfig::for_tcp()
+                .with_connect_timeout(Duration::from_millis(800))
+                .validated()
+                .expect("valid connector test configuration"),
         );
         for spend_shares in [false, true] {
             let started = Instant::now();
@@ -294,7 +311,12 @@ mod tests {
             first.local_addr().expect("first"),
             second.local_addr().expect("second"),
         ];
-        let options = TcpConnectionConfig::from(TransportConfig::for_tcp().with_ttl(Some(2)));
+        let options = TcpConnectionConfig::from(
+            TransportConfig::for_tcp()
+                .with_ttl(Some(2))
+                .validated()
+                .expect("valid connector test configuration"),
+        );
         let deadline = connect_deadline(Instant::now(), options.connect_timeout).expect("budget");
         let mut tried = Vec::new();
         let stream = connect_resolved(

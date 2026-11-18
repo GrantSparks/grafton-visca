@@ -147,5 +147,5 @@ fn unrelated_input_cannot_cross_an_unfinished_write() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let (_, id) = admit(&mut engine, 1, command(1), now);
-    engine.handle(Input::Cancel { id }, now);
+    engine.handle(engine.cancel_input(id), now);
 }

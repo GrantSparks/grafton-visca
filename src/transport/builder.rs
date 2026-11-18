@@ -11,13 +11,12 @@
 //! assert_eq!(config.read_timeout(), Duration::from_secs(5));
 //! ```
 
-use std::time::Duration;
-#[cfg(any(feature = "async", feature = "blocking", test))]
-use std::time::Instant;
+use std::{
+    num::NonZeroUsize,
+    time::{Duration, Instant},
+};
 
-use crate::transport::buffer::BufferConfig;
-#[cfg(any(feature = "async", feature = "blocking", test))]
-use crate::Error;
+use crate::{timeout::NonZeroDuration, transport::buffer::BufferConfig, Error};
 
 /// Addressing mode for VISCA communication.
 ///
@@ -180,7 +179,7 @@ pub struct TransportConfig {
     /// `None` leaves the operating-system default in place.
     pub(crate) tcp_nodelay: Option<bool>,
     /// IPv4 TTL / IPv6 hop limit (Time To Live) for packets, in `1..=255`.
-    /// `None` keeps the OS default.
+    /// IPv4-mapped IPv6 endpoints use the IPv4 TTL. `None` keeps the OS default.
     pub(crate) ttl: Option<u32>,
     /// TCP keepalive policy. When set, enables OS-level probes that detect
     /// broken peers and may preserve idle network-path state. These probes do
@@ -191,22 +190,24 @@ pub struct TransportConfig {
 
 impl Default for TransportConfig {
     fn default() -> Self {
-        Self {
-            connect_timeout: DEFAULT_TRANSPORT_TIMEOUT,
-            read_timeout: DEFAULT_TRANSPORT_TIMEOUT,
-            write_timeout: DEFAULT_TRANSPORT_TIMEOUT,
-            buffer_config: BufferConfig::default(),
-            tcp_nodelay: Some(true),
-            ttl: None,
-            tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
-        }
+        Self::DEFAULT
     }
 }
 
 /// The default connect, read, and write timeout of every built-in transport.
-const DEFAULT_TRANSPORT_TIMEOUT: Duration = Duration::from_secs(5);
+const DEFAULT_TRANSPORT_TIMEOUT: NonZeroDuration = NonZeroDuration::from_secs::<5>();
 
 impl TransportConfig {
+    const DEFAULT: Self = Self {
+        connect_timeout: DEFAULT_TRANSPORT_TIMEOUT.get(),
+        read_timeout: DEFAULT_TRANSPORT_TIMEOUT.get(),
+        write_timeout: DEFAULT_TRANSPORT_TIMEOUT.get(),
+        buffer_config: BufferConfig::DEFAULT,
+        tcp_nodelay: Some(true),
+        ttl: None,
+        tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
+    };
+
     /// Returns the connection timeout.
     #[must_use]
     pub const fn connect_timeout(&self) -> Duration {
@@ -273,6 +274,7 @@ impl TransportConfig {
     }
 
     /// Returns the IPv4 TTL / IPv6 hop limit, or `None` for the OS default.
+    /// IPv4-mapped IPv6 endpoints use the IPv4 TTL.
     #[must_use]
     pub const fn ttl(&self) -> Option<u32> {
         self.ttl
@@ -281,6 +283,7 @@ impl TransportConfig {
     /// Selects the IPv4 TTL / IPv6 hop limit, or `None` for the OS default.
     ///
     /// The value applies from the first packet, including the TCP handshake.
+    /// IPv4-mapped IPv6 endpoints use the IPv4 TTL.
     /// Transport opening validates the configuration.
     #[must_use]
     pub const fn with_ttl(mut self, value: Option<u32>) -> Self {
@@ -342,26 +345,28 @@ impl TransportConfig {
         }
     }
 
-    /// Validate I/O bounds that must hold before a transport is opened.
+    /// Check the connection settings and retain their validated I/O bounds.
     ///
-    /// The owner validates the same invariant when admitting a caller-owned
-    /// transport. Standard construction also needs it here, before a network
-    /// connector or serial-device initializer can perform I/O.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
-    pub(crate) fn validate(&self) -> crate::Result<()> {
+    /// Caller-owned transports store this result and return it from
+    /// [`HasTransportConfig::transport_config`](crate::transport::HasTransportConfig::transport_config).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidRequest`] for invalid timeouts, buffer bounds,
+    /// TTL or TCP keepalive settings.
+    pub fn validated(self) -> crate::Result<ValidatedTransportConfig> {
         let now = Instant::now();
-        for (name, parameter, timeout) in [
-            ("connect", "connect_timeout", self.connect_timeout),
-            ("read", "read_timeout", self.read_timeout),
-            ("write", "write_timeout", self.write_timeout),
-        ] {
-            if timeout.is_zero() {
-                return Err(Error::InvalidRequest {
+        let timeout = |name, parameter, duration| -> crate::Result<_> {
+            let duration =
+                NonZeroDuration::checked(duration).ok_or_else(|| Error::InvalidRequest {
                     reason: format!("transport {name} timeout must be non-zero").into(),
-                });
-            }
-            crate::timeout::instant_after(now, timeout, parameter)?;
-        }
+                })?;
+            crate::timeout::instant_after(now, duration.get(), parameter)?;
+            Ok(duration)
+        };
+        let connect_timeout = timeout("connect", "connect_timeout", self.connect_timeout)?;
+        let read_timeout = timeout("read", "read_timeout", self.read_timeout)?;
+        let write_timeout = timeout("write", "write_timeout", self.write_timeout)?;
         if self.ttl.is_some_and(|ttl| !(1..=255).contains(&ttl)) {
             return Err(Error::InvalidRequest {
                 reason: "transport TTL must be in 1..=255".into(),
@@ -379,20 +384,21 @@ impl TransportConfig {
                 }
             }
         }
-        if self.buffer_config.recv_buffer_size < BufferConfig::MIN_RECV_BUFFER_SIZE {
-            return Err(Error::InvalidRequest {
+        let recv_buffer_size = NonZeroUsize::new(self.buffer_config.recv_buffer_size)
+            .filter(|size| size.get() >= BufferConfig::MIN_RECV_BUFFER_SIZE)
+            .ok_or_else(|| Error::InvalidRequest {
                 reason: format!(
                     "transport receive buffer must hold the largest VISCA reply ({} bytes)",
                     BufferConfig::MIN_RECV_BUFFER_SIZE
                 )
                 .into(),
-            });
-        }
-        if self.buffer_config.max_buffer_size == 0 {
-            return Err(Error::InvalidRequest {
-                reason: "transport maximum buffer must be non-zero".into(),
-            });
-        }
+            })?;
+        let max_buffer_size =
+            NonZeroUsize::new(self.buffer_config.max_buffer_size).ok_or_else(|| {
+                Error::InvalidRequest {
+                    reason: "transport maximum buffer must be non-zero".into(),
+                }
+            })?;
         if self.buffer_config.recv_buffer_size > self.buffer_config.max_buffer_size {
             return Err(Error::InvalidRequest {
                 reason: "transport receive buffer cannot exceed maximum buffer".into(),
@@ -408,7 +414,65 @@ impl TransportConfig {
                 reason: "transport maximum buffer cannot exceed 1048576 bytes".into(),
             });
         }
-        Ok(())
+        Ok(ValidatedTransportConfig {
+            raw: self,
+            connect_timeout,
+            read_timeout,
+            write_timeout,
+            recv_buffer_size,
+            max_buffer_size,
+        })
+    }
+}
+
+/// Transport settings checked by [`TransportConfig::validated`].
+///
+/// Use [`as_config`](Self::as_config) to inspect settings or copy them into a
+/// new configuration. The checked value has no in-place setters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ValidatedTransportConfig {
+    raw: TransportConfig,
+    pub(crate) connect_timeout: NonZeroDuration,
+    pub(crate) read_timeout: NonZeroDuration,
+    pub(crate) write_timeout: NonZeroDuration,
+    pub(crate) recv_buffer_size: NonZeroUsize,
+    max_buffer_size: NonZeroUsize,
+}
+
+impl Default for ValidatedTransportConfig {
+    fn default() -> Self {
+        const RAW: TransportConfig = TransportConfig::DEFAULT;
+        const RECV: usize = RAW.buffer_config.recv_buffer_size;
+        const MAX: usize = RAW.buffer_config.max_buffer_size;
+        const {
+            assert!(RECV >= BufferConfig::MIN_RECV_BUFFER_SIZE);
+            assert!(RECV <= BufferConfig::MAX_RECV_BUFFER_SIZE);
+            assert!(RECV <= MAX && MAX <= BufferConfig::MAX_RETENTION_SIZE);
+        }
+        Self {
+            raw: RAW,
+            connect_timeout: DEFAULT_TRANSPORT_TIMEOUT,
+            read_timeout: DEFAULT_TRANSPORT_TIMEOUT,
+            write_timeout: DEFAULT_TRANSPORT_TIMEOUT,
+            recv_buffer_size: const { NonZeroUsize::new(RECV).unwrap() },
+            max_buffer_size: const { NonZeroUsize::new(MAX).unwrap() },
+        }
+    }
+}
+
+impl ValidatedTransportConfig {
+    /// Returns the original settings.
+    #[must_use]
+    pub const fn as_config(&self) -> &TransportConfig {
+        &self.raw
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const fn frame_bounds(self) -> BufferConfig {
+        BufferConfig {
+            recv_buffer_size: self.recv_buffer_size.get(),
+            max_buffer_size: self.max_buffer_size.get(),
+        }
     }
 }
 
@@ -435,7 +499,7 @@ mod tests {
         assert_eq!(config.tcp_keepalive(), None);
         assert_eq!(config.tcp_nodelay(), None);
         assert_eq!(config.ttl(), Some(32));
-        assert!(config.validate().is_ok());
+        assert!(config.validated().is_ok());
         assert_eq!(
             TcpKeepaliveConfig::new(Duration::from_secs(30))
                 .with_interval(Some(Duration::from_secs(7)))
@@ -471,7 +535,7 @@ mod tests {
             ),
         ] {
             assert!(matches!(
-                config.validate(),
+                config.validated(),
                 Err(Error::InvalidRequest { reason: actual }) if actual.as_ref() == message
             ));
         }
@@ -501,9 +565,55 @@ mod tests {
             ),
         ] {
             assert!(matches!(
-                config.validate(),
+                config.validated(),
                 Err(Error::InvalidParameter { parameter, .. }) if parameter == name
             ));
+        }
+    }
+
+    #[test]
+    fn transport_config_rejects_invalid_buffer_bounds() {
+        for (buffer_config, message) in [
+            (
+                BufferConfig {
+                    recv_buffer_size: 0,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE - 1,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: 64,
+                    max_buffer_size: 0,
+                },
+                "transport maximum buffer must be non-zero",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: 65,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer cannot exceed maximum buffer",
+            ),
+        ] {
+            for defaults in [
+                TransportConfig::for_tcp(),
+                TransportConfig::for_udp(),
+                TransportConfig::for_serial(),
+            ] {
+                let result = defaults.with_buffer_config(buffer_config).validated();
+                assert!(matches!(
+                    result,
+                    Err(Error::InvalidRequest { reason }) if reason == message
+                ));
+            }
         }
     }
 
@@ -547,7 +657,7 @@ mod tests {
         let invalid = config.with_read_timeout(Duration::ZERO);
         let restored: TransportConfig = serde_json::from_value(serde_json::to_value(invalid)?)?;
         assert_eq!(restored, invalid);
-        assert!(restored.validate().is_err());
+        assert!(restored.validated().is_err());
         Ok(())
     }
 

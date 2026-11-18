@@ -733,7 +733,7 @@ fn sony_exact_request_and_cancellation_collision_is_ignored() {
         ),
         start,
     );
-    let cancellation = engine.handle(Input::Cancel { id }, start);
+    let cancellation = engine.handle(engine.cancel_input(id), start);
     let (cancel_tx, cancel_id, _) = cancel_transmit(&cancellation);
     assert_eq!(cancel_id, id);
     engine.handle(
@@ -801,7 +801,7 @@ fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
         ),
         start,
     );
-    let cancellation = engine.handle(Input::Cancel { id }, start);
+    let cancellation = engine.handle(engine.cancel_input(id), start);
     let (cancel_tx, cancel_id, _) = cancel_transmit(&cancellation);
     assert_eq!(cancel_id, id);
     engine.handle(
@@ -2155,7 +2155,7 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
                 ),
                 start,
             );
-            let cancellation = engine.handle(Input::Cancel { id }, start);
+            let cancellation = engine.handle(engine.cancel_input(id), start);
             let (transmission, _, _) = cancel_transmit(&cancellation);
             let cancellation_sequence = (envelope == EnvelopeKind::Sony).then_some(0x3002);
             engine.handle(
@@ -2249,7 +2249,7 @@ fn executing_response_outlives_cancellation_ambiguity_until_its_completion_deadl
         ),
         start,
     );
-    let cancellation = engine.handle(Input::Cancel { id }, start + Duration::from_millis(1));
+    let cancellation = engine.handle(engine.cancel_input(id), start + Duration::from_millis(1));
     let (cancel_transmission, _, _) = cancel_transmit(&cancellation);
     let ambiguity_deadline = match engine.entry(id).map(Entry::cancellation) {
         Some(CancelState::Sending {
@@ -2345,7 +2345,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
     let b_id = admitted(&b);
     send_ok(&mut engine, &b, None, b_started);
     let recorded = engine.handle(
-        Input::Cancel { id: b_id },
+        engine.cancel_input(b_id),
         deadline - Duration::from_millis(1),
     );
     assert!(recorded
@@ -2521,7 +2521,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
     );
     let queued_id = admitted(&queued);
     assert!(request_transmit_optional(&queued).is_none());
-    let local = engine.handle(Input::Cancel { id: queued_id }, start);
+    let local = engine.handle(engine.cancel_input(queued_id), start);
     assert!(local
         .iter()
         .any(|effect| matches!(effect, Effect::CancellationRecorded { id } if *id == queued_id)));
@@ -2540,12 +2540,12 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
         }
     )));
 
-    let unsupported = engine.handle(Input::Cancel { id: active_id }, start);
+    let unsupported = engine.handle(engine.cancel_input(active_id), start);
     assert!(unsupported.iter().any(|effect| matches!(
         effect,
         Effect::CancellationObservation {
             id,
-            observation: CancellationObservation::Failed(Error::CancellationNotSupported)
+            observation: CancellationObservation::AttemptFailed(Error::CancellationNotSupported)
         } if *id == active_id
     )));
     assert_eq!(
@@ -2620,7 +2620,7 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
         },
         start,
     );
-    let recorded = engine.handle(Input::Cancel { id }, start);
+    let recorded = engine.handle(engine.cancel_input(id), start);
     assert!(recorded
         .iter()
         .any(|effect| matches!(effect, Effect::CancellationRecorded { id: seen } if *seen == id)));
@@ -2728,7 +2728,7 @@ fn requested_cancellation_waits_for_shared_command_spacing() {
     );
 
     let before_spacing = start + Duration::from_millis(1);
-    let cancellation = engine.handle(Input::Cancel { id }, before_spacing);
+    let cancellation = engine.handle(engine.cancel_input(id), before_spacing);
     assert!(!cancellation.iter().any(|effect| matches!(
         effect,
         Effect::Transmit {
@@ -2784,7 +2784,7 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
     let queued_id = admitted(&queued);
     assert!(request_transmit_optional(&queued).is_none());
     let requested = engine.handle(
-        Input::Cancel { id: first_id },
+        engine.cancel_input(first_id),
         start + Duration::from_millis(1),
     );
     assert!(cancel_transmit_optional(&requested).is_none());
@@ -2882,12 +2882,12 @@ fn zero_spacing_drains_pending_cancellations_in_request_order() {
     let ordinary_id = admitted(&ordinary);
     assert!(request_transmit_optional(&ordinary).is_none());
     assert!(cancel_transmit_optional(&engine.handle(
-        Input::Cancel { id: first_id },
+        engine.cancel_input(first_id),
         start + Duration::from_millis(1),
     ))
     .is_none());
     assert!(cancel_transmit_optional(&engine.handle(
-        Input::Cancel { id: second_id },
+        engine.cancel_input(second_id),
         start + Duration::from_millis(1),
     ))
     .is_none());
@@ -3000,7 +3000,7 @@ fn zero_spacing_cancel_with_a_matured_retry_preserves_the_write_boundary() {
                 _ => None,
             })
             .expect("buffer-full retry");
-        let cancelled = engine.handle(Input::Cancel { id: executing }, ready_at);
+        let cancelled = engine.handle(engine.cancel_input(executing), ready_at);
         let (transmission, request, _) = cancel_transmit(&cancelled);
         assert_eq!(request, executing);
         assert_eq!(
@@ -3087,7 +3087,7 @@ fn executing_cancel_waits_for_pacing_without_expiring_at_ambiguity() {
     );
     let requested_at = start + Duration::from_millis(1);
     assert!(
-        request_transmit_optional(&engine.handle(Input::Cancel { id }, requested_at,)).is_none()
+        request_transmit_optional(&engine.handle(engine.cancel_input(id), requested_at,)).is_none()
     );
     let ambiguity_deadline = start + Duration::from_millis(51);
     let pacing_deadline = start + Duration::from_millis(100);
@@ -3131,6 +3131,7 @@ fn cancel_after_raw_ack_timeout_cannot_resurrect_the_terminal_owner() {
         start,
     );
     let id = admitted(&request);
+    let cancel = engine.cancel_input(id);
     send_ok(&mut engine, &request, None, start);
 
     // The ordinary raw ACK timeout terminates the request and retains only a
@@ -3151,7 +3152,7 @@ fn cancel_after_raw_ack_timeout_cannot_resurrect_the_terminal_owner() {
 
     // Cancellation cannot address or extend a request which has already
     // received its terminal outcome.
-    let cancelled = engine.handle(Input::Cancel { id }, start + Duration::from_millis(30));
+    let cancelled = engine.handle(cancel, start + Duration::from_millis(30));
     assert_eq!(
         ignored_reasons(&cancelled),
         vec![IgnoreReason::UnknownRequest]
@@ -3208,7 +3209,7 @@ fn completion_before_cancellation_pacing_due_wins_and_removes_intent() {
     );
     let requested_at = start + Duration::from_millis(1);
     assert!(
-        request_transmit_optional(&engine.handle(Input::Cancel { id }, requested_at,)).is_none()
+        request_transmit_optional(&engine.handle(engine.cancel_input(id), requested_at,)).is_none()
     );
 
     let completed = engine.handle(
@@ -3274,7 +3275,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
         },
         start,
     );
-    engine.handle(Input::Cancel { id }, start);
+    engine.handle(engine.cancel_input(id), start);
     let ack_timeout = engine.advance(start + Duration::from_millis(20));
     assert!(terminal_outcome(&ack_timeout, id).is_none());
     assert!(deadline_expiries(&ack_timeout, id).is_empty());
@@ -3342,7 +3343,7 @@ fn ambiguity_expiry_is_unconfirmed_and_releases_only_after_deadline() {
         },
         start,
     );
-    engine.handle(Input::Cancel { id }, start);
+    engine.handle(engine.cancel_input(id), start);
     engine.advance(start + Duration::from_millis(20));
     assert_eq!(engine.active_len(), 1);
     let expired = engine.advance(start + Duration::from_millis(50));
@@ -3381,7 +3382,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
         ),
         start + Duration::from_millis(1),
     );
-    let cancellation = engine.handle(Input::Cancel { id }, start + Duration::from_millis(2));
+    let cancellation = engine.handle(engine.cancel_input(id), start + Duration::from_millis(2));
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     let failed = engine.handle(
         Input::TransmissionFinished {
@@ -3397,7 +3398,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
         effect,
         Effect::CancellationObservation {
             id: seen,
-            observation: CancellationObservation::Failed(Error::TransportError { .. })
+            observation: CancellationObservation::AttemptFailed(Error::TransportError { .. })
         } if *seen == id
     )));
     assert!(engine.entry(id).is_some());
@@ -3459,7 +3460,7 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_request_order() {
     );
     let second_id = admitted(&second);
     send_ok(&mut engine, &second, None, start);
-    let cancellation = engine.handle(Input::Cancel { id: first_id }, start);
+    let cancellation = engine.handle(engine.cancel_input(first_id), start);
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     let poison = engine.handle(
         Input::TransmissionFinished {
@@ -3579,7 +3580,7 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
     let projection = AppliedStateProjection::set(crate::KnownState::PanTiltLimit(
         crate::PanTiltLimitUpdate::set(
             crate::command::PanTiltLimitCorner::UpRight,
-            crate::camera::PanTiltUnits::new(1, 2),
+            crate::types::PanTiltPosition::from_degrees(1.0, 2.0).unwrap(),
         ),
     ));
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -4297,7 +4298,7 @@ fn replaying_identical_ordered_trace_produces_identical_effects() {
 #[test]
 fn phase_one_protocol_fixture_replays_through_production_engine() {
     const TRACE: &str =
-        include_str!("../../../tests/fixtures/issue_542/protocol/correlation-routing.trace");
+        include_str!("../../../testdata/issue_542/protocol/correlation-routing.trace");
 
     let base = Instant::now();
     let mut engine: Option<ProtocolEngine> = None;
@@ -4844,10 +4845,15 @@ fn fuzz_step(
             engine.handle(frame(target, sequence, response), *now)
         }
         3 => {
-            let Some(id) = engine.entries.iter().next().map(|(id, _)| *id) else {
+            let Some(id) = engine
+                .entries
+                .iter()
+                .find(|(_, entry)| entry.request.lane() == Lane::Command)
+                .map(|(id, _)| *id)
+            else {
                 return Vec::new();
             };
-            engine.handle(Input::Cancel { id }, *now)
+            engine.handle(engine.cancel_input(id), *now)
         }
         4 => engine.advance(*now),
         5 => {
@@ -5270,7 +5276,7 @@ fn seed_fuzz_coverage(
     );
     coverage.record(engine, &acknowledged);
     let cancellation = engine.handle(
-        Input::Cancel { id: cancel_id },
+        engine.cancel_input(cancel_id),
         *now + Duration::from_micros(2),
     );
     coverage.record(engine, &cancellation);
@@ -5643,9 +5649,6 @@ fn arbitrary_stale_and_reordered_inputs_preserve_invariants() {
                 coverage.failed_stream_writes += 1;
             }
             coverage.record(&engine, &effects);
-            engine.assert_invariants().unwrap_or_else(|violation| {
-                panic!("{envelope:?}/{transport:?} step {step}: {violation}")
-            });
         }
         assert!(
             fuzz_coverage_floor_met(configuration, &coverage),
@@ -5720,8 +5723,6 @@ mod generated_invariant_properties {
                     &mut now,
                 );
                 coverage.record(&engine, &effects);
-                assert_occupancy_agrees(&engine, now);
-                prop_assert!(engine.assert_invariants().is_ok());
                 prop_assert!(lifecycle_transition_matrix::all_entries_have_admissible_pairs(&engine));
             }
             prop_assert!(
@@ -5751,7 +5752,7 @@ fn raw_late_ack_at_ambiguity_boundary_is_routed_and_cancel_remains_active() {
     );
     let id = admitted(&admitted_effects);
     send_ok(&mut engine, &admitted_effects, None, start);
-    engine.handle(Input::Cancel { id }, start);
+    engine.handle(engine.cancel_input(id), start);
     engine.advance(start + Duration::from_millis(20));
 
     let boundary = engine.handle(
@@ -5838,7 +5839,7 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
         ),
         start + Duration::from_millis(1),
     );
-    let cancellation = engine.handle(Input::Cancel { id }, start + Duration::from_millis(2));
+    let cancellation = engine.handle(engine.cancel_input(id), start + Duration::from_millis(2));
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     engine.handle(
         Input::TransmissionFinished {
@@ -5853,7 +5854,7 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
         effect,
         Effect::CancellationObservation {
             id: seen,
-            observation: CancellationObservation::Failed(Error::Timeout { .. })
+            observation: CancellationObservation::AttemptFailed(Error::Timeout { .. })
         } if *seen == id
     )));
     assert!(engine.entry(id).is_some());
@@ -5904,7 +5905,7 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
         ),
         start + Duration::from_millis(1),
     );
-    let cancellation = engine.handle(Input::Cancel { id }, start + Duration::from_millis(2));
+    let cancellation = engine.handle(engine.cancel_input(id), start + Duration::from_millis(2));
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     engine.handle(
         Input::TransmissionFinished {
@@ -5955,7 +5956,7 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
         ),
         start + Duration::from_millis(1),
     );
-    let cancellation = engine.handle(Input::Cancel { id }, start + Duration::from_millis(2));
+    let cancellation = engine.handle(engine.cancel_input(id), start + Duration::from_millis(2));
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     let failed = engine.handle(
         Input::TransmissionFinished {
@@ -5971,7 +5972,7 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
         effect,
         Effect::CancellationObservation {
             id: seen,
-            observation: CancellationObservation::Failed(Error::TransportError { .. }),
+            observation: CancellationObservation::AttemptFailed(Error::TransportError { .. }),
         } if *seen == id
     )));
 
@@ -6023,7 +6024,7 @@ fn retryable_rejection_after_cancel_intent_is_cancelled_without_retry() {
     );
     let id = admitted(&effects);
     send_ok(&mut engine, &effects, None, start);
-    engine.handle(Input::Cancel { id }, start);
+    engine.handle(engine.cancel_input(id), start);
     let rejected = engine.handle(
         frame(
             1,
@@ -6176,7 +6177,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
             start,
         );
         let id = admitted(&queued);
-        engine.handle(Input::Cancel { id }, start);
+        engine.handle(engine.cancel_input(id), start);
     }
     assert_eq!(
         (0..4)
@@ -6868,7 +6869,7 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
         Some(Phase::Executing { .. })
     ));
 
-    let cancellation = engine.handle(Input::Cancel { id: second_id }, start);
+    let cancellation = engine.handle(engine.cancel_input(second_id), start);
     let (_, cancelled_id, cancel_socket) = cancel_transmit(&cancellation);
     assert_eq!(
         (cancelled_id, cancel_socket),
@@ -8739,7 +8740,7 @@ fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
         start,
     );
 
-    let cancellation = engine.handle(Input::Cancel { id }, start);
+    let cancellation = engine.handle(engine.cancel_input(id), start);
     assert!(cancel_transmit_optional(&cancellation).is_some());
     let ambiguity_deadline = match engine.entry(id).map(Entry::cancellation) {
         Some(CancelState::Sending {
@@ -9277,7 +9278,7 @@ fn strict_raw_receive_fault_after_cancel_uses_cancellation_resolution() {
     send_ok(&mut engine, &admission, None, start);
 
     let cancel_at = start + Duration::from_millis(1);
-    let cancelled = engine.handle(Input::Cancel { id }, cancel_at);
+    let cancelled = engine.handle(engine.cancel_input(id), cancel_at);
     assert!(cancelled
         .iter()
         .any(|effect| matches!(effect, Effect::CancellationRecorded { id: seen } if *seen == id)));
@@ -9930,13 +9931,14 @@ fn completion_only_stray_acks_remain_inert_across_its_lifecycle() {
             command_with_reply_shape(1, CommandReply::CompletionOnly),
             start,
         );
+        let cancel = engine.cancel_input(id);
         send_ok(&mut engine, &admitted_effects, None, start);
         let expired = engine.advance(start + Duration::from_millis(40));
         assert!(matches!(
             terminal_failure(&expired, id),
             Some(Error::UnsequencedCommandUnconfirmed)
         ));
-        let cancelled = engine.handle(Input::Cancel { id }, start + Duration::from_millis(41));
+        let cancelled = engine.handle(cancel, start + Duration::from_millis(41));
         assert_eq!(
             ignored_reasons(&cancelled),
             vec![IgnoreReason::UnknownRequest]
@@ -11002,7 +11004,7 @@ fn raw_release_projection_excludes_ordinary_response_deadlines() {
         Some(Phase::AwaitingAck { deadline, .. }) => deadline,
         phase => panic!("expected awaiting ACK, got {phase:?}"),
     };
-    cancelled_preack.handle(Input::Cancel { id: cancelled_id }, start);
+    cancelled_preack.handle(cancelled_preack.cancel_input(cancelled_id), start);
     let ambiguity_deadline = match cancelled_preack
         .entry(cancelled_id)
         .map(Entry::cancellation)
@@ -12033,7 +12035,7 @@ fn pre_ack_cancellation_extends_correlation_before_due_work() {
         send_ok(&mut engine, &admission, sequence, start);
 
         let cancel_at = start + Duration::from_millis(1);
-        let requested = engine.handle(Input::Cancel { id }, cancel_at);
+        let requested = engine.handle(engine.cancel_input(id), cancel_at);
         assert!(cancel_transmit_optional(&requested).is_none());
 
         let ack = engine.handle(
@@ -12072,12 +12074,14 @@ fn completion_only_refused_cancel_does_not_extend_correlation() {
         let sequence = (envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));
         send_ok(&mut engine, &admission, sequence, start);
 
-        let requested = engine.handle(Input::Cancel { id }, start + Duration::from_millis(1));
+        let requested = engine.handle(engine.cancel_input(id), start + Duration::from_millis(1));
         assert!(cancel_transmit_optional(&requested).is_none());
         assert!(requested.iter().any(|effect| matches!(
             effect,
             Effect::CancellationObservation {
-                observation: CancellationObservation::Failed(Error::CancellationNotSupported),
+                observation: CancellationObservation::AttemptFailed(
+                    Error::CancellationNotSupported
+                ),
                 ..
             }
         )));
@@ -12221,7 +12225,7 @@ fn control_reserve_admits_urgent_stops_past_ordinary_saturation() {
             AdmissionSlot::ControlReserve,
             now,
         ),
-        Err(Error::ControlReserveExhausted { target, reserve: 2 }) if target == camera(1).camera()
+        Err(Error::ControlReserveExhausted { target, reserve: 2 }) if target == camera(1).individual_camera()
     ));
 
     // Camera 1 cannot use camera 2's reserve, so camera 2 keeps its own.
@@ -12708,7 +12712,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     let failure = terminal_failure(&latched, queued).expect("queued inquiry fails at the latch");
     assert!(matches!(
         &failure,
-        Error::InquiryFailed { source } if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera: lost } if *lost == camera(1).camera())
+        Error::InquiryFailed { source } if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera: lost } if *lost == camera(1).individual_camera())
     ));
     assert_eq!(
         failure.failure_context(),
@@ -12741,7 +12745,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
         Effect::AdmissionRejected {
             error: Error::InquiryCorrelationLost { camera: lost },
             ..
-        } if *lost == camera(1).camera()
+        } if *lost == camera(1).individual_camera()
     )));
 
     // A command to the latched target and an inquiry to another target still

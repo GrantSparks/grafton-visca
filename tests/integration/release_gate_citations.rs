@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use grafton_visca_test_support::source_scan;
+use grafton_visca_test_support::{package_boundary, source_scan};
 
 type Functions = BTreeMap<String, Vec<String>>;
 
@@ -28,29 +28,30 @@ impl SourceIndex {
     }
 }
 
-fn source_functions() -> SourceIndex {
-    fn scan(root: &Path, path: &Path, functions: &mut SourceIndex) {
-        let mut entries = std::fs::read_dir(path)
-            .expect("source directory exists")
-            .map(|entry| entry.expect("read source entry").path())
-            .collect::<Vec<_>>();
-        entries.sort();
-        for path in entries {
-            if path.is_dir() {
-                if path
-                    .file_name()
-                    .is_some_and(|name| name == "target" || name == ".git")
-                {
-                    continue;
-                }
-                scan(root, &path, functions);
-            } else if path.extension().is_some_and(|extension| extension == "rs") {
-                let source = std::fs::read_to_string(&path).expect("read Rust source");
-                let relative = path.strip_prefix(root).expect("source is in repository");
-                functions.add(&relative.to_string_lossy().replace('\\', "/"), &source);
+fn scan_sources(root: &Path, path: &Path, observe: &mut impl FnMut(&str, &str)) {
+    let mut entries = std::fs::read_dir(path)
+        .expect("source directory exists")
+        .map(|entry| entry.expect("read source entry").path())
+        .collect::<Vec<_>>();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            if path
+                .file_name()
+                .is_some_and(|name| name == "target" || name == ".git")
+            {
+                continue;
             }
+            scan_sources(root, &path, observe);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            let source = std::fs::read_to_string(&path).expect("read Rust source");
+            let relative = path.strip_prefix(root).expect("source is in repository");
+            observe(&relative.to_string_lossy().replace('\\', "/"), &source);
         }
     }
+}
+
+fn source_functions() -> SourceIndex {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut functions = SourceIndex::default();
     for directory in [
@@ -61,7 +62,9 @@ fn source_functions() -> SourceIndex {
         "examples",
         "fuzz",
     ] {
-        scan(&root, &root.join(directory), &mut functions);
+        scan_sources(&root, &root.join(directory), &mut |path, source| {
+            functions.add(path, source);
+        });
     }
     functions
 }
@@ -285,4 +288,61 @@ fn missing_or_unregistered_cited_suites_are_rejected() {
         error.contains("helpers.rs") && error.contains("no registered tests"),
         "{error}"
     );
+}
+
+#[test]
+fn unit_tests_depend_only_on_published_inputs() {
+    let file = Path::new("src/example.rs");
+    for (source, expected) in [
+        (
+            "use grafton_visca_test_support::source_scan;",
+            "unpublished integration helper",
+        ),
+        (
+            r#"include_str!("../tests/fixtures/example.txt");"#,
+            "include_str! path must resolve to a shipped file",
+        ),
+        (
+            r#"include_bytes!("../testdata/../../repo-only.dat");"#,
+            "include_bytes! path must resolve to a shipped file",
+        ),
+        (
+            r#"#[path = "../tests/repo_helpers.rs"] mod repo_helpers;"#,
+            "#[path] must resolve to a shipped file",
+        ),
+        (
+            r#"std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/fuzz/corpus")).unwrap();"#,
+            "CARGO_MANIFEST_DIR read needs a NotFound fallback",
+        ),
+    ] {
+        let errors = package_boundary::violations(file, source);
+        assert!(
+            errors.iter().any(|error| error.contains(expected)),
+            "{source}: expected {expected}, got {errors:?}"
+        );
+    }
+    assert!(package_boundary::violations(
+        file,
+        r#"
+        include_str!("../docs/usage_2_0.md");
+        fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/wire.txt"));
+        match fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/fuzz/corpus")) {
+            Ok(entries) => consume(entries),
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => panic!("{error}"),
+        }
+        "#,
+    )
+    .is_empty());
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut errors = Vec::new();
+    scan_sources(root, &root.join("src"), &mut |path, source| {
+        errors.extend(
+            package_boundary::violations(Path::new(path), source)
+                .into_iter()
+                .map(|error| format!("{path}: {error}")),
+        );
+    });
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
 }

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
 if ! repository_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
     echo "release validation requires a Git worktree" >&2
     exit 1
@@ -23,6 +25,10 @@ if [[ -n "${worktree_status}" ]]; then
 fi
 
 release_tag="${1:-${GITHUB_REF_NAME:-}}"
+if (( $# > 2 )) || [[ -n "${2:-}" && "${2}" != "--test-package" ]]; then
+    echo "usage: $0 [RELEASE_TAG [--test-package]]" >&2
+    exit 2
+fi
 
 # Build metadata is refused outright rather than stripped and re-gated. This
 # keeps one canonical tag per release.
@@ -84,19 +90,30 @@ if macro_dependency != f"={expected}":
         f"{macro_dependency} is not pinned to the tag version ={expected}"
     )
 
-changelog = (root / "CHANGELOG.md").read_text()
-heading = re.compile(
-    rf"^## \[{re.escape(expected)}\] - \d{{4}}-\d{{2}}-\d{{2}}$", re.MULTILINE
-)
-if not heading.search(changelog):
-    raise SystemExit(
-        f"CHANGELOG.md must contain a dated '## [{expected}] - YYYY-MM-DD' heading"
-    )
-
-# Hardware smoke checks are optional and private for every release.
-# Public device records and hardware sign-off are not release metadata (#1008).
-
+# Hardware smoke checks are optional and private for every release (#1008).
 PY
+
+python3 "${script_directory}/validate-change-record.py" --release "${release_version}"
+
+# Candidate-only check. The normal CI and publication gates use the metadata
+# path above. The exact macro version may be unpublished, so resolve it from
+# its packaged archive alongside the packaged library in an isolated tree.
+if [[ "${2:-}" == "--test-package" ]]; then
+    package_directory="$(mktemp -d)"
+    trap 'rm -rf -- "${package_directory:?}"' EXIT
+    cargo +1.98.0 package --no-verify -p grafton-visca-macros -p grafton-visca \
+        --target-dir "${package_directory}/build"
+    for crate in grafton-visca-macros grafton-visca; do
+        tar -xzf "${package_directory}/build/package/${crate}-${release_version}.crate" \
+            -C "${package_directory}"
+    done
+    (
+        cd "${package_directory}/grafton-visca-${release_version}"
+        macro_package="patch.crates-io.grafton-visca-macros.path='../grafton-visca-macros-${release_version}'"
+        cargo +1.98.0 --config "${macro_package}" test --lib
+        cargo +1.98.0 --config "${macro_package}" test --lib --no-run --all-features
+    )
+fi
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "version=${release_version}" >> "${GITHUB_OUTPUT}"

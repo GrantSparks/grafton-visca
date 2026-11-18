@@ -13,7 +13,10 @@ use grafton_visca::{config::SessionConfig, observability::MetricsSnapshot, profi
 
 #[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
 use grafton_visca::{
+    error::ErrorKind,
+    observability::{DiagnosticEvent, DiagnosticOutcome},
     transport::{AddressingMode, SendSemantics, TransportConfig},
+    types::WideDynamicRangeLevel,
     Error,
 };
 
@@ -70,6 +73,7 @@ fn assert_metrics_shape(snapshot: MetricsSnapshot) {
     assert_eq!(snapshot.admitted, 0);
     assert_eq!(snapshot.terminal, 0);
     assert_eq!(snapshot.cache_updates, 0);
+    assert_eq!(snapshot.cache_invalidations, 0);
     // Issue #571: the field-debugging counters are part of the published
     // snapshot, and an idle session reports every one of them at zero.
     assert_eq!(snapshot.ack_timeouts, 0);
@@ -97,6 +101,73 @@ fn assert_set(cache: &StateCache, value: grafton_visca::state_cache::KnownState)
     assert_eq!(cache.value(value.key()), StateEntry::Set(value));
 }
 
+#[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
+fn cache_probe(close_on_second_write: bool) -> FakeCamera {
+    use fake_camera::frames;
+    let mut first_write = true;
+    FakeCamera::new(move |_, answer| {
+        answer.reply(frames::ack(1));
+        if std::mem::take(&mut first_write) {
+            answer.reply(frames::complete(1));
+        } else if close_on_second_write {
+            answer.fault(Error::connection_closed(None));
+        } else {
+            answer.reply(frames::error(1, frames::COMMAND_NOT_EXECUTABLE));
+        }
+    })
+}
+
+#[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
+fn assert_cache_event_order(
+    next_event: impl FnMut() -> Option<DiagnosticEvent>,
+    expected_failure: Option<ErrorKind>,
+) {
+    let events = std::iter::from_fn(next_event)
+        .filter(|event| {
+            matches!(
+                event,
+                DiagnosticEvent::AppliedState { .. }
+                    | DiagnosticEvent::StateInvalidated { .. }
+                    | DiagnosticEvent::Terminal { .. }
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        matches!(
+            events.as_slice(),
+            [
+                DiagnosticEvent::AppliedState { id: set_id, key: StateKey::ExposureWideDynamicRange, .. },
+                DiagnosticEvent::Terminal { id: applied_id, outcome: DiagnosticOutcome::Applied, .. },
+                DiagnosticEvent::StateInvalidated { id: unknown_id, key: StateKey::ExposureWideDynamicRange, .. },
+                DiagnosticEvent::Terminal { id: failed_id, outcome: DiagnosticOutcome::Failed(kind), .. },
+            ] if set_id == applied_id
+                && unknown_id == failed_id
+                && expected_failure.is_none_or(|expected| *kind == expected)
+        ),
+        "{events:?}"
+    );
+}
+
+#[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
+fn assert_operation_event_ids(
+    id: grafton_visca::operation::OperationId,
+    next_event: impl FnMut() -> Option<DiagnosticEvent>,
+) {
+    let identities = std::iter::from_fn(next_event)
+        .filter_map(|event| match event {
+            DiagnosticEvent::Admitted { id, .. }
+            | DiagnosticEvent::Terminal {
+                id,
+                outcome: DiagnosticOutcome::Applied,
+                ..
+            } => Some(id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(identities, [id, id]);
+}
+
 #[cfg(feature = "blocking")]
 mod blocking_observability {
     use std::{
@@ -104,7 +175,7 @@ mod blocking_observability {
         time::{Duration, Instant},
     };
 
-    use grafton_visca::{blocking::Session, types::PanTiltLimitCorner};
+    use grafton_visca::blocking::Session;
 
     use super::*;
     use fake_camera::BlockingWire;
@@ -125,56 +196,51 @@ mod blocking_observability {
 
     #[test]
     fn metrics_diagnostics_bounds_and_cache_apply_only_after_terminal() {
-        let session =
-            Session::open(probe_wire(false, false), &SessionConfig::new(profile())).unwrap();
-        let camera = session
-            .camera::<grafton_visca::profiles::PtzOpticsG2>(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-            )
-            .unwrap();
-        let cache = camera.state_cache();
-        assert_eq!(
-            cache.target(),
-            grafton_visca::types::IndividualCameraId::CAMERA_1
-        );
-        assert_unknown(&cache, StateKey::PanTiltLimit);
-        assert_metrics_shape(session.metrics().unwrap());
-
-        let diagnostics = session.subscribe_diagnostics(128).unwrap();
-        assert!(diagnostics.try_recv().is_none());
-        camera.streaming().set_multicast(true).unwrap();
-        assert_set(
-            &cache,
-            grafton_visca::state_cache::KnownState::StreamingMulticast(true),
-        );
-        camera
-            .execute(
-                &grafton_visca::command::pan_tilt::ClearLimit::for_target(
-                    &grafton_visca::config::TargetRegistration::new(
-                        grafton_visca::types::IndividualCameraId::CAMERA_1,
-                        grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                            grafton_visca::profiles::PtzOpticsG2,
-                        >()
-                        .expect("source profile"),
-                    ),
-                    PanTiltLimitCorner::UpRight,
+        for close_on_second_write in [false, true] {
+            let probe = cache_probe(close_on_second_write);
+            let session =
+                Session::open(probe.blocking_wire(), &SessionConfig::new(profile())).unwrap();
+            let camera = session
+                .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                    grafton_visca::types::IndividualCameraId::CAMERA_1,
                 )
-                .expect("profile-safe limit clear"),
-            )
-            .unwrap();
-        assert_set(
-            &cache,
-            grafton_visca::state_cache::KnownState::PanTiltLimit(
-                grafton_visca::state_cache::PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight),
-            ),
-        );
-        let received = std::iter::from_fn(|| diagnostics.try_recv()).count();
-        assert!((1..=128).contains(&received));
-        assert!(diagnostics.try_recv().is_none());
-        let metrics = session.metrics().unwrap();
-        assert!(metrics.cache_updates >= 2);
-        assert_eq!(metrics.received_frames, 4);
-        session.shutdown().unwrap();
+                .unwrap();
+            let cache = camera.state_cache();
+            assert_eq!(
+                cache.target(),
+                grafton_visca::types::IndividualCameraId::CAMERA_1
+            );
+            assert_unknown(&cache, StateKey::ExposureWideDynamicRange);
+            assert_metrics_shape(session.metrics().unwrap());
+
+            let diagnostics = session.subscribe_diagnostics(128).unwrap();
+            assert!(diagnostics.try_recv().is_none());
+            let applied = WideDynamicRangeLevel::new(4).unwrap();
+            camera.exposure().set_wide_dynamic_range(applied).unwrap();
+            assert_set(
+                &cache,
+                grafton_visca::state_cache::KnownState::ExposureWideDynamicRange(applied),
+            );
+            let other = WideDynamicRangeLevel::new(8).unwrap();
+            assert!(camera.exposure().set_wide_dynamic_range(other).is_err());
+            assert_unknown(&cache, StateKey::ExposureWideDynamicRange);
+
+            // Read the counters through the owner before draining diagnostics.
+            let metrics = session.metrics().unwrap();
+            assert_eq!(metrics.cache_updates, 1);
+            assert_eq!(metrics.cache_invalidations, 1);
+            if close_on_second_write {
+                assert_eq!(
+                    metrics.session,
+                    grafton_visca::observability::SessionStatus::Closed
+                );
+                assert_cache_event_order(|| diagnostics.try_recv(), None);
+            } else {
+                assert_eq!(metrics.received_frames, 4);
+                assert_cache_event_order(|| diagnostics.try_recv(), Some(ErrorKind::Unconfirmed));
+                session.shutdown().unwrap();
+            }
+        }
     }
 
     #[test]
@@ -212,6 +278,12 @@ mod blocking_observability {
             grafton_visca::state_cache::KnownState::StreamingMulticast(true),
         );
         assert_unknown(&second_view, StateKey::StreamingMulticast);
+
+        let diagnostics = session.subscribe_diagnostics(16).unwrap();
+        let mut operation = first.submit(&grafton_visca::command::zoom::Tele).unwrap();
+        operation.applied().unwrap();
+        session.metrics().unwrap();
+        assert_operation_event_ids(operation.id(), || diagnostics.try_recv());
         session.shutdown().unwrap();
 
         let fresh =
@@ -354,24 +426,19 @@ mod tokio_observability {
     #[tokio::test]
     async fn public_events_are_sanitized_and_shutdown_rejects_work() {
         let session = session().await;
-        let subscription = session.subscribe_diagnostics(8).await.unwrap();
-        session
+        let diagnostics = session.subscribe_diagnostics(16).await.unwrap();
+        let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
             )
-            .unwrap()
-            .streaming()
-            .set_multicast(true)
+            .unwrap();
+        let mut operation = camera
+            .submit(&grafton_visca::command::zoom::Tele)
             .await
             .unwrap();
-        let event = subscription.try_recv().expect("diagnostic event");
-        assert!(matches!(
-            event,
-            grafton_visca::observability::DiagnosticEvent::Admitted { .. }
-                | grafton_visca::observability::DiagnosticEvent::FrameReceived { .. }
-                | grafton_visca::observability::DiagnosticEvent::Transition { .. }
-                | grafton_visca::observability::DiagnosticEvent::WriteFinished { .. }
-        ));
+        operation.applied().await.unwrap();
+        session.metrics().await.unwrap();
+        assert_operation_event_ids(operation.id(), || diagnostics.try_recv());
         session.shutdown().unwrap();
         assert!(session
             .camera::<grafton_visca::profiles::PtzOpticsG2>(
@@ -400,6 +467,48 @@ mod tokio_observability {
             }
         }
         assert!(disconnected);
+    }
+
+    #[tokio::test]
+    async fn metrics_diagnostics_bounds_and_cache_apply_only_after_terminal() {
+        let session = Session::open(
+            cache_probe(false).async_wire(),
+            &SessionConfig::new(profile()),
+            TokioRuntime::from_current().unwrap(),
+        )
+        .await
+        .unwrap();
+        let camera = session
+            .camera::<grafton_visca::profiles::PtzOpticsG2>(
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+            )
+            .unwrap();
+        let cache = camera.state_cache();
+        let diagnostics = session.subscribe_diagnostics(128).await.unwrap();
+        let applied = WideDynamicRangeLevel::new(4).unwrap();
+        camera
+            .exposure()
+            .set_wide_dynamic_range(applied)
+            .await
+            .unwrap();
+        assert_set(
+            &cache,
+            grafton_visca::state_cache::KnownState::ExposureWideDynamicRange(applied),
+        );
+        let other = WideDynamicRangeLevel::new(8).unwrap();
+        assert!(camera
+            .exposure()
+            .set_wide_dynamic_range(other)
+            .await
+            .is_err());
+        assert_unknown(&cache, StateKey::ExposureWideDynamicRange);
+
+        let metrics = session.metrics().await.unwrap();
+        assert_eq!(metrics.cache_updates, 1);
+        assert_eq!(metrics.cache_invalidations, 1);
+        assert_eq!(metrics.received_frames, 4);
+        assert_cache_event_order(|| diagnostics.try_recv(), Some(ErrorKind::Unconfirmed));
+        session.shutdown().unwrap();
     }
 
     #[tokio::test]

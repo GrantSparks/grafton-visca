@@ -445,7 +445,7 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                 fn payload_shape_for_profile(&self, profile: &#crate_path::profiles::ProfileSpec) -> #crate_path::request::PayloadShape {
                     #crate_path::__macro_support::inquiry_payload_shape(#crate_path::__macro_support::InquiryKind::#response, ::core::option::Option::Some(profile))
                 }
-                fn decoder_for_profile(&self, profile: &#crate_path::profiles::ProfileSpec) -> #crate_path::request::ResponseDecoder<Self::Response> {
+                fn decoder_for_profile(&self, profile: &#crate_path::profiles::ProfileSpec) -> #crate_path::Result<#crate_path::request::ResponseDecoder<Self::Response>> {
                     fn lift(response: #crate_path::wire::Response) -> ::core::result::Result<#response_type, #crate_path::Error> { #lift }
                     #crate_path::__macro_support::inquiry_decoder(#crate_path::__macro_support::InquiryKind::#response, profile, lift)
                 }

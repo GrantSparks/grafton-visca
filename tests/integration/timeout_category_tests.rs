@@ -16,6 +16,12 @@ mod timeout_tests {
 
     use std::{sync::Arc, time::Duration};
 
+    const CUSTOM_IP_STREAM: grafton_visca::testing::testkit::ScriptedTransportIdentity =
+        grafton_visca::testing::testkit::ScriptedTransportIdentity::Custom {
+            semantics: grafton_visca::transport::SendSemantics::Stream,
+            addressing: grafton_visca::transport::AddressingMode::Ip,
+        };
+
     #[test]
     fn category_defaults_are_explicit_and_stable() {
         let defaults = CommandTimeouts::default();
@@ -31,9 +37,11 @@ mod timeout_tests {
         // Test basic ScriptedTransport functionality
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
-        let mut transport =
-            ScriptedTransport::new(vec![Step::on_send(None, vec![vec![0x90, 0x41, 0xFF]])])
-                .with_executor(executor.clone());
+        let mut transport = ScriptedTransport::new(
+            CUSTOM_IP_STREAM,
+            vec![Step::on_send(None, vec![vec![0x90, 0x41, 0xFF]])],
+        )
+        .with_executor(executor.clone());
 
         // Send a command
         transport
@@ -58,9 +66,12 @@ mod timeout_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Use injected timeout error instead of expecting recv() to timeout on its own
-        let mut transport = ScriptedTransport::new(vec![
-            helpers::errors::transport_timeout(), // Inject timeout error for recv()
-        ])
+        let mut transport = ScriptedTransport::new(
+            CUSTOM_IP_STREAM,
+            vec![
+                helpers::errors::transport_timeout(), // Inject timeout error for recv()
+            ],
+        )
         .with_executor(executor.clone());
 
         // Send a command

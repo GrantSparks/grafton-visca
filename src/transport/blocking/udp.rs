@@ -5,16 +5,19 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+use crate::transport::{connect::preflight, TransportConfig};
+
 use crate::{
     timeout::Deadline,
     transport::{
         address::{bind_address_for, resolve_blocking},
         blocking::{bounded_io, TimedIo},
-        builder::TransportConfig,
-        connect::{connect_deadline, preflight, socket_setup, udp_target},
+        builder::ValidatedTransportConfig,
+        connect::{connect_deadline, socket_setup, udp_target},
         datagram::{deliverable, recv_datagram},
         socket_options::{apply_udp_socket_options, UdpSocketConfig},
-        BlockingTransport, HasTransportConfig, ReceiveOutcome,
+        BlockingTransport, HasTransportConfig, NetworkEndpoint, ReceiveOutcome,
     },
     Error,
 };
@@ -26,7 +29,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Udp {
     socket: UdpSocket,
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
 }
 
 impl Udp {
@@ -35,31 +38,38 @@ impl Udp {
     /// The address must include an explicit port. Name resolution and socket
     /// setup share `config.connect_timeout`; see [`crate::transport::connect`]
     /// for the error contract shared with the async connectors.
+    #[cfg(test)]
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
-        let socket = Self::preflight_udp_setup(address, config, |endpoint, options| {
-            let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
-            let target = udp_target(&resolve_blocking(endpoint, deadline)?)?;
-            deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
+        let (endpoint, config) = preflight(address, config)?;
+        Self::connect_endpoint(&endpoint, config)
+    }
 
-            let socket = socket_setup(endpoint, UdpSocket::bind(bind_address_for(target)))?;
-            socket_setup(endpoint, socket.connect(target))?;
-            socket_setup(
-                endpoint,
-                apply_udp_socket_options(socket2::SockRef::from(&socket), target, options),
-            )?;
-            Ok(socket)
-        })?;
+    pub(crate) fn connect_endpoint(
+        endpoint: &NetworkEndpoint,
+        config: ValidatedTransportConfig,
+    ) -> Result<Self, Error> {
+        let options = UdpSocketConfig::from(config);
+        let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
+        let target = udp_target(&resolve_blocking(endpoint, deadline)?)?;
+        deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
 
+        let socket = socket_setup(endpoint, UdpSocket::bind(bind_address_for(target)))?;
+        socket_setup(endpoint, socket.connect(target))?;
+        socket_setup(
+            endpoint,
+            apply_udp_socket_options(socket2::SockRef::from(&socket), target, options),
+        )?;
         Ok(Self { socket, config })
     }
 
     /// Run endpoint parsing and UDP setup only after configuration preflight.
+    #[cfg(test)]
     fn preflight_udp_setup<T>(
         address: &str,
         config: TransportConfig,
-        setup: impl FnOnce(&str, UdpSocketConfig) -> Result<T, Error>,
+        setup: impl FnOnce(&NetworkEndpoint, UdpSocketConfig) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        let endpoint = preflight(address, &config)?;
+        let (endpoint, config) = preflight(address, config)?;
         setup(&endpoint, config.into())
     }
 }
@@ -77,7 +87,7 @@ impl HasTransportConfig for Udp {
         crate::transport::TransportIdentity::Udp
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }
@@ -318,7 +328,7 @@ mod tests {
 
         let mut transport = Udp {
             socket: receiver,
-            config: TransportConfig::default(),
+            config: Default::default(),
         };
         let mut dst = [0; 16];
 
@@ -342,7 +352,7 @@ mod tests {
 
         let mut transport = Udp {
             socket: receiver,
-            config: TransportConfig::default(),
+            config: Default::default(),
         };
         let mut dst = [0; 3];
         let truncated = transport
@@ -369,7 +379,7 @@ mod tests {
 
         let mut transport = Udp {
             socket: receiver,
-            config: TransportConfig::default(),
+            config: Default::default(),
         };
         let mut dst = [0; 16];
         let timeout = Duration::from_millis(80);
@@ -387,7 +397,7 @@ mod tests {
         let original_timeout = receiver.read_timeout().expect("read timeout");
         let mut transport = Udp {
             socket: receiver,
-            config: TransportConfig::default(),
+            config: Default::default(),
         };
         let mut dst = [0; 16];
 
@@ -425,7 +435,7 @@ mod tests {
 
         let mut transport = Udp {
             socket: receiver,
-            config: TransportConfig::default(),
+            config: Default::default(),
         };
         let mut dst = [0; 16];
         let result = transport.recv_into_with_timeout(&mut dst, Duration::from_millis(70));

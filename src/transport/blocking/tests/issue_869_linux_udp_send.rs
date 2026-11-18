@@ -41,7 +41,22 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 struct NonDefaultCompileTimeProfile;
 impl CompileTimeProfile for NonDefaultCompileTimeProfile {
-    const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::EMPTY;
+    const DOMAINS: capabilities::DomainSet = capabilities::DomainSet::from_domains(&[
+        capabilities::Domain::PanTilt,
+        capabilities::Domain::Zoom,
+        capabilities::Domain::Focus,
+        capabilities::Domain::Presets,
+        capabilities::Domain::Power,
+        capabilities::Domain::Exposure,
+        capabilities::Domain::WhiteBalance,
+    ]);
+    const TRANSPORTS: capabilities::TransportSet = TransportCompatibility::new()
+        .with_tcp(5678)
+        .with_udp(1259)
+        .with_serial()
+        .transport_set();
+    const TYPED_SUPPORT: TypedSupportSet =
+        TypedSupportSet::from_surface(TypedSupportSurface::PanTiltPositioning);
     const ID: Option<ProfileId> = None;
     fn spec() -> crate::Result<ProfileSpec> {
         synthetic_spec(
@@ -101,7 +116,7 @@ impl HasTransportConfig for PrimeSend {
         self.inner.identity()
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
         self.inner.transport_config()
     }
 }
@@ -251,22 +266,24 @@ fn synthetic_spec(
 ) -> crate::Result<ProfileSpec> {
     use TypedSupportSurface as S;
     let mut caps = Capabilities::runtime_baseline(model, 1)?;
-    caps.typed_support = typed_support;
+    caps.typed_support = typed_support.union(TypedSupportSet::from_surface(S::PanTiltPositioning));
     caps.inquiry_support = InquirySupport::Full;
     caps.pan_tilt = Some(PanTiltCaps {
-        pan_range: CapabilityRange::<i32>::new(-1700, 1700).expect("valid capability bounds"),
-        tilt_ranges: TiltRanges::Single(
-            CapabilityRange::<i32>::new(-300, 900).expect("valid capability bounds"),
-        ),
+        geometry: Some(capabilities::PanTiltGeometry {
+            pan_range: CapabilityRange::<i32>::new(-1700, 1700).expect("valid capability bounds"),
+            tilt_ranges: TiltRanges::Single(
+                CapabilityRange::<i32>::new(-300, 900).expect("valid capability bounds"),
+            ),
+            coordinates: PanTiltCoordinateConversion::new(
+                CoordinateSystem::SignedCentered,
+                PanTiltWireCodec::StandardVisca,
+                10.0,
+                10.0,
+            )?,
+            endpoint_quantization: EndpointQuantization::Exact,
+        }),
         pan_speed: CapabilityRange::<u8>::new(1, 24).expect("valid capability bounds"),
         tilt_speed: CapabilityRange::<u8>::new(1, 20).expect("valid capability bounds"),
-        coordinates: PanTiltCoordinateConversion::new(
-            CoordinateSystem::SignedCentered,
-            PanTiltWireCodec::StandardVisca,
-            10.0,
-            10.0,
-        )?,
-        endpoint_quantization: EndpointQuantization::Exact,
         simultaneous: true,
         preset_recovery_time: Duration::ZERO,
         variable_speed: false,

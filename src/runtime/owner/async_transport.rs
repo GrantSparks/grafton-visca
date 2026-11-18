@@ -79,7 +79,7 @@ mod tests {
 
     #[derive(Debug)]
     struct ScriptedTransport {
-        config: TransportConfig,
+        config: crate::transport::ValidatedTransportConfig,
         sent: Vec<Vec<u8>>,
         receives: std::collections::VecDeque<Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
@@ -90,7 +90,7 @@ mod tests {
     /// possibly truncated, as the receive contract requires.
     #[derive(Debug)]
     struct UnobservedTruncation {
-        config: TransportConfig,
+        config: crate::transport::ValidatedTransportConfig,
         datagrams: std::collections::VecDeque<Vec<u8>>,
     }
 
@@ -102,7 +102,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &TransportConfig {
+        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
             &self.config
         }
     }
@@ -132,7 +132,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &TransportConfig {
+        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
             &self.config
         }
     }
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn policy_maps_async_transport_semantics_and_decodes_frames() {
         let transport = ScriptedTransport {
-            config: TransportConfig::default(),
+            config: Default::default(),
             sent: Vec::new(),
             receives: [Ok(vec![0x90, 0x41, 0xff])].into_iter().collect(),
             semantics: SendSemantics::Datagram,
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn startup_sony_sequence_reset_writes_the_control_frame() {
         let transport = ScriptedTransport {
-            config: TransportConfig::default(),
+            config: Default::default(),
             sent: Vec::new(),
             receives: std::collections::VecDeque::new(),
             semantics: SendSemantics::Datagram,
@@ -210,7 +210,7 @@ mod tests {
         let mut oversized = vec![0x90, 0x41, 0xff];
         oversized.resize(config.buffer_config.recv_buffer_size + 1, 0);
         let transport = ScriptedTransport {
-            config,
+            config: config.validated().unwrap(),
             sent: Vec::new(),
             receives: [Ok(oversized)].into_iter().collect(),
             semantics: SendSemantics::Datagram,
@@ -240,7 +240,7 @@ mod tests {
         oversized.resize(capacity + 1, 0);
         let (mut adapter, adapter_policy) = AsyncTransportAdapter::new(
             UnobservedTruncation {
-                config,
+                config: config.validated().unwrap(),
                 datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
             },
             &profile(),
@@ -274,7 +274,9 @@ mod tests {
                 read_timeout: std::time::Duration::from_millis(111),
                 write_timeout: std::time::Duration::from_millis(222),
                 ..TransportConfig::default()
-            },
+            }
+            .validated()
+            .unwrap(),
             sent: Vec::new(),
             receives: std::collections::VecDeque::new(),
             semantics: SendSemantics::Datagram,
@@ -295,7 +297,7 @@ mod tests {
     #[test]
     fn partial_stream_frame_is_reported_as_an_empty_batch_not_a_close() {
         let transport = ScriptedTransport {
-            config: TransportConfig::default(),
+            config: Default::default(),
             sent: Vec::new(),
             // One reply split across two reads, then a genuine end of stream.
             receives: [Ok(vec![0x90, 0x41]), Ok(vec![0xff]), Ok(Vec::new())]
@@ -379,7 +381,7 @@ mod tests {
 
         for (prefix, expected_kind, case) in cases {
             let transport = ScriptedTransport {
-                config: TransportConfig::default(),
+                config: Default::default(),
                 sent: Vec::new(),
                 receives: [Ok(prefix)].into_iter().collect(),
                 semantics: SendSemantics::Stream,
@@ -394,7 +396,7 @@ mod tests {
             let received = futures_lite::future::block_on(adapter.receive(&mut buffers));
             assert!(matches!(received, OwnerReceive::Frames(ref frames) if frames.is_empty()));
             assert_eq!(
-                adapter.retained().and_then(|input| input.evidence.raw()),
+                adapter.retained().and_then(|input| input.evidence()),
                 Some(RawPrefixEvidence::Incomplete {
                     target: crate::target::TargetSlot::CAMERA_1,
                     kind: expected_kind,
@@ -409,7 +411,7 @@ mod tests {
         // single noise byte.
         for prefix in [vec![0x80, 0x50, 0xdd], vec![0x88, 0x30, 0x02], vec![0x00]] {
             let transport = ScriptedTransport {
-                config: TransportConfig::default(),
+                config: Default::default(),
                 sent: Vec::new(),
                 receives: [Ok(prefix.clone())].into_iter().collect(),
                 semantics: SendSemantics::Stream,
@@ -423,7 +425,7 @@ mod tests {
             let mut buffers = OwnerBuffers::new(adapter_policy.limits);
             let _ = futures_lite::future::block_on(adapter.receive(&mut buffers));
             assert_eq!(
-                adapter.retained().and_then(|input| input.evidence.raw()),
+                adapter.retained().and_then(|input| input.evidence()),
                 Some(RawPrefixEvidence::Malformed),
                 "prefix {prefix:02x?}",
             );
@@ -445,7 +447,7 @@ mod tests {
             },
         ] {
             let transport = ScriptedTransport {
-                config: TransportConfig::default(),
+                config: Default::default(),
                 sent: Vec::new(),
                 receives: [Err(idle)].into_iter().collect(),
                 semantics: SendSemantics::Datagram,
@@ -479,7 +481,7 @@ mod tests {
             },
         ] {
             let transport = ScriptedTransport {
-                config: TransportConfig::default(),
+                config: Default::default(),
                 sent: Vec::new(),
                 receives: [Err(fault)].into_iter().collect(),
                 semantics: SendSemantics::Datagram,
@@ -511,7 +513,7 @@ mod tests {
             )
             .with_maximum_command_sockets(crate::types::CommandSocketCount::ONE);
         let transport = ScriptedTransport {
-            config: TransportConfig::default(),
+            config: Default::default(),
             sent: Vec::new(),
             receives: std::collections::VecDeque::new(),
             semantics: SendSemantics::Datagram,

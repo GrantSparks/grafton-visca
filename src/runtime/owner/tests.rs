@@ -93,7 +93,7 @@ impl<T: TerminalLane> StagedAdmission<T> {
         let effect = match &result {
             Ok(admitted) => Effect::Admitted {
                 ticket: AdmissionTicket(0),
-                id: admitted.id,
+                id: admitted.identity.request_id(),
             },
             Err(error) => Effect::AdmissionRejected {
                 ticket: AdmissionTicket(0),
@@ -247,7 +247,7 @@ fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
 #[test]
 fn construction_and_retuning_have_identical_limits_for_every_profile_and_serial_registry() {
     let now = Instant::now();
-    let config = crate::transport::TransportConfig::default();
+    let config = crate::transport::ValidatedTransportConfig::default();
     let identity = crate::transport::TransportIdentity::Custom {
         semantics: crate::transport::SendSemantics::Stream,
         addressing: crate::transport::AddressingMode::Serial,
@@ -273,8 +273,7 @@ fn construction_and_retuning_have_identical_limits_for_every_profile_and_serial_
                 validated,
                 crate::DEFAULT_ADMISSION_CAPACITY,
                 false,
-            )
-            .unwrap();
+            );
             let constructed = OwnerState::new(policy, now).unwrap();
             let initial = crate::session_config::ValidatedTuning::validate(
                 crate::OperationalTuning::new(),
@@ -288,8 +287,7 @@ fn construction_and_retuning_have_identical_limits_for_every_profile_and_serial_
                 initial,
                 crate::DEFAULT_ADMISSION_CAPACITY,
                 false,
-            )
-            .unwrap();
+            );
             let mut retuned = OwnerState::new(policy, now).unwrap();
             retuned.retune(validated, now).unwrap();
             assert_eq!(
@@ -490,7 +488,7 @@ mod control_reserve {
                     .is_pending());
                 let _applied = state.apply_effect(
                     Effect::Terminal {
-                        id: admitted.id,
+                        id: admitted.identity.request_id(),
                         outcome: RuntimeOutcome::Command(outcome),
                     },
                     now,
@@ -517,7 +515,7 @@ mod control_reserve {
         assert!(matches!(
             pool.try_acquire(&urgent),
             Err(Error::ControlReserveExhausted { target, reserve: 2 })
-                if target == TargetSlot::CAMERA_1.camera()
+                if target == TargetSlot::CAMERA_1.individual_camera()
         ));
         assert!(matches!(
             pool.try_acquire(&request(1, CommandReply::AckThenCompletion)),
@@ -564,7 +562,7 @@ fn pan_tilt_limit_cache_preserves_typed_corner_updates_and_clears() {
     let mut cache = TargetStateCache::default();
     let set = KnownState::PanTiltLimit(PanTiltLimitUpdate::set(
         PanTiltLimitCorner::DownLeft,
-        crate::camera::PanTiltUnits::new(12, -4),
+        crate::types::PanTiltPosition::from_degrees(12.0, -4.0).unwrap(),
     ));
     cache.apply(AppliedStateProjection::set(set));
     assert_eq!(cache.entry(StateKey::PanTiltLimit), StateEntry::Set(set));
@@ -615,7 +613,7 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
         limit,
         crate::PanTiltLimitUpdate::set(
             crate::command::PanTiltLimitCorner::DownLeft,
-            crate::camera::PanTiltUnits::new(-123, 456)
+            crate::types::PanTiltPosition::from_degrees(-123.0, 456.0).unwrap()
         )
     );
     check!(
@@ -656,12 +654,6 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
         crate::command::PanTiltSpeedMode::Fine50
     );
     check!(TallyMode, tally, mode, crate::types::TallyMode::Flash);
-    check!(
-        ImageFlipMode,
-        image,
-        flip_mode,
-        crate::types::ImageFlipMode::Vertical
-    );
     check!(
         MotionSyncSpeed,
         motion_sync,
@@ -891,7 +883,7 @@ mod metrics {
             prepared::{test_support::prepare_command, ClassSelection},
             profiles::GenericVisca,
             request::builtin::FocusModeCommand,
-            CameraId, OperationalTuning, ProfileSpec, TargetRegistration,
+            IndividualCameraId, OperationalTuning, ProfileSpec, TargetRegistration,
         };
 
         let start = Instant::now();
@@ -900,11 +892,11 @@ mod metrics {
         let subscription = crate::observability::DiagnosticSubscription::from_owner(
             state.subscribe_diagnostics(128, ends.lifecycle).unwrap(),
         );
-        let target = CameraId::CAMERA_1;
+        let target = IndividualCameraId::CAMERA_1;
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let prepared = prepare_command(
             &FocusModeCommand::Manual,
-            &TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile),
+            &TargetRegistration::new(target, profile),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1166,7 +1158,7 @@ mod metrics {
         assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::FrameReceived {
-                target: crate::CameraId::CAMERA_1,
+                target: crate::IndividualCameraId::CAMERA_1,
                 response: crate::observability::DiagnosticResponse::SonyControl { code: 0x0F01 },
             }
         )));
@@ -1207,29 +1199,26 @@ mod metrics {
         const fn assert_copy<T: Copy>() {}
         assert_copy::<OwnerMetrics>();
         assert_copy::<DiagnosticEvent>();
-        assert_eq!(size_of::<OwnerMetrics>(), 23 * size_of::<u64>());
+        assert_eq!(size_of::<OwnerMetrics>(), 24 * size_of::<u64>());
     }
     fn admit_observation(
         state: &mut OwnerState,
-        request: RuntimeRequest,
+        mut request: RuntimeRequest,
         now: Instant,
     ) -> (OperationObservation, Arc<ObserverCell<CommandOutcome>>) {
+        let motion = request.context().motion.unwrap_or(MotionEffect {
+            axes: crate::AffectedAxes::ZOOM,
+        });
+        request.context_mut().motion = Some(motion);
         let permit = state.permits.try_acquire(&request).unwrap();
         let (observer, cell) = TerminalObserver::<CommandOutcome>::pair();
-        let (reply, admitted) = flume::bounded(1);
-        let input = super::StagedAdmission {
-            request,
-            permit,
-            observer: Arc::clone(&cell),
-            reply,
-        };
         let turn = state.begin_input_turn(now);
-        for effect in input.in_turn(state, &turn) {
-            let _ = state.apply_effect(effect, now);
-        }
+        let admitted =
+            state.admit_operation_in_turn(&turn, request, motion, permit, Arc::clone(&cell));
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
-        let core = ReceiptCore::admitted(admitted.recv().unwrap().unwrap(), observer, ACK);
-        (OperationObservation::new(core, ACK), cell)
+        let admitted = admitted.unwrap();
+        let core = ReceiptCore::admitted(admitted.admitted, observer, ACK).unwrap();
+        (OperationObservation::new(core, admitted.motion, ACK), cell)
     }
 
     fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<CommandOutcome>>) {
@@ -1245,7 +1234,7 @@ mod metrics {
         let delivered = earlier + Duration::from_millis(2);
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), earlier).unwrap();
         let mut request = command(retrying());
-        request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
+        request.context_mut().motion = Some(MotionEffect {
             axes: AffectedAxes::PAN_TILT,
         });
         request.context_mut().submission_order = 1;
@@ -1336,7 +1325,7 @@ mod metrics {
         let (_observation, observer) = CancellationObserver::pair();
         let (mut effects, answer) = state.begin_cancellation(
             CancellationRequest {
-                id: executing,
+                id: state.engine.command_id(executing),
                 observer,
             },
             ready_at,
@@ -1429,7 +1418,10 @@ mod metrics {
             let (_observation, observer) = CancellationObserver::pair();
             let retained = Arc::clone(&observer);
             let (effects, answer) = state.begin_cancellation(
-                CancellationRequest { id, observer },
+                CancellationRequest {
+                    id: state.engine.command_id(id),
+                    observer,
+                },
                 now + Duration::from_millis(1),
             );
             match cancellation {
@@ -1465,7 +1457,7 @@ mod metrics {
         let _applied = state.apply_effect(
             Effect::CancellationObservation {
                 id: observation.id(),
-                observation: CancellationObservation::Failed(Error::CancellationUnconfirmed),
+                observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed),
             },
             delivered,
         );
@@ -1478,6 +1470,58 @@ mod metrics {
             observation.cancellation(delivered),
             Some(Err(Error::CancellationUnconfirmed))
         ));
+    }
+
+    #[test]
+    fn cancellation_conclusion_waits_for_the_terminal_error() {
+        use crate::{Certainty, FailureStage, Recovery};
+
+        let now = Instant::now();
+        for (diagnostic, error) in [
+            (
+                Error::CommandNotExecutable.kind(),
+                Error::command_failed_after_ack(Error::CommandNotExecutable),
+            ),
+            (
+                ErrorKind::Timeout,
+                Error::timeout(FailureStage::Terminal, Certainty::Unconfirmed),
+            ),
+        ] {
+            let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), now).unwrap();
+            let (mut observation, _) = admit_observation(&mut state, command(retrying()), now);
+            let cancellation = observation.cancellation_request();
+            let id = observation.id();
+            state.active.get_mut(&id).unwrap().cancellation = Some(cancellation.observer);
+            let decision = [
+                Effect::CancellationObservation {
+                    id,
+                    observation: CancellationObservation::Concluded(
+                        CancellationConclusion::Failed(diagnostic),
+                    ),
+                },
+                Effect::Terminal {
+                    id,
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Failed(error)),
+                },
+            ];
+            let [conclusion, terminal] = decision;
+            let _ = state.apply_effect(conclusion, now);
+            assert!(observation.cancellation(now).is_none());
+            let _ = state.apply_effect(terminal, now);
+            let error = observation.cancellation(now).unwrap().unwrap_err();
+            match error {
+                Error::CommandFailedAfterAck { ref source } => {
+                    assert_eq!(diagnostic, Error::CommandNotExecutable.kind());
+                    assert!(matches!(**source, Error::CommandNotExecutable));
+                }
+                Error::Timeout { .. } => assert_eq!(diagnostic, ErrorKind::Timeout),
+                other => panic!("expected the operation's terminal error, got {other:?}"),
+            }
+            assert_eq!(error.recovery(), Recovery::Reconcile);
+            let context = error.failure_context().unwrap();
+            assert_eq!(context.stage, FailureStage::Terminal);
+            assert_eq!(context.certainty, Certainty::Unconfirmed);
+        }
     }
 
     #[test]
@@ -1526,7 +1570,7 @@ mod metrics {
         let now = Instant::now();
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let mut request = command(retrying());
-        request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
+        request.context_mut().motion = Some(MotionEffect {
             axes: AffectedAxes::PAN_TILT,
         });
         request.context_mut().submission_order = 1;
@@ -1546,32 +1590,31 @@ mod metrics {
         request.context_mut().submission_order = 2;
         let permit = state.permits.try_acquire(&request).unwrap();
         let (completion, observer) = TerminalObserver::<CommandOutcome>::pair();
-        let (reply_sender, reply) = flume::bounded(1);
-        let input = super::StagedAdmission {
-            request,
-            permit,
-            observer,
-            reply: reply_sender,
-        };
+        let motion = request.context().motion.unwrap();
         let admission_turn = state.begin_input_turn(now);
-        let effects = input.in_turn(&mut state, &admission_turn);
+        let admitted = state
+            .admit_operation_in_turn(&admission_turn, request, motion, permit, observer)
+            .unwrap();
         assert!(
             matches!(
                 original.check_settlement(),
                 Err(Error::SettlementSuperseded { .. })
             ),
-            "engine admission invalidates attribution before its Admitted effect drains"
+            "engine admission invalidates attribution before the owner runs due work or dispatches"
         );
-        for effect in effects {
-            let _ = state.apply_effect(effect, now);
-        }
         let _ = state.finish_input_turn(admission_turn, EngineTurn::InputOnly);
         let later = OperationObservation::new(
-            ReceiptCore::admitted(reply.recv().unwrap().unwrap(), completion, ACK),
+            ReceiptCore::admitted(admitted.admitted, completion, ACK).unwrap(),
+            admitted.motion,
             ACK,
         );
         let turn = state.begin_input_turn(now);
-        for effect in state.input_in_turn(&turn, Input::Cancel { id: later.id() }) {
+        for effect in state.input_in_turn(
+            &turn,
+            Input::Cancel {
+                id: later.command_id(),
+            },
+        ) {
             let _ = state.apply_effect(effect, now);
         }
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
@@ -1644,7 +1687,7 @@ mod metrics {
         // The engine uses the actual acceptance cutoff, whichever side the
         // concurrent enqueue took; an earlier halt enqueue is not the fence.
         let mut motion = command(retrying());
-        motion.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
+        motion.context_mut().motion = Some(MotionEffect {
             axes: AffectedAxes::PAN_TILT,
         });
         motion.context_mut().submission_order = order;
@@ -1789,8 +1832,7 @@ mod metrics {
         use crate::{AffectedAxes, Settlement};
         let registry = Arc::new(MotionRegistry::default());
         let (mut observation, _) = observation_fixture();
-        observation.core.motion =
-            Some(registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 1));
+        observation.motion = registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 1);
         registry.establish(TargetSlot::CAMERA_1, AffectedAxes::ZOOM, 2);
         registry.establish(TargetSlot::CAMERA_2, AffectedAxes::PAN_TILT, 3);
         assert!(observation.check_settlement().is_ok());
@@ -1800,7 +1842,9 @@ mod metrics {
             crate::camera::MovementTolerance::default(),
         );
         assert_eq!(
-            observation.commit_settlement(Ok(evidence), true).unwrap(),
+            observation
+                .commit_position_observation(Ok(evidence))
+                .unwrap(),
             evidence
         );
         registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 4);
@@ -1810,22 +1854,17 @@ mod metrics {
             "established evidence persists"
         );
         let (mut superseded, _) = observation_fixture();
-        superseded.core.motion =
-            Some(registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 5));
+        superseded.motion = registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 5);
         registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 6);
         assert!(matches!(
-            superseded.commit_settlement(Ok(evidence), true),
+            superseded.commit_position_observation(Ok(evidence)),
             Err(Error::SettlementSuperseded { .. })
         ));
         let (mut exact, _) = observation_fixture();
-        exact.core.motion =
-            Some(registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 7));
+        exact.motion = registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 7);
         registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 8);
         let exact_evidence = Settlement::profile_completion(AffectedAxes::PAN_TILT);
-        assert_eq!(
-            exact.commit_settlement(Ok(exact_evidence), false).unwrap(),
-            exact_evidence
-        );
+        assert_eq!(exact.commit_completion(exact_evidence), exact_evidence);
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]
@@ -1851,7 +1890,7 @@ mod metrics {
             crate::Recovery::Resubmit { .. }
         ));
         assert!(
-            matches!(error, Error::SettlementObservationFailed { operation, source } if operation.get() == observation.id().get() && source.failure_context() == Some(crate::FailureContext::new(crate::FailureStage::Terminal, crate::Certainty::FailedConclusively)))
+            matches!(error, Error::SettlementObservationFailed { operation, source } if operation == crate::OperationId::from_nonzero(observation.id().as_nonzero()) && source.failure_context() == Some(crate::FailureContext::new(crate::FailureStage::Terminal, crate::Certainty::FailedConclusively)))
         );
     }
 
@@ -2137,15 +2176,15 @@ mod lifecycle_trace {
     };
 
     const OBSERVER_LATE_DELIVERY: &str =
-        include_str!("../../../tests/fixtures/issue_542/lifecycle/observer_late_delivery.trace");
+        include_str!("../../../testdata/issue_542/lifecycle/observer_late_delivery.trace");
     const DEADLINE_CLASSES: &str =
-        include_str!("../../../tests/fixtures/issue_542/lifecycle/deadline_classes.trace");
+        include_str!("../../../testdata/issue_542/lifecycle/deadline_classes.trace");
     const CAPACITY_AND_FAILURES: &str =
-        include_str!("../../../tests/fixtures/issue_542/lifecycle/capacity_and_failures.trace");
+        include_str!("../../../testdata/issue_542/lifecycle/capacity_and_failures.trace");
     const PTZOPTICS_CANCEL: &str =
-        include_str!("../../../tests/fixtures/issue_542/lifecycle/ptzoptics_cancel.trace");
+        include_str!("../../../testdata/issue_542/lifecycle/ptzoptics_cancel.trace");
     const BLOCKING_OUT_OF_ORDER: &str =
-        include_str!("../../../tests/fixtures/issue_542/lifecycle/blocking_out_of_order.trace");
+        include_str!("../../../testdata/issue_542/lifecycle/blocking_out_of_order.trace");
 
     /// No fixture request may reach a deadline it did not ask for.
     const UNREACHABLE: Duration = Duration::from_secs(3_600);
@@ -2752,12 +2791,15 @@ mod lifecycle_trace {
             let cancels_before = self.cancel_transmissions;
             let now = self.now;
             let turn = self.state().begin_input_turn(now);
-            let effects = self.state_mut().input_in_turn(&turn, Input::Cancel { id });
+            let command_id = self.state().engine.command_id(id);
+            let effects = self
+                .state_mut()
+                .input_in_turn(&turn, Input::Cancel { id: command_id });
             let ignored = effects.iter().all(|effect| {
                 matches!(
                     effect,
                     Effect::CancellationObservation {
-                        observation: CancellationObservation::Failed(_),
+                        observation: CancellationObservation::AttemptFailed(_),
                         ..
                     }
                 )
@@ -2876,11 +2918,16 @@ mod lifecycle_trace {
                     } => {
                         let (text, source) = match observation {
                             CancellationObservation::Recorded => ("Recorded".to_owned(), "local"),
-                            CancellationObservation::Cancelled => ("Cancelled".to_owned(), "local"),
-                            CancellationObservation::Completed => {
-                                ("Completed".to_owned(), "protocol")
-                            }
-                            CancellationObservation::Failed(error) => (
+                            CancellationObservation::Concluded(
+                                CancellationConclusion::Cancelled,
+                            ) => ("Cancelled".to_owned(), "local"),
+                            CancellationObservation::Concluded(
+                                CancellationConclusion::Completed,
+                            ) => ("Completed".to_owned(), "protocol"),
+                            CancellationObservation::Concluded(CancellationConclusion::Failed(
+                                kind,
+                            )) => (format!("ErrorKind::{kind:?}"), "engine"),
+                            CancellationObservation::AttemptFailed(error) => (
                                 format!("Error::{}", error_label(error)),
                                 if matches!(error, Error::CancellationNotSupported) {
                                     "profile"

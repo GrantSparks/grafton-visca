@@ -18,19 +18,20 @@ pub(crate) fn connect_blocking(plan: ConnectionPlan) -> crate::Result<crate::blo
     match transport {
         ConnectionTransport::Network(network) => match network.kind {
             NetworkTransport::Tcp => crate::blocking::Session::open_validated(
-                Tcp::connect_with_config(&network.endpoint, network.transport_config)?,
+                Tcp::connect_endpoint(&network.endpoint, network.transport_config)?,
                 session_config,
             ),
             NetworkTransport::Udp => crate::blocking::Session::open_validated(
-                Udp::connect_with_config(&network.endpoint, network.transport_config)?,
+                Udp::connect_endpoint(&network.endpoint, network.transport_config)?,
                 session_config,
             ),
         },
         ConnectionTransport::Serial(serial_config) => {
             #[cfg(feature = "transport-serial")]
             {
-                let transport =
-                    crate::transport::serial_blocking::SerialTransport::new(serial_config)?;
+                let transport = crate::transport::serial_blocking::SerialTransport::open_validated(
+                    serial_config,
+                )?;
                 crate::blocking::Session::open_validated(transport, session_config)
             }
             #[cfg(not(feature = "transport-serial"))]
@@ -60,7 +61,7 @@ pub(crate) fn connect_async<R: crate::runtime::Runtime>(
             ConnectionTransport::Network(network) => match network.kind {
                 NetworkTransport::Tcp => {
                     let transport = runtime
-                        .connect_tcp(&network.endpoint, network.transport_config)
+                        .connect_tcp_endpoint(network.endpoint, network.transport_config)
                         .await?;
                     crate::async_session::Session::open_validated(
                         transport,
@@ -71,7 +72,7 @@ pub(crate) fn connect_async<R: crate::runtime::Runtime>(
                 }
                 NetworkTransport::Udp => {
                     let transport = runtime
-                        .connect_udp(&network.endpoint, network.transport_config)
+                        .connect_udp_endpoint(network.endpoint, network.transport_config)
                         .await?;
                     crate::async_session::Session::open_validated(
                         transport,
@@ -84,7 +85,7 @@ pub(crate) fn connect_async<R: crate::runtime::Runtime>(
             ConnectionTransport::Serial(serial_config) => {
                 #[cfg(feature = "transport-serial-tokio")]
                 {
-                    let transport = runtime.connect_serial(serial_config).await?;
+                    let transport = runtime.connect_validated_serial(serial_config).await?;
                     crate::async_session::Session::open_validated(
                         transport,
                         session_config,

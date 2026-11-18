@@ -1,22 +1,11 @@
 use grafton_visca::capabilities::{
     HasAutoTrackingWhiteBalance, HasBrightnessControl, HasDirectMenuControl, HasImageProcessing,
+    //~^ E0432 "unresolved imports `grafton_visca::capabilities::HasAutoTrackingWhiteBalance`, `grafton_visca::capabilities::HasBrightnessControl`, `grafton_visca::capabilities::HasDirectMenuControl`, `grafton_visca::capabilities::HasImageProcessing`, `grafton_visca::capabilities::HasMenuControl`, `grafton_visca::capabilities::HasStandardWhiteBalanceModes`"
     HasMenuControl, HasStandardWhiteBalanceModes,
+    //~^ E0432 "unresolved imports `grafton_visca::capabilities::HasAutoTrackingWhiteBalance`, `grafton_visca::capabilities::HasBrightnessControl`, `grafton_visca::capabilities::HasDirectMenuControl`, `grafton_visca::capabilities::HasImageProcessing`, `grafton_visca::capabilities::HasMenuControl`, `grafton_visca::capabilities::HasStandardWhiteBalanceModes`"
 };
 use grafton_visca::profiles::{
     NearusBRC300, PtzOptics30X, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
+    //~^ E0432 "unresolved imports `grafton_visca::profiles::NearusBRC300`, `grafton_visca::profiles::PtzOptics30X`, `grafton_visca::profiles::SonyBRC300`, `grafton_visca::profiles::SonyBRCH900`, `grafton_visca::profiles::SonyEVIH100`, `grafton_visca::profiles::SonyFR7`"
 };
 fn main() {}
-
-//~ E0432
-//~ "no `NearusBRC300` in `profiles`"
-//~ "no `PtzOptics30X` in `profiles`"
-//~ "no `SonyBRC300` in `profiles`"
-//~ "no `SonyBRCH900` in `profiles`"
-//~ "no `SonyEVIH100` in `profiles`"
-//~ "no `SonyFR7` in `profiles`"
-//~ "no `HasAutoTrackingWhiteBalance` in `capabilities`"
-//~ "no `HasBrightnessControl` in `capabilities`"
-//~ "no `HasDirectMenuControl` in `capabilities`"
-//~ "no `HasImageProcessing` in `capabilities`"
-//~ "no `HasMenuControl` in `capabilities`"
-//~ "no `HasStandardWhiteBalanceModes` in `capabilities`"

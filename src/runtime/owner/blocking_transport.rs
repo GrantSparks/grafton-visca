@@ -96,7 +96,7 @@ mod tests {
     /// reporting end of stream.
     #[derive(Debug)]
     struct ScriptedTransport {
-        config: TransportConfig,
+        config: crate::transport::ValidatedTransportConfig,
         sent: Arc<Mutex<Vec<Vec<u8>>>>,
         write_timeouts: Arc<Mutex<Vec<Duration>>>,
         write_error: Option<Error>,
@@ -115,7 +115,7 @@ mod tests {
             receives: impl IntoIterator<Item = Result<Vec<u8>, Error>>,
         ) -> Self {
             Self {
-                config,
+                config: config.validated().unwrap(),
                 sent: Arc::new(Mutex::new(Vec::new())),
                 write_timeouts: Arc::new(Mutex::new(Vec::new())),
                 write_error: None,
@@ -144,7 +144,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &TransportConfig {
+        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
             &self.config
         }
     }
@@ -200,7 +200,12 @@ mod tests {
     fn buffers(adapter: &BlockingTransportAdapter<ScriptedTransport>) -> OwnerBuffers {
         OwnerBuffers::new(super::super::OwnerLimits {
             receive_bytes: std::num::NonZeroUsize::new(
-                adapter.transport.config.buffer_config.recv_buffer_size,
+                adapter
+                    .transport
+                    .config
+                    .as_config()
+                    .buffer_config
+                    .recv_buffer_size,
             )
             .unwrap(),
             ..super::super::OwnerLimits::default()
@@ -240,7 +245,13 @@ mod tests {
         let (mut adapter, policy) = adapter(transport);
         // The session's bound was validated at construction; a custom
         // transport reporting a new default cannot override it on write.
-        adapter.transport.config.write_timeout = Duration::from_secs(7);
+        adapter.transport.config = adapter
+            .transport
+            .config
+            .as_config()
+            .with_write_timeout(Duration::from_secs(7))
+            .validated()
+            .unwrap();
         assert_eq!(
             policy.protocol.wire.kind(),
             crate::runtime::engine::EnvelopeKind::Raw
@@ -429,7 +440,7 @@ mod tests {
     /// possibly truncated, as the receive contract requires.
     #[derive(Debug)]
     struct UnobservedTruncation {
-        config: TransportConfig,
+        config: crate::transport::ValidatedTransportConfig,
         datagrams: VecDeque<Vec<u8>>,
     }
 
@@ -441,7 +452,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &TransportConfig {
+        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
             &self.config
         }
     }
@@ -480,7 +491,7 @@ mod tests {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let (mut adapter, _) = BlockingTransportAdapter::new(
             UnobservedTruncation {
-                config: config(),
+                config: config().validated().unwrap(),
                 datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
             },
             &profile,
@@ -489,7 +500,12 @@ mod tests {
         .unwrap();
         let mut buffers = OwnerBuffers::new(super::super::OwnerLimits {
             receive_bytes: std::num::NonZeroUsize::new(
-                adapter.transport.config.buffer_config.recv_buffer_size,
+                adapter
+                    .transport
+                    .config
+                    .as_config()
+                    .buffer_config
+                    .recv_buffer_size,
             )
             .unwrap(),
             ..super::super::OwnerLimits::default()
@@ -632,14 +648,17 @@ mod tests {
         assert!(frames(receive(&mut adapter, &mut buffers)).is_empty());
         assert!(adapter.retained().is_some());
         assert_eq!(
-            adapter.retained().and_then(|input| input.evidence.raw()),
+            adapter.retained().and_then(|input| input.evidence()),
             Some(RawPrefixEvidence::Incomplete {
                 target: crate::target::TargetSlot::CAMERA_1,
                 kind: RawIncompletePrefix::SocketlessCompletion,
             })
         );
 
-        adapter.discard_first().unwrap();
+        let Some(crate::runtime::owner::RetainedInput::Raw(raw)) = adapter.retained() else {
+            panic!("expected retained raw input");
+        };
+        assert_eq!(raw.discard_first().get(), 2);
         assert!(!adapter.retained().is_some());
 
         // This would have completed `[90 50 02 FF]` if the stale prefix had
@@ -678,7 +697,7 @@ mod tests {
             let mut buffers = buffers(&adapter);
             assert!(frames(receive(&mut adapter, &mut buffers)).is_empty());
             assert_eq!(
-                adapter.retained().and_then(|input| input.evidence.raw()),
+                adapter.retained().and_then(|input| input.evidence()),
                 Some(RawPrefixEvidence::Malformed),
                 "prefix {prefix:02x?}",
             );

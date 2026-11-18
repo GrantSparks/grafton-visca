@@ -2,6 +2,7 @@
 struct Level(u8);
 
 #[grafton_visca::value_enum]
+//~^ E0080 "value_enum supports at most one checked payload variant"
 enum Duplicate {
     #[cfg(all())]
     First(Level),
@@ -9,6 +10,3 @@ enum Duplicate {
 }
 
 fn main() {}
-
-//~ E0080
-//~ "value_enum supports at most one checked payload variant"

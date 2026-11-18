@@ -24,16 +24,17 @@ pub use discovery::Capabilities;
 pub(crate) use discovery::SurfaceMetadata;
 pub use domains::{
     EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, MenuCaps, PanTiltCaps,
-    PowerCaps, PowerStatusQuery, PresetCaps, RgbGainRanges, RgbTuningRanges, TiltRanges,
-    WhiteBalanceCaps, ZoomCaps,
+    PanTiltGeometry, PowerCaps, PowerStatusQuery, PresetCaps, RgbGainRanges, RgbTuningRanges,
+    TiltRanges, WhiteBalanceCaps, ZoomCaps,
 };
 pub(crate) use encodings::encoding_selection;
 pub use encodings::*;
 pub use exposure::ShutterSpeedEntry;
 pub use pan_tilt::PanTiltWireCodec;
 pub use profile_metadata::{
-    HasExposure, HasFocus, HasImage, HasMenu, HasPanTilt, HasPower, HasPresets, HasWhiteBalance,
-    HasZoom, InquirySupport, SupportsSerial, SupportsTcp, SupportsUdp,
+    Domain, DomainSet, HasExposure, HasFocus, HasImage, HasMenu, HasPanTilt, HasPower, HasPresets,
+    HasWhiteBalance, HasZoom, InquirySupport, SupportsSerial, SupportsTcp, SupportsUdp,
+    TransportSet,
 };
 pub(crate) use typed_support::typed_surface;
 pub use typed_support::{TypedSupportSet, TypedSupportSurface};

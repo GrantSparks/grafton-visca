@@ -231,11 +231,11 @@ mod paused {
                     answer.reply(frames::ack(1)).reply(frames::complete(1));
                 }
             });
-            let config = SessionConfig::from_compile_time::<grafton_visca::profiles::GenericVisca>()
+            let config = SessionConfig::from_compile_time::<grafton_visca::profiles::SonyEviH100>()
                 .expect("polling profile")
                 .with_admission_capacity(std::num::NonZeroUsize::MIN);
             let session = open!(fake, config).expect("capacity-one session");
-            let camera = session.camera::<grafton_visca::profiles::GenericVisca>(
+            let camera = session.camera::<grafton_visca::profiles::SonyEviH100>(
                 grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
             let mut operation = wait!(camera.presets().recall(
                 grafton_visca::types::PresetNumber::new(1).expect("preset")))

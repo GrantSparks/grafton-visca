@@ -8,7 +8,7 @@ use bytes::BytesMut;
 use crate::{
     command::{parse_inquiry_payload, CommandKind, Response},
     protocol::{
-        framer::{Framer, RawFramer, SonyFramer},
+        framer::{FrameScan, Framer, RawFramer, SonyFramer},
         sony::{PayloadType, SonyHeader},
     },
     raw::PlainRequest,
@@ -71,7 +71,13 @@ fn drive_framer(mut framer: impl Framer, chunks: &[&[u8]]) {
 /// Exercise Sony request framing and allocation-free owner response extraction.
 pub fn sony_envelope(bytes: &[u8]) {
     let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-    let _ = envelope.extract_owner_response(bytes);
+    let framer = SonyFramer::new(BufferConfig::for_udp());
+    let extract = |input| {
+        if let FrameScan::Complete(frame) = framer.scan(input) {
+            let _ = envelope.extract_owner_response(frame);
+        }
+    };
+    extract(bytes);
 
     let mut out = BytesMut::new();
     let _ = envelope.frame_into(bytes, CommandKind::Command, &mut out);
@@ -83,7 +89,7 @@ pub fn sony_envelope(bytes: &[u8]) {
     visca.extend_from_slice(&bytes[..middle_len]);
     visca.push(0xFF);
     let framed = sony_frame(PayloadType::ViscaReply, sequence_from(bytes), &visca);
-    let _ = envelope.extract_owner_response(&framed);
+    extract(&framed);
 
     let control = match bytes {
         [first, second, ..] => vec![*first, *second],
@@ -91,7 +97,7 @@ pub fn sony_envelope(bytes: &[u8]) {
         [] => vec![0x01],
     };
     let framed = sony_frame(PayloadType::ControlReply, sequence_from(bytes), &control);
-    let _ = envelope.extract_owner_response(&framed);
+    extract(&framed);
 
     envelope.frame_sequence_reset_into(&mut out);
 }

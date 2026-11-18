@@ -4,15 +4,13 @@
 
 fn main() {
     let _ = core::any::TypeId::of::<grafton_visca::tuning::OperationalTuning>();
+    //~^ E0603 "module `tuning` is private"
     let _ = core::any::TypeId::of::<grafton_visca::session_config::SessionConfig>();
+    //~^ E0603 "module `session_config` is private"
     let _ = core::any::TypeId::of::<grafton_visca::outcome::CancellationOutcome>();
+    //~^ E0603 "module `outcome` is private"
     let _ = core::any::TypeId::of::<grafton_visca::operation_id::OperationId>();
+    //~^ E0603 "module `operation_id` is private"
     let _ = core::any::TypeId::of::<grafton_visca::requests::ControlClass>();
+    //~^ E0603 "module `requests` is private"
 }
-
-//~ E0603
-//~ "module `tuning` is private"
-//~ "module `session_config` is private"
-//~ "module `outcome` is private"
-//~ "module `operation_id` is private"
-//~ "module `requests` is private"

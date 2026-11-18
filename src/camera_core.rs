@@ -88,11 +88,24 @@ macro_rules! camera_core {
             where
                 Q: crate::Inquiry + ?Sized,
             {
-                let prepared = crate::prepared::prepare_inquiry(
+                self.inquire_with_decoder(inquiry, |profile| inquiry.decoder_for_profile(profile)) $($await)*
+            }
+
+            /// Prepares a noun inquiry using its profile-bound response type.
+            pub(crate) $($async)* fn inquire_with_decoder<Q, R>(
+                &self,
+                inquiry: &Q,
+                bind_decoder: impl FnOnce(&crate::ProfileSpec) -> crate::Result<crate::ResponseDecoder<R>>,
+            ) -> crate::Result<R>
+            where
+                Q: crate::Inquiry + ?Sized,
+            {
+                let prepared = crate::prepared::prepare_inquiry_with_decoder(
                     inquiry,
                     self.registration.as_ref(),
                     self.tuning(),
                     self.class,
+                    bind_decoder,
                 )?;
                 let receipt = self.owner.submit_inquiry(prepared) $($await)* ?;
                 receipt.wait() $($await)*

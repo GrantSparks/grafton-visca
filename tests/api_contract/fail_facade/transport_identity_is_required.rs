@@ -1,14 +1,12 @@
-use grafton_visca::{transport::HasTransportConfig, transport::TransportConfig};
+use grafton_visca::{transport::HasTransportConfig, transport::ValidatedTransportConfig};
 
 struct MissingIdentity;
 
 impl HasTransportConfig for MissingIdentity {
-    fn transport_config(&self) -> &TransportConfig {
+//~^ E0046 "missing: `identity`"
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         unreachable!()
     }
 }
 
 fn main() {}
-
-//~ E0046
-//~ "missing: `identity`"

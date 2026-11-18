@@ -11,7 +11,7 @@ without granting control over the protocol engine.
 | Field | Meaning |
 | --- | --- |
 | `admitted` | Requests admitted into authoritative engine state. |
-| `admission_rejected` | Requests rejected before admission, including abandoned async submissions (`Cancelled` admission diagnostics); those never produce dropped-observer events. |
+| `admission_rejected` | Requests rejected before admission, including abandoned async submissions and each prepared STOP in an abandoned halt (`Cancelled` admission diagnostics). Abandonment before acceptance produces no dropped-observer events. |
 | `control_reserve_admitted` | Urgent typed STOPs admitted into their camera's control reserve rather than an ordinary slot. |
 | `control_reserve_rejected` | Urgent typed STOPs rejected because their camera's control reserve and ordinary admission were both full (also counted in `admission_rejected`). |
 | `writes` | Transport writes attempted. |
@@ -19,7 +19,8 @@ without granting control over the protocol engine.
 | `terminal` | Requests reaching a terminal outcome. |
 | `cancellations` | Cancellation requests observed by the owner. |
 | `cache_updates` | Exact applied-state effects committed to a target cache. |
-| `ack_timeouts` | Acknowledgement deadlines that expired on a sent command. |
+| `cache_invalidations` | Cache keys made unknown by unconfirmed writes. |
+| `ack_timeouts` | Acknowledgement deadlines that expired on a sent command. A disputed ACK deadline extended for more evidence counts once if the extended deadline ends the request. |
 | `completion_timeouts` | Completion deadlines that expired while an acknowledged command or completion-only raw command awaited completion. |
 | `inquiry_timeouts` | Reply deadlines that expired on a sent inquiry. |
 | `busy_errors` | Error frames saying the camera cannot accept the request now. |
@@ -27,6 +28,7 @@ without granting control over the protocol engine.
 | `retries_scheduled` | Requests re-queued for another attempt, for any reason. |
 | `received_frames` | Valid decoded VISCA response frames received from the camera; compare snapshots around an application heartbeat for positive liveness evidence. |
 | `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request, or a non-unique full-width identity. Ambiguous lower-16 matches are excluded. |
+| `ignored_reply_shape_mismatches` | Inquiry replies discarded because their payload did not match the expected reply shape. |
 | `ignored_malformed_frames` | Delimited frames, and consumed oversized/malformed datagrams rejected before framing, discarded because they did not classify as a valid VISCA response. |
 | `dropped_staged_diagnostics` | Events evicted from bounded pre-admission staging before any subscriber could receive them. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
@@ -84,16 +86,15 @@ there is no retained diagnostic history or replay.
 
 `DiagnosticEvent` is a bounded, `#[non_exhaustive]` enum containing only
 sanitized categories: admission, frame category, protocol phase transition,
-write success, retry, cancellation, applied-state, terminal outcome, session
-state, and ignored-input observations. Its helper enums are also bounded and
+write success, retry, cancellation, applied state, state invalidation, terminal
+outcome, session state, and ignored-input observations. Its helper enums are also bounded and
 non-exhaustive. Events contain no wire bytes, arbitrary strings, timestamps,
-socket/transmission authority, or public numeric lifecycle IDs.
+or socket and transmission details.
 
-`DiagnosticId` is opaque. It can be copied, compared, hashed, and used to
-correlate events from a subscription, but it cannot be constructed, inspected,
-or converted into a number by application code. Public diagnostics are not a
-replacement for private debug tracing; applications that need raw frames for
-support should enable an explicitly private, access-controlled trace path.
+Request events carry the same `OperationId` as handles and errors. Compare the
+identities to correlate observations within a session. An ID grants no
+authority over the request. Applications that need raw frames for support can
+enable an explicitly private, access-controlled trace path.
 
 Delivery is best effort. The owner uses non-blocking sends, so a slow
 subscriber never delays command admission, pacing, transport I/O, retries, or
@@ -168,17 +169,20 @@ match cache.value(grafton_visca::state_cache::StateKey::ImageFreeze) {
 }
 ```
 
-`KnownState` carries each key's native value: booleans, enums, checked speeds, `ImageFlipMode`, or a typed
-`PanTiltLimitUpdate`. Tally flashing stores `TallyMode::Flash`; it does not
-invalidate the key. `cache.motion_sync().speed()` stores `MotionSyncSpeed`. A cleared limit is a known corner-local
-update whose `position()` is `None`; it remains `StateEntry::Set`. The owner
+`KnownState` carries each key's native value, including booleans, enums, checked
+speeds, and the typed `PanTiltLimitUpdate`. Tally flashing stores
+`TallyMode::Flash`, and `cache.motion_sync().speed()` stores `MotionSyncSpeed`.
+A limit set records the corner and the applied `PanTiltPosition` in degrees
+decoded from the units sent to the camera. A cleared limit retains its corner
+as `StateEntry::Set` with `position() == None`. The owner
 registry has seven target slots and one inline slot per `StateKey`, without
 allocation, eviction, or a separate capacity limit. A view contains one target
 index and a shared registry reference; cloning it shares the table.
 
-An exact `AppliedStateEffect` establishes a known value. A write that may have
-taken effect but ends without confirmation makes its key `Unknown`, including
-a session-ending failure after the write left. A command never written, or
+An exact applied-state effect establishes a known value and emits
+`AppliedState`. A write that may have taken effect but ends without confirmation
+makes its key `Unknown` and emits `StateInvalidated`, including a session-ending
+failure after the write left. A command never written, or
 conclusively rejected before ACK with no possibly applied earlier attempt,
 leaves the previous value intact. Preparing a command and an ACK alone cannot
 establish a value. The owner commits effects before notifying observers or
@@ -382,7 +386,6 @@ exhausts all Address Set attempts remains `MaxRetriesExceeded` (`Timeout` /
 | `StreamPoisoned` | `IoClosed` | — | `ReopenSession` |
 | `InvalidCameraId` | `InvalidParameter` | — | `Abandon` |
 | `ResponseTooLarge` | `Protocol` | — | `Abandon` |
-| `InquiryNotCancellable` | `InvalidParameter` | — | `Abandon` |
 | `InvalidAddress` | `InvalidParameter` | — | `Abandon` |
 | `UnsupportedTransport` | `Unsupported` | — | `Abandon` |
 | `MissingRuntime` | `Unsupported` | — | `Abandon` |
@@ -524,13 +527,20 @@ rather than a generic channel error. The read-only `metrics()` observation
 returns the retained terminal snapshot with `session == Closed`. This
 is the failure a long-running supervisor must expect during quiet periods.
 
-Silence does **not** produce that verdict. A default built-in inquiry retries
-within its bounded policy and ordinarily reports `Error::Timeout` (stage
-`Terminal`, certainty `FailedConclusively`) at the ten-second total
-retry-budget floor (roughly 10.05 seconds when the first backoff is included).
-On a raw-VISCA stream (TCP) the inquiry is instead written once and fails at
-its first reply deadline: a stream cannot lose the request, so a resend would
-only add late replies. Its reply is then owed. Until it arrives, that camera's
+On a datagram transport, a built-in inquiry is written at most
+`1 + (retry base + 2)` times. The default allows six writes.
+`OperationalTuning::with_retry_limit` can lower the base. Each attempt waits
+for the profile's inquiry deadline, which is one second on every built-in
+profile. Retries use backoffs from 50 ms to 500 ms, with a higher ceiling when
+the profile's busy timeout exceeds 500 ms. Transport pacing also applies.
+The inquiry ends at the earlier of the attempt limit and the retry budget,
+`max(10 s, 2 × inquiry deadline, busy timeout)` before tuning. An untuned
+built-in therefore fails after about six inquiry deadlines plus backoffs and
+pacing. The facade returns `Error::InquiryFailed { source: Timeout { .. }, .. }`
+with stage `Terminal` and certainty `FailedConclusively`.
+
+On a raw VISCA stream such as TCP, the inquiry is written once and fails at
+its first reply deadline. Its reply is then owed. Until it arrives, that camera's
 next inquiries wait; once the profile's ambiguity window has passed they fail
 at once, unwritten, with `Error::InquiryCorrelationLost { camera }`
 (`kind() == ErrorKind::NotExecutable`, `failure_context()` = `Terminal` /
@@ -585,10 +595,13 @@ precise about which one a failure belongs to:
   default `TcpKeepaliveConfig` starts probing after ten seconds idle and repeats
   every ten seconds. The crate does not override the OS probe count; on Linux's
   usual count of nine, a black-holed peer is therefore detected after roughly
-  100 seconds, not after the first ten-second idle period. Tune it with the
-  blocking builder's `tcp_keepalive(...)` /
-  `disable_tcp_keepalive()`, or by setting `TransportConfig::tcp_keepalive`
-  before handing the config to a runtime connector or `CameraConfig`. Keepalive
+  100 seconds from the start of the idle period. Set the idle duration with
+  `TcpKeepaliveConfig::new(idle)` and the interval with `with_interval(Some(interval))`.
+  Pass that value to `TransportConfig::for_tcp().with_tcp_keepalive(Some(keepalive))`,
+  or use `with_tcp_keepalive(None)` to disable probing. Attach the settings
+  with `CameraConfig::with_transport_config`. See the
+  [configuration example in the migration guide](migration_2_0.md#extensible-public-payloads-788).
+  Keepalive
   probes detect a peer that has gone away and keep NAT/firewall path state warm
   across an idle gap. They are **OS-level packets, not VISCA traffic**, so their
   presence does not tell the camera's firmware that the *application* session is
@@ -716,9 +729,8 @@ The three transport-buffer rows are set from `TransportConfig::buffer_config`
 every time a production session is built, so the first two have no single
 number. `OwnerLimits::default()` retains internal 4096/8192 test defaults, but
 the production adapter replaces both values before allocating owner buffers.
-Every built-in entry point — `CameraConfig`, the blocking `Transport` /
-`NetTransportBuilder`, the runtime connectors and the direct transport
-constructors — starts from the same per-transport defaults:
+Camera configuration, runtime connectors and direct transport constructors
+start from the same per-transport defaults.
 
 | Defaults | `recv_buffer_size` | Used by |
 | --- | ---: | --- |
@@ -727,12 +739,12 @@ constructors — starts from the same per-transport defaults:
 | `TransportConfig::for_serial()` | 256 | every built-in serial transport |
 | `TransportConfig::default()` | 128 | the transport-neutral base for a caller-owned transport |
 
-Change one field by starting from the matching constructor, for example
-`let mut config = TransportConfig::for_tcp(); config.buffer_config.max_buffer_size = 16_384;`,
-then pass it to `CameraConfig::<P>::transport_config(config)`; a supplied
-configuration is used as given. The blocking `NetTransportBuilder` also has
-`recv_buffer_size` / `max_buffer_size` methods, and a caller-owned transport
-reports its own through `HasTransportConfig::transport_config()`.
+To raise the TCP buffer limit, pass
+`BufferConfig::for_tcp().with_max_buffer_size(16_384)` to
+`TransportConfig::for_tcp().with_buffer_config(...)`. Attach the resulting
+configuration with `CameraConfig::with_transport_config`. A caller-owned
+transport reports its settings through `HasTransportConfig::transport_config()`.
+See the [configuration example in the migration guide](migration_2_0.md#extensible-public-payloads-788).
 
 Every default keeps `max_buffer_size` at 8192. The two limits mean:
 

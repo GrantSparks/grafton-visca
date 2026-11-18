@@ -1,5 +1,5 @@
 # Variant	Production source	Unique construction expression (literal contents ignored)
-ConnectionFailed	src/transport/connect.rs	Error::connection_failed(endpoint.to_owned(), std::sync::Arc::new(error))
+ConnectionFailed	src/transport/connect.rs	Error::connection_failed(endpoint.to_string(), std::sync::Arc::new(error))
 CameraNotAddressed	src/session_config.rs	Error::CameraNotAddressed { port: bus.port.clone().into(), camera: missing, addressed, }
 SerialChainTooLong	src/transport/serial/handshake.rs	AddressSetChunk::ChainTooLong(camera_count) => self.fail(Error::SerialChainTooLong { port: self.port.clone().into(), reported: camera_count, }),
 ConnectionClosed	src/error.rs	Self::ConnectionClosed { source }
@@ -37,15 +37,14 @@ DiagnosticSubscriberLimit	src/runtime/owner/mod.rs	return Err(Error::DiagnosticS
 RuntimeShutdown	src/runtime/engine/mod.rs	self.terminate_session( EndStatus::Shutdown, Error::RuntimeShutdown, now, effects, )
 CancellationUnconfirmed	src/runtime/engine/mod.rs	Some(Error::CancellationUnconfirmed), AttemptEvidence::Lifecycle
 UnsequencedCommandUnconfirmed	src/runtime/engine/mod.rs	self.finish_with_cancel_hold(id, Error::UnsequencedCommandUnconfirmed, keep_cancel_hold, now, effects,)
-InquiryCorrelationLost	src/runtime/engine/mod.rs	return Some(Error::inquiry_correlation_lost(target.camera()));
-CommandCorrelationLost	src/runtime/engine/mod.rs	.then(|| Error::command_correlation_lost(target.camera()))
+InquiryCorrelationLost	src/runtime/engine/mod.rs	return Some(Error::inquiry_correlation_lost(target.individual_camera()));
+CommandCorrelationLost	src/runtime/engine/mod.rs	.then(|| Error::command_correlation_lost(target.individual_camera()))
 CommandFailedAfterAck	src/runtime/engine/mod.rs	Error::command_failed_after_ack(error)
 RuntimeIdentityExhausted	src/runtime/engine/mod.rs	let Some(id) = self.allocate_request_id() else { return Err(Error::RuntimeIdentityExhausted); };
 RuntimeQueueFull	src/runtime/engine/mod.rs	return Err(Error::RuntimeQueueFull {
 StreamPoisoned	src/error.rs	Self::StreamPoisoned { source }
 InvalidCameraId	src/camera_id.rs	error = Error::InvalidCameraId { id: value }
 ResponseTooLarge	src/error.rs	Self::ResponseTooLarge { max_size }
-InquiryNotCancellable	src/runtime/engine/mod.rs	CancellationDecision::Refused(Error::InquiryNotCancellable)
 InvalidAddress	src/transport/address.rs	Error::InvalidAddress { reason: reason.into(), }
 UnsupportedTransport	src/runtime/owner/adapter.rs	return Err(Error::UnsupportedTransport {
 MissingRuntime	src/executor.rs	.map_err(|_| Error::MissingRuntime)

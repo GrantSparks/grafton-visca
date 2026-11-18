@@ -91,11 +91,13 @@ pub struct BufferConfig {
 impl Default for BufferConfig {
     /// Transport-neutral limits (128-byte frames) for custom transports.
     fn default() -> Self {
-        Self::with_frame_limit(DEFAULT_FRAME_LIMIT)
+        Self::DEFAULT
     }
 }
 
 impl BufferConfig {
+    pub(crate) const DEFAULT: Self = Self::with_frame_limit(DEFAULT_FRAME_LIMIT);
+
     /// Returns the largest accepted reply frame or datagram.
     #[must_use]
     pub const fn recv_buffer_size(&self) -> usize {
@@ -124,10 +126,8 @@ impl BufferConfig {
         self
     }
 
-    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) const MAX_RECV_BUFFER_SIZE: usize = 65_535;
 
-    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) const MAX_RETENTION_SIZE: usize = 1_048_576;
 
     /// The smallest accepted [`recv_buffer_size`](Self::recv_buffer_size):

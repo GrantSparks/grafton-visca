@@ -3,7 +3,7 @@
 use crate::command::nouns::{forward_inquiry, forward_request};
 use crate::{
     command::{color, inquiry_structs, sony_fr7_white_balance, white_balance_wire},
-    types, Request, TargetRegistration,
+    types, TargetRegistration,
 };
 
 /// Read mode.
@@ -99,14 +99,11 @@ pub struct SetColorTemperature {
     temperature: types::Kelvin,
 }
 impl SetColorTemperature {
-    /// Checks this physical temperature against the selected target.
-    pub fn for_target(
-        target: &TargetRegistration,
-        temperature: types::Kelvin,
-    ) -> crate::Result<Self> {
-        let request = Self { temperature };
-        request.validate_for_target(target)?;
-        Ok(request)
+    /// Creates a physical temperature intent. Preparation checks that the
+    /// receiving camera documents this temperature as a supported step.
+    #[must_use]
+    pub const fn new(temperature: types::Kelvin) -> Self {
+        Self { temperature }
     }
 
     /// Returns the requested temperature.
@@ -697,7 +694,7 @@ mod tests {
     use super::*;
     use crate::{
         command::semantics::{BuiltinCommand, BuiltinRequestContract},
-        CameraId, ProfileSpec,
+        CameraId, ProfileSpec, Request,
     };
 
     fn target<P: crate::CompileTimeProfile>() -> TargetRegistration {
@@ -770,7 +767,7 @@ mod tests {
     fn physical_temperature_requires_a_documented_target_step() {
         let ptz = target::<crate::profiles::PtzOpticsG2>();
         let temperature = types::Kelvin::new(3200).expect("Kelvin");
-        let request = SetColorTemperature::for_target(&ptz, temperature).expect("documented step");
+        let request = SetColorTemperature::new(temperature);
         assert_eq!(request.temperature(), temperature);
         let mut bytes = [0; SetColorTemperature::MAX_SIZE];
         let len = request
@@ -781,10 +778,10 @@ mod tests {
             )
             .expect("lowered target frame");
         assert_eq!(&bytes[..len], &[0x81, 0x01, 0x04, 0x20, 0x00, 0x07, 0xFF]);
-        assert!(SetColorTemperature::for_target(
-            &ptz,
-            types::Kelvin::new(3201).expect("physical Kelvin")
-        )
-        .is_err());
+        assert!(
+            SetColorTemperature::new(types::Kelvin::new(3201).expect("physical Kelvin"))
+                .validate_for_target(&ptz)
+                .is_err()
+        );
     }
 }

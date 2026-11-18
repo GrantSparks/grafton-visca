@@ -298,17 +298,9 @@ assert_generated_inquiry_inventory!(
     ),
     (
         "zoom.normalized",
-        grafton_visca::command::zoom::NormalizedInquiry::for_target(
-            &grafton_visca::config::TargetRegistration::new(
-                grafton_visca::types::IndividualCameraId::CAMERA_1,
-                grafton_visca::profiles::ProfileSpec::from_compile_time::<
-                    grafton_visca::profiles::PtzOpticsG2,
-                >()
-                .expect("source profile")
-            ),
+        grafton_visca::command::zoom::NormalizedInquiry::new(
             grafton_visca::types::ZoomDomain::Optical
         )
-        .expect("normalized inquiry")
     ),
     (
         "exposure.backlight_compensation",
@@ -549,7 +541,8 @@ fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
                 )
                 .expect("position inquiry prepares");
                 let decoder = grafton_visca::command::pan_tilt::PositionInquiry
-                    .decoder_for_profile(target.profile());
+                    .decoder_for_profile(target.profile())
+                    .expect("profile-bound decoder");
                 std::hint::black_box(decoder.clone());
             }
         });

@@ -3,7 +3,10 @@
 
 use std::time::Duration;
 
-use crate::transport::{buffer::BufferConfig, builder::TransportConfig};
+use crate::transport::{
+    buffer::BufferConfig,
+    builder::{TransportConfig, ValidatedTransportConfig},
+};
 
 /// Bus writes a serial transport performs while opening, before any session
 /// traffic.
@@ -213,6 +216,50 @@ impl SerialConfig {
         config.write_timeout = self.write_timeout;
         config.buffer_config = self.buffer_config;
         config
+    }
+}
+
+/// Serial device settings and their transport limits, checked before startup I/O.
+#[derive(Debug, Clone)]
+pub struct ValidatedSerialConfig {
+    config: SerialConfig,
+    transport_config: ValidatedTransportConfig,
+}
+
+impl ValidatedSerialConfig {
+    /// Returns the device settings.
+    #[must_use]
+    pub const fn as_config(&self) -> &SerialConfig {
+        &self.config
+    }
+
+    /// Returns the validated bounds for a transport opened on this device.
+    #[must_use]
+    pub const fn transport_config(&self) -> &ValidatedTransportConfig {
+        &self.transport_config
+    }
+
+    #[cfg(any(
+        feature = "transport-serial",
+        feature = "transport-serial-tokio",
+        all(test, any(feature = "async", feature = "blocking"))
+    ))]
+    pub(crate) fn into_parts(self) -> (SerialConfig, ValidatedTransportConfig) {
+        (self.config, self.transport_config)
+    }
+}
+
+impl SerialConfig {
+    /// Check the transport limits before opening a serial device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::InvalidRequest`] if a timeout or buffer limit is invalid.
+    pub fn validated(self) -> crate::Result<ValidatedSerialConfig> {
+        Ok(ValidatedSerialConfig {
+            transport_config: self.transport_config().validated()?,
+            config: self,
+        })
     }
 }
 

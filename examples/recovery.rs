@@ -28,7 +28,8 @@ use std::{collections::VecDeque, time::Duration};
 use grafton_visca::{
     blocking::Session, config::OperationalTuning, config::SessionConfig, error::Recovery,
     profiles::ProfileSpec, profiles::PtzOpticsG2, transport::BlockingTransport,
-    transport::HasTransportConfig, transport::ReceiveOutcome, transport::TransportConfig, Error,
+    transport::HasTransportConfig, transport::ReceiveOutcome, transport::ValidatedTransportConfig,
+    Error,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -43,7 +44,7 @@ enum Peer {
 /// the power, zoom, and pan/tilt position inquiries with valid VISCA data.
 #[derive(Debug)]
 struct FakeCamera {
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
     peer: Peer,
     replies: VecDeque<Vec<u8>>,
 }
@@ -51,7 +52,7 @@ struct FakeCamera {
 impl FakeCamera {
     fn new(peer: Peer) -> Self {
         Self {
-            config: TransportConfig::default(),
+            config: ValidatedTransportConfig::default(),
             peer,
             replies: VecDeque::new(),
         }
@@ -66,7 +67,7 @@ impl HasTransportConfig for FakeCamera {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }

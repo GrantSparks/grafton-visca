@@ -1,4 +1,5 @@
 #[grafton_visca::value_enum]
+//~^ E0080 "duplicate value_enum wire code"
 enum Duplicate {
     #[wire(0)]
     First,
@@ -8,6 +9,3 @@ enum Duplicate {
 }
 
 fn main() {}
-
-//~ E0080
-//~ "duplicate value_enum wire code"

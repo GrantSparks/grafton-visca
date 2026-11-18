@@ -86,11 +86,19 @@ pub fn network_config(address: impl Into<String>) -> CameraConfig<AnyProfile> {
 /// Typed cameras provide source-backed grants; runtime cameras validate the
 /// registered profile before any STOP or preset recall reaches the wire.
 pub trait HardwareProfile:
-    CameraProfile + Permits<gate::PanTilt> + Permits<gate::Zoom> + Permits<gate::Presets>
+    CameraProfile
+    + Permits<gate::PanTilt>
+    + Permits<gate::PanTiltPositioning>
+    + Permits<gate::Zoom>
+    + Permits<gate::Presets>
 {
 }
 impl<P> HardwareProfile for P where
-    P: CameraProfile + Permits<gate::PanTilt> + Permits<gate::Zoom> + Permits<gate::Presets>
+    P: CameraProfile
+        + Permits<gate::PanTilt>
+        + Permits<gate::PanTiltPositioning>
+        + Permits<gate::Zoom>
+        + Permits<gate::Presets>
 {
 }
 

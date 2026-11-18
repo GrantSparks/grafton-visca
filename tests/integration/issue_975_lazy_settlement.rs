@@ -10,7 +10,7 @@
 use grafton_visca::{
     config::{OperationalTuning, SessionConfig},
     operation::Settlement,
-    profiles::GenericVisca,
+    profiles::SonyEviH100,
 };
 use grafton_visca_test_support::{
     facade_matrix,
@@ -30,10 +30,10 @@ facade_matrix! {
             }
         });
         let old_spacing = Duration::from_millis(40);
-        let config = SessionConfig::from_compile_time::<GenericVisca>().expect("config")
+        let config = SessionConfig::from_compile_time::<SonyEviH100>().expect("config")
             .with_tuning(OperationalTuning::new().with_inquiry_spacing(old_spacing));
         let session = open!(fake, config).expect("session");
-        let camera = session.camera::<GenericVisca>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
+        let camera = session.camera::<SonyEviH100>(grafton_visca::types::IndividualCameraId::CAMERA_1).expect("camera");
         let mut operation = wait!(camera.pan_tilt().home()).expect("home admitted");
         wait!(operation.applied()).expect("home applied");
         assert_eq!(fake.write_count(), 1, "application does not send settlement inquiries");

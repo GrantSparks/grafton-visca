@@ -315,7 +315,7 @@ fn validate_transport_feature(input: &ProbeInput) -> ProbeResult<()> {
 }
 
 // Recover query provenance from a constructor's type without calling it. This
-// lets the noun table supply canonical surface names, including mapped queries,
+// lets the noun table supply canonical surface names, including profile-bound queries,
 // without another parser or inventory of requests or their arguments.
 fn inquiry_contract<Q, Arguments, Constructor>(_constructor: Constructor) -> (InquiryKind, Source)
 where
@@ -357,9 +357,9 @@ macro_rules! probe_surfaces {
         )*
         @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
-        fn surfaces(target: &TargetRegistration, metadata: &BuiltinInquiryMetadata) -> Vec<String> {
+        fn surfaces(_target: &TargetRegistration, metadata: &BuiltinInquiryMetadata) -> Vec<String> {
             use crate::{command, types};
-            [$( $( probe_surface!($kind, target, metadata, $getter, $method,
+            [$( $( probe_surface!($kind, _target, metadata, $getter, $method,
                 [$($argument: $ty),*], [$($request)*]), )* )*]
                 .into_iter()
                 .flatten()
@@ -483,9 +483,7 @@ fn optional_env(name: &str) -> ProbeResult<Option<String>> {
 }
 
 fn report_path(label: &str) -> ProbeResult<PathBuf> {
-    Ok(Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target/profile-probe")
-        .join(format!("{}.json", report_label(label)?)))
+    Ok(Path::new("target/profile-probe").join(format!("{}.json", report_label(label)?)))
 }
 
 #[test]
@@ -558,7 +556,7 @@ mod tests {
         ready: flume::Receiver<Vec<u8>>,
         deliver: flume::Sender<Vec<u8>>,
         sent: Arc<Mutex<Vec<Vec<u8>>>>,
-        config: TransportConfig,
+        config: crate::transport::ValidatedTransportConfig,
     }
 
     impl ProbeScriptedTransport {
@@ -569,7 +567,9 @@ mod tests {
                 ready,
                 deliver,
                 sent: Arc::new(Mutex::new(Vec::new())),
-                config: TransportConfig::for_udp(),
+                config: TransportConfig::for_udp()
+                    .validated()
+                    .expect("valid UDP defaults"),
             }
         }
     }
@@ -582,7 +582,7 @@ mod tests {
             }
         }
 
-        fn transport_config(&self) -> &TransportConfig {
+        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
             &self.config
         }
     }
@@ -790,7 +790,7 @@ mod tests {
 
     #[test]
     fn probe_uses_the_profile_selected_canonical_pan_tilt_decoder() {
-        for (id, payload_len) in [(ProfileId::GenericVisca, 8), (ProfileId::SonyBrc300, 9)] {
+        for (id, payload_len) in [(ProfileId::PtzOpticsG2, 8), (ProfileId::SonyBrc300, 9)] {
             let target = TargetRegistration::new(
                 crate::IndividualCameraId::CAMERA_1,
                 id.spec().expect("profile"),

@@ -199,7 +199,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id());
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
@@ -256,7 +256,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
             .await
             .expect("urgent request writes after the bounded raw release")
             .unwrap(),
-        urgent.id
+        urgent.id()
     );
     assert!(
         urgent_completion.try_recv().is_none(),
@@ -317,7 +317,7 @@ async fn raw_release_flood_boundary_cadence(
             )
             .await;
         let predecessor = admitted.recv_async().await.unwrap().unwrap();
-        assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+        assert_eq!(writes.recv_async().await.unwrap(), predecessor.id());
         reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
         assert!(matches!(
             completion.recv_async().await.unwrap(),
@@ -812,7 +812,7 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id());
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
@@ -840,7 +840,7 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
             .await
             .expect("the urgent command is written once the release resolves")
             .unwrap(),
-        urgent.id
+        urgent.id()
     );
 
     handle.shutdown().unwrap();

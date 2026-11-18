@@ -10,7 +10,10 @@ use std::future::Future;
 #[cfg(feature = "async")]
 use crate::{
     executor::Executor,
-    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig, ReceiveOutcome},
+    transport::{
+        AsyncTransport, HasTransportConfig, NetworkEndpoint, ReceiveOutcome, TransportConfig,
+        ValidatedTransportConfig,
+    },
     Error,
 };
 
@@ -85,6 +88,38 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
         cfg: TransportConfig,
     ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a;
 
+    /// Connect using an endpoint and I/O bounds already checked by the session plan.
+    ///
+    /// Custom runtimes can implement this hook to reuse the plan's checked values.
+    /// The default delegates to the string connector for backward compatibility.
+    #[allow(clippy::manual_async_fn)]
+    fn connect_tcp_endpoint(
+        &self,
+        endpoint: NetworkEndpoint,
+        config: ValidatedTransportConfig,
+    ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + '_ {
+        async move {
+            self.connect_tcp(&endpoint.to_string(), *config.as_config())
+                .await
+        }
+    }
+
+    /// Connect using a UDP endpoint and I/O bounds already checked by the session plan.
+    ///
+    /// Custom runtimes can implement this hook to reuse the plan's checked values.
+    /// The default delegates to the string connector for backward compatibility.
+    #[allow(clippy::manual_async_fn)]
+    fn connect_udp_endpoint(
+        &self,
+        endpoint: NetworkEndpoint,
+        config: ValidatedTransportConfig,
+    ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + '_ {
+        async move {
+            self.connect_udp(&endpoint.to_string(), *config.as_config())
+                .await
+        }
+    }
+
     /// Connect to a serial port.
     ///
     /// Runtimes with serial support return their own serial transport. The
@@ -104,6 +139,16 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
                 feature: "serial transport for this runtime",
             })
         }
+    }
+
+    /// Connect using serial device settings already checked by the session plan.
+    #[cfg(feature = "transport-serial-tokio")]
+    #[allow(clippy::manual_async_fn)]
+    fn connect_validated_serial(
+        &self,
+        config: crate::transport::ValidatedSerialConfig,
+    ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
+        async move { self.connect_serial(config.as_config().clone()).await }
     }
 }
 
@@ -128,7 +173,7 @@ impl HasTransportConfig for std::convert::Infallible {
         match *self {}
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         match *self {}
     }
 }
@@ -210,7 +255,7 @@ impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         match self {
             TransportHandle::Tcp(transport) => transport.transport_config(),
             TransportHandle::Udp(transport) => transport.transport_config(),
@@ -321,20 +366,9 @@ mod tokio_impl {
             addr: &'a str,
             cfg: TransportConfig,
         ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
-            let handle = self.executor.handle().clone();
-            let address = addr.to_owned();
             async move {
-                // Run the connector on this runtime's handle rather than the
-                // ambient task's Tokio context. The resulting stream is then
-                // owned by the actor this same runtime spawns.
-                let address = preflight(&address, &cfg)?;
-                let stream = crate::transport::tokio::connectors::connect_tcp_on(
-                    &handle,
-                    address,
-                    TcpConnectionConfig::from(cfg),
-                )
-                .await?;
-                Ok(TcpTransport::new(stream, cfg))
+                let (endpoint, cfg) = preflight(addr, cfg)?;
+                self.connect_tcp_endpoint(endpoint, cfg).await
             }
         }
 
@@ -344,15 +378,43 @@ mod tokio_impl {
             addr: &'a str,
             cfg: TransportConfig,
         ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
-            let handle = self.executor.handle().clone();
-            let address = addr.to_owned();
             async move {
-                // As with TCP, DNS, timer and socket work belongs to the selected
-                // runtime even when this future is polled by another Tokio runtime.
-                let address = preflight(&address, &cfg)?;
+                let (endpoint, cfg) = preflight(addr, cfg)?;
+                self.connect_udp_endpoint(endpoint, cfg).await
+            }
+        }
+
+        #[allow(clippy::manual_async_fn)]
+        fn connect_tcp_endpoint(
+            &self,
+            endpoint: NetworkEndpoint,
+            cfg: ValidatedTransportConfig,
+        ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + '_ {
+            let handle = self.executor.handle().clone();
+            async move {
+                // Own the connector on the selected runtime rather than the task's
+                // ambient Tokio context, just as for the resulting session actor.
+                let stream = crate::transport::tokio::connectors::connect_tcp_on(
+                    &handle,
+                    endpoint,
+                    TcpConnectionConfig::from(cfg),
+                )
+                .await?;
+                Ok(TcpTransport::new(stream, cfg))
+            }
+        }
+
+        #[allow(clippy::manual_async_fn)]
+        fn connect_udp_endpoint(
+            &self,
+            endpoint: NetworkEndpoint,
+            cfg: ValidatedTransportConfig,
+        ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + '_ {
+            let handle = self.executor.handle().clone();
+            async move {
                 let socket = crate::transport::tokio::connectors::connect_udp_on(
                     &handle,
-                    address,
+                    endpoint,
                     UdpSocketConfig::from(cfg),
                 )
                 .await?;
@@ -361,9 +423,18 @@ mod tokio_impl {
         }
 
         #[cfg(feature = "transport-serial-tokio")]
+        #[allow(clippy::manual_async_fn)]
         fn connect_serial(
             &self,
             config: crate::transport::SerialConfig,
+        ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
+            async move { self.connect_validated_serial(config.validated()?).await }
+        }
+
+        #[cfg(feature = "transport-serial-tokio")]
+        fn connect_validated_serial(
+            &self,
+            config: crate::transport::ValidatedSerialConfig,
         ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send + '_ {
             let handle = self.executor.handle().clone();
             crate::transport::tokio::serial::Serial::connect_on(handle, config)
@@ -593,6 +664,24 @@ mod smol_impl {
         ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
             // The connector preflights, resolves and bounds the connect.
             UdpTransport::connect_with_config(addr, cfg)
+        }
+
+        #[allow(clippy::manual_async_fn)]
+        fn connect_tcp_endpoint(
+            &self,
+            endpoint: NetworkEndpoint,
+            cfg: ValidatedTransportConfig,
+        ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + '_ {
+            async move { TcpTransport::connect_endpoint(&endpoint, cfg).await }
+        }
+
+        #[allow(clippy::manual_async_fn)]
+        fn connect_udp_endpoint(
+            &self,
+            endpoint: NetworkEndpoint,
+            cfg: ValidatedTransportConfig,
+        ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + '_ {
+            async move { UdpTransport::connect_endpoint(&endpoint, cfg).await }
         }
     }
 

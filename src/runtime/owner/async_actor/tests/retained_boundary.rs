@@ -30,9 +30,6 @@ struct RetainedRelease {
     runtime: ManualRuntime,
     sleeps: flume::Receiver<Duration>,
     harness: ScriptedRawHarness,
-    /// A, rejected by the camera with its terminal still buffered in its
-    /// observer.
-    predecessor: Option<ReceiptCore<RuntimeOutcome>>,
     /// Commands admitted before H: the first is on the wire awaiting its ACK
     /// and any others are queued behind it. All are live, cancellable engine
     /// work without a buffered terminal, so cancelling one is a live
@@ -45,7 +42,7 @@ impl RetainedRelease {
         // Admission covers every offered boundary. Overlapping raw inquiry
         // declarations keep successors behind A's correlation hold.
         let owner_policy = stream_policy(capacity);
-        Self::build(owner_policy, live_commands, None).await
+        Self::build(owner_policy, live_commands, None, false).await
     }
 
     /// `second_hold` additionally gives camera 2 a broad raw hold that
@@ -55,27 +52,20 @@ impl RetainedRelease {
         owner_policy: OwnerPolicy,
         live_commands: usize,
         second_hold: Option<Duration>,
+        complete_first: bool,
     ) -> Self {
         let (runtime, sleeps) =
             ManualRuntime::with_polling_sleeps_and_sleep_barrier(Instant::now());
         let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
-        let mut harness = boundary_stream_harness(false);
+        let mut harness = boundary_stream_harness();
         let mut driver = harness.driver.take().unwrap();
         // A source-only prefix is identity-weak, so the engine grants it a
         // grace deadline instead of discarding it at H.
         driver.prefix_kind = crate::protocol::framer::RawIncompletePrefix::SourceOnly;
 
-        // A's completion is left unread: its buffered terminal is what a
-        // cancellation of A observes. A is answered by a socketless camera
-        // rejection rather than timed out, because a timed-out stream inquiry
-        // now owes its reply and never releases by time (#795); the
-        // rejection leaves the same releasable inquiry hold at the same
-        // instant (see `raw_inquiry_rejection`).
+        // A's rejection leaves a timed inquiry hold. A timed-out stream
+        // inquiry would own reply debt with no timed release (#795).
         let a_request = inquiry();
-        // The receipt keeps the base fixture's zero observer timeout; only the
-        // engine-side reply deadline is non-zero, so the rejection can answer
-        // A while it is still awaiting its reply.
-        let a_timeout = Duration::ZERO;
         let (a_completion, a_admitted) = handle
             .core
             .enqueue_admission::<RuntimeOutcome>(a_request, None)
@@ -90,9 +80,9 @@ impl RetainedRelease {
             )
             .await;
         let a = a_admitted.recv_async().await.unwrap().unwrap();
-        assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
+        assert_eq!(harness.writes.recv_async().await.unwrap(), a.id());
         reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
-        let predecessor = ReceiptCore::<RuntimeOutcome>::admitted(a, a_completion, a_timeout);
+        drop(a_completion);
 
         if let Some(second_hold) = second_hold {
             let (_completion, admitted) = handle
@@ -112,7 +102,7 @@ impl RetainedRelease {
                 )
                 .await;
             let id = admitted.recv_async().await.unwrap().unwrap();
-            assert_eq!(harness.writes.recv_async().await.unwrap(), id.id);
+            assert_eq!(harness.writes.recv_async().await.unwrap(), id.id());
         }
 
         let mut live_receipts = Vec::with_capacity(live_commands);
@@ -133,17 +123,32 @@ impl RetainedRelease {
                 )
                 .await;
             let id = admitted.recv_async().await.unwrap().unwrap();
-            live_receipts.push(ReceiptCore::<RuntimeOutcome>::admitted(
-                id, completion, timeout,
-            ));
+            live_receipts
+                .push(ReceiptCore::<RuntimeOutcome>::admitted(id, completion, timeout).unwrap());
         }
 
         // Only the first command can be on the wire before its ACK; any
         // later one stays queued in the engine. Both kinds are live work.
         if let Some(first) = live_receipts.first() {
-            assert_eq!(harness.writes.try_recv().unwrap(), first.id);
+            assert_eq!(harness.writes.try_recv().unwrap(), first.id());
         }
         assert!(harness.writes.try_recv().is_err());
+
+        if complete_first {
+            assert_eq!(live_receipts.len(), 1);
+            let now = Executor::now(&runtime);
+            actor
+                .handle_event(
+                    OwnerEvent::Receive {
+                        result: batch(vec![ack(ViscaSocket::S1), completion(ViscaSocket::S1)]),
+                        received_at: now,
+                    },
+                    &mut driver,
+                    now,
+                    false,
+                )
+                .await;
+        }
 
         driver.buffered.store(true, Ordering::Release);
         runtime.advance(HOLD);
@@ -167,7 +172,6 @@ impl RetainedRelease {
             runtime,
             sleeps,
             harness,
-            predecessor: Some(predecessor),
             live: live_receipts,
         }
     }
@@ -227,7 +231,7 @@ impl RetainedRelease {
     fn spawn_cancel(&self, receipt: ReceiptCore<RuntimeOutcome>) -> CancelTask {
         let handle = self.handle.clone();
         tokio::spawn(async move {
-            let answer = handle.cancel_test(&receipt).await;
+            let answer = handle.cancel_test(receipt.command_id()).await;
             (answer, receipt)
         })
     }
@@ -265,7 +269,7 @@ async fn admitted_within(
         .await
         .expect(context)
         .expect("the admission reply must be answered, not dropped")
-        .map(|admitted| admitted.id)
+        .map(|admitted| admitted.identity.request_id())
 }
 
 type CancelTask = tokio::task::JoinHandle<(
@@ -347,7 +351,7 @@ async fn two_live_admissions_at_h_each_receive_their_own_reply() {
 async fn admission_then_live_cancellation_are_both_answered() {
     let mut owner = RetainedRelease::new(3, 1).await;
     let x = owner.live.pop().unwrap();
-    let x_id = x.id;
+    let x_id = x.id();
     let (_b_completion, b_admitted) = owner.enqueue_inquiry();
     let actor_task = owner.start();
     owner.parked_in_grace().await;
@@ -380,7 +384,7 @@ async fn admission_then_live_cancellation_are_both_answered() {
 async fn live_cancellation_then_admission_are_both_answered() {
     let mut owner = RetainedRelease::new(3, 1).await;
     let x = owner.live.pop().unwrap();
-    let x_id = x.id;
+    let x_id = x.id();
     let cancel = owner.spawn_cancel(x);
     owner.cancellation_queued().await;
     let actor_task = owner.start();
@@ -423,7 +427,7 @@ async fn successive_live_cancellations_are_both_answered() {
     let mut owner = RetainedRelease::new(3, 2).await;
     let y = owner.live.pop().unwrap();
     let x = owner.live.pop().unwrap();
-    let (x_id, y_id) = (x.id, y.id);
+    let (x_id, y_id) = (x.id(), y.id());
     let cancel_x = owner.spawn_cancel(x);
     owner.cancellation_queued().await;
     let actor_task = owner.start();
@@ -466,9 +470,9 @@ fn assert_no_rewrite(owner: &RetainedRelease, id: RequestId) {
 /// leaving the buffered terminal outcome to decide the cancellation (#777).
 #[tokio::test]
 async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
-    let mut owner = RetainedRelease::new(3, 0).await;
-    let a = owner.predecessor.take().unwrap();
-    let a_id = a.id;
+    let mut owner = RetainedRelease::build(stream_policy(3), 1, None, true).await;
+    let a = owner.live.pop().unwrap();
+    let a_id = a.id();
     let (_b_completion, b_admitted) = owner.enqueue_inquiry();
     let actor_task = owner.start();
     owner.parked_in_grace().await;
@@ -481,7 +485,7 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
         .cancellations
         .send_async(CancellationBoundary::Cancel {
             request: CancellationRequest {
-                id: a_id,
+                id: a.command_id(),
                 observer: cell,
             },
             reply,
@@ -508,7 +512,7 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
         .expect("a concluded request answers its cancellation with Ok");
     assert!(matches!(
         a.completion.try_recv(),
-        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source }))) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert!(
         observer.try_recv().is_none(),
@@ -609,8 +613,13 @@ async fn shutdown_answers_retained_and_queued_boundaries() {
 async fn release_set_growth_keeps_the_retained_boundary_and_its_queue() {
     let mut owner_policy = two_target_raw_policy(TransportKind::Stream);
     owner_policy.protocol.raw_inquiry_release_hold = HOLD;
-    let mut owner =
-        RetainedRelease::build(owner_policy, 0, Some(HOLD.checked_add(GRACE / 2).unwrap())).await;
+    let mut owner = RetainedRelease::build(
+        owner_policy,
+        0,
+        Some(HOLD.checked_add(GRACE / 2).unwrap()),
+        false,
+    )
+    .await;
     let (_b_completion, b_admitted) = owner.enqueue_inquiry();
     let actor_task = owner.start();
     owner.parked_in_grace().await;

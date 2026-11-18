@@ -126,3 +126,89 @@ fn every_builtin_exposure_inventory_matches_its_typed_marker_boundary() {
     assert!(!fr7.supports(TypedSupportSurface::ExposureMode));
     assert!(!fr7.supports(TypedSupportSurface::Iris));
 }
+
+#[cfg(feature = "blocking")]
+#[test]
+fn generic_withholds_degree_positioning_and_limits_focus_to_the_shared_range() {
+    use grafton_visca::{
+        blocking::Session,
+        config::SessionConfig,
+        profiles::AnyProfile,
+        types::{
+            FocusPosition, IndividualCameraId, PanTiltLimitCorner, PanTiltPosition, PresetNumber,
+            SpeedLevel,
+        },
+        Error,
+    };
+    use grafton_visca_test_support::fake_camera::{frames, FakeCamera};
+
+    let fake = FakeCamera::visca(|_, response| {
+        response.reply(frames::ack(1)).reply(frames::complete(1));
+    });
+    let profile = GenericVisca::spec().expect("Generic VISCA profile");
+    let session =
+        Session::open(fake.blocking_wire(), &SessionConfig::new(profile)).expect("session");
+    let camera = session
+        .camera::<AnyProfile>(IndividualCameraId::CAMERA_1)
+        .expect("camera");
+    assert!(!camera
+        .capabilities()
+        .supports(TypedSupportSurface::PanTiltPositioning));
+    assert!(camera.registration().tilt_range_degrees().is_none());
+
+    let pan_tilt = camera.pan_tilt();
+    let position = PanTiltPosition::from_degrees(0.0, 0.0).expect("degrees");
+    let preset = PresetNumber::new(1).expect("preset");
+    for error in [
+        pan_tilt.position().expect_err("position"),
+        pan_tilt
+            .absolute(position, SpeedLevel::Slowest)
+            .expect_err("absolute"),
+        pan_tilt
+            .relative(position, SpeedLevel::Slowest)
+            .expect_err("relative"),
+        pan_tilt
+            .set_limit(PanTiltLimitCorner::UpRight, position)
+            .expect_err("set limit"),
+        pan_tilt
+            .clear_limit(PanTiltLimitCorner::UpRight)
+            .expect_err("clear limit"),
+        pan_tilt.home().expect_err("home"),
+        pan_tilt.reset().expect_err("reset"),
+        camera.presets().recall(preset).expect_err("recall"),
+    ] {
+        assert!(
+            matches!(error, Error::FeatureNotSupported { .. }),
+            "{error}"
+        );
+    }
+    assert!(matches!(
+        camera
+            .focus()
+            .set_position(FocusPosition::new(0xD000).expect("focus position")),
+        Err(Error::ParameterOutOfRange { .. })
+    ));
+    assert!(fake.writes().is_empty());
+
+    let mut focus = camera
+        .focus()
+        .set_position(FocusPosition::new(0xC000).expect("focus position"))
+        .expect("shared focus endpoint");
+    focus.applied().expect("focus command applied");
+    camera.presets().store(preset).expect("preset store");
+    camera.presets().clear(preset).expect("preset clear");
+    pan_tilt
+        .drive(
+            grafton_visca::types::PanTiltDirection::Up,
+            SpeedLevel::Slowest,
+        )
+        .expect("drive")
+        .applied()
+        .expect("drive applied");
+    pan_tilt
+        .stop()
+        .expect("stop")
+        .applied()
+        .expect("stop applied");
+    session.shutdown().expect("shutdown");
+}

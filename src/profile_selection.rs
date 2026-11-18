@@ -137,6 +137,14 @@ pub trait CameraProfile: sealed::CameraProfile {
     #[doc(hidden)]
     const TYPED_SUPPORT: Option<crate::capabilities::TypedSupportSet>;
 
+    /// The declared domains, or runtime validation for [`AnyProfile`].
+    #[doc(hidden)]
+    const DOMAINS: Option<crate::capabilities::DomainSet>;
+
+    /// The declared transports, or runtime validation for [`AnyProfile`].
+    #[doc(hidden)]
+    const TRANSPORTS: Option<crate::capabilities::TransportSet>;
+
     /// The configuration's checked profile selection.
     ///
     /// Runtime selections retain either persisted form. Typed selections also
@@ -158,6 +166,8 @@ pub trait CameraProfile: sealed::CameraProfile {
 
 impl CameraProfile for AnyProfile {
     const TYPED_SUPPORT: Option<crate::capabilities::TypedSupportSet> = None;
+    const DOMAINS: Option<crate::capabilities::DomainSet> = None;
+    const TRANSPORTS: Option<crate::capabilities::TransportSet> = None;
 
     type Selection = ProfileSelection;
 
@@ -226,15 +236,25 @@ impl<P: CompileTimeProfile> TypedProfileSelection<P> {
     }
 }
 
+fn declared_builtin_matches<P: CompileTimeProfile>(id: ProfileId) -> bool {
+    P::TYPED_SUPPORT == id.typed_support()
+        && P::DOMAINS == id.domains()
+        && P::TRANSPORTS == id.transport_compatibility().transport_set()
+}
+
 impl<P: CompileTimeProfile> CameraProfile for P {
     const TYPED_SUPPORT: Option<crate::capabilities::TypedSupportSet> =
         Some(<P as CompileTimeProfile>::TYPED_SUPPORT);
+    const DOMAINS: Option<crate::capabilities::DomainSet> =
+        Some(<P as CompileTimeProfile>::DOMAINS);
+    const TRANSPORTS: Option<crate::capabilities::TransportSet> =
+        Some(<P as CompileTimeProfile>::TRANSPORTS);
 
     type Selection = TypedProfileSelection<P>;
 
     fn select(selection: ProfileSelection) -> crate::Result<Self::Selection> {
         if let (Some(expected), ProfileSelection::Builtin(actual)) = (P::ID, &selection) {
-            if expected != *actual || P::TYPED_SUPPORT != actual.typed_support() {
+            if expected != *actual || !declared_builtin_matches::<P>(*actual) {
                 return Err(profile_mismatch());
             }
         } else {
@@ -254,8 +274,7 @@ impl<P: CompileTimeProfile> CameraProfile for P {
         // ProfileSpec's only constructor proves that a built-in identity
         // covers every registry fact. Reuse that proof for each camera view.
         let matches = if let Some(id) = P::ID {
-            profile.capabilities().profile_id == Some(id)
-                && profile.capabilities().typed_support == P::TYPED_SUPPORT
+            profile.capabilities().profile_id == Some(id) && declared_builtin_matches::<P>(id)
         } else {
             *profile == ProfileSpec::from_compile_time::<P>()?
         };
@@ -358,6 +377,10 @@ mod identity_tests {
     struct MismatchedGrants;
 
     impl CompileTimeProfile for MismatchedGrants {
+        const DOMAINS: crate::capabilities::DomainSet =
+            <PtzOpticsG2 as CompileTimeProfile>::DOMAINS;
+        const TRANSPORTS: crate::capabilities::TransportSet =
+            <PtzOpticsG2 as CompileTimeProfile>::TRANSPORTS;
         const ID: Option<ProfileId> = Some(ProfileId::PtzOpticsG2);
         const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::empty();
 
@@ -369,6 +392,10 @@ mod identity_tests {
     struct FailingSpecification;
 
     impl CompileTimeProfile for FailingSpecification {
+        const DOMAINS: crate::capabilities::DomainSet =
+            <PtzOpticsG2 as CompileTimeProfile>::DOMAINS;
+        const TRANSPORTS: crate::capabilities::TransportSet =
+            <PtzOpticsG2 as CompileTimeProfile>::TRANSPORTS;
         const ID: Option<ProfileId> = Some(ProfileId::PtzOpticsG2);
         const TYPED_SUPPORT: TypedSupportSet = <PtzOpticsG2 as CompileTimeProfile>::TYPED_SUPPORT;
 
@@ -427,6 +454,10 @@ mod tests {
     struct CommunityProfile;
 
     impl CompileTimeProfile for CommunityProfile {
+        const DOMAINS: crate::capabilities::DomainSet =
+            <PtzOpticsG2 as CompileTimeProfile>::DOMAINS;
+        const TRANSPORTS: crate::capabilities::TransportSet =
+            <PtzOpticsG2 as CompileTimeProfile>::TRANSPORTS;
         const TYPED_SUPPORT: crate::capabilities::TypedSupportSet =
             <PtzOpticsG2 as CompileTimeProfile>::TYPED_SUPPORT;
         const ID: Option<ProfileId> = None;
@@ -439,6 +470,10 @@ mod tests {
     struct InvalidDeclaration;
 
     impl CompileTimeProfile for InvalidDeclaration {
+        const DOMAINS: crate::capabilities::DomainSet =
+            <PtzOpticsG2 as CompileTimeProfile>::DOMAINS;
+        const TRANSPORTS: crate::capabilities::TransportSet =
+            <PtzOpticsG2 as CompileTimeProfile>::TRANSPORTS;
         const TYPED_SUPPORT: crate::capabilities::TypedSupportSet =
             <PtzOpticsG2 as CompileTimeProfile>::TYPED_SUPPORT;
         const ID: Option<ProfileId> = None;

@@ -179,7 +179,8 @@ assert_eq!(
 
 The generated `parse_response()` and `Inquiry::decoder()` share the canonical
 inquiry decoder. `Inquiry::decoder_for_profile()` uses the same decoder with
-the selected profile's framing.
+the selected profile's framing. Preparation returns `FeatureNotSupported`
+before I/O if the selected profile lacks the framing required by the reply.
 
 ### Decoding and typed responses
 

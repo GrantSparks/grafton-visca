@@ -25,10 +25,9 @@ device inventory, run record or sign-off (#1008).
    ready. Unreleased states the net change since the last published version
    (the newest `v<version>` tag), not the churn between candidates. At release
    time, move them to `## [2.0.0] - YYYY-MM-DD` and
-   restore an empty `Unreleased` heading; `validate-release.sh` refuses a tag
-   whose version has no dated heading. A dated section whose release was never
-   tagged and published is not part of the record: fold it back into
-   Unreleased before the next release cut.
+   restore an empty `Unreleased` heading. `validate-release.sh` requires an
+   empty Unreleased section and the tag's dated heading first. Fold the notes
+   from any unpublished dated section into Unreleased before the next cut.
 
 The public API job generates listings from the base and proposed source for
 `blocking`, `async` and `all-features`. Review the uploaded API diffs with
@@ -106,8 +105,8 @@ test -z "$(git status --porcelain=v1 --untracked-files=all)"
 ```
 
 The change-record validator requires a full-history checkout with tags. It
-keeps every published changelog section (one with a `v<version>` tag, or below
-one) immutable, requires `**BREAKING**` records to name an issue, and requires
+keeps changelog sections immutable once their `v<version>` tag is reachable
+from the compared base. It also protects the sections below them, requires `**BREAKING**` records to name an issue, and requires
 explanatory commit bodies for source changes. The public API comparison job
 requires API drift to carry a changelog change. Correct a published release note
 with an Unreleased entry; never rewrite the published text to make the current
@@ -267,7 +266,7 @@ git fetch origin main --tags
 test "$(git rev-parse --verify origin/main^{commit})" = "$release_commit"
 git switch --detach "$release_commit"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
-bash .github/scripts/validate-release.sh v2.0.0
+bash .github/scripts/validate-release.sh v2.0.0 --test-package
 git tag -a v2.0.0 "$release_commit" -m "grafton-visca 2.0.0"
 git push origin v2.0.0
 ```
@@ -289,17 +288,22 @@ create them.
 The release automation validates the tag and manifests, packages the macro
 crate, dry-runs and publishes `grafton-visca-macros`, waits for its exact
 registry index entry, then packages, dry-runs, and publishes `grafton-visca`.
-Before any source or CI validation, it accepts only the strict tag syntax,
+The pre-tag validator's `--test-package` check builds both packages, then
+runs the library's default unit tests and compiles its all-feature unit tests
+from the unpacked package outside the workspace. It uses the unpacked macro
+package so the check also works before that version is on crates.io.
+
+Before source or CI validation, the release automation checks the tag syntax,
 resolves the fully qualified `refs/tags/<tag>` ref, and verifies that the
 annotated tag peels to the checked-out `HEAD`. It also verifies the exact
 main-push and tag-push release-HEAD CI runs.
-For each crate, the
-automation builds the local `.crate` payload and, after the exact registry
-version is visible, downloads the crates.io payload and requires SHA-256 and
-byte-for-byte equality before treating publication (including a retry of an
-existing version) as successful. No release is complete until both package
-results are independently verified. A dispatch runs the current publication
-workflow while checking out the immutable release tag. It configures an
+For each crate, the automation builds the local payload, waits for the exact
+version on crates.io, and compares the files in the two packages. Only the embedded `Cargo.lock` may have different contents.
+Library dependents resolve their own lockfiles, and matching
+`.cargo_vcs_info.json` pins the source commit. The verifier prints both archive
+SHA-256 digests for the record. Both packages must pass the content check.
+A dispatch runs the current publication workflow while checking out the
+immutable release tag. It configures an
 isolated `CURL_HOME/.curlrc` with the payload verifier's descriptive crates.io
 User-Agent outside that checkout, so an old tagged verifier can be retried
 without changing tagged source or package bytes.
@@ -314,10 +318,10 @@ the version. Hardware smoke checks remain optional and private.
 
 If the macro crate publishes but the main crate fails, do not change the
 source behind that version. Diagnose the failure and retry the main package
-from the exact tagged commit only when its payload is unchanged; the automated
-registry-payload equality gate must pass for that retry. If source or package
-metadata must change, choose a new patch version, update both crates and the
-changelog, and run the release validation again. Never move a tag to bypass a
+from the exact tagged commit. The registry payload verifier requires
+identical package contents apart from the embedded `Cargo.lock`. If source
+or package metadata must change, choose a new patch version, update both
+crates and the changelog, and run the release validation again. Never move a tag to bypass a
 failed validation gate.
 
 After successful publication, verify both package pages and generated docs,

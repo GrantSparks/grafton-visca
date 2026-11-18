@@ -4,7 +4,5 @@
 
 fn main() {
     use grafton_visca::camera::construction;
+    //~^ E0603 "module `camera` is private"
 }
-
-//~ E0603
-//~ "module `camera` is private"

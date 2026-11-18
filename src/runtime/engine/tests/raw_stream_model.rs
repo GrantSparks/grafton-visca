@@ -585,8 +585,26 @@ struct Session {
     co_completion_discarded: BTreeSet<RequestId>,
 }
 
+/// Preserve the originating run when an audit panics inside the engine.
+struct SeedOnPanic {
+    kind: &'static str,
+    seed: u64,
+}
+
+impl Drop for SeedOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("{}: seed {}", self.kind, self.seed);
+        }
+    }
+}
+
 impl Session {
     fn run(kind: Kind, seed: u64) -> Coverage {
+        let _seed_on_panic = SeedOnPanic {
+            kind: kind.name,
+            seed,
+        };
         let start = Instant::now();
         let configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
         let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
@@ -844,7 +862,7 @@ impl Session {
         let index = usize::try_from(self.roll(live.len() as u64)).unwrap();
         let effects = self
             .engine
-            .handle(Input::Cancel { id: live[index] }, self.now);
+            .handle(self.engine.cancel_input(live[index]), self.now);
         self.apply(effects);
     }
 
@@ -1284,8 +1302,8 @@ impl Session {
                             )),
                             ..
                         } | Effect::CancellationObservation {
-                            observation: CancellationObservation::Failed(
-                                Error::UnsequencedCommandUnconfirmed
+                            observation: CancellationObservation::Concluded(
+                                CancellationConclusion::Failed(crate::ErrorKind::Unconfirmed)
                             ),
                             ..
                         }
@@ -1303,7 +1321,9 @@ impl Session {
                         outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
                         ..
                     } | Effect::CancellationObservation {
-                        observation: CancellationObservation::Completed,
+                        observation: CancellationObservation::Concluded(
+                            CancellationConclusion::Completed
+                        ),
                         ..
                     }
                 ) && buffered_candidates.is_some_and(|candidates| candidates.contains(&Some(id)))
@@ -1456,10 +1476,6 @@ impl Session {
     }
 
     fn check(&mut self) {
-        assert_occupancy_agrees(&self.engine, self.now);
-        self.engine
-            .assert_invariants()
-            .unwrap_or_else(|violation| panic!("seed {}: {violation}", self.seed));
         assert_eq!(
             self.engine.state(),
             SessionState::Running,
@@ -1749,6 +1765,7 @@ fn terminal_stream_reset_clears_and_audits_every_learning_field() {
             candidates: [Some(id), None],
             count: 1,
         }),
+        dropped_completion_owners: [Some(id), None],
     };
     stream.release_gate = Some(RawReleaseGate {
         releases: RawCorrelationReleaseSet::default(),
@@ -1762,7 +1779,7 @@ fn terminal_stream_reset_clears_and_audits_every_learning_field() {
 
     // The audit catches a forgotten reset even after all lifecycle/ledger work
     // is gone. Exercise every learning field and the independent release gate.
-    for field in 0..4 {
+    for field in 0..5 {
         let stream = engine.correlation.stream_mut().unwrap();
         *stream = correlation::StreamCorrelation::new();
         match field {
@@ -1778,6 +1795,7 @@ fn terminal_stream_reset_clears_and_audits_every_learning_field() {
                         count: 1,
                     })
             }
+            3 => stream.learning[camera(1)].dropped_completion_owners = [Some(id), None],
             _ => {
                 stream.release_gate = Some(RawReleaseGate {
                     releases: RawCorrelationReleaseSet::default(),

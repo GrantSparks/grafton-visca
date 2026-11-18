@@ -363,7 +363,7 @@ impl SessionConfig {
         &self,
         port: &str,
         baud_rate: u32,
-    ) -> Result<crate::transport::SerialConfig> {
+    ) -> Result<crate::transport::ValidatedSerialConfig> {
         crate::camera::config::serial_device_config(
             port,
             baud_rate,
@@ -543,9 +543,11 @@ impl SessionConfig {
             .sole_target()
             .and_then(|target| session_config.profile(target))
             .and_then(|profile| profile.transports().default_port(kind));
-        let transport_config = self.transport_config.unwrap_or(configured_default);
-        transport_config.validate()?;
-        let endpoint = crate::transport::address::canonicalize_endpoint(address, default_port)?;
+        let transport_config = self
+            .transport_config
+            .unwrap_or(configured_default)
+            .validated()?;
+        let endpoint = crate::transport::NetworkEndpoint::parse(address, default_port)?;
         Ok(ConnectionPlan {
             transport: ConnectionTransport::Network(NetworkConnection {
                 kind,

@@ -6,8 +6,8 @@ use grafton_visca::{
     capabilities::{CapabilityRange, PanTiltWireCodec},
     config::{MountPosition, TargetRegistration},
     profiles::{
-        GenericVisca, NearusBrc300, ProfileId, ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3,
-        SonyBrc300, SonyBrcH900, SonyEviH100, SonyFr7,
+        NearusBrc300, ProfileId, ProfileSpec, PtzOptics30x, PtzOpticsG2, PtzOpticsG3, SonyBrc300,
+        SonyBrcH900, SonyEviH100, SonyFr7,
     },
     request::Request,
     types::{CameraId, Degrees, PanSpeed, TiltSpeed},
@@ -24,12 +24,14 @@ fn targets() -> Vec<TargetRegistration> {
         ProfileSpec::from_compile_time::<SonyEviH100>(),
         ProfileSpec::from_compile_time::<SonyBrc300>(),
         ProfileSpec::from_compile_time::<NearusBrc300>(),
-        ProfileSpec::from_compile_time::<GenericVisca>(),
     ];
     assert_eq!(
         profiles.len(),
-        ProfileId::all().len(),
-        "cover every built-in"
+        ProfileId::all()
+            .iter()
+            .filter(|id| id.spec().expect("profile").pan_tilt_coordinates().is_some())
+            .count(),
+        "cover every built-in with sourced geometry"
     );
     let mut targets = profiles
         .into_iter()
@@ -134,8 +136,13 @@ fn every_builtin_span_boundary_encodes_and_one_more_unit_is_refused() {
             .pan_tilt
             .as_ref()
             .expect("pan/tilt");
-        let conversion = caps.coordinates;
-        let pan_span = caps.pan_range.max() - caps.pan_range.min();
+        let geometry = caps.geometry.expect("geometry");
+        let conversion = geometry.coordinates;
+        let pan_span = geometry.pan_range.max() - geometry.pan_range.min();
+        let nominal = |degrees: f32| match geometry.endpoint_quantization {
+            grafton_visca::capabilities::EndpointQuantization::WholeDegrees => degrees.round(),
+            _ => degrees,
+        };
         let tilt = target.tilt_range().expect("tilt");
         let tilt_span = tilt.max() - tilt.min();
         for (pan, tilt) in [
@@ -147,8 +154,8 @@ fn every_builtin_span_boundary_encodes_and_one_more_unit_is_refused() {
             assert_eq!(
                 relative(
                     &target,
-                    conversion.pan_degrees(pan),
-                    conversion.tilt_degrees(tilt)
+                    nominal(conversion.pan_degrees(pan)),
+                    nominal(conversion.tilt_degrees(tilt))
                 ),
                 (pan, tilt)
             );
@@ -199,9 +206,9 @@ proptest! {
     fn quantized_endpoint_differences_encode_exact_signed_offsets(seeds in any::<[u32; 4]>()) {
         for target in targets() {
             let caps = target.profile().capabilities().pan_tilt.as_ref().expect("pan/tilt");
-            let conversion = caps.coordinates;
-            let pan_start = choose(caps.pan_range, seeds[0]);
-            let pan_end = choose(caps.pan_range, seeds[1]);
+            let conversion = caps.geometry.expect("geometry").coordinates;
+            let pan_start = choose(caps.geometry.expect("geometry").pan_range, seeds[0]);
+            let pan_end = choose(caps.geometry.expect("geometry").pan_range, seeds[1]);
             let tilt_start = choose(target.tilt_range().expect("tilt"), seeds[2]);
             let tilt_end = choose(target.tilt_range().expect("tilt"), seeds[3]);
             let start = (conversion.pan_degrees(pan_start), conversion.tilt_degrees(tilt_start));
@@ -216,7 +223,7 @@ proptest! {
     fn independently_rounded_continuous_points_differ_by_at_most_one_unit(fractions in prop::array::uniform4(0.01_f32..0.99)) {
         for target in targets() {
             let caps = target.profile().capabilities().pan_tilt.as_ref().expect("pan/tilt");
-            let pan = caps.pan_range_degrees();
+            let pan = caps.geometry.expect("geometry").pan_range_degrees();
             let tilt = target.tilt_range_degrees().expect("tilt degrees");
             let interpolate = |range: &std::ops::RangeInclusive<f32>, fraction: f32| range.start() + (range.end() - range.start()) * fraction;
             let start = (interpolate(&pan, fractions[0]), interpolate(&tilt, fractions[1]));

@@ -27,6 +27,12 @@ fn community_builder() -> ProfileSpecBuilder {
 }
 struct Community;
 impl CompileTimeProfile for Community {
+    const DOMAINS: grafton_visca::capabilities::DomainSet =
+        grafton_visca::capabilities::DomainSet::empty();
+    const TRANSPORTS: grafton_visca::capabilities::TransportSet =
+        grafton_visca::profiles::TransportCompatibility::new()
+            .with_tcp(5678)
+            .transport_set();
     const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::empty();
     const ID: Option<ProfileId> = None;
     fn spec() -> grafton_visca::Result<ProfileSpec> {
@@ -47,12 +53,18 @@ fn runtime_capability_bounds_and_gap_vectors_build_a_checked_profile() -> grafto
 {
     use grafton_visca::capabilities::{CapabilityDomain, CapabilityRange};
 
-    let baseline = GenericVisca::spec()?;
+    let baseline = grafton_visca::profiles::PtzOpticsG2::spec()?;
     let mut facts = baseline.capabilities().clone();
     facts.profile_id = None;
     let bounds = [-100_i32, 100];
-    facts.pan_tilt.as_mut().expect("pan/tilt").pan_range =
-        CapabilityRange::<i32>::new(bounds[0], bounds[1])?;
+    facts
+        .pan_tilt
+        .as_mut()
+        .expect("pan/tilt")
+        .geometry
+        .as_mut()
+        .expect("geometry")
+        .pan_range = CapabilityRange::<i32>::new(bounds[0], bounds[1])?;
     facts.exposure.as_mut().expect("exposure").iris_range =
         Some(CapabilityDomain::<u16>::new(0, 17, vec![1, 2, 3, 4])?);
     let mut builder = ProfileSpec::builder(facts)
@@ -73,6 +85,8 @@ fn runtime_capability_bounds_and_gap_vectors_build_a_checked_profile() -> grafto
             .pan_tilt
             .as_ref()
             .expect("pan/tilt")
+            .geometry
+            .expect("geometry")
             .pan_range
             .as_inclusive(),
         -100..=100
@@ -149,6 +163,8 @@ fn optional_permissions_cannot_enable_an_absent_physical_domain() {
 fn adapter_rejects_static_identity_and_permission_disagreements() {
     struct WrongIdentity;
     impl CompileTimeProfile for WrongIdentity {
+        const DOMAINS: grafton_visca::capabilities::DomainSet = Community::DOMAINS;
+        const TRANSPORTS: grafton_visca::capabilities::TransportSet = Community::TRANSPORTS;
         const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::empty();
         const ID: Option<ProfileId> = Some(ProfileId::GenericVisca);
         fn spec() -> grafton_visca::Result<ProfileSpec> {
@@ -157,6 +173,8 @@ fn adapter_rejects_static_identity_and_permission_disagreements() {
     }
     struct WrongPermissions;
     impl CompileTimeProfile for WrongPermissions {
+        const DOMAINS: grafton_visca::capabilities::DomainSet = Community::DOMAINS;
+        const TRANSPORTS: grafton_visca::capabilities::TransportSet = Community::TRANSPORTS;
         const TYPED_SUPPORT: TypedSupportSet =
             TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
         const ID: Option<ProfileId> = None;

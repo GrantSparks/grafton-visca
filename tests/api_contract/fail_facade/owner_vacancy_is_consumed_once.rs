@@ -10,9 +10,7 @@ owner_coordinator_contract!({
             let vacancy = vacancy(turn);
             OwnerCoordinator::retain(vacancy, 7);
             OwnerCoordinator::retain(vacancy, 8);
+            //~^ E0382 "use of moved value: `vacancy`"
         }
     }
 });
-
-//~ E0382
-//~ "use of moved value: `vacancy`"

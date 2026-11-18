@@ -206,6 +206,7 @@ impl Capabilities {
             let image = self.image.as_ref();
         }
         rules {
+            S::PanTiltPositioning => Dedicated(self.pan_tilt.is_some_and(|domain| domain.geometry.is_some())),
             S::DirectZoom => Dedicated(self.zoom.as_ref().is_some_and(|domain| domain.direct)),
             S::DigitalZoomToggle | S::DigitalZoomRange => Dedicated(
                 self.zoom
@@ -357,16 +358,16 @@ impl Capabilities {
     /// Formats the present domains and their main numeric limits.
     pub fn summary(&self) -> String {
         let mut lines = vec![format!("Model: {}", self.model_name)];
-        if let Some(domain) = &self.pan_tilt {
+        if let Some(geometry) = self.pan_tilt.and_then(|domain| domain.geometry) {
             lines.push(format!(
                 "Pan Range: {:?}° ({:?} units)",
-                domain.pan_range_degrees(),
-                domain.pan_range
+                geometry.pan_range_degrees(),
+                geometry.pan_range
             ));
             lines.push(format!(
                 "Tilt Range: {:?}° ({:?} units)",
-                domain.tilt_range_degrees(None),
-                domain.tilt_ranges.range(None)
+                geometry.tilt_range_degrees(None),
+                geometry.tilt_ranges.range(None)
             ));
         }
         if let Some(domain) = &self.zoom {
@@ -522,7 +523,7 @@ mod tests {
         }
         assert_surface_metadata_rows(
             &actual,
-            include_str!("../../tests/fixtures/issue_1000_surface_metadata.txt"),
+            include_str!("../../testdata/issue_1000_surface_metadata.txt"),
         );
     }
 
@@ -535,7 +536,7 @@ mod tests {
 
     #[test]
     fn surface_metadata_rows_accept_crlf_and_reject_changed_bitmasks() {
-        let fixture = include_str!("../../tests/fixtures/issue_1000_surface_metadata.txt");
+        let fixture = include_str!("../../testdata/issue_1000_surface_metadata.txt");
         let lf = fixture.replace("\r\n", "\n");
         let crlf = lf.replace('\n', "\r\n");
         assert_surface_metadata_rows(&lf, &crlf);
@@ -1285,72 +1286,14 @@ mod tests {
     #[test]
     fn brc300_capabilities_keep_reverse_axis_degree_ranges_ordered() {
         let caps = profile_capabilities::<SonyBrc300>();
-
-        assert!(
-            caps.pan_tilt
-                .as_ref()
-                .expect("pan/tilt")
-                .pan_range_degrees()
-                .start()
-                <= caps
-                    .pan_tilt
-                    .as_ref()
-                    .expect("pan/tilt")
-                    .pan_range_degrees()
-                    .end()
-        );
-        assert!(
-            caps.pan_tilt
-                .as_ref()
-                .expect("pan/tilt")
-                .tilt_range_degrees(None)
-                .start()
-                <= caps
-                    .pan_tilt
-                    .as_ref()
-                    .expect("pan/tilt")
-                    .tilt_range_degrees(None)
-                    .end()
+        let geometry = caps.pan_tilt.expect("pan/tilt").geometry.expect("geometry");
+        assert_eq!(
+            geometry.pan_range_degrees(),
+            (0x08A58 as f32 / -208.0)..=(-0x08A58 as f32 / -208.0),
         );
         assert_eq!(
-            *caps
-                .pan_tilt
-                .as_ref()
-                .expect("pan/tilt")
-                .pan_range_degrees()
-                .start(),
-            0x08A58 as f32 / -208.0,
-            "positive raw pan is the left/negative-degree endpoint"
-        );
-        assert_eq!(
-            *caps
-                .pan_tilt
-                .as_ref()
-                .expect("pan/tilt")
-                .pan_range_degrees()
-                .end(),
-            -0x08A58 as f32 / -208.0,
-            "negative raw pan is the right/positive-degree endpoint"
-        );
-        assert_eq!(
-            *caps
-                .pan_tilt
-                .as_ref()
-                .expect("pan/tilt")
-                .tilt_range_degrees(None)
-                .start(),
-            -0x186A as f32 / 208.0,
-            "negative raw tilt is the down/negative-degree endpoint"
-        );
-        assert_eq!(
-            *caps
-                .pan_tilt
-                .as_ref()
-                .expect("pan/tilt")
-                .tilt_range_degrees(None)
-                .end(),
-            0x493D as f32 / 208.0,
-            "positive raw tilt is the up/positive-degree endpoint"
+            geometry.tilt_range_degrees(None),
+            (-0x186A as f32 / 208.0)..=(0x493D as f32 / 208.0),
         );
     }
 

@@ -316,7 +316,7 @@ fn refused_cancellation_keeps_the_written_operation_and_its_socket_live() {
             ),
             now,
         );
-        let cancellation = engine.handle(Input::Cancel { id }, now);
+        let cancellation = engine.handle(engine.cancel_input(id), now);
         let (transmission, request, _) = cancel_transmit(&cancellation);
         let effects = engine.handle(
             Input::TransmissionFinished {
@@ -330,7 +330,7 @@ fn refused_cancellation_keeps_the_written_operation_and_its_socket_live() {
         );
         assert!(terminal_outcome(&effects, id).is_none());
         assert!(effects.iter().any(|effect| matches!(effect,
-            Effect::CancellationObservation { id: observed, observation: CancellationObservation::Failed(_) } if *observed == id)));
+            Effect::CancellationObservation { id: observed, observation: CancellationObservation::AttemptFailed(_) } if *observed == id)));
         assert_eq!(engine.state(), SessionState::Running);
         assert_eq!(
             engine

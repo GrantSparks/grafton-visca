@@ -102,6 +102,7 @@ fn disconnected_optional_lanes_stay_pending_and_admission_reports_disconnect() {
     let receivers = BoundaryReceivers {
         shutdown,
         cancellations,
+        halt_capacity: flume::bounded(1).0,
         admissions,
         control,
     };

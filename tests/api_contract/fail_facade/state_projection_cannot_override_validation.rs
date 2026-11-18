@@ -16,6 +16,7 @@ struct NoEffect;
 
 impl contract::BuiltinValidation for NoEffect {
     fn applied_state(&self) -> Option<contract::AppliedStateProjection> {
+    //~^ E0407 "method `applied_state` is not a member of trait `contract::BuiltinValidation`"
         Some(contract::AppliedStateProjection::set(
             KnownState::TallyMode(TallyMode::On),
         ))
@@ -23,6 +24,3 @@ impl contract::BuiltinValidation for NoEffect {
 }
 
 fn main() {}
-
-//~ E0407
-//~ "method `applied_state` is not a member of trait `contract::BuiltinValidation`"

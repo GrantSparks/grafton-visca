@@ -517,7 +517,16 @@ struct DownstreamProfile;
 type Base = visca_renamed::profiles::GenericVisca;
 
 impl CompileTimeProfile for DownstreamProfile {
-    const TYPED_SUPPORT: capabilities::TypedSupportSet = capabilities::TypedSupportSet::empty();
+    const DOMAINS: visca_renamed::capabilities::DomainSet =
+        Base::DOMAINS.with(capabilities::Domain::Image);
+    const TRANSPORTS: visca_renamed::capabilities::TransportSet =
+        visca_renamed::profiles::TransportCompatibility::new()
+            .with_tcp(5678)
+            .transport_set();
+    const TYPED_SUPPORT: capabilities::TypedSupportSet =
+        capabilities::TypedSupportSet::from_surface(
+            capabilities::TypedSupportSurface::PanTiltPositioning,
+        );
     const ID: Option<visca_renamed::profiles::ProfileId> = None;
 
     fn spec() -> visca_renamed::Result<ProfileSpec> {
@@ -532,12 +541,19 @@ impl CompileTimeProfile for DownstreamProfile {
         let pan_tilt = caps.pan_tilt.as_mut().expect("base pan/tilt");
         pan_tilt.pan_speed = CapabilityRange::<u8>::new(1, 9).expect("valid capability bounds");
         pan_tilt.tilt_speed = CapabilityRange::<u8>::new(1, 7).expect("valid capability bounds");
-        pan_tilt.coordinates = visca_renamed::profiles::PanTiltCoordinateConversion::new(
-            capabilities::CoordinateSystem::SignedCentered,
-            capabilities::PanTiltWireCodec::StandardVisca,
-            10.0,
-            15.0,
-        )?;
+        pan_tilt.geometry = Some(capabilities::PanTiltGeometry {
+            pan_range: CapabilityRange::<i32>::new(-2880, 2880)?,
+            tilt_ranges: capabilities::TiltRanges::Single(CapabilityRange::<i32>::new(
+                -1440, 1440,
+            )?),
+            coordinates: visca_renamed::profiles::PanTiltCoordinateConversion::new(
+                capabilities::CoordinateSystem::SignedCentered,
+                capabilities::PanTiltWireCodec::StandardVisca,
+                10.0,
+                15.0,
+            )?,
+            endpoint_quantization: capabilities::EndpointQuantization::Exact,
+        });
         let zoom = caps.zoom.as_mut().expect("base zoom");
         zoom.digital_max = None;
         zoom.direct = false;

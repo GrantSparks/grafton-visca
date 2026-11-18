@@ -95,18 +95,17 @@ impl TiltRanges {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct PanTiltCaps {
-    /// Pan position bounds in wire units.
-    pub pan_range: CapabilityRange<i32>,
-    /// Fixed or mount-selected tilt bounds in wire units.
-    pub tilt_ranges: TiltRanges,
+    /// Sourced degree positioning and position-reply facts, when available.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profiles::required_option")
+    )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
+    pub geometry: Option<PanTiltGeometry>,
     /// Supported nonzero pan speeds.
     pub pan_speed: CapabilityRange<u8>,
     /// Supported nonzero tilt speeds.
     pub tilt_speed: CapabilityRange<u8>,
-    /// Validated coordinate and wire conversion.
-    pub coordinates: crate::PanTiltCoordinateConversion,
-    /// Source policy for the nominal degree endpoint cells.
-    pub endpoint_quantization: EndpointQuantization,
     /// Whether both axes can move together.
     pub simultaneous: bool,
     /// Mechanical recovery time after preset movement.
@@ -121,6 +120,26 @@ pub struct PanTiltCaps {
     )]
     #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profiles::nullable_schema))]
     pub motion_sync_speed_range: Option<CapabilityRange<u8>>,
+}
+
+/// Position limits, coordinate scales and wire framing for degree positioning.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub struct PanTiltGeometry {
+    /// Pan position bounds in wire units.
+    pub pan_range: CapabilityRange<i32>,
+    /// Fixed or mount-selected tilt bounds in wire units.
+    pub tilt_ranges: TiltRanges,
+    /// Validated coordinate and wire conversion.
+    pub coordinates: crate::PanTiltCoordinateConversion,
+    /// Source policy for the nominal degree endpoint cells.
+    pub endpoint_quantization: EndpointQuantization,
 }
 
 /// Optical lens and optional digital zoom facts.
@@ -549,7 +568,7 @@ pub struct PowerCaps {
     pub home_on_up: bool,
 }
 
-impl PanTiltCaps {
+impl PanTiltGeometry {
     /// Derives the pan bounds in nominal logical degrees.
     #[must_use]
     pub fn pan_range_degrees(&self) -> RangeInclusive<f32> {
@@ -679,37 +698,42 @@ impl super::Capabilities {
                 pan_tilt.motion_sync_speed_range,
                 |value| crate::types::MotionSyncSpeed::new(value).is_ok()
             );
-            let framing =
-                crate::command::pan_tilt_wire::PanTiltFraming::for_conversion(pan_tilt.coordinates);
-            let (pan_word, tilt_word) = (framing.pan_maximum(), framing.tilt_maximum());
-            domain(
-                "capabilities.pan_tilt.pan_range",
-                [pan_tilt.pan_range.min(), pan_tilt.pan_range.max()],
-                |value| (-pan_word - 1..=pan_word).contains(&value),
-            )?;
-            let tilt_ranges = match pan_tilt.tilt_ranges {
-                TiltRanges::Single(range) => [Some(range), None],
-                TiltRanges::MountDependent { desktop, ceiling } => [Some(desktop), Some(ceiling)],
-            };
-            for range in tilt_ranges.into_iter().flatten() {
+            if let Some(geometry) = pan_tilt.geometry {
+                let framing = crate::command::pan_tilt_wire::PanTiltFraming::for_conversion(
+                    geometry.coordinates,
+                );
+                let (pan_word, tilt_word) = (framing.pan_maximum(), framing.tilt_maximum());
                 domain(
-                    "capabilities.pan_tilt.tilt_ranges",
-                    [range.min(), range.max()],
-                    |value| (-tilt_word - 1..=tilt_word).contains(&value),
+                    "capabilities.pan_tilt.geometry.pan_range",
+                    [geometry.pan_range.min(), geometry.pan_range.max()],
+                    |value| (-pan_word - 1..=pan_word).contains(&value),
                 )?;
-                if pan_tilt.endpoint_quantization == EndpointQuantization::WholeDegrees {
-                    for (raw, scale) in [
-                        (
-                            pan_tilt.pan_range,
-                            pan_tilt.coordinates.pan_degrees_to_units(),
-                        ),
-                        (range, pan_tilt.coordinates.tilt_degrees_to_units()),
-                    ] {
-                        if [raw.min(), raw.max()].into_iter().any(|endpoint| {
-                            let nominal = (endpoint as f32 / scale).round();
-                            (nominal * scale - endpoint as f32).abs() > 1.0
-                        }) {
-                            return Err(invalid(&["capabilities.pan_tilt.endpoint_quantization"], "nominal whole-degree endpoints must be within one wire unit of their sourced endpoints"));
+                let tilt_ranges = match geometry.tilt_ranges {
+                    TiltRanges::Single(range) => [Some(range), None],
+                    TiltRanges::MountDependent { desktop, ceiling } => {
+                        [Some(desktop), Some(ceiling)]
+                    }
+                };
+                for range in tilt_ranges.into_iter().flatten() {
+                    domain(
+                        "capabilities.pan_tilt.geometry.tilt_ranges",
+                        [range.min(), range.max()],
+                        |value| (-tilt_word - 1..=tilt_word).contains(&value),
+                    )?;
+                    if geometry.endpoint_quantization == EndpointQuantization::WholeDegrees {
+                        for (raw, scale) in [
+                            (
+                                geometry.pan_range,
+                                geometry.coordinates.pan_degrees_to_units(),
+                            ),
+                            (range, geometry.coordinates.tilt_degrees_to_units()),
+                        ] {
+                            if [raw.min(), raw.max()].into_iter().any(|endpoint| {
+                                let nominal = (endpoint as f32 / scale).round();
+                                (nominal * scale - endpoint as f32).abs() > 1.0
+                            }) {
+                                return Err(invalid(&["capabilities.pan_tilt.geometry.endpoint_quantization"], "nominal whole-degree endpoints must be within one wire unit of their sourced endpoints"));
+                            }
                         }
                     }
                 }

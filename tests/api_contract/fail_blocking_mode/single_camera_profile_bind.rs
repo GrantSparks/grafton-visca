@@ -20,14 +20,17 @@ use grafton_visca::{
 
 fn constructor_result_cannot_change_profile() -> grafton_visca::Result<CameraSession<PtzOpticsG3>> {
     CameraSession::<PtzOpticsG2>::connect_tcp("192.168.0.110")
+    //~^ E0308 "mismatched types"
 }
 
 fn view_cannot_change_profile(session: &CameraSession<PtzOpticsG2>) -> &Camera<PtzOpticsG3> {
     session.camera()
+    //~^ E0308 "mismatched types"
 }
 
 fn owned_camera_cannot_change_profile(session: CameraSession<PtzOpticsG2>) -> Camera<PtzOpticsG3> {
     session.into_camera()
+    //~^ E0308 "mismatched types"
 }
 
 fn main() {
@@ -35,8 +38,3 @@ fn main() {
     let _ = view_cannot_change_profile;
     let _ = owned_camera_cannot_change_profile;
 }
-
-//~ E0308
-//~ "found `Result<CameraSession<PtzOpticsG2>, ...>`"
-//~ "expected `&Camera<PtzOpticsG3>`, found `&Camera<PtzOpticsG2>`"
-//~ "expected `Camera<PtzOpticsG3>`, found `Camera<PtzOpticsG2>`"

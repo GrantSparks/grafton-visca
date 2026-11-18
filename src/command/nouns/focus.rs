@@ -83,32 +83,47 @@ crate::command::nouns::forward_inquiry!(SensitivityInquiry, crate::command::Auto
 /// Dropping the operation handle does not stop lens motion.
 #[derive(Debug, Clone, Copy)]
 pub struct FarVariable {
-    inner: builtin::FocusDrive,
+    preview: Option<builtin::FocusDrive>,
     speed: Speed<FocusSpeed>,
 }
 impl FarVariable {
-    /// Resolves a coarse or exact speed without sending a command.
+    /// Captures a speed to resolve against the receiving camera during preparation.
+    pub fn new(speed: impl Into<Speed<FocusSpeed>>) -> Self {
+        Self {
+            preview: None,
+            speed: speed.into(),
+        }
+    }
+
+    /// Creates a movement intent with a preview for direct encoding.
     pub fn for_target(
         target: &TargetRegistration,
         speed: impl Into<Speed<FocusSpeed>>,
     ) -> crate::Result<Self> {
-        let speed = speed.into();
-        Ok(Self {
-            inner: builtin::FocusDrive::FarVariable(lower_speed(target, speed)?),
-            speed,
-        })
+        let mut request = Self::new(speed);
+        request.preview = Some(request.lower(target)?);
+        Ok(request)
     }
+
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::FocusDrive> {
+        #[cfg(test)]
+        builtin::record_request_value_validation();
+        Ok(builtin::FocusDrive::FarVariable(lower_speed(
+            target, self.speed,
+        )?))
+    }
+
     /// Returns the requested coarse or exact speed.
     #[must_use]
     pub const fn speed(self) -> Speed<FocusSpeed> {
         self.speed
     }
 }
-crate::command::nouns::forward_request!(
+crate::command::nouns::movement_intent!(
     FarVariable,
     builtin::FocusDrive,
     AppliedOnly,
-    rows = [FocusFarVariable]
+    FocusFarVariable
 );
 
 /// Drives focus nearer at a speed resolved against the target's range.
@@ -116,32 +131,47 @@ crate::command::nouns::forward_request!(
 /// Dropping the operation handle does not stop lens motion.
 #[derive(Debug, Clone, Copy)]
 pub struct NearVariable {
-    inner: builtin::FocusDrive,
+    preview: Option<builtin::FocusDrive>,
     speed: Speed<FocusSpeed>,
 }
 impl NearVariable {
-    /// Resolves a coarse or exact speed without sending a command.
+    /// Captures a speed to resolve against the receiving camera during preparation.
+    pub fn new(speed: impl Into<Speed<FocusSpeed>>) -> Self {
+        Self {
+            preview: None,
+            speed: speed.into(),
+        }
+    }
+
+    /// Creates a movement intent with a preview for direct encoding.
     pub fn for_target(
         target: &TargetRegistration,
         speed: impl Into<Speed<FocusSpeed>>,
     ) -> crate::Result<Self> {
-        let speed = speed.into();
-        Ok(Self {
-            inner: builtin::FocusDrive::NearVariable(lower_speed(target, speed)?),
-            speed,
-        })
+        let mut request = Self::new(speed);
+        request.preview = Some(request.lower(target)?);
+        Ok(request)
     }
+
+    fn lower(&self, target: &TargetRegistration) -> crate::Result<builtin::FocusDrive> {
+        #[cfg(test)]
+        builtin::record_request_value_validation();
+        Ok(builtin::FocusDrive::NearVariable(lower_speed(
+            target, self.speed,
+        )?))
+    }
+
     /// Returns the requested coarse or exact speed.
     #[must_use]
     pub const fn speed(self) -> Speed<FocusSpeed> {
         self.speed
     }
 }
-crate::command::nouns::forward_request!(
+crate::command::nouns::movement_intent!(
     NearVariable,
     builtin::FocusDrive,
     AppliedOnly,
-    rows = [FocusNearVariable]
+    FocusNearVariable
 );
 
 /// Moves focus to an absolute position.

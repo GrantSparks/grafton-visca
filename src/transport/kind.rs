@@ -17,10 +17,14 @@ impl NetworkTransport {
 }
 
 /// Standard transports that participate in the profile support matrix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StandardTransport {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum StandardTransport {
+    /// VISCA carried over a TCP stream.
     Tcp,
+    /// VISCA carried in UDP datagrams.
     Udp,
+    /// VISCA carried over a serial bus.
     Serial,
 }
 

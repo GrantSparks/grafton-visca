@@ -205,7 +205,7 @@ fn acknowledged_lifecycle_cannot_supply_retry_eligibility() {
         .lifecycle()
         .retry_eligibility(true)
         .is_none());
-    engine.handle(Input::Cancel { id }, start);
+    engine.handle(engine.cancel_input(id), start);
     assert!(engine
         .entry(id)
         .unwrap()

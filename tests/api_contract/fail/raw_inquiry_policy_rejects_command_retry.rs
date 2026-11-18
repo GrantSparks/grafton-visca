@@ -5,7 +5,5 @@ use grafton_visca::{
 
 fn main() {
     let _ = InquiryPolicy::new(CommandRetryClass::Standard, SubmissionClass::Normal);
+    //~^ E0308 "mismatched types"
 }
-
-//~ E0308
-//~ "expected `InquiryRetryClass`, found `CommandRetryClass`"

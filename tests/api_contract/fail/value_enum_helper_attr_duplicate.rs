@@ -4,9 +4,8 @@ enum Duplicate {
     First,
     #[cfg_attr(any(), doc = "No presence condition is added")]
     #[wire(0)]
+    //~^ "duplicate value_enum wire code"
     Second,
 }
 
 fn main() {}
-
-//~ "duplicate value_enum wire code"

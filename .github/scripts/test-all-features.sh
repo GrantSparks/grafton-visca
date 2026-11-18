@@ -69,10 +69,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/engine-model-tests.sh"
 
 # One supported feature shape per entry: `name|cargo arguments`.
 readonly FEATURE_LEGS=(
-    "no-default domain vocabulary + smoke|--no-default-features --lib --test no_default_smoke"
     "no-default all targets|--no-default-features --all-targets"
     "default blocking|--workspace --all-targets"
-    "blocking-only|--no-default-features --features blocking --all-targets"
     "default + serde|--features serde --all-targets"
     "blocking + test-utils|--features blocking,test-utils --all-targets"
     "runtime-neutral async|--no-default-features --features async --all-targets"
@@ -97,19 +95,15 @@ readonly FEATURE_LEGS=(
     # the all-features job also runs their union.
     "test-utils|--no-default-features --features test-utils --all-targets"
     "test-utils + blocking + Tokio|--no-default-features --features test-utils,blocking,runtime-tokio --all-targets"
-    "macro derives|-p grafton-visca-macros"
     # The workspace/default leg leaves this fixture's optional serde, schemars,
-    # and ts-rs oracle cfg'd out; the all-features leg is only a check. Run
-    # this fixture explicitly so its
-    # `renamed_dependency_derive_and_profile_contract_runs` behavioral
-    # contract is not merely compile-checked.
+    # and ts-rs oracle cfg'd out. Run this fixture explicitly so its
+    # `renamed_dependency_derive_and_profile_contract_runs` test executes.
     "renamed range helper derives|-p phase4-renamed-dependency --features range-helper-derives --all-targets"
 )
 
-# The leg that runs `ENGINE_MODEL_TESTS`: the smallest facade leg. The engine
-# compiles only with a facade, so the no-default leg (the domain vocabulary
-# without any runtime) has no engine tests to run.
-readonly ENGINE_MODEL_TEST_LEG="blocking-only"
+# The default workspace run owns the feature-independent engine model tests.
+# A facade-less leg has no engine to exercise.
+readonly ENGINE_MODEL_TEST_LEG="default blocking"
 
 # Prints the cargo arguments of the leg called `$1`, or fails if none is.
 leg_args() {
@@ -252,15 +246,13 @@ check_engine_model_tests() {
 
 # `cargo test` on the leg called `$1`; see `test-leg` in the header.
 test_leg() {
-    local leg_name="$1" leg_command log model_test verdict=0
-    local -a args libtest_args=(--color never)
+    local leg_name="$1" leg_command log verdict=0
+    local -a args skips libtest_args=(--color never)
     leg_command="$(leg_args "$leg_name")" || return 2
     read -r -a args <<<"$leg_command"
     if [[ "$leg_name" != "$ENGINE_MODEL_TEST_LEG" ]]; then
-        libtest_args+=(--exact)
-        for model_test in "${ENGINE_MODEL_TESTS[@]}"; do
-            libtest_args+=(--skip "$model_test")
-        done
+        read -r -a skips <<<"$(engine_model_skip_args)"
+        libtest_args+=("${skips[@]}")
     fi
     log="$(mktemp "${TMPDIR:-/tmp}/grafton-leg.XXXXXX")"
     cargo_stable test "${args[@]}" -- "${libtest_args[@]}" 2>&1 | tee "$log" || verdict=1

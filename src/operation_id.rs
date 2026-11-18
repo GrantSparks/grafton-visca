@@ -2,11 +2,11 @@
 
 use std::{fmt, num::NonZeroU64};
 
-/// Opaque identity for an admitted operation.
+/// Opaque identity for a request admitted to a session.
 ///
-/// An operation ID is useful for logging and diagnostics only. It does not
-/// authorize lifecycle mutation; waiting and cancellation require ownership of
-/// the corresponding operation handle.
+/// Correlate operation handles, errors and diagnostic events from that
+/// session with this identity. Waiting and cancellation require the
+/// corresponding operation handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(
     feature = "serde",
@@ -18,18 +18,6 @@ use std::{fmt, num::NonZeroU64};
 pub struct OperationId(NonZeroU64);
 
 impl OperationId {
-    /// Returns the numeric identity of this operation.
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0.get()
-    }
-
-    /// Returns this identity as its non-zero representation.
-    #[must_use]
-    pub const fn as_nonzero(self) -> NonZeroU64 {
-        self.0
-    }
-
     #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) const fn from_nonzero(value: NonZeroU64) -> Self {
         Self(value)
@@ -63,7 +51,7 @@ mod portable_data_tests {
             assert_eq!(json, serde_json::json!(value));
             let restored: OperationId = serde_json::from_value(json)?;
             assert_eq!(restored, id);
-            assert_eq!(restored.as_nonzero().get(), value);
+            assert_eq!(restored.to_string(), value.to_string());
         }
         for invalid in ["0", "-1", "null", "\"7\"", "{\"id\":7}"] {
             assert!(serde_json::from_str::<OperationId>(invalid).is_err());

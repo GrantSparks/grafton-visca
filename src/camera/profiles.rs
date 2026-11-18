@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn test_ptzoptics_g2_capabilities() {
         let spec = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
-        let pan = spec.capabilities().pan_tilt.as_ref().expect("pan/tilt");
+        let pan = spec.pan_tilt_geometry().expect("geometry");
         assert!(pan.pan_range.contains(0));
         assert!(pan.pan_range.contains(2448));
         assert!(!pan.pan_range.contains(2449));
@@ -190,7 +190,13 @@ mod tests {
     fn ptzoptics_g2_geometry_matches_bench_facts() {
         let spec = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
         let caps = spec.capabilities();
-        let conversion = caps.pan_tilt.as_ref().expect("pan/tilt").coordinates;
+        let conversion = caps
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt")
+            .geometry
+            .expect("geometry")
+            .coordinates;
         let zoom = caps.zoom.as_ref().expect("zoom");
         assert_eq!(conversion.pan_degrees_to_units(), 14.4);
         assert_eq!(conversion.tilt_degrees_to_units(), 14.4);
@@ -221,7 +227,7 @@ mod tests {
             crate::ProfileSpec::from_compile_time::<P>()?
                 .pan_tilt_coordinates()
                 .ok_or(crate::Error::FeatureNotSupported {
-                    feature: "pan/tilt coordinate conversion",
+                    feature: "pan/tilt position inquiry",
                 })?
                 .to_degrees(crate::camera::PanTiltUnits::new(pan, tilt))
         }
@@ -233,8 +239,7 @@ mod tests {
         assert!((evi.tilt.value() + 20.0).abs() < 0.01, "{}", evi.tilt);
         let evi_up = position::<SonyEviH100>(0, 0x0FF0)?;
         assert!((evi_up.tilt.value() - 90.0).abs() < 0.01, "{}", evi_up.tilt);
-        let generic = position::<GenericVisca>(2880, -1440)?;
-        assert_eq!((generic.pan.value(), generic.tilt.value()), (180.0, -90.0));
+        assert!(position::<GenericVisca>(2880, -1440).is_err());
         let g2 = position::<PtzOpticsG2>(2448, 1296)?;
         assert_eq!((g2.pan.value(), g2.tilt.value()), (170.0, 90.0));
         Ok(())

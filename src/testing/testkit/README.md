@@ -7,7 +7,7 @@ transports, session deadlines and test helpers on that clock.
 For blocking sessions, call `clock.enter()`, keep the returned
 `ClockParticipant` on its thread and pass it to `open_blocking_session` or
 `open_blocking_camera_session`. The guard must belong to the same clock.
-Build the transport with `ScriptedBlockingTransport::new(steps).on_clock(&clock)`.
+Build the transport with `ScriptedBlockingTransport::new(ScriptedTransportIdentity::Tcp, steps).on_clock(&clock)`.
 Session handle waits, including diagnostic timeouts, then use virtual time.
 `ManualClock::spawn` returns a clock-aware join handle; a poll panic restores
 participation before unwinding continues.
@@ -20,7 +20,7 @@ detaches the task; awaiting a panicked task returns `ExecError::TaskFailed`.
 Use `ManualClockExecutor::new(runtime_executor, &clock)` to keep a Tokio or
 smol scheduler while using the same virtual deadlines.
 
-`ScriptedTransport::new(steps).with_executor(executor)` accepts any executor,
+`ScriptedTransport::new(ScriptedTransportIdentity::Tcp, steps).with_executor(executor)` accepts any executor,
 including an `Arc<ManualClockExecutor>`. `Step::After` uses that executor's
 clock. Without an executor, the default `Immediate` transport delivers delayed
 batches immediately. Blocking delayed batches also deliver immediately unless
@@ -34,3 +34,8 @@ same behavior. A signalled shutdown wins over a ready reply on the same poll.
 Use real-time executors for tests whose subject is an OS/network timing
 contract. Integration scenarios shared across facades or runtimes use the
 workspace's `facade_matrix!` and `runtime_matrix!` harnesses.
+
+Choose a `ScriptedTransportIdentity` that matches the camera connection:
+`Tcp`, `Udp`, `Serial { bus }`, or a `Custom` identity with explicit send
+semantics and addressing. Each stream reply acts as a chunk and can span
+several reads. Each UDP reply acts as one datagram.

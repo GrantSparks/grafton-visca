@@ -1,4 +1,4 @@
-//! Independent full scans for decision-local occupancy and dispatch gates.
+//! Independent scans for decision-local occupancy and dispatch gates.
 //! Expected phase sets intentionally do not call the new lifecycle predicates.
 use super::*;
 
@@ -49,6 +49,16 @@ fn uncorrelated_command(lifecycle: Lifecycle) -> bool {
     )
 }
 
+#[derive(Default)]
+struct ScannedTarget {
+    commands: usize,
+    inquiries: usize,
+    unacknowledged: usize,
+    uncorrelated_command: bool,
+    declared_shapes: SmallVec<[PayloadShape; 4]>,
+    live_shapes: SmallVec<[PayloadShape; 4]>,
+}
+
 pub(super) fn assert_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant) {
     let occupancy = Occupancy::build(&engine.entries);
     let due = engine
@@ -60,43 +70,41 @@ pub(super) fn assert_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant)
         occupancy.due.map(|due| (due.key(), due.request)),
         due.map(|due| (due.key(), due.request))
     );
-    for target in TargetSlot::ALL {
-        let entries = || {
-            engine
-                .entries
-                .values()
-                .filter(|entry| entry.request.context().target == target)
-        };
+    let mut scanned = PerTarget::<ScannedTarget>::default();
+    let raw = engine.mode().is_raw();
+    for entry in engine.entries.values() {
+        let expected = &mut scanned[entry.request.context().target];
+        let lifecycle = entry.lifecycle();
+        let live_inquiry = inquiry_on_wire(lifecycle);
+        expected.commands += usize::from(command_on_wire(lifecycle));
+        expected.inquiries += usize::from(live_inquiry);
+        expected.unacknowledged += usize::from(unacknowledged(lifecycle));
+        expected.uncorrelated_command |= uncorrelated_command(lifecycle);
+        if let (true, Some(shape)) = (raw, entry.request.payload_shape()) {
+            expected.declared_shapes.push(shape);
+            if live_inquiry {
+                expected.live_shapes.push(shape);
+            }
+        }
+    }
+    for (target, expected) in scanned.iter() {
         let actual = &occupancy.targets[target];
+        assert_eq!(actual.commands, expected.commands, "commands on {target:?}");
         assert_eq!(
-            actual.commands,
-            entries()
-                .filter(|entry| command_on_wire(entry.lifecycle()))
-                .count(),
-            "commands on {target:?}"
-        );
-        assert_eq!(
-            actual.inquiries,
-            entries()
-                .filter(|entry| inquiry_on_wire(entry.lifecycle()))
-                .count(),
+            actual.inquiries, expected.inquiries,
             "inquiries on {target:?}"
         );
         assert_eq!(
-            actual.unacknowledged,
-            entries()
-                .filter(|entry| unacknowledged(entry.lifecycle()))
-                .count(),
+            actual.unacknowledged, expected.unacknowledged,
             "unacknowledged on {target:?}"
         );
         assert_eq!(
-            actual.uncorrelated_command,
-            entries().any(|entry| uncorrelated_command(entry.lifecycle())),
+            actual.uncorrelated_command, expected.uncorrelated_command,
             "uncorrelated command on {target:?}"
         );
         // Raw admission bounds exact declarations. Sony may overflow this
         // unused shape view conservatively; its gate never queries it.
-        if engine.mode().is_raw() {
+        if raw {
             let probes = [
                 PayloadShape::Unknown,
                 PayloadShape::Bytes(0),
@@ -106,19 +114,16 @@ pub(super) fn assert_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant)
                 PayloadShape::Bytes(16),
             ]
             .into_iter()
-            .chain(entries().filter_map(|entry| entry.request.payload_shape()))
+            .chain(expected.declared_shapes.iter().copied())
             .chain(engine.mode().ledger().inquiry_shapes(target));
             for shape in probes {
-                let overlaps = entries()
-                    .filter(|entry| inquiry_on_wire(entry.lifecycle()))
-                    .filter_map(|entry| entry.request.payload_shape())
-                    .any(|live| match (live, shape) {
-                        (PayloadShape::Unknown, _) | (_, PayloadShape::Unknown) => true,
-                        (
-                            PayloadShape::Bytes(left) | PayloadShape::Nibbles(left),
-                            PayloadShape::Bytes(right) | PayloadShape::Nibbles(right),
-                        ) => left == right,
-                    });
+                let overlaps = expected.live_shapes.iter().any(|live| match (live, shape) {
+                    (PayloadShape::Unknown, _) | (_, PayloadShape::Unknown) => true,
+                    (
+                        PayloadShape::Bytes(left) | PayloadShape::Nibbles(left),
+                        PayloadShape::Bytes(right) | PayloadShape::Nibbles(right),
+                    ) => *left == right,
+                });
                 assert_eq!(
                     actual.overlaps(shape),
                     overlaps,

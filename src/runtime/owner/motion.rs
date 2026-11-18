@@ -63,6 +63,15 @@ impl MotionRegistry {
         }
     }
 
+    pub(super) fn fence(&self, target: TargetSlot, axes: AffectedAxes, token: u64) {
+        let mut bank = self
+            .generations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        stamp(&mut bank, target, axes, token);
+    }
+
+    #[cfg(test)]
     pub(super) fn establish(
         self: &Arc<Self>,
         target: TargetSlot,
@@ -95,12 +104,22 @@ pub(super) struct MotionAdmission<'a> {
 }
 
 impl MotionAdmission<'_> {
-    pub(super) fn admit(
-        mut self,
-        verdict: Result<crate::runtime::engine::RequestId, Error>,
-    ) -> Result<(crate::runtime::engine::RequestId, MotionStamp), Error> {
+    pub(super) fn admit<T>(mut self, verdict: Result<T, Error>) -> Result<T, Error> {
         let id = verdict?;
-        let generations = stamp(&mut self.bank, self.target, self.axes, self.token);
+        self.publish();
+        Ok(id)
+    }
+
+    fn publish(&mut self) -> [u64; 5] {
+        stamp(&mut self.bank, self.target, self.axes, self.token)
+    }
+
+    pub(super) fn admit_operation<T>(
+        mut self,
+        verdict: Result<T, Error>,
+    ) -> Result<(T, MotionStamp), Error> {
+        let id = verdict?;
+        let generations = self.publish();
         let stamp = MotionStamp {
             registry: Arc::clone(self.registry),
             target: self.target,
@@ -158,13 +177,24 @@ impl MotionStamp {
 
 #[derive(Debug)]
 pub(crate) struct Admitted {
-    pub(crate) id: super::RequestId,
-    pub(crate) motion: Option<MotionStamp>,
+    pub(crate) identity: super::AdmittedId,
 }
+/// A successful operation admission owns its exact motion generation.
+#[derive(Debug)]
+pub(super) struct AdmittedOperation {
+    pub(super) admitted: Admitted,
+    pub(super) motion: MotionStamp,
+}
+
 impl Admitted {
     #[cfg(test)]
     pub(crate) fn get(&self) -> u64 {
-        self.id.get()
+        self.id().get()
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn id(&self) -> super::RequestId {
+        self.identity.request_id()
     }
 }
 
@@ -223,7 +253,7 @@ mod tests {
         let admission = registry.begin_admission(target, AffectedAxes::ZOOM, 2);
         assert!(registry.generations.try_lock().is_err());
         assert!(matches!(
-            admission.admit(Err(Error::RuntimeQueueFull { capacity: 1 })),
+            admission.admit::<()>(Err(Error::RuntimeQueueFull { capacity: 1 })),
             Err(Error::RuntimeQueueFull { capacity: 1 })
         ));
         assert!(registry.generations.try_lock().is_ok());

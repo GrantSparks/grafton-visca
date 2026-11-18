@@ -59,6 +59,7 @@ fn derived_positions_preserve_the_profiles_brc300_framing() {
     assert!(matches!(
         PositionInquiry
             .decoder_for_profile(&profile)
+            .expect("profile-bound decoder")
             .decode(&[0x0f, 7, 5, 0x0a, 8, 0x0e, 7, 9, 6]),
         Ok(Response::Inquiry(InquiryData::PanTiltPosition {
             pan: -35416,

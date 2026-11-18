@@ -9,9 +9,9 @@ use crate::{
     transport::{
         async_connect::{self, AsyncNet},
         async_io::{write_all_flush, AsyncReadExt, AsyncWriteExt},
-        builder::TransportConfig,
+        builder::{TransportConfig, ValidatedTransportConfig},
         connect::preflight,
-        stream_read, AsyncTransport, HasTransportConfig, ReceiveOutcome,
+        stream_read, AsyncTransport, HasTransportConfig, NetworkEndpoint, ReceiveOutcome,
     },
     Error,
 };
@@ -31,20 +31,20 @@ pub trait NetStream: AsyncReadExt + AsyncWriteExt + Send + Sized {
 #[derive(Debug)]
 pub struct Tcp<S: AsyncReadExt + AsyncWriteExt> {
     pub(crate) stream: S,
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
 }
 
 impl<S: AsyncReadExt + AsyncWriteExt> Tcp<S> {
     /// Create a new TCP transport from a connected stream.
     ///
     /// The stream should already be connected to the remote endpoint.
-    pub fn new(stream: S, config: TransportConfig) -> Self {
+    pub fn new(stream: S, config: ValidatedTransportConfig) -> Self {
         Self { stream, config }
     }
 
     /// Get the transport configuration.
     pub fn config(&self) -> &TransportConfig {
-        &self.config
+        self.config.as_config()
     }
 }
 
@@ -74,8 +74,15 @@ impl<S: NetStream> Tcp<S> {
         address: &str,
         config: TransportConfig,
     ) -> Result<Self, Error> {
-        let endpoint = preflight(address, &config)?;
-        let stream = async_connect::connect_tcp::<S::Net>(&endpoint, config.into()).await?;
+        let (endpoint, config) = preflight(address, config)?;
+        Self::connect_endpoint(&endpoint, config).await
+    }
+
+    pub(crate) async fn connect_endpoint(
+        endpoint: &NetworkEndpoint,
+        config: ValidatedTransportConfig,
+    ) -> Result<Self, Error> {
+        let stream = async_connect::connect_tcp::<S::Net>(endpoint, config.into()).await?;
         Ok(Self::new(S::from_connected(stream), config))
     }
 }
@@ -95,7 +102,7 @@ impl<S: AsyncReadExt + AsyncWriteExt> HasTransportConfig for Tcp<S> {
         crate::transport::TransportIdentity::Tcp
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }

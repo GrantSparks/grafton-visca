@@ -237,12 +237,9 @@ mod tests {
         use crate::command::pan_tilt_wire::PanTilt;
         assert_command_has_terminator(PanTilt::Home, "PanTilt::Home");
         assert_command_has_terminator(PanTilt::Reset, "PanTilt::Reset");
-        // Test Move variant with Stop direction
-        use crate::command::pan_tilt_wire::PanTiltDirection;
         use crate::types::{PanSpeed, TiltSpeed};
         assert_command_has_terminator(
-            PanTilt::Move {
-                direction: PanTiltDirection::Stop,
+            PanTilt::Stop {
                 pan_speed: PanSpeed::new(0).unwrap(),
                 tilt_speed: TiltSpeed::new(0).unwrap(),
             },

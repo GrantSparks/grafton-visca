@@ -97,7 +97,7 @@ fn recv_within<T>(
 /// the trait requires, unless the transport is deliberately eager.
 struct ChannelTransport {
     clock: Clock,
-    config: TransportConfig,
+    config: crate::transport::ValidatedTransportConfig,
     semantics: SendSemantics,
     reads: flume::Receiver<Read>,
     writes: flume::Sender<Vec<u8>>,
@@ -124,7 +124,7 @@ impl HasTransportConfig for ChannelTransport {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
         &self.config
     }
 }
@@ -300,7 +300,9 @@ impl Setup {
             config: TransportConfig {
                 read_timeout: self.read_timeout,
                 ..TransportConfig::default()
-            },
+            }
+            .validated()
+            .unwrap(),
             semantics: self.semantics,
             reads,
             writes,
@@ -521,7 +523,7 @@ fn terminal_metrics_stay_identical_while_a_blocking_caller_races_cancellations_w
     let operation = owner.submit_operation(zoom_stop()).unwrap();
     peer.next_write();
     peer.reply(ACK);
-    let id = operation.observation.id();
+    let id = operation.observation.command_id();
     let cancelling = owner.clone();
     let (started, ready) = flume::bounded(1);
     let registration = clock.register();
@@ -637,7 +639,7 @@ fn diagnostic_receive_observes_an_owner_deadline_without_wall_time() {
         id,
         deadline: crate::observability::DiagnosticDeadline::Ack,
         ..
-    } if id == crate::observability::DiagnosticId::from_owner(receipt.core.id.get())));
+    } if id == crate::OperationId::from_nonzero(receipt.core.id().as_nonzero())));
     assert!(start < ack_deadline);
     assert_eq!(clock.now(), ack_deadline);
     drop(receipt);
@@ -661,7 +663,7 @@ fn diagnostic_blocking_receive_observes_an_owner_deadline_without_wall_time() {
         id,
         deadline: crate::observability::DiagnosticDeadline::Ack,
         ..
-    } if id == crate::observability::DiagnosticId::from_owner(receipt.core.id.get())));
+    } if id == crate::OperationId::from_nonzero(receipt.core.id().as_nonzero())));
     assert_eq!(clock.now(), ack_deadline);
     drop(receipt);
     owner.close().unwrap();
@@ -734,7 +736,7 @@ fn sony_transient_blocking_read_fault_retries_and_keeps_the_session() {
 /// applied-state cache.
 #[test]
 fn observer_timeout_detaches_without_cancel_and_late_applied_still_caches() {
-    let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
+    let profile = crate::profiles::ProfileId::PtzOpticsG2.spec().unwrap();
     let (owner, peer) = Setup::datagram_for(profile.clone()).spawn();
     let receipt = owner.submit_command(limit_clear_for(&profile)).unwrap();
     peer.next_write();
@@ -761,10 +763,9 @@ fn observer_timeout_detaches_without_cancel_and_late_applied_still_caches() {
 /// the detached observation itself is lost.
 #[test]
 fn detached_late_completion_still_updates_the_state_cache() {
-    let (owner, peer) = Setup::datagram_for(generic_profile()).spawn();
-    let receipt = owner
-        .submit_command(limit_clear_for(&generic_profile()))
-        .unwrap();
+    let profile = crate::profiles::ProfileId::PtzOpticsG2.spec().unwrap();
+    let (owner, peer) = Setup::datagram_for(profile.clone()).spawn();
+    let receipt = owner.submit_command(limit_clear_for(&profile)).unwrap();
     peer.next_write();
     drop(receipt);
 
@@ -1087,14 +1088,14 @@ fn fractional_serial_idle_reads_do_not_escalate_receive_pauses() {
     }
     struct IdleSerial {
         device: TruncatingDevice,
-        config: TransportConfig,
+        config: crate::transport::ValidatedTransportConfig,
         read_starts: Arc<Mutex<Vec<Instant>>>,
     }
     impl HasTransportConfig for IdleSerial {
         fn identity(&self) -> crate::transport::TransportIdentity<'_> {
             crate::transport::TransportIdentity::Serial { bus: None }
         }
-        fn transport_config(&self) -> &TransportConfig {
+        fn transport_config(&self) -> &crate::transport::ValidatedTransportConfig {
             &self.config
         }
     }
@@ -1135,7 +1136,10 @@ fn fractional_serial_idle_reads_do_not_escalate_receive_pauses() {
             clock: Clock::Manual(clock.clone()),
             timeout: Duration::ZERO,
         },
-        config: TransportConfig::for_serial().with_read_timeout(read_timeout),
+        config: TransportConfig::for_serial()
+            .with_read_timeout(read_timeout)
+            .validated()
+            .unwrap(),
         read_starts: Arc::clone(&starts),
     };
     let (adapter, policy) = BlockingTransportAdapter::new(
@@ -1441,7 +1445,12 @@ fn selected_disconnect_preserves_late_terminal_timeout_and_borrowing_cache() {
         ),
         "a linear command receipt also keeps the observer deadline"
     );
-    let mut observation = OperationObservation::new(receipt.core, PROMPTLY);
+    let motion = Arc::new(super::super::MotionRegistry::default()).establish(
+        crate::target::TargetSlot::CAMERA_1,
+        crate::AffectedAxes::ZOOM,
+        1,
+    );
+    let mut observation = OperationObservation::new(receipt.core, motion, PROMPTLY);
     {
         let mut wait =
             OperationWait::new(&mut observation, OperationObservation::applied, deadline);
@@ -1577,7 +1586,12 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     let clock = ManualClock::new();
     let _driver = clock.enter();
     let (mut transport, peer, profile, _) = Setup::stream().on(&clock).transport();
-    transport.config.read_timeout = Duration::from_secs(5);
+    transport.config = transport
+        .config
+        .as_config()
+        .with_read_timeout(Duration::from_secs(5))
+        .validated()
+        .unwrap();
     let (adapter, adapter_policy) =
         BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
             .unwrap();
@@ -1665,7 +1679,7 @@ fn caller_halt_timeouts_record_each_stop_before_enqueue_or_owner_claim() {
                             requests: [None, None, None],
                             budget: PROMPTLY,
                         },
-                        validity: AdmissionValidity::until(now + PROMPTLY),
+                        claim: AdmissionValidity::until(now + PROMPTLY).into(),
                         reply,
                     }))
                     .unwrap();

@@ -65,7 +65,11 @@ use std::time::Instant;
 use fake_camera::{frames, FakeCamera, WAIT_BUDGET, ZOOM_STOP, ZOOM_TELE};
 use profile_fixtures::NonDefaultCompileTimeProfile as Raw;
 
-#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "runtime-smol",
+    feature = "test-utils"
+))]
 const PAN_TILT_HOME: &[u8] = &[0x81, 0x01, 0x06, 0x04, 0xff];
 const CANCEL_SOCKET_ONE: &[u8] = &[0x81, 0x21, 0xff];
 const PAN_TILT_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x06, 0x12, 0xff];
@@ -729,7 +733,24 @@ mod async_facade {
     /// The dynamic projection erases the completion marker, not the contract.
     #[cfg(any(feature = "async", feature = "blocking"))]
     async fn runtime_profile_handles_share_the_contract<E: Executor>(executor: E) {
-        let (session, camera, positions) = open(&executor).await;
+        // Reply as part of the simulated write when no delayed answer is
+        // under test. The 100 ms protocol ACK clock starts when the write
+        // completes, regardless of when this test task is scheduled again.
+        let camera = FakeCamera::new(|write, answer| match write {
+            ZOOM_TELE => {
+                answer.reply(frames::ack(1));
+            }
+            PAN_TILT_HOME => {
+                answer.reply(frames::ack(1)).reply(frames::complete(1));
+            }
+            PAN_TILT_POSITION_INQUIRY => {
+                answer.reply(pan_tilt_position());
+            }
+            _ => {}
+        });
+        let session = Session::open(camera.async_wire(), &config(), executor.clone())
+            .await
+            .expect("owner session");
         let view = session
             .camera::<grafton_visca::profiles::AnyProfile>(
                 grafton_visca::types::IndividualCameraId::CAMERA_1,
@@ -740,7 +761,6 @@ mod async_facade {
             .await
             .expect("continuous zoom admitted");
         camera.wait_for_writes_async(&executor, 1).await;
-        camera.push(frames::ack(1));
 
         assert!(matches!(
             moving.applied_with_timeout(SHORT).await,
@@ -765,15 +785,19 @@ mod async_facade {
             vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()]
         );
 
-        positions.answer();
         let mut home = view
             .submit(&grafton_visca::command::pan_tilt::Home)
             .await
             .expect("home admitted");
-        camera.wait_for_writes_async(&executor, 3).await;
-        camera.push(frames::ack(1));
-        camera.push(frames::complete(1));
         home.applied().await.expect("home applied");
+        assert_eq!(
+            camera.writes(),
+            vec![
+                ZOOM_TELE.to_vec(),
+                CANCEL_SOCKET_ONE.to_vec(),
+                PAN_TILT_HOME.to_vec()
+            ]
+        );
         assert!(
             matches!(home.settled().await.expect("home settled"), grafton_visca::operation::Settlement::ObservedStable { axes, .. } if axes == grafton_visca::types::AffectedAxes::PAN_TILT)
         );

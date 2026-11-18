@@ -14,6 +14,7 @@ impl Request for NoReplyOperation {
     const MAX_SIZE: usize = 2;
 
     fn policy(&self) -> CommandPolicy {
+    //~^ E0053 "method `policy` has an incompatible type for trait"
         CommandPolicy::new(
             CommandTimeoutClass::Quick,
             CommandRetryClass::Never,
@@ -28,7 +29,3 @@ impl Request for NoReplyOperation {
 }
 
 fn main() {}
-
-//~ E0053
-//~ "method `policy` has an incompatible type for trait"
-//~ "expected `OperationPolicy`, found `CommandPolicy`"

@@ -10,6 +10,83 @@ pub(crate) trait NounInquiryContract: crate::Inquiry {
     const SOURCE: crate::source_evidence::Source;
 }
 
+/// A movement intent uses its selected ledger row and lowers against the target
+/// that actually receives it. The optional preview is used only for explicit
+/// profile-free encoding of a request constructed with `for_target`.
+macro_rules! movement_intent {
+    ($type:ty, $inner:ty, $class:ident, $row:ident) => {
+        impl $type {
+            fn resolve(&self, target: &$crate::TargetRegistration) -> $crate::Result<$inner> {
+                let row = $crate::command::semantics::BuiltinCommand::$row;
+                $crate::request::builtin::validate_movement_row(row, target)?;
+                self.lower(target)
+            }
+        }
+
+        impl $crate::Request for $type {
+            type Class = $crate::request::OperationClass<$crate::completion::$class>;
+            const MAX_SIZE: usize = <$inner as $crate::Request>::MAX_SIZE;
+
+            fn policy(&self) -> $crate::request::OperationPolicy {
+                <Self as $crate::command::semantics::BuiltinRequestContract>::POLICY.operation()
+            }
+
+            fn write_into(&self, target: $crate::CameraId, buffer: &mut [u8]) -> $crate::Result<usize> {
+                let preview = self.preview.as_ref().ok_or($crate::Error::InvalidRequest {
+                    reason: "movement requires a target profile for encoding".into(),
+                })?;
+                <$inner as $crate::Request>::write_into(preview, target, buffer)
+            }
+
+            #[allow(private_interfaces)]
+            fn write_for_target(
+                &self,
+                target: &$crate::TargetRegistration,
+                buffer: &mut [u8],
+                authority: $crate::requests::RequestContractAuthority,
+            ) -> $crate::Result<usize> {
+                let lowered = self.resolve(target)?;
+                <$inner as $crate::Request>::write_for_target(&lowered, target, buffer, authority)
+            }
+
+            fn validate_for_target(&self, target: &$crate::TargetRegistration) -> $crate::Result<()> {
+                self.resolve(target).map(|_| ())
+            }
+        }
+
+        impl $crate::OperationCommand<$crate::completion::$class> for $type {
+            fn affected_axes(&self) -> $crate::AffectedAxes {
+                const { $crate::command::semantics::fixed_axes::<Self>() }
+            }
+
+            #[allow(private_interfaces)]
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            fn prepare_movement(
+                &self,
+                target: &$crate::TargetRegistration,
+                _authority: $crate::requests::RequestContractAuthority,
+            ) -> $crate::Result<Option<$crate::prepared::PreparedMovement>> {
+                let lowered = self.resolve(target)?;
+                $crate::prepared::prepare_lowered_movement(&lowered, target).map(Some)
+            }
+        }
+
+        impl $crate::command::semantics::BuiltinRequestContract for $type {
+            const POLICY: $crate::request::builtin_policy::BuiltinPolicy =
+                <$inner as $crate::command::semantics::BuiltinRequestContract>::POLICY;
+            const LEDGER_ROW: $crate::command::semantics::BuiltinCommand =
+                $crate::command::semantics::BuiltinCommand::$row;
+            const LEDGER_ROWS: &'static [$crate::command::semantics::BuiltinCommand] =
+                &[$crate::command::semantics::BuiltinCommand::$row];
+            type State = <$inner as $crate::command::semantics::BuiltinRequestContract>::State;
+        }
+        const _: () = <$type as $crate::command::semantics::BuiltinRequestContract>::CLASS_MATCHES_ROW;
+        $crate::command::nouns::forward_request!(@check_rows $inner, [$row]);
+    };
+}
+
+pub(crate) use movement_intent;
+
 /// Forwards a canonical request to its private wire request.
 ///
 /// The ordinary form borrows a private `inner` field. A unit request supplies
@@ -141,6 +218,18 @@ macro_rules! forward_request {
             fn affected_axes(&self) -> $crate::AffectedAxes {
                 <$inner as $crate::OperationCommand<$crate::completion::$class>>::affected_axes(
                     $crate::command::nouns::forward_request!(@inner self [$($value)*]),
+                )
+            }
+            #[allow(private_interfaces)]
+            fn affected_axes_for_target(
+                &self,
+                target: &$crate::TargetRegistration,
+                authority: $crate::requests::RequestContractAuthority,
+            ) -> $crate::Result<$crate::AffectedAxes> {
+                <$inner as $crate::OperationCommand<$crate::completion::$class>>::affected_axes_for_target(
+                    $crate::command::nouns::forward_request!(@inner self [$($value)*]),
+                    target,
+                    authority,
                 )
             }
         }
@@ -470,7 +559,7 @@ macro_rules! forward_inquiry {
                     $crate::command::nouns::forward_request!(@inner self [$($value)*]),
                 )
             }
-            fn decoder_for_profile(&self, profile: &$crate::ProfileSpec) -> $crate::ResponseDecoder<Self::Response> {
+            fn decoder_for_profile(&self, profile: &$crate::ProfileSpec) -> $crate::Result<$crate::ResponseDecoder<Self::Response>> {
                 <$inner as $crate::Inquiry>::decoder_for_profile(
                     $crate::command::nouns::forward_request!(@inner self [$($value)*]),
                     profile,
@@ -650,10 +739,12 @@ mod tests {
         assert_eq!(
             query
                 .decoder_for_profile(target.profile())
+                .expect("profile-bound decoder")
                 .decode(&[0, 1, 2, 3])
                 .expect("forwarded response"),
             ZoomPositionInquiry
                 .decoder_for_profile(target.profile())
+                .expect("profile-bound decoder")
                 .decode(&[0, 1, 2, 3])
                 .expect("inner response")
         );

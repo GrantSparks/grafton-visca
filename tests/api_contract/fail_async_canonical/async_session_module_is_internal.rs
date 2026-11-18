@@ -4,7 +4,5 @@
 
 fn main() {
     let _ = core::any::TypeId::of::<grafton_visca::async_session::Session>();
+    //~^ E0603 "module `async_session` is private"
 }
-
-//~ E0603
-//~ "module `async_session` is private"

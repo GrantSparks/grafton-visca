@@ -1,17 +1,11 @@
 //! Deterministic documentation projections of the live registries.
 //!
-//! Registry projections use live values; test citations use the shared
-//! delimiter-aware source scanner. No test needs a camera connection.
+//! Registry projections use live values. No test needs a camera connection.
 //! Authored evidence remains separate from the generated grant-key index.
 
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::{collections::BTreeSet, fmt::Write as _, path::PathBuf};
-
-use grafton_visca_test_support::bless_or_assert;
-
-#[path = "release_gate_citations.rs"]
-mod release_gate_citations;
 
 use crate::{
     camera::profiles::BUILTIN_PROFILE_FACTS,
@@ -23,6 +17,7 @@ use crate::{
     profiles::{ProfileId, ProfileSpec},
     source_evidence::Source,
     state_cache::StateKey,
+    test_support::generated::bless_or_assert,
 };
 
 #[derive(Clone)]
@@ -79,10 +74,7 @@ impl Documentation {
                 let Source::References(references) = source else {
                     panic!("built-in grant requires positive source references");
                 };
-                for reference in references
-                    .iter()
-                    .filter(|reference| reference.models.contains(&profile.id))
-                {
+                for reference in references {
                     grants.push(Grant {
                         profile: profile.type_name,
                         surface,
@@ -417,7 +409,6 @@ fn ledger_decisions(rows: &[(BuiltinCommand, BuiltinRequestClass)]) -> String {
             None => "—".into(),
             Some(AppliedStateEffectRequirement::Set(key)) => format!("Set `{key:?}`"),
             Some(AppliedStateEffectRequirement::Clear(key)) => format!("Clear `{key:?}`"),
-            Some(AppliedStateEffectRequirement::Invalidate(key)) => format!("Invalidate `{key:?}`"),
         };
         let _ = writeln!(output, "| `{row:?}` | {kind} | {effect} |");
     }
@@ -433,7 +424,8 @@ fn assert_blocks(blocks: &[(&str, &str, String)]) {
     // failure; otherwise a multi-block page would need one invocation per block.
     let mut first_failure = None;
     for (path, block, generated) in blocks {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path);
+        // Cargo runs unit tests from the package root.
+        let path = PathBuf::from(path);
         if let Err(failure) = std::panic::catch_unwind(|| {
             bless_or_assert(path, Some(block), generated);
         }) {
@@ -455,6 +447,16 @@ fn generated_documents_readme() {
             docs.readme_surfaces(),
         ),
         ("README.md", "PROFILE NOUN COVERAGE", docs.readme_nouns()),
+        (
+            "README.md",
+            "GENERATED PROFILE TRANSPORTS",
+            docs.transports(),
+        ),
+        (
+            "docs/usage_2_0.md",
+            "GENERATED PROFILE TRANSPORTS",
+            docs.transports(),
+        ),
     ]);
 }
 
@@ -529,13 +531,36 @@ fn generated_documents_architecture() {
     ]);
 }
 
+fn source_model_sets() -> String {
+    use crate::source_evidence::SourceId;
+    let mut output = String::from("| Source | Checked models |\n| --- | --- |\n");
+    for id in SourceId::ALL {
+        let models = id
+            .models()
+            .iter()
+            .map(|model| format!("`{}`", model.compile_time_type_name()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let models = if models.is_empty() { "—" } else { &models };
+        writeln!(output, "| `{}` | {models} |", id.as_str()).expect("write source models");
+    }
+    output
+}
+
 #[test]
 fn generated_documents_grant_key_index() {
-    assert_blocks(&[(
-        "docs/visca_reference.md",
-        "TYPED GRANT KEY INDEX",
-        Documentation::current().grant_index(),
-    )]);
+    assert_blocks(&[
+        (
+            "docs/visca_reference.md",
+            "TYPED GRANT KEY INDEX",
+            Documentation::current().grant_index(),
+        ),
+        (
+            "docs/visca_reference.md",
+            "SOURCE MODEL SETS",
+            source_model_sets(),
+        ),
+    ]);
 }
 
 #[test]
@@ -562,11 +587,7 @@ fn stale_request_semantics_detect_changed_ledger_effects_and_keys() {
         .iter_mut()
         .find(|(row, _)| *row == BuiltinCommand::TallyFlash)
         .expect("tally row exists");
-    row.1 = BuiltinRequestClass::Plain {
-        state_effect: Some(AppliedStateEffectRequirement::Invalidate(
-            StateKey::TallyMode,
-        )),
-    };
+    row.1 = BuiltinRequestClass::Plain { state_effect: None };
     assert_stale(&ledger_decisions(&original), &ledger_decisions(&changed));
     assert_stale(
         &write_only_keys(StateKey::ALL),

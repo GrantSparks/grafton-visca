@@ -11,7 +11,8 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES, raw::MAX_BYTES, Error, ViscaSocket,
+    protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES, raw::MAX_BYTES, Error, ErrorKind,
+    ViscaSocket,
 };
 
 /// Scheduler work permitted when an external-input turn is completed.
@@ -121,6 +122,35 @@ impl RequestId {
 
     pub(super) const fn from_nonzero(value: NonZeroU64) -> Self {
         Self(value)
+    }
+}
+
+/// Authority to cancel a command, issued only for command admissions.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CommandRequestId(RequestId);
+
+impl CommandRequestId {
+    pub(super) const fn issued(id: RequestId) -> Self {
+        Self(id)
+    }
+
+    pub(crate) const fn request_id(self) -> RequestId {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum AdmittedId {
+    Command(CommandRequestId),
+    Inquiry(RequestId),
+}
+
+impl AdmittedId {
+    pub(crate) const fn request_id(self) -> RequestId {
+        match self {
+            Self::Command(command) => command.request_id(),
+            Self::Inquiry(id) => id,
+        }
     }
 }
 
@@ -933,13 +963,22 @@ impl FinishOutcome {
     }
 }
 
-/// Exact result observed by the cancellation token layer.
+/// An observation of the cancellation attempt.
 #[derive(Debug, Clone)]
 pub(crate) enum CancellationObservation {
     Recorded,
+    /// The operation is still live and its cancellation attempt failed.
+    AttemptFailed(Error),
+    /// The operation ended, with its authoritative outcome in the terminal slot.
+    Concluded(CancellationConclusion),
+}
+
+/// Diagnostic summary when an operation under cancellation concludes.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum CancellationConclusion {
     Cancelled,
     Completed,
-    Failed(Error),
+    Failed(ErrorKind),
 }
 
 /// Explicit session termination source.
@@ -1027,7 +1066,7 @@ pub(crate) enum Input {
     Frame(DecodedFrame),
     #[cfg(test)]
     Cancel {
-        id: RequestId,
+        id: CommandRequestId,
     },
     /// One receive-side transport failure the owner has already classified as
     /// transient at the transport layer. The engine still applies the
@@ -1148,7 +1187,8 @@ pub(crate) enum Effect {
         #[cfg(test)]
         ready_at: Instant,
     },
-    /// One of a request's own protocol deadlines expired.
+    /// One of a request's own protocol deadlines expired. Extending a disputed
+    /// ACK deadline only emits a [`Effect::Transition`].
     ///
     /// `will_retry` is the engine's actual decision for this expiry rather than
     /// the policy that motivated it: it is true exactly when the expiry produced

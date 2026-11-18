@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Validate changelog and commit-history integrity for a pull-request range."""
+"""Validate a release cut or the change record across a commit range.
+
+A version is published once its tag is reachable from the comparison base.
+"""
 
 from __future__ import annotations
 
@@ -111,20 +114,18 @@ def dated_release_version(section: str) -> str | None:
     return section[len("## [") : section.index("]")]
 
 
-def release_tag_exists(version: str) -> bool:
-    result = git(
-        "rev-parse", "--quiet", "--verify", f"refs/tags/v{version}", check=False
-    )
-    return result.returncode == 0
+def release_tag_reachable(version: str, base: str) -> bool:
+    ref = f"refs/tags/v{version}^{{commit}}"
+    result = git("rev-parse", "--quiet", "--verify", ref, check=False)
+    return result.returncode == 0 and is_ancestor(result.stdout.strip(), base)
 
 
 def unpublished_release_versions(suffix: str, revision: str) -> frozenset[str]:
     """Find dated sections that were prepared but never published.
 
-    A release is published once its `v<version>` tag exists. Only the dated
-    sections above the newest tagged one can be unpublished: anything below a
-    published release was released before it, whether or not its tag exists.
-    Those leading untagged sections may be folded back into Unreleased.
+    A release is published once its `v<version>` tag is reachable from the
+    comparison base. Sections below the newest published one are also
+    immutable. Leading unpublished sections may be folded into Unreleased.
     """
 
     unpublished: list[str] = []
@@ -132,7 +133,7 @@ def unpublished_release_versions(suffix: str, revision: str) -> frozenset[str]:
         version = dated_release_version(suffix[start:end])
         if version is None:
             break
-        if release_tag_exists(version):
+        if release_tag_reachable(version, revision):
             return frozenset(unpublished)
         unpublished.append(version)
 
@@ -141,7 +142,8 @@ def unpublished_release_versions(suffix: str, revision: str) -> frozenset[str]:
         # shallow or tagless checkout must not silently unlock released history.
         raise ValidationError(
             f"{CHANGELOG} at {revision} has dated release sections but no "
-            "`v<version>` tag for any of them; fetch tags and use a "
+            "`v<version>` tag for any of them is reachable from the base; "
+            "fetch tags and use a "
             "full-history checkout"
         )
     return frozenset()
@@ -395,10 +397,30 @@ def commit_body_errors(start: str, head: str) -> list[str]:
     return errors
 
 
+def validate_release_changelog(version: str) -> int:
+    try:
+        changelog = git_file("HEAD", CHANGELOG)
+        assert changelog is not None
+        prefix, body, suffix, _ = split_unreleased(changelog, "HEAD")
+        if body.strip():
+            raise ValidationError(f"{CHANGELOG} has a non-empty [Unreleased] section")
+        if release_versions(prefix) or dated_release_version(suffix) != version:
+            raise ValidationError(
+                f"{CHANGELOG} must start its release history with '## [{version}] - YYYY-MM-DD'"
+            )
+    except ValidationError as error:
+        print(f"release changelog validation error: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 3 and argv[1] == "--release":
+        return validate_release_changelog(argv[2])
     if len(argv) not in (2, 3):
         print(
-            "usage: validate-change-record.py <base-revision> [head-revision]",
+            "usage: validate-change-record.py <base-revision> [head-revision]\n"
+            "       validate-change-record.py --release <version>",
             file=sys.stderr,
         )
         return 2
@@ -425,9 +447,8 @@ def main(argv: list[str]) -> int:
         head_prefix, unreleased, head_suffix, unreleased_offset = split_unreleased(
             head_changelog, head
         )
-        # Published sections are byte-immutable. A dated section with no
-        # `v<version>` tag above the newest published one was never released;
-        # it stays mutable and may be folded back into Unreleased.
+        # Published sections are byte-immutable from the base onward. The
+        # release commit's own tag leaves that commit's changes reviewable.
         unpublished = unpublished_release_versions(base_suffix, history_start)
         base_immutable = immutable_changelog(
             base_prefix, published_suffix(base_suffix, unpublished)

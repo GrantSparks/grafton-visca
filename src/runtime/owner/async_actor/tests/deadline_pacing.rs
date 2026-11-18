@@ -216,12 +216,11 @@ async fn accepted_io_timeouts_saturate_after_the_owner_clock_advances() {
         write_timeout: timeout,
         ..crate::transport::TransportConfig::default()
     };
-    config.validate().unwrap();
+    let config = config.validated().unwrap();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let mut owner_policy = policy(1);
-    owner_policy.read_timeout = crate::timeout::NonZeroDuration::new(config.read_timeout).unwrap();
-    owner_policy.write_timeout =
-        crate::timeout::NonZeroDuration::new(config.write_timeout).unwrap();
+    owner_policy.read_timeout = config.read_timeout;
+    owner_policy.write_timeout = config.write_timeout;
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
     runtime.advance(timeout + Duration::from_secs(1));
     let now = Executor::now(&runtime);

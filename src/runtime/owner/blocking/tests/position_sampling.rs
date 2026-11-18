@@ -1,6 +1,6 @@
 //! Exercise the production sampling methods with an authoritative delivery time.
 
-use super::super::super::TerminalSlot;
+use super::super::super::{boundary::AdmissionReplySink, TerminalSlot};
 use super::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -91,9 +91,20 @@ fn position_observations_use_delivery_time_even_when_the_caller_wakes_late() {
                         _ => panic!("typed observations use their own terminal lane"),
                     };
                     let turn = state.begin_input_turn(clock.now());
-                    let admitted = state
-                        .admit_in_turn(&turn, request, permit, observer)
-                        .unwrap();
+                    let answer: Box<dyn FnOnce()> = match reply {
+                        AdmissionReplySink::Request(reply) => {
+                            let admitted = state
+                                .admit_in_turn(&turn, request, permit, observer)
+                                .unwrap();
+                            Box::new(move || reply.send(Ok(admitted)).unwrap())
+                        }
+                        AdmissionReplySink::Operation { motion, reply } => {
+                            let admitted = state
+                                .admit_operation_in_turn(&turn, request, motion, permit, observer)
+                                .unwrap();
+                            Box::new(move || reply.send(Ok(admitted)).unwrap())
+                        }
+                    };
                     let last = index + 1 == samples;
                     if last {
                         clock_for_owner.advance(delivered.saturating_duration_since(clock.now()));
@@ -115,7 +126,7 @@ fn position_observations_use_delivery_time_even_when_the_caller_wakes_late() {
                                 .saturating_duration_since(clock.now()),
                         );
                     }
-                    reply.send(Ok(admitted)).unwrap();
+                    answer();
                 }
             });
             let result = match kind {

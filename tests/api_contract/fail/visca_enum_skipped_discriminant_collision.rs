@@ -4,8 +4,7 @@ use grafton_visca::value_enum;
 enum DiscriminantCollision {
     Active = 0x01,
     Reserved = 0x01,
+    //~^ "duplicate value_enum wire code"
 }
 
 fn main() {}
-
-//~ "duplicate value_enum wire code"

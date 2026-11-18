@@ -5,7 +5,5 @@
 
 fn main() {
     let _ = core::any::TypeId::of::<grafton_visca::camera::movement::PanTiltPosition>();
+    //~^ E0603 "module `camera` is private"
 }
-
-//~ E0603
-//~ "module `camera` is private"

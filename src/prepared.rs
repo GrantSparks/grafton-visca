@@ -492,7 +492,7 @@ where
     wire: PreparedWire,
     context: RequestContext,
     reply_shape: CommandReply,
-    affected_axes: AffectedAxes,
+    motion: crate::runtime::engine::MotionEffect,
     settlement: completion::SettlementPlan<K>,
     applied_state: Option<AppliedStateProjection>,
     marker: PhantomData<fn() -> K>,
@@ -607,6 +607,21 @@ pub(crate) fn prepare_inquiry<Q>(
 where
     Q: Inquiry + ?Sized,
 {
+    prepare_inquiry_with_decoder(inquiry, registration, tuning, class, |profile| {
+        inquiry.decoder_for_profile(profile)
+    })
+}
+
+pub(crate) fn prepare_inquiry_with_decoder<Q, R>(
+    inquiry: &Q,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
+    class: ClassSelection,
+    bind_decoder: impl FnOnce(&ProfileSpec) -> Result<ResponseDecoder<R>>,
+) -> Result<PreparedInquiry<R>>
+where
+    Q: Inquiry + ?Sized,
+{
     let profile = registration.profile();
     if matches!(
         profile.capabilities().inquiry_support,
@@ -617,6 +632,7 @@ where
         });
     }
     inquiry.validate_for_target(registration)?;
+    let decoder = bind_decoder(profile)?;
     let (mut context, _) = lower_request_context(inquiry, registration, tuning, class);
     let wire = encode(inquiry, registration)?;
     context.retry.builtin_inquiry_syntax = crate::requests::builtin_inquiry_syntax_retry(inquiry);
@@ -624,7 +640,7 @@ where
         wire,
         context,
         payload_shape: inquiry.payload_shape_for_profile(profile),
-        decoder: inquiry.decoder_for_profile(profile),
+        decoder,
     })
 }
 
@@ -678,12 +694,15 @@ where
     // inquiries or encoding the command.  In particular, an unsupported
     // targeted built-in must not even prepare an inquiry plan as a side
     // effect of discovering that its operation class is unavailable.
-    operation.validate_for_target(registration)?;
-    let affected_axes = operation.affected_axes();
+    let movement = crate::requests::prepare_movement(operation, registration)?;
+    let affected_axes = operation.affected_axes_for_target(
+        registration,
+        crate::requests::RequestContractAuthority::new(),
+    )?;
     let (mut context, reply_shape) = lower_request_context(operation, registration, tuning, class);
-    context.motion = Some(crate::runtime::engine::MotionEffect {
+    let motion = crate::runtime::engine::MotionEffect {
         axes: affected_axes,
-    });
+    };
     let settlement = completion::lower_settlement::<K>(
         registration,
         tuning,
@@ -693,16 +712,53 @@ where
             settlement_budget(operation.policy().timeout_class(), profile, tuning),
         ),
     )?;
-    let wire = encode(operation, registration)?;
+    let wire = if let Some(movement) = movement {
+        context.requires_extended_pan_tilt_speed = movement.requires_extended_pan_tilt_speed;
+        movement.wire
+    } else {
+        encode(operation, registration)?
+    };
     Ok(PreparedOperation {
         wire,
         context,
         reply_shape,
-        affected_axes,
+        motion,
         settlement,
         applied_state,
         marker: PhantomData,
     })
+}
+
+/// A movement whose speed and packet have already been lowered together.
+pub(crate) struct PreparedMovement {
+    wire: PreparedWire,
+    requires_extended_pan_tilt_speed: bool,
+}
+
+pub(crate) fn prepare_lowered_movement<R: Request>(
+    request: &R,
+    registration: &crate::TargetRegistration,
+) -> Result<PreparedMovement> {
+    Ok(PreparedMovement {
+        wire: encode(request, registration)?,
+        requires_extended_pan_tilt_speed: requires_extended_pan_tilt_speed(
+            request,
+            registration.profile(),
+        ),
+    })
+}
+
+fn requires_extended_pan_tilt_speed<R: Request + ?Sized>(
+    request: &R,
+    profile: &ProfileSpec,
+) -> bool {
+    profile
+        .capabilities()
+        .pan_tilt
+        .as_ref()
+        .is_some_and(|pan_tilt| pan_tilt.variable_speed)
+        && crate::requests::pan_tilt_max_speed(request)
+            .is_some_and(|speed| speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM)
 }
 
 fn encode<R>(request: &R, registration: &crate::TargetRegistration) -> Result<PreparedWire>
@@ -921,14 +977,7 @@ where
     );
     (
         RequestContext {
-            requires_extended_pan_tilt_speed: profile
-                .capabilities()
-                .pan_tilt
-                .as_ref()
-                .is_some_and(|pan_tilt| pan_tilt.variable_speed)
-                && crate::requests::pan_tilt_max_speed(request).is_some_and(|speed| {
-                    speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM
-                }),
+            requires_extended_pan_tilt_speed: requires_extended_pan_tilt_speed(request, profile),
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -1163,7 +1212,7 @@ where
         self,
         admit: impl FnOnce(
             LaneRequest<CommandOutcome>,
-            AffectedAxes,
+            crate::runtime::engine::MotionEffect,
             completion::SettlementPlan<K>,
             OperationTimeouts,
         ) -> T,
@@ -1183,15 +1232,17 @@ where
                 .get()
                 .saturating_add(self.context.timeout.cancellation.get()),
         );
+        let mut context = self.context;
+        context.motion = Some(self.motion);
         let request = LaneRequest::command(
             self.reply_shape,
             self.wire.into_shared(),
-            self.context,
+            context,
             self.applied_state,
         );
         admit(
             request,
-            self.affected_axes,
+            self.motion,
             self.settlement,
             OperationTimeouts {
                 applied,
@@ -1427,14 +1478,14 @@ mod tests {
                     }
                 })
             }
-            fn decoder_for_profile(&self, _: &ProfileSpec) -> ResponseDecoder<usize> {
-                ResponseDecoder::from_fn(|payload| {
+            fn decoder_for_profile(&self, _: &ProfileSpec) -> Result<ResponseDecoder<usize>> {
+                Ok(ResponseDecoder::from_fn(|payload| {
                     if crate::PayloadShape::Nibbles(4).admits(payload) {
                         Ok(payload.len())
                     } else {
                         Err(Error::InvalidResponseFormat)
                     }
-                })
+                }))
             }
         }
         let query = ProfileSelectedInquiry(AtomicUsize::new(0));
@@ -1487,8 +1538,7 @@ mod tests {
         for speed in [1, 24, 25, 50] {
             let pan = PanSpeed::new(speed).expect("pan syntax");
             let tilt = TiltSpeed::new(speed).expect("tilt syntax");
-            let drive =
-                PanTiltDrive::new(crate::command::PanTiltDirection::Up, pan, tilt).expect("drive");
+            let drive = PanTiltDrive::new(crate::command::PanTiltDirection::Up, pan, tilt);
             let prepared = prepare_operation::<completion::AppliedOnly, _>(
                 &drive,
                 &registration,
@@ -1547,8 +1597,7 @@ mod tests {
             crate::command::PanTiltDirection::Up,
             PanSpeed::new(25).expect("syntax"),
             TiltSpeed::new(25).expect("syntax"),
-        )
-        .expect("drive");
+        );
         assert!(prepare_operation::<completion::AppliedOnly, _>(
             &drive,
             &normal,
@@ -1567,19 +1616,22 @@ mod tests {
                 let mut facts = crate::profiles::ProfileId::SonyFr7.raw_facts();
                 facts.capabilities.profile_id = None;
                 let pan_tilt = facts.capabilities.pan_tilt.as_mut().expect("pan/tilt");
-                pan_tilt.coordinates = crate::PanTiltCoordinateConversion::new(
-                    crate::capabilities::CoordinateSystem::SignedCentered,
-                    codec,
-                    16.0,
-                    16.0,
-                )
-                .expect("coordinates");
-                pan_tilt.pan_range = crate::capabilities::CapabilityRange::<i32>::new(-160, 160)
-                    .expect("valid capability bounds");
-                pan_tilt.tilt_ranges = crate::capabilities::TiltRanges::Single(
-                    crate::capabilities::CapabilityRange::<i32>::new(-80, 80)
-                        .expect("valid capability bounds"),
-                );
+                pan_tilt.geometry.as_mut().expect("geometry").coordinates =
+                    crate::PanTiltCoordinateConversion::new(
+                        crate::capabilities::CoordinateSystem::SignedCentered,
+                        codec,
+                        16.0,
+                        16.0,
+                    )
+                    .expect("coordinates");
+                pan_tilt.geometry.as_mut().expect("geometry").pan_range =
+                    crate::capabilities::CapabilityRange::<i32>::new(-160, 160)
+                        .expect("valid capability bounds");
+                pan_tilt.geometry.as_mut().expect("geometry").tilt_ranges =
+                    crate::capabilities::TiltRanges::Single(
+                        crate::capabilities::CapabilityRange::<i32>::new(-80, 80)
+                            .expect("valid capability bounds"),
+                    );
                 pan_tilt.variable_speed = variable_speed;
                 if !variable_speed {
                     pan_tilt.pan_speed = crate::capabilities::CapabilityRange::<u8>::new(1, 24)
@@ -1599,8 +1651,7 @@ mod tests {
                         crate::command::PanTiltDirection::Right,
                         PanSpeed::new(speed).expect("pan"),
                         TiltSpeed::new(speed).expect("tilt"),
-                    )
-                    .expect("drive");
+                    );
                     let prepared = prepare_operation::<completion::AppliedOnly, _>(
                         &drive,
                         &registration,
@@ -2008,7 +2059,7 @@ mod tests {
             matches!(error, Error::InvalidRequest { reason: message } if message.contains("envelope payload bound (16)"))
         );
 
-        let baseline = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+        let baseline = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
             .expect("valid built-in profile");
         let mut capabilities = baseline.capabilities().clone();
         capabilities.profile_id = None;
@@ -2027,14 +2078,20 @@ mod tests {
         )
         .expect("raw framing supports larger bounded requests");
         let mut fr7_caps = raw.capabilities().clone();
-        fr7_caps.pan_tilt.as_mut().expect("pan/tilt").coordinates =
-            crate::PanTiltCoordinateConversion::new(
-                crate::capabilities::CoordinateSystem::SignedCentered,
-                crate::capabilities::PanTiltWireCodec::SonyFr7,
-                16.0,
-                16.0,
-            )
-            .expect("FR7 framing");
+        fr7_caps
+            .pan_tilt
+            .as_mut()
+            .expect("pan/tilt")
+            .geometry
+            .as_mut()
+            .expect("geometry")
+            .coordinates = crate::PanTiltCoordinateConversion::new(
+            crate::capabilities::CoordinateSystem::SignedCentered,
+            crate::capabilities::PanTiltWireCodec::SonyFr7,
+            16.0,
+            16.0,
+        )
+        .expect("FR7 framing");
         let mut builder = ProfileSpec::builder(fr7_caps)
             .transports(raw.transports())
             .envelope(ProfileEnvelope::SonyEncapsulated)
@@ -2117,7 +2174,7 @@ mod tests {
     #[test]
     fn inquiry_support_and_settlement_fail_before_encoding() {
         reset_write_count();
-        let baseline = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+        let baseline = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
             .expect("valid built-in profile");
         let mut no_inquiry = baseline.capabilities().clone();
         no_inquiry.profile_id = None;
@@ -2145,7 +2202,9 @@ mod tests {
         let mut missing_custom_zoom = baseline.capabilities().clone();
         missing_custom_zoom.profile_id = None;
         missing_custom_zoom.zoom.as_mut().expect("zoom").direct = false;
-        missing_custom_zoom.typed_support = TypedSupportSet::empty();
+        missing_custom_zoom.typed_support = TypedSupportSet::from_surface(
+            crate::capabilities::TypedSupportSurface::PanTiltPositioning,
+        );
         let missing_custom_zoom = runtime_profile(
             &baseline,
             missing_custom_zoom,
@@ -2415,7 +2474,7 @@ mod tests {
 
     #[test]
     fn targeted_poll_plan_preserves_exact_prepared_queries_target_and_budget() {
-        let baseline = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+        let baseline = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
             .expect("valid built-in profile");
         let mut capabilities = baseline.capabilities().clone();
         capabilities.profile_id = None;
@@ -2456,7 +2515,7 @@ mod tests {
             panic!("profile without completion must choose polling");
         };
         assert_eq!(prepared.context.target.camera(), CameraId::CAMERA_2);
-        assert_eq!(prepared.affected_axes, AffectedAxes::ZOOM);
+        assert_eq!(prepared.motion.axes, AffectedAxes::ZOOM);
         assert_eq!(tolerance, MovementTolerance::default());
         assert_eq!(interval, Duration::from_millis(40));
         assert_eq!(
@@ -2728,11 +2787,8 @@ mod tests {
                 )
             );
         }
-        let preset = crate::request::builtin::PresetRecall::for_profile(
-            PresetNumber::new(1).expect("preset"),
-            &profile,
-        )
-        .expect("preset recall");
+        let preset =
+            crate::request::builtin::PresetRecall::new(PresetNumber::new(1).expect("preset"));
         for seconds in [60, 90, 120, 180] {
             check(&crate::request::builtin::PanTiltHome, &profile, seconds);
             check(&preset, &profile, seconds);
@@ -2909,7 +2965,7 @@ mod tests {
         let SettlementPlan::Poll { queries, .. } = nd.settlement.plan().clone() else {
             panic!("FR7 must poll ND position without operation-complete support");
         };
-        assert_eq!(nd.affected_axes, AffectedAxes::ND_FILTER);
+        assert_eq!(nd.motion.axes, AffectedAxes::ND_FILTER);
         let queries = queries.get().expect("lazy polling queries").clone();
         assert!(queries.pan_tilt.is_none());
         assert!(queries.zoom.is_none());
@@ -2956,7 +3012,7 @@ mod tests {
             panic!("BRC-H900 must poll iris because it has no operation-complete reply");
         };
         assert_eq!(prepared.context.target.camera(), CameraId::CAMERA_2);
-        assert_eq!(prepared.affected_axes, AffectedAxes::IRIS);
+        assert_eq!(prepared.motion.axes, AffectedAxes::IRIS);
         let queries = queries.get().expect("lazy polling queries").clone();
         assert!(queries.pan_tilt.is_none());
         assert!(queries.zoom.is_none());
@@ -3702,8 +3758,13 @@ mod tests {
             let target = crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile);
             prepare_position_queries(&target, OperationalTuning::default(), queries)
                 .unwrap_or_else(|error| panic!("{id:?} declared queries: {error}"));
-            prepare_position_queries(&target, OperationalTuning::default(), recall_axes)
-                .unwrap_or_else(|error| panic!("{id:?} recall queries: {error}"));
+            let recall =
+                prepare_position_queries(&target, OperationalTuning::default(), recall_axes);
+            if *id == crate::profiles::ProfileId::GenericVisca {
+                assert!(matches!(recall, Err(Error::FeatureNotSupported { .. })));
+            } else {
+                recall.unwrap_or_else(|error| panic!("{id:?} recall queries: {error}"));
+            }
         }
     }
 
@@ -3749,7 +3810,11 @@ mod tests {
                 if !exact_completion {
                     if let Some(axes) = recall_axes {
                         let prepared = prepare_position_queries(&target, OperationalTuning::default(), axes);
-                        proptest::prop_assert!(prepared.is_ok(), "{id:?} recall queries: {prepared:?}");
+                        if target.profile().pan_tilt_coordinates().is_none() && axes.contains(AffectedAxes::PAN_TILT) {
+                            proptest::prop_assert!(matches!(prepared, Err(Error::FeatureNotSupported { .. })), "{id:?} lacks sourced pan/tilt settlement");
+                        } else {
+                            proptest::prop_assert!(prepared.is_ok(), "{id:?} recall queries: {prepared:?}");
+                        }
                     }
                 }
             }
@@ -4202,7 +4267,7 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::SonyBrc300>().expect("Sony profile");
         let nearus = ProfileSpec::from_compile_time::<crate::profiles::NearusBrc300>()
             .expect("Nearus profile");
-        let signed = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+        let signed = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
             .expect("signed profile");
         let pan_speed = PanSpeed::new(9).expect("speed");
         let tilt_speed = TiltSpeed::new(7).expect("speed");
@@ -4446,8 +4511,8 @@ mod tests {
         assert_eq!(
             prepared.wire.as_bytes(),
             encoded(&PanTilt::AbsolutePosition {
-                pan: 0x02d0_u16 as i16,
-                tilt: 0xff10_u16 as i16,
+                pan: 0x0288_u16 as i16,
+                tilt: 0xff28_u16 as i16,
                 pan_speed,
                 tilt_speed,
             })
@@ -4490,7 +4555,12 @@ mod tests {
             Degrees::new(0.0).expect("finite degrees"),
             PanSpeed::new(18).expect("conservative range"),
             TiltSpeed::new(17).expect("conservative range"),
-            &crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, generic.clone()),
+            &crate::TargetRegistration::new(
+                crate::IndividualCameraId::CAMERA_1,
+                crate::profiles::ProfileId::PtzOpticsG2
+                    .spec()
+                    .expect("positioning profile"),
+            ),
         )
         .expect("valid for the source profile");
         reset_request_write_count();
@@ -4514,7 +4584,7 @@ mod tests {
             &generic,
             no_direct_caps,
             true,
-            Some(AffectedAxes::MOVEMENT),
+            Some(AffectedAxes::ZOOM | AffectedAxes::FOCUS),
             AffectedAxes::PAN_TILT,
         );
         let zoom = ZoomTarget::new(ZoomPosition::new(0).expect("conservative range"));
@@ -4544,7 +4614,7 @@ mod tests {
             &generic,
             bounded_zoom_caps,
             true,
-            Some(AffectedAxes::MOVEMENT),
+            Some(AffectedAxes::ZOOM | AffectedAxes::FOCUS),
             AffectedAxes::PAN_TILT,
         );
         let outside_zoom =
@@ -4929,7 +4999,7 @@ mod tests {
                                 ClassSelection::Request
                             )
                             .expect("targeted prepares")
-                            .context,
+                            .admit_with(|request, _, _, _| *request.context()),
                             expected
                         );
                         assert_eq!(
@@ -4940,7 +5010,7 @@ mod tests {
                                 ClassSelection::Request
                             )
                             .expect("applied prepares")
-                            .context,
+                            .admit_with(|request, _, _, _| *request.context()),
                             expected
                         );
                     }

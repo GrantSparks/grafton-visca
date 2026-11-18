@@ -102,7 +102,7 @@ pub(super) enum TerminalWake<T> {
     Deadline,
 }
 
-impl<T: Clone> TerminalWake<T> {
+impl<T: super::TerminalLane> TerminalWake<T> {
     /// The outcome of a command or inquiry receipt's single wait.
     ///
     /// Once the owner is gone or the deadline passed, the slot is read once
@@ -121,7 +121,7 @@ impl<T: Clone> TerminalWake<T> {
                 .ok_or_else(|| owner.disconnected_error()),
             Self::Deadline => core
                 .observed_within(deadline)
-                .ok_or_else(|| super::observation_timeout(core.id)),
+                .ok_or_else(|| super::observation_timeout(core.id())),
         }
     }
 }

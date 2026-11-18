@@ -15,7 +15,7 @@ use std::{
 use crate::{
     timeout::Deadline,
     transport::{
-        address::{bind_address_for, literal_socket_addr, resolved},
+        address::{bind_address_for, resolved, NetworkEndpoint},
         connect::{connect_deadline, socket_setup, udp_target, AttemptFailure, TcpAttempts},
         socket_options::{apply_udp_socket_options, TcpConnectionConfig, UdpSocketConfig},
     },
@@ -59,12 +59,15 @@ async fn within<N: AsyncNet, T>(remaining: Duration, step: impl Future<Output = 
 }
 
 /// Resolve `endpoint` within the connect budget.
-async fn resolve<N: AsyncNet>(endpoint: &str, deadline: Deadline) -> Result<Vec<SocketAddr>> {
-    if let Some(address) = literal_socket_addr(endpoint) {
+async fn resolve<N: AsyncNet>(
+    endpoint: &NetworkEndpoint,
+    deadline: Deadline,
+) -> Result<Vec<SocketAddr>> {
+    if let Some(address) = endpoint.socket_addr() {
         return Ok(vec![address]);
     }
     let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
-    match within::<N, _>(remaining, N::lookup(endpoint.to_owned())).await {
+    match within::<N, _>(remaining, N::lookup(endpoint.to_string())).await {
         Some(lookup) => resolved(endpoint, lookup),
         None => Err(Error::connect_timeout()),
     }
@@ -72,7 +75,7 @@ async fn resolve<N: AsyncNet>(endpoint: &str, deadline: Deadline) -> Result<Vec<
 
 /// Connect a configured TCP stream to a canonical endpoint.
 pub(crate) async fn connect_tcp<N: AsyncNet>(
-    endpoint: &str,
+    endpoint: &NetworkEndpoint,
     options: TcpConnectionConfig,
 ) -> Result<N::TcpStream> {
     let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
@@ -89,7 +92,7 @@ pub(crate) async fn connect_tcp<N: AsyncNet>(
 
 /// Bind and connect a configured UDP socket to a canonical endpoint.
 pub(crate) async fn connect_udp<N: AsyncNet>(
-    endpoint: &str,
+    endpoint: &NetworkEndpoint,
     options: UdpSocketConfig,
 ) -> Result<N::UdpSocket> {
     let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
@@ -246,14 +249,28 @@ mod tests {
             ),
         ] {
             for error in [
-                connect_tcp::<ResolverFailureNet<N>>(endpoint, TransportConfig::for_tcp().into())
-                    .await
-                    .err()
-                    .expect("failed lookup"),
-                connect_udp::<ResolverFailureNet<N>>(endpoint, TransportConfig::for_udp().into())
-                    .await
-                    .err()
-                    .expect("failed lookup"),
+                connect_tcp::<ResolverFailureNet<N>>(
+                    &NetworkEndpoint::parse(endpoint, None)
+                        .expect("valid connector test configuration"),
+                    TransportConfig::for_tcp()
+                        .validated()
+                        .expect("valid connector test configuration")
+                        .into(),
+                )
+                .await
+                .err()
+                .expect("failed lookup"),
+                connect_udp::<ResolverFailureNet<N>>(
+                    &NetworkEndpoint::parse(endpoint, None)
+                        .expect("valid connector test configuration"),
+                    TransportConfig::for_udp()
+                        .validated()
+                        .expect("valid connector test configuration")
+                        .into(),
+                )
+                .await
+                .err()
+                .expect("failed lookup"),
             ] {
                 assert!(
                     matches!(error, Error::ConnectionFailed { ref addr, .. } if addr == endpoint)
@@ -341,9 +358,16 @@ mod tests {
 
     async fn check_option_failure_fallback<N: AsyncNet + 'static>() {
         let config = TransportConfig::for_tcp().with_ttl(Some(2));
-        let stream = connect_tcp::<OptionFailureNet<N>>("camera.options.test:1259", config.into())
-            .await
-            .expect("second address connects after option failure");
+        let stream = connect_tcp::<OptionFailureNet<N>>(
+            &NetworkEndpoint::parse("camera.options.test:1259", None)
+                .expect("valid connector test configuration"),
+            config
+                .validated()
+                .expect("valid connector test configuration")
+                .into(),
+        )
+        .await
+        .expect("second address connects after option failure");
         assert_eq!(N::tcp_socket(&stream).ttl_v4().expect("TTL"), 2);
         assert_eq!(
             N::tcp_socket(&stream)
@@ -441,15 +465,30 @@ mod tests {
         invalid_options.ttl = Some(300);
         for (result, expected_kind) in [
             (
-                connect_udp::<FailingUdp<0>>(ENDPOINT, options).await,
+                connect_udp::<FailingUdp<0>>(
+                    &NetworkEndpoint::parse(ENDPOINT, None)
+                        .expect("valid connector test configuration"),
+                    options,
+                )
+                .await,
                 Some(io::ErrorKind::AddrNotAvailable),
             ),
             (
-                connect_udp::<FailingUdp<1>>(ENDPOINT, options).await,
+                connect_udp::<FailingUdp<1>>(
+                    &NetworkEndpoint::parse(ENDPOINT, None)
+                        .expect("valid connector test configuration"),
+                    options,
+                )
+                .await,
                 Some(io::ErrorKind::PermissionDenied),
             ),
             (
-                connect_udp::<FailingUdp<2>>(ENDPOINT, invalid_options).await,
+                connect_udp::<FailingUdp<2>>(
+                    &NetworkEndpoint::parse(ENDPOINT, None)
+                        .expect("valid connector test configuration"),
+                    invalid_options,
+                )
+                .await,
                 None,
             ),
         ] {
@@ -472,7 +511,7 @@ mod tests {
             connect_timeout: Duration::from_millis(1),
         };
         assert!(matches!(
-            connect_udp::<FailingUdp<3>>("127.0.0.1:1259", options).await,
+            connect_udp::<FailingUdp<3>>(&NetworkEndpoint::parse("127.0.0.1:1259", None).expect("valid connector test configuration"), options).await,
             Err(Error::Timeout { context }) if context == crate::FailureContext::new(
                 crate::FailureStage::Session,
                 crate::Certainty::NotAccepted,
@@ -489,9 +528,13 @@ mod tests {
             ttl: None,
             connect_timeout: Duration::from_secs(1),
         };
-        let socket = connect_udp::<FailingUdp<2>>("[::1]:1259", options)
-            .await
-            .expect("numeric IPv6 setup");
+        let socket = connect_udp::<FailingUdp<2>>(
+            &NetworkEndpoint::parse("[::1]:1259", None)
+                .expect("valid connector test configuration"),
+            options,
+        )
+        .await
+        .expect("numeric IPv6 setup");
         assert_eq!(
             socket.peer_addr().expect("peer"),
             "[::1]:1259".parse::<SocketAddr>().expect("IPv6 endpoint")
@@ -501,9 +544,16 @@ mod tests {
     #[tokio::test]
     async fn an_expired_first_address_share_preserves_the_second_address_refusal() {
         let config = TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(600));
-        let error = connect_tcp::<TwoAddressNet<true>>("camera.test:5678", config.into())
-            .await
-            .expect_err("second address refuses");
+        let error = connect_tcp::<TwoAddressNet<true>>(
+            &NetworkEndpoint::parse("camera.test:5678", None)
+                .expect("valid connector test configuration"),
+            config
+                .validated()
+                .expect("valid connector test configuration")
+                .into(),
+        )
+        .await
+        .expect_err("second address refuses");
         assert!(
             matches!(error, Error::ConnectionFailed { source, .. } if source.kind() == io::ErrorKind::ConnectionRefused)
         );
@@ -513,14 +563,29 @@ mod tests {
     async fn all_expired_address_shares_are_a_timeout_on_async_runtimes() {
         let config = TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(30));
         assert!(matches!(
-            connect_tcp::<TwoAddressNet<false, true>>("camera.test:5678", config.into()).await,
+            connect_tcp::<TwoAddressNet<false, true>>(
+                &NetworkEndpoint::parse("camera.test:5678", None)
+                    .expect("valid connector test configuration"),
+                config
+                    .validated()
+                    .expect("valid connector test configuration")
+                    .into()
+            )
+            .await,
             Err(Error::Timeout { .. })
         ));
         #[cfg(feature = "runtime-smol")]
         assert!(matches!(
             smol::block_on(connect_tcp::<
                 TwoAddressNet<false, true, crate::transport::smol::connectors::SmolNet>,
-            >("camera.test:5678", config.into())),
+            >(
+                &NetworkEndpoint::parse("camera.test:5678", None)
+                    .expect("valid connector test configuration"),
+                config
+                    .validated()
+                    .expect("valid connector test configuration")
+                    .into()
+            )),
             Err(Error::Timeout { .. })
         ));
     }
@@ -531,7 +596,14 @@ mod tests {
         let config = TransportConfig::for_tcp().with_connect_timeout(Duration::from_millis(600));
         let error = smol::block_on(connect_tcp::<
             TwoAddressNet<true, false, crate::transport::smol::connectors::SmolNet>,
-        >("camera.test:5678", config.into()))
+        >(
+            &NetworkEndpoint::parse("camera.test:5678", None)
+                .expect("valid connector test configuration"),
+            config
+                .validated()
+                .expect("valid connector test configuration")
+                .into(),
+        ))
         .expect_err("second address refuses");
         assert!(
             matches!(error, Error::ConnectionFailed { source, .. } if source.kind() == io::ErrorKind::ConnectionRefused)
@@ -549,9 +621,16 @@ mod tests {
         let mut config = TransportConfig::for_tcp();
         config.connect_timeout = Duration::from_millis(600);
 
-        let stream = connect_tcp::<TwoAddressNet>("camera.test:5678", config.into())
-            .await
-            .expect("the second resolved address connects within the budget");
+        let stream = connect_tcp::<TwoAddressNet>(
+            &NetworkEndpoint::parse("camera.test:5678", None)
+                .expect("valid connector test configuration"),
+            config
+                .validated()
+                .expect("valid connector test configuration")
+                .into(),
+        )
+        .await
+        .expect("the second resolved address connects within the budget");
         assert_eq!(
             stream.peer_addr().expect("peer"),
             *REACHABLE.get().expect("listener address")
@@ -570,9 +649,12 @@ mod ipv6_tests {
         };
         let address = listener.local_addr().expect("IPv6 listener");
         let tcp = connect_tcp::<N>(
-            &address.to_string(),
+            &NetworkEndpoint::parse(&address.to_string(), None)
+                .expect("valid connector test configuration"),
             crate::transport::TransportConfig::for_tcp()
                 .with_ttl(Some(7))
+                .validated()
+                .expect("valid connector test configuration")
                 .into(),
         )
         .await
@@ -584,9 +666,12 @@ mod ipv6_tests {
             7
         );
         let udp = connect_udp::<N>(
-            &address.to_string(),
+            &NetworkEndpoint::parse(&address.to_string(), None)
+                .expect("valid connector test configuration"),
             crate::transport::TransportConfig::for_udp()
                 .with_ttl(Some(7))
+                .validated()
+                .expect("valid connector test configuration")
                 .into(),
         )
         .await
@@ -670,7 +755,10 @@ mod deadline_tie_tests {
         CONNECTED
             .set(Arc::clone(&connected))
             .expect("one test stream");
-        let options = crate::transport::builder::TransportConfig::for_tcp().into();
+        let options = crate::transport::builder::TransportConfig::for_tcp()
+            .validated()
+            .expect("valid connector test configuration")
+            .into();
         pollster::block_on(async {
             for _ in 0..10_000 {
                 let stream =
@@ -680,9 +768,13 @@ mod deadline_tie_tests {
                         .expect("connected");
                 assert!(Arc::ptr_eq(&stream, &connected));
             }
-            let stream = connect_tcp::<ReadyNet>("camera.tie.test:1259", options)
-                .await
-                .expect("lookup and connection both beat the ready timer");
+            let stream = connect_tcp::<ReadyNet>(
+                &NetworkEndpoint::parse("camera.tie.test:1259", None)
+                    .expect("valid connector test configuration"),
+                options,
+            )
+            .await
+            .expect("lookup and connection both beat the ready timer");
             assert!(Arc::ptr_eq(&stream, &connected));
         });
     }

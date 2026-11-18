@@ -33,7 +33,7 @@ The maintained examples in `examples/` fall into these categories:
   public modules. Use the inherent noun views on `Camera<P>` rather than
   private implementation submodules or compatibility traits.
 - Use checked value constructors in examples, such as `UnitInterval::new(...)`
-  and `CameraConfig::with_camera_id(CameraId::new(raw)?)`, when values come from user input.
+  and `CameraConfig::with_camera_id(IndividualCameraId::new(raw)?)`, when values come from user input.
 - Default examples should be read-only where possible.
 - Examples that move hardware must make that behavior explicit in the command
   line or in the operation name.

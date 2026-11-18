@@ -16,7 +16,8 @@ use crate::{
     runtime::engine::{DecodedFrame, DecodedResponse},
     target::TargetSlot,
     transport::{
-        AddressingMode, HasTransportConfig, SendSemantics, TransportConfig, TransportIdentity,
+        AddressingMode, HasTransportConfig, SendSemantics, TransportIdentity,
+        ValidatedTransportConfig,
     },
     Error, OperationalTuning, ProfileSpec, ViscaSocket,
 };
@@ -32,7 +33,7 @@ struct ReceiveSignal {
 // Local fake: replace device readiness only; the production actor selects its
 // real boundary lanes and timers and drives/recycles a real inert frame turn.
 struct ProbeDriver {
-    config: TransportConfig,
+    config: ValidatedTransportConfig,
     signal: Arc<Mutex<ReceiveSignal>>,
 }
 
@@ -44,7 +45,7 @@ impl HasTransportConfig for ProbeDriver {
         }
     }
 
-    fn transport_config(&self) -> &TransportConfig {
+    fn transport_config(&self) -> &ValidatedTransportConfig {
         &self.config
     }
 }
@@ -118,7 +119,7 @@ impl SelectProbe {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()?;
         let signal = Arc::new(Mutex::new(ReceiveSignal::default()));
         let driver = ProbeDriver {
-            config: TransportConfig::default(),
+            config: ValidatedTransportConfig::default(),
             signal: Arc::clone(&signal),
         };
         let (_, policy) = AdapterFraming::for_targets(
