@@ -554,11 +554,13 @@ verification.
   control; both Sony profiles refuse the undocumented shared mode family
   (#878).
 
-- Raw inquiry matching uses decoder-declared payload shape. Disjoint classes
-  can be live together and cross unrelated reply debt or skew holds, while
-  overlapping and `Unknown` inquiries retain conservative exclusion. Retained
-  debts keep their exact declaration; shape overlap is never treated as a
-  transitive equivalence (#892).
+- **BREAKING** (#892, #1116): Raw inquiry matching uses decoder-declared
+  payload shapes. `PayloadShape::Bytes` and `PayloadShape::Nibbles` take
+  `NonZeroUsize`. The owner rejects a declared raw payload wider than the
+  configured reply frame minus its three framing bytes before admission or
+  I/O. Disjoint classes can be live together and cross unrelated reply debt or
+  skew holds, while overlapping and `Unknown` inquiries retain conservative
+  exclusion. Retained debts keep their exact declaration.
 
 - Engine deadlines use closed lifecycle-derived actions with checked progress,
   positive timeout intervals and optional retry budgets. Timing validates at
@@ -882,12 +884,23 @@ verification.
 - An applied or cancellation wait that observes a late terminal returns
   `ObservationTimeout`. A fresh wait on that handle can recover the terminal
   result (#1107).
-- Extended pan/tilt speeds wait for a pending speed-mode write on the same
-  camera to resolve. The owner checks for confirmed `Fine50` at the drive's
-  write, including retries (#1108).
+- State-cache setters for the same setting and camera send in admission order,
+  including through retries and socket reassignment. Other settings and cameras
+  keep their independent scheduling. Extended pan/tilt speeds wait for a
+  pending speed-mode write on the same camera, and the owner checks for
+  confirmed `Fine50` at the drive's write, including retries (#1108, #1114).
 - A Sony byte stream delivers complete replies preceding a framing failure in
   the same read. Underlying command outcomes and confirmed state now agree
   across read boundaries (#1109).
+- The owner applies buffered replies from a read before sending a pending
+  socket cancellation. A completion or socket reassignment in that read
+  suppresses the cancellation write. The camera's response window starts when
+  a successful cancellation write returns (#1113, #1118).
+- Every complete stream reply uses the timestamp of the read that finished it,
+  including replies processed in a later batch. A reply at its deadline still
+  wins regardless of its position in that read (#1115).
+- Raw stream framing searches for each frame's terminator in linear time
+  across fragmented reads (#1117).
 
 - Raw stream correlation keeps a waiting command's possible rejection out of
   another command's disputed ACK follow when the camera may omit completion
