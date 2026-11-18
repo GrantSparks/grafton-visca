@@ -367,6 +367,7 @@ pub(crate) struct MotionEffect {
 pub(crate) struct RequestContext {
     /// FR7 speeds above 24 require session-confirmed Extended step mode at dispatch.
     pub(crate) requires_extended_pan_tilt_speed: bool,
+    pub(crate) pan_tilt_drive: bool,
     pub(crate) motion: Option<MotionEffect>,
     /// Assigned under the owner ingress lock, independently of engine admission.
     pub(crate) submission_order: u64,
@@ -533,6 +534,7 @@ pub(crate) struct TargetPolicy {
     /// Profile limit used for camera evidence, independently of owner tuning.
     pub(crate) physical_command_sockets: crate::CommandSocketCount,
     pub(crate) cancellation: CancellationPolicy,
+    pub(crate) pan_tilt_drive_cancellation_ms: Option<std::num::NonZeroU16>,
     /// Admission slots reserved for this target's urgent typed STOPs, one
     /// per STOP path its profile supports (D26, #778).
     pub(crate) control_reserve: u8,
@@ -547,6 +549,7 @@ impl TargetPolicy {
             command_sockets: crate::types::CommandSocketCount::TWO,
             physical_command_sockets: crate::types::CommandSocketCount::TWO,
             cancellation: CancellationPolicy::Supported,
+            pan_tilt_drive_cancellation_ms: None,
             control_reserve: 0,
         }
     }
@@ -1264,6 +1267,7 @@ mod duration_proof_tests {
     fn context(timeout: TimeoutPolicy, retry: RetryPolicy) -> RequestContext {
         RequestContext {
             requires_extended_pan_tilt_speed: false,
+            pan_tilt_drive: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,

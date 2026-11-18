@@ -443,6 +443,7 @@ fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0x04, 0x47, 0xff]).unwrap()),
         context: RequestContext {
             requires_extended_pan_tilt_speed: false,
+            pan_tilt_drive: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,

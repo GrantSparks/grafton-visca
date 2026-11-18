@@ -14,6 +14,7 @@ mod error_consistency_test;
 mod evi_h100_image_controls;
 mod executor_timer_contract;
 mod fr7_pan_tilt;
+mod fr7_pan_tilt_cancellation;
 mod hardware_concurrent_test;
 mod hardware_control_test;
 mod hardware_experiments_test;

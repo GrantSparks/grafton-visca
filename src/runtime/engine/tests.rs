@@ -27,6 +27,7 @@ mod lifecycle_predicates;
 mod lifecycle_transition_matrix;
 mod occupancy_cost;
 mod occupancy_oracle;
+mod pan_tilt_drive_cancellation;
 mod prepared_retry;
 mod raw_evidence;
 mod raw_stream_model;
@@ -112,6 +113,7 @@ fn retrying() -> RetryPolicy {
 fn context(target: u8) -> RequestContext {
     RequestContext {
         requires_extended_pan_tilt_speed: false,
+        pan_tilt_drive: false,
         motion: None,
         submission_order: 0,
         dispatch_deadline: None,
@@ -597,6 +599,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
                     sequence: 0x1111_beef,
                 },
                 kind: CorrelationKind::Request,
+                pan_tilt_drive_written_at: None,
             },
         )
         .unwrap();

@@ -828,6 +828,8 @@ pub(crate) struct LoweredRequest {
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub requires_extended_pan_tilt_speed: bool,
     #[cfg(any(feature = "blocking", feature = "async"))]
+    pub pan_tilt_drive: bool,
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub applied_state: Option<crate::runtime::engine::AppliedStateProjection>,
 }
 
@@ -849,6 +851,8 @@ pub(crate) fn write_lowered<R: Request + ?Sized>(
             && request
                 .pan_tilt_max_speed(RequestContractAuthority::new())
                 .is_some_and(|speed| speed > crate::command::PanTiltSpeedMode::STANDARD_MAXIMUM),
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        pan_tilt_drive: request.is_pan_tilt_drive(RequestContractAuthority::new()),
         #[cfg(any(feature = "blocking", feature = "async"))]
         applied_state: request.applied_state_projection(AppliedStateAuthority::new()),
     })
@@ -1036,6 +1040,14 @@ pub trait Request: Send + Sync {
     #[allow(private_interfaces)]
     fn pan_tilt_max_speed(&self, _authority: RequestContractAuthority) -> Option<u8> {
         None
+    }
+
+    /// Carries the reviewed pan/tilt drive identity through generic preparation.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn is_pan_tilt_drive(&self, _authority: RequestContractAuthority) -> bool {
+        false
     }
 
     /// Returns a crate-selected state effect for exact application.

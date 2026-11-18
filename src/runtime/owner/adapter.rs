@@ -256,6 +256,10 @@ pub(super) fn owner_policy_for_registry_with_tuning(
             } else {
                 CancellationPolicy::Unsupported
             },
+            pan_tilt_drive_cancellation_ms: profile
+                .capabilities()
+                .profile_id
+                .and_then(crate::profiles::ProfileId::pan_tilt_drive_cancellation_ms),
             control_reserve: profile.typed_stop_paths(),
         });
     }

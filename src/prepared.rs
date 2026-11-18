@@ -658,6 +658,7 @@ where
         Ok((crate::runtime::engine::MotionEffect { axes }, settlement))
     })?;
     context.requires_extended_pan_tilt_speed = lowered.requires_extended_pan_tilt_speed;
+    context.pan_tilt_drive = lowered.pan_tilt_drive;
     Ok(PreparedOperation {
         wire: PreparedWire::Owned(wire),
         context,
@@ -880,6 +881,7 @@ where
     (
         RequestContext {
             requires_extended_pan_tilt_speed: false,
+            pan_tilt_drive: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,

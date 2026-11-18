@@ -291,6 +291,7 @@ pub(super) enum EntryChange {
     Written {
         receipt: TransmissionMeta,
         kind: CorrelationKind,
+        pan_tilt_drive_written_at: Option<Instant>,
     },
     Retry {
         ready_at: Instant,
@@ -427,6 +428,7 @@ impl EntryTable {
             }),
             submitted_at,
             prior: None,
+            pan_tilt_drive_written_at: None,
             sequences: SequenceSlots::default(),
         };
         let indexed = IndexFacts::of(&entry);
@@ -490,7 +492,14 @@ impl EntryTable {
                 });
                 entry.prior = Some(prior);
             }
-            EntryChange::Written { receipt, kind } => {
+            EntryChange::Written {
+                receipt,
+                kind,
+                pan_tilt_drive_written_at,
+            } => {
+                if let Some(at) = pan_tilt_drive_written_at {
+                    entry.pan_tilt_drive_written_at = Some(at);
+                }
                 if let TransmissionMeta::Allocated { sequence } = receipt {
                     entry.sequences.record(kind, sequence);
                 }

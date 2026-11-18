@@ -1305,6 +1305,7 @@ mod tests {
                 command_sockets: crate::types::CommandSocketCount::TWO,
                 physical_command_sockets: crate::types::CommandSocketCount::TWO,
                 cancellation: CancellationPolicy::Supported,
+                pan_tilt_drive_cancellation_ms: None,
                 control_reserve: 0,
             },
         )
@@ -1543,6 +1544,7 @@ mod tests {
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,
+                pan_tilt_drive: false,
                 motion: Some(MotionEffect {
                     axes: crate::AffectedAxes::ZOOM,
                 }),

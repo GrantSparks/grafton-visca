@@ -201,6 +201,7 @@ impl TurnProbe {
             })?;
         let context = RequestContext {
             requires_extended_pan_tilt_speed: false,
+            pan_tilt_drive: false,
             motion: None,
             submission_order: self.submission,
             dispatch_deadline: None,

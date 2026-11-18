@@ -15,6 +15,7 @@ pub(super) struct TargetOccupancy {
     pub(super) inquiries: usize,
     pub(super) unacknowledged: usize,
     pub(super) uncorrelated_command: bool,
+    pub(super) pan_tilt_drive_cancel_pending: bool,
     positional: Option<PositionalCommand>,
     /// Admission order applies across priorities. A setter retains precedence
     /// through socket displacement and retry backoff until terminal settlement.
@@ -73,6 +74,8 @@ impl Occupancy {
                     );
                 }
             }
+            target.pan_tilt_drive_cancel_pending |= entry.request.context().pan_tilt_drive
+                && lifecycle.cancellation_ambiguity().is_some();
             target.commands += usize::from(lifecycle.is_command_on_wire());
             if lifecycle.is_live_inquiry() {
                 target.inquiries += 1;

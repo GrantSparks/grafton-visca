@@ -974,6 +974,17 @@ pre-ACK pipeline and exact reply correlation.
 
 Use cancel for explicit user interrupts or emergency stops, not as a normal substitute for command pacing. Owner-issued cancellation is selected ahead of ordinary queued work, but it still obeys the shared profile-specific minimum spacing between sends and advances that spacing deadline. The uploaded unified guide gives `100 ms` as a hardware-tested PTZOptics G2/G3/30X starting point and `35 ms` for Sony FR7/BRC-H900; treat those as scheduler defaults that should be verified per target firmware and network path.
 
+For Sony FR7, the owner waits at least 200 ms after a typed PAN-TILT Drive
+write before sending a socket cancel, and needs an ACK naming the socket.
+After sending the cancel, another typed drive-family write on that target
+(including the STOP encoding) needs both 200 ms and the correlated
+`Command Canceled` response. Natural completion before the cancel goes on the
+wire releases the gate without the second interval. After the cancel is sent,
+natural completion can establish the original command's outcome. The restart
+still requires the cancellation response. If attribution ends without it,
+further typed drive-family writes on that target are refused for the session. Other work retains its
+normal pacing. [Sony ILME-FR7 Command List, pp. 5, 8–9, 18](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf#page=5).
+
 ### 11.5 Retry policy
 
 One total retry wall-clock budget starts at admission and remains active through

@@ -282,6 +282,7 @@ pub(crate) struct Entry {
     lifecycle: EntryPlacement,
     submitted_at: Instant,
     prior: Option<PriorAttempts>,
+    pan_tilt_drive_written_at: Option<Instant>,
     sequences: SequenceSlots,
 }
 
@@ -530,6 +531,40 @@ const HALT_AXES: [crate::AffectedAxes; 5] = [
 struct TargetState {
     policy: Option<TargetPolicy>,
     motion_fences: [u64; HALT_AXES.len()],
+    pan_tilt_drive_restart: PanTiltDriveRestart,
+}
+
+#[derive(Debug, Default)]
+enum PanTiltDriveRestart {
+    #[default]
+    Open,
+    After(Instant),
+    Unconfirmed,
+}
+
+impl TargetState {
+    fn pan_tilt_drive_cancel_interval(&self, context: &RequestContext) -> Option<Duration> {
+        if !context.pan_tilt_drive {
+            return None;
+        }
+        self.policy?
+            .pan_tilt_drive_cancellation_ms
+            .map(|ms| Duration::from_millis(u64::from(ms.get())))
+    }
+
+    fn pan_tilt_drive_restart_unconfirmed(&self, request: &RuntimeRequest) -> bool {
+        request.context().pan_tilt_drive
+            && matches!(
+                self.pan_tilt_drive_restart,
+                PanTiltDriveRestart::Unconfirmed
+            )
+    }
+}
+
+fn pan_tilt_drive_restart_error() -> Error {
+    Error::InvalidState {
+        reason: "Pan/tilt drive cancellation remains unconfirmed for this target. Reopen the session before driving again.".into(),
+    }
 }
 
 /// Pure state machine implementing the issue #542 protocol boundary.
@@ -1440,6 +1475,9 @@ trait EngineMethods: EngineAccess {
         }
         let context = *request.context();
         context.validate_at(now)?;
+        if self.targets[context.target].pan_tilt_drive_restart_unconfirmed(&request) {
+            return Err(pan_tilt_drive_restart_error());
+        }
         if let Some(axes) = self.motion_superseded(&request) {
             return Err(Error::MotionSuperseded {
                 axes,
@@ -1558,6 +1596,19 @@ trait EngineMethods: EngineAccess {
         effects: &mut Decision,
     ) {
         let request = selected.request;
+        if self.entries.get(&request).is_some_and(|entry| {
+            self.targets[entry.request.context().target]
+                .pan_tilt_drive_restart_unconfirmed(&entry.request)
+        }) {
+            self.finish_terminal_error(
+                request,
+                pan_tilt_drive_restart_error(),
+                AttemptEvidence::Unwritten,
+                now,
+                effects,
+            );
+            return;
+        }
         let Some(transmission) = self.allocate_transmission_id() else {
             self.finish(request, Error::RuntimeIdentityExhausted, now, effects);
             return;
@@ -1671,9 +1722,20 @@ trait EngineMethods: EngineAccess {
 
     fn dispatch_eligible(&self, id: RequestId, now: Instant, occupancy: &Occupancy) -> bool {
         self.entries.get(&id).is_some_and(|entry| {
-            self.candidate_send_at(entry) <= now
-                && !self.dispatch_blocked_in(id, entry, now, occupancy)
+            let target = &self.targets[entry.request.context().target];
+            target.pan_tilt_drive_restart_unconfirmed(&entry.request)
+                || (!self.pan_tilt_drive_cancel_pending(entry, occupancy)
+                    && self.candidate_send_at(entry) <= now
+                    && !self.dispatch_blocked_in(id, entry, now, occupancy))
         })
+    }
+
+    fn pan_tilt_drive_cancel_pending(&self, entry: &Entry, occupancy: &Occupancy) -> bool {
+        let context = entry.request.context();
+        self.targets[context.target]
+            .pan_tilt_drive_cancel_interval(context)
+            .is_some()
+            && occupancy.targets[context.target].pan_tilt_drive_cancel_pending
     }
 
     fn candidate_send_at(&self, entry: &Entry) -> Instant {
@@ -1700,16 +1762,30 @@ trait EngineMethods: EngineAccess {
                 at = at.max(cooldown);
             }
         }
+        let context = entry.request.context();
+        if context.pan_tilt_drive {
+            if let PanTiltDriveRestart::After(restart_at) =
+                self.targets[context.target].pan_tilt_drive_restart
+            {
+                at = at.max(restart_at);
+            }
+        }
         at
     }
 
     /// Earliest wire time for an owner-issued cancellation.  Unlike ordinary
     /// requests, cancellation does not inherit the request's control-class
-    /// minimum spacing; only the shared profile command-spacing floor applies.
+    /// spacing. A profile may additionally pace socket cancellation of drive.
     fn cancellation_send_at(&self, entry: &Entry) -> Instant {
-        self.pacing.last_command.map_or(entry.submitted_at, |last| {
+        let shared = self.pacing.last_command.map_or(entry.submitted_at, |last| {
             add_duration(last, self.policy.command_spacing)
-        })
+        });
+        let context = entry.request.context();
+        let drive = self.targets[context.target]
+            .pan_tilt_drive_cancel_interval(context)
+            .zip(entry.pan_tilt_drive_written_at)
+            .map(|(interval, written)| add_duration(written, interval));
+        drive.map_or(shared, |at| at.max(shared))
     }
 
     /// Independent per-target inquiry count for the occupancy model.
@@ -2246,30 +2322,40 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) {
+        let Some(context) = self
+            .entries
+            .get(&owner.request)
+            .map(|entry| *entry.request.context())
+        else {
+            return;
+        };
+        let drive_cancellation =
+            self.targets[context.target].pan_tilt_drive_cancel_interval(&context);
+        let kind = owner.write.kind();
         self.entries.transition(
             owner.request,
             EntryChange::Written {
                 receipt: meta,
-                kind: owner.write.kind(),
+                kind,
+                pan_tilt_drive_written_at: (kind == CorrelationKind::Request
+                    && drive_cancellation.is_some())
+                .then_some(now),
             },
         );
         self.mark_stream_answer_written(
             owner.request,
             owner.write.kind() == CorrelationKind::Cancellation,
         );
-        let Some(entry) = self.entries.get(&owner.request) else {
-            return;
-        };
         match owner.write {
             ActiveWrite::Request { attempt, reply, .. } => {
-                let context = *entry.request.context();
+                let timeout = context.timeout;
                 match reply {
                     SendingReply::Inquiry => {
                         self.transition(
                             owner.request,
                             UnsocketedLifecycle::AwaitingReply {
                                 sent_at: now,
-                                deadline: add_duration(now, context.timeout.inquiry.get()),
+                                deadline: add_duration(now, timeout.inquiry.get()),
                                 attempt,
                             },
                             now,
@@ -2281,7 +2367,7 @@ trait EngineMethods: EngineAccess {
                             owner.request,
                             UnsocketedLifecycle::AwaitingAck {
                                 sent_at: now,
-                                deadline: add_duration(now, context.timeout.ack.get()),
+                                deadline: add_duration(now, timeout.ack.get()),
                                 attempt,
                                 cancellation: None,
                             },
@@ -2294,7 +2380,7 @@ trait EngineMethods: EngineAccess {
                             owner.request,
                             UnsocketedLifecycle::AwaitingCompletion {
                                 sent_at: now,
-                                deadline: add_duration(now, context.timeout.completion.get()),
+                                deadline: add_duration(now, timeout.completion.get()),
                                 attempt,
                             },
                             now,
@@ -2314,8 +2400,13 @@ trait EngineMethods: EngineAccess {
                 }
             }
             ActiveWrite::Cancellation(write) => {
-                let observation_deadline =
-                    add_duration(now, entry.request.context().timeout.cancellation.get());
+                if let Some(interval) = drive_cancellation {
+                    let restart = &mut self.targets[context.target].pan_tilt_drive_restart;
+                    if !matches!(restart, PanTiltDriveRestart::Unconfirmed) {
+                        *restart = PanTiltDriveRestart::After(add_duration(now, interval));
+                    }
+                }
+                let observation_deadline = add_duration(now, context.timeout.cancellation.get());
                 self.transition(
                     owner.request,
                     write.written(observation_deadline),
@@ -2383,6 +2474,8 @@ trait EngineMethods: EngineAccess {
                 );
             }
             ActiveWrite::Cancellation(write) => {
+                // A failed datagram write cannot prove the cancel stayed off wire.
+                self.mark_unconfirmed_pan_tilt_cancellation(owner.request);
                 self.failed_cancellation_transmission(owner.request, write, error, now, effects);
             }
         }
@@ -2605,7 +2698,14 @@ trait EngineMethods: EngineAccess {
             DecodedResponse::Ack { socket } => self.ack(id, socket, now, effects),
             DecodedResponse::Completion { socket } => {
                 if correlation_kind == CorrelationKind::Cancellation {
-                    if let Some(cancellation) = entry.lifecycle().cancellation_ambiguity() {
+                    let context = entry.request.context();
+                    if let Some(cancellation) =
+                        entry.lifecycle().cancellation_ambiguity().filter(|_| {
+                            self.targets[context.target]
+                                .pan_tilt_drive_cancel_interval(context)
+                                .is_none()
+                        })
+                    {
                         self.confirm_cancelled(id, cancellation, now, effects);
                     } else {
                         effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
@@ -3106,7 +3206,23 @@ trait EngineMethods: EngineAccess {
                 observation: CancellationObservation::AttemptFailed(Error::CancellationUnconfirmed),
             });
         }
+        self.mark_unconfirmed_pan_tilt_cancellation(id);
         self.transition(id, next, now, effects);
+    }
+
+    fn mark_unconfirmed_pan_tilt_cancellation(&mut self, id: RequestId) {
+        let context = self.entries.get(&id).and_then(|entry| {
+            entry
+                .lifecycle()
+                .awaiting_cancellation_answer()
+                .then_some(*entry.request.context())
+        });
+        if let Some(context) = context {
+            let target = &mut self.targets[context.target];
+            if target.pan_tilt_drive_cancel_interval(&context).is_some() {
+                target.pan_tilt_drive_restart = PanTiltDriveRestart::Unconfirmed;
+            }
+        }
     }
 
     fn ack(
@@ -3143,8 +3259,17 @@ trait EngineMethods: EngineAccess {
                 return;
             }
         };
-        let target = entry.request.context().target;
-        let completion = entry.request.context().timeout.completion.get();
+        let context = entry.request.context();
+        let target = context.target;
+        if socket.is_none()
+            && self.targets[target]
+                .pan_tilt_drive_cancel_interval(context)
+                .is_some()
+        {
+            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            return;
+        }
+        let completion = context.timeout.completion.get();
         let deadline = add_duration(now, completion);
         if socket.is_none() && self.uncertain_socketless_stream_ack(target) {
             let ending = entry.attempt_end(self.mode(), AttemptEvidence::Lifecycle, None);
@@ -3548,6 +3673,17 @@ trait EngineMethods: EngineAccess {
         }
         let cancellation = entry.lifecycle().cancellation_ambiguity();
         if let Some(proof) = cancellation.filter(|_| code.confirms_cancellation()) {
+            let context = entry.request.context();
+            if self.targets[context.target]
+                .pan_tilt_drive_cancel_interval(context)
+                .is_some()
+                && (!entry.lifecycle().awaiting_cancellation_answer()
+                    || socket.is_none()
+                    || (!self.mode().is_raw() && correlation_kind != CorrelationKind::Cancellation))
+            {
+                effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+                return;
+            }
             self.confirm_cancelled(id, proof, now, effects);
             return;
         }
@@ -4489,18 +4625,24 @@ trait EngineMethods: EngineAccess {
             .chain(self.mode().ledger().wake())
             .min();
         for (id, entry) in self.entries.iter() {
-            let candidate = if entry.lifecycle().is_ready()
-                && !self.dispatch_blocked_in(*id, entry, now, &occupancy)
-            {
-                Some(self.candidate_send_at(entry))
-            } else if entry.lifecycle().pending_cancellation_socket().is_some() {
-                Some(self.cancellation_send_at(entry))
-            } else if entry.lifecycle().is_ready() {
-                // A blocked STOP on a byte stream is written at its bound.
-                self.stop_wait_bound_in(entry)
-                    .map(|bound| bound.max(self.candidate_send_at(entry)))
+            let candidate = if entry.lifecycle().is_ready() {
+                let target = &self.targets[entry.request.context().target];
+                if target.pan_tilt_drive_restart_unconfirmed(&entry.request) {
+                    Some(now)
+                } else if self.pan_tilt_drive_cancel_pending(entry, &occupancy) {
+                    None
+                } else if self.dispatch_blocked_in(*id, entry, now, &occupancy) {
+                    // A protocol-blocked STOP on a byte stream is written at its bound.
+                    self.stop_wait_bound_in(entry)
+                        .map(|bound| bound.max(self.candidate_send_at(entry)))
+                } else {
+                    Some(self.candidate_send_at(entry))
+                }
             } else {
-                None
+                entry
+                    .lifecycle()
+                    .pending_cancellation_socket()
+                    .map(|_| self.cancellation_send_at(entry))
             };
             if let Some(candidate) = candidate {
                 wake = Some(wake.map_or(candidate, |current| current.min(candidate)));
@@ -4615,7 +4757,16 @@ trait EngineMethods: EngineAccess {
             return;
         };
         let outcome = outcome.into().for_request(&entry.request);
-        let target = entry.request.context().target;
+        let context = entry.request.context();
+        let target = context.target;
+        if self.targets[target]
+            .pan_tilt_drive_cancel_interval(context)
+            .is_some()
+            && entry.lifecycle().awaiting_cancellation_answer()
+            && !matches!(outcome, RuntimeOutcome::Command(CommandOutcome::Cancelled))
+        {
+            self.targets[target].pan_tilt_drive_restart = PanTiltDriveRestart::Unconfirmed;
+        }
         if let Some(projection) = entry.request.applied_state() {
             let projection = if matches!(outcome, RuntimeOutcome::Command(CommandOutcome::Applied))
             {
@@ -5197,6 +5348,7 @@ mod cancellation_regression_tests {
     fn context() -> RequestContext {
         RequestContext {
             requires_extended_pan_tilt_speed: false,
+            pan_tilt_drive: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,

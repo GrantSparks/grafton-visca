@@ -274,6 +274,13 @@ macro_rules! builtin_request {
             }
 
             #[cfg(any(feature = "blocking", feature = "async"))]
+            #[doc(hidden)]
+            #[allow(private_interfaces)]
+            fn is_pan_tilt_drive(&self, _authority: crate::requests::RequestContractAuthority) -> bool {
+                builtin_request!(@row self $(, $value)?).is_pan_tilt_drive()
+            }
+
+            #[cfg(any(feature = "blocking", feature = "async"))]
             #[allow(private_interfaces)]
             fn applied_state_projection(
                 &self,
