@@ -37,10 +37,9 @@
 
 use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use grafton_visca::{
     config::SessionConfig,
@@ -49,11 +48,6 @@ use grafton_visca::{
     Error,
 };
 
-#[cfg(any(
-    feature = "runtime-tokio",
-    feature = "test-utils",
-    any(feature = "async", feature = "blocking")
-))]
 #[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 use grafton_visca::{
     error::{Certainty, FailureContext, FailureStage},
@@ -77,6 +71,7 @@ const PAN_TILT_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x06, 0x12, 0xff];
 /// A short wait that the scripted camera never answers in time.
 const SHORT: Duration = Duration::from_millis(20);
 
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 /// Whether position inquiries are answered, and how many written while they
 /// were not are still owed a reply.
 #[derive(Debug, Default)]
@@ -85,28 +80,15 @@ struct PositionReplies {
     owed: usize,
 }
 
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 /// The switch that makes the scripted camera answer position inquiries.
 #[derive(Debug)]
 struct Positions {
-    #[cfg(any(
-        feature = "runtime-tokio",
-        feature = "test-utils",
-        any(feature = "async", feature = "blocking")
-    ))]
     camera: FakeCamera,
-    #[cfg(any(
-        feature = "runtime-tokio",
-        feature = "test-utils",
-        any(feature = "async", feature = "blocking")
-    ))]
     replies: Arc<Mutex<PositionReplies>>,
 }
 
-#[cfg(any(
-    feature = "runtime-tokio",
-    feature = "test-utils",
-    any(feature = "async", feature = "blocking")
-))]
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 impl Positions {
     /// Answers every position inquiry from now on, including those already
     /// written and unanswered.
@@ -124,6 +106,7 @@ fn pan_tilt_position() -> Vec<u8> {
     frames::inquiry_reply(&[0x00; 8])
 }
 
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 /// A camera that replays exactly the frames a test pushes, except pan-tilt
 /// position inquiries, which it answers with a fixed position once the test
 /// enables that through [`Positions::answer`].
@@ -141,17 +124,7 @@ fn scripted_camera() -> (FakeCamera, Positions) {
         }
     });
     let positions = Positions {
-        #[cfg(any(
-            feature = "runtime-tokio",
-            feature = "test-utils",
-            any(feature = "async", feature = "blocking")
-        ))]
         camera: camera.clone(),
-        #[cfg(any(
-            feature = "runtime-tokio",
-            feature = "test-utils",
-            any(feature = "async", feature = "blocking")
-        ))]
         replies,
     };
     (camera, positions)
@@ -534,12 +507,12 @@ mod async_facade {
 
     use super::*;
 
-    async fn open<E: Executor>(executor: &E) -> (Session, FakeCamera, Positions) {
-        let (camera, positions) = scripted_camera();
+    async fn open<E: Executor>(executor: &E) -> (Session, FakeCamera) {
+        let camera = FakeCamera::silent();
         let session = Session::open(camera.async_wire(), &config(), executor.clone())
             .await
             .expect("owner session");
-        (session, camera, positions)
+        (session, camera)
     }
 
     /// Admits a continuous zoom and acknowledges it on socket one, so the
@@ -568,7 +541,7 @@ mod async_facade {
     /// release only themselves: the handle observes the later outcome and
     /// then answers repeat waits from its cache.
     async fn abandoned_waits_keep_the_handle_observing<E: Executor>(executor: E) {
-        let (session, camera, _) = open(&executor).await;
+        let (session, camera) = open(&executor).await;
         let mut moving = running_zoom(&executor, &session, &camera).await;
 
         // The expired wait names the still-running operation and is never
@@ -624,7 +597,7 @@ mod async_facade {
     /// observe the single socket cancel written for the first, and the
     /// conclusion is cached.
     async fn dropped_and_concurrent_cancels_observe_the_one_intent<E: Executor>(executor: E) {
-        let (session, camera, _) = open(&executor).await;
+        let (session, camera) = open(&executor).await;
         let mut moving = running_zoom(&executor, &session, &camera).await;
 
         assert!(matches!(
@@ -671,7 +644,7 @@ mod async_facade {
 
     /// Shutdown ends a pending wait instead of stranding it.
     async fn shutdown_ends_pending_waits<E: Executor>(executor: E) {
-        let (session, camera, _) = open(&executor).await;
+        let (session, camera) = open(&executor).await;
         let mut moving = running_zoom(&executor, &session, &camera).await;
 
         let (waited, shutdown) = futures_lite::future::or(
@@ -693,7 +666,7 @@ mod async_facade {
     /// future relinquishes only observation; the owner concludes the
     /// cancellation and keeps serving.
     async fn dropping_a_handle_whose_cancel_future_was_dropped<E: Executor>(executor: E) {
-        let (session, camera, _) = open(&executor).await;
+        let (session, camera) = open(&executor).await;
         let mut moving = running_zoom(&executor, &session, &camera).await;
         assert!(
             futures_lite::future::or(async { Ok(moving.cancel().await) }, async {
@@ -822,7 +795,7 @@ mod async_facade {
     #[tokio::test]
     async fn tokio_select_losing_branch_keeps_the_handle_observing() {
         let executor = grafton_visca::runtime::TokioRuntime::from_current().expect("Tokio runtime");
-        let (session, camera, _) = open(&executor).await;
+        let (session, camera) = open(&executor).await;
         let mut moving = running_zoom(&executor, &session, &camera).await;
 
         tokio::select! {
