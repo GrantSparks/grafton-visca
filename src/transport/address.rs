@@ -423,13 +423,22 @@ impl BlockingResolver {
         endpoint: &NetworkEndpoint,
         deadline: crate::timeout::Deadline,
     ) -> Result<Vec<SocketAddr>, Error> {
-        use std::{sync::mpsc, time::Instant};
+        self.resolve_with_clock(endpoint, deadline, std::time::Instant::now)
+    }
+
+    fn resolve_with_clock(
+        &'static self,
+        endpoint: &NetworkEndpoint,
+        deadline: crate::timeout::Deadline,
+        now: impl Fn() -> std::time::Instant,
+    ) -> Result<Vec<SocketAddr>, Error> {
+        use std::sync::mpsc;
 
         if let Some(address) = endpoint.socket_addr() {
             return Ok(vec![address]);
         }
-        let slot = self.claim(deadline)?;
-        let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
+        let slot = self.claim(deadline, &now)?;
+        deadline.remaining_or(now(), Error::connect_timeout)?;
 
         let (sender, receiver) = mpsc::sync_channel(1);
         let lookup_endpoint = endpoint.to_string();
@@ -444,7 +453,8 @@ impl BlockingResolver {
             })
             .map_err(|error| crate::transport::connect::connection_failed(endpoint, error))?;
 
-        match receiver.recv_timeout(remaining) {
+        // Channel creation and thread startup spend the same budget as DNS.
+        match receiver.recv_timeout(deadline.remaining_at(now())) {
             Ok(lookup) => resolved(endpoint, lookup),
             Err(mpsc::RecvTimeoutError::Timeout) => Err(Error::connect_timeout()),
             Err(mpsc::RecvTimeoutError::Disconnected) => Err(resolution_failed(
@@ -455,12 +465,14 @@ impl BlockingResolver {
     }
 
     /// Reserve one helper slot, waiting for one to free until `deadline`.
-    fn claim(&'static self, deadline: crate::timeout::Deadline) -> Result<LookupSlot, Error> {
-        use std::time::Instant;
-
+    fn claim(
+        &'static self,
+        deadline: crate::timeout::Deadline,
+        now: &impl Fn() -> std::time::Instant,
+    ) -> Result<LookupSlot, Error> {
         let mut in_flight = self.lock();
         while *in_flight >= self.limit {
-            let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
+            let remaining = deadline.remaining_or(now(), Error::connect_timeout)?;
             in_flight = self
                 .freed
                 .wait_timeout(in_flight, remaining)
@@ -840,6 +852,50 @@ mod tests {
                 std::io::ErrorKind::Other
             );
             wait_for_idle(&RESOLVER);
+        }
+
+        #[test]
+        fn setup_spends_the_lookup_receive_budget() {
+            use std::{
+                cell::Cell,
+                sync::{mpsc, OnceLock},
+            };
+
+            static STARTED: OnceLock<mpsc::SyncSender<()>> = OnceLock::new();
+            static FINISH: Gate = Gate::new();
+            fn gated(_: String) -> std::io::Result<Vec<SocketAddr>> {
+                STARTED.get().unwrap().send(()).unwrap();
+                FINISH.wait();
+                Ok(vec![answer()])
+            }
+            static RESOLVER: BlockingResolver = BlockingResolver::new(1, gated);
+
+            let (sender, receiver) = mpsc::sync_channel(1);
+            STARTED.set(sender).unwrap();
+            let start = Instant::now();
+            let timeout = Duration::from_millis(100);
+            let deadline = Deadline::after(start, timeout, "connect_timeout").unwrap();
+            let before_spawn = Cell::new(true);
+            let result = RESOLVER.resolve_with_clock(
+                &NetworkEndpoint::parse("camera.test:5678", None).unwrap(),
+                deadline,
+                || {
+                    if before_spawn.replace(false) {
+                        return start;
+                    }
+                    // The helper has started, but the lookup cannot answer yet.
+                    receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+                    start + timeout
+                },
+            );
+            FINISH.release();
+            wait_for_idle(&RESOLVER);
+            // Before waiting, the resolver consumed the helper's start signal.
+            assert!(matches!(
+                receiver.try_recv(),
+                Err(mpsc::TryRecvError::Empty)
+            ));
+            assert!(matches!(result, Err(Error::Timeout { .. })));
         }
 
         /// The budget bounds a stalled lookup, and the stalled helper keeps

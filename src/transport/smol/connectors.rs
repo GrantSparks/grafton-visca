@@ -1,6 +1,6 @@
 //! smol's I/O primitives for the shared async transports.
 
-use std::{io, net::SocketAddr, time::Duration};
+use std::{io, net::SocketAddr, time::Instant};
 
 use smol::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -69,8 +69,12 @@ impl AsyncNet for SmolNet {
         socket2::SockRef::from(socket)
     }
 
-    async fn sleep(duration: Duration) {
-        async_io::Timer::after(duration).await;
+    fn now() -> Instant {
+        Instant::now()
+    }
+
+    async fn sleep_until(deadline: Instant) {
+        async_io::Timer::at(deadline).await;
     }
 }
 

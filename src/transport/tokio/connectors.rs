@@ -1,6 +1,6 @@
 //! Tokio's I/O primitives for the shared async transports.
 
-use std::{future::Future, io, net::SocketAddr, time::Duration};
+use std::{future::Future, io, net::SocketAddr, time::Instant};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -58,8 +58,12 @@ impl AsyncNet for TokioNet {
         socket2::SockRef::from(socket)
     }
 
-    async fn sleep(duration: Duration) {
-        tokio::time::sleep(duration).await;
+    fn now() -> Instant {
+        tokio::time::Instant::now().into_std()
+    }
+
+    async fn sleep_until(deadline: Instant) {
+        tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
     }
 }
 
@@ -162,9 +166,12 @@ impl AsyncDatagram for UdpSocket {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use std::sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
+    use std::{
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        time::Duration,
     };
 
     struct Dropped(Arc<AtomicBool>);

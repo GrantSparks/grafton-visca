@@ -1218,8 +1218,9 @@ kind and OS code. Its public `source` field remains `Arc<std::io::Error>`;
 cloned errors share the same I/O object, including through the standard
 error source.
 
-Each resolved TCP address now receives a share of the remaining connect
-budget, so an unroutable first address no longer starves the others.
+Name resolution and socket setup share one connect deadline. Each resolved
+TCP address receives a share of the remaining budget so a stalled first
+attempt leaves time for later addresses when the budget permits.
 
 **Serial ports.** Both serial transports open the device for exclusive
 access; on Tokio a second process opening the same port now fails with
