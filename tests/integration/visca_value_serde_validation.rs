@@ -325,7 +325,7 @@ mod serde_validation {
         assert_eq!(
             instance,
             serde_json::json!({
-                "gain": 25, "compensation": -7, "kelvin": 2000, "unknown_effect": 254
+                "gain": 255, "compensation": -7, "kelvin": 2000, "unknown_effect": 254
             })
         );
         for (field, definition) in [

@@ -143,6 +143,7 @@ match error {
     Error::ConnectionClosed { source, .. } => assert!(source.is_none()),
     _ => {},
 }
+# Ok::<(), Error>(())
 ```
 
 Terminal session failures retain typed causes: `ConnectionClosed` carries

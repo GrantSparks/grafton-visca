@@ -615,6 +615,7 @@ let config = CameraConfig::<PtzOpticsG2>::tcp_configured(
     IoBounds::default().with_buffer_config(BufferConfig::for_tcp())?,
 )
 .with_camera_id(IndividualCameraId::CAMERA_1);
+# Ok::<(), grafton_visca::Error>(())
 ```
 
 TCP keepalive is a socket-level liveness mechanism. It can detect broken peers
