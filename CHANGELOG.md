@@ -67,10 +67,13 @@ verification.
   and timing ticks, with reply/noise/echo seeds also exercised on stable (#887).
 
 - `PayloadShape` describes an inquiry's decoded data width and nibble
-  structure. `Inquiry::payload_shape` defaults to `Unknown`, and custom raw
-  inquiries can declare their decoder's shape with `with_payload_shape` (#892).
-  Built-in and canonical derived inquiries get this fact from the decoder table;
-  pan/tilt position shapes use the same per-profile axis words as decoding.
+  structure. `Inquiry::payload_shape` defaults to `Unknown`. Custom raw
+  inquiries can declare their decoder's shape with `with_payload_shape`.
+  Exact `Bytes` and `Nibbles` counts take `NonZeroUsize`. A raw declaration
+  wider than the configured reply frame minus its three framing bytes returns
+  `InvalidParameter` before admission or I/O. Built-in and canonical derived
+  inquiries get their shape from the decoder table, and pan/tilt position
+  shapes use the same per-profile axis words as decoding (#892, #1116).
 
 - `test-utils` (#832, #884): `testkit::ManualClock`, a virtual clock for owner
   deadline tests. A blocking session opened with `ManualClock::open_blocking_session` or
@@ -554,13 +557,11 @@ verification.
   control; both Sony profiles refuse the undocumented shared mode family
   (#878).
 
-- **BREAKING** (#892, #1116): Raw inquiry matching uses decoder-declared
-  payload shapes. `PayloadShape::Bytes` and `PayloadShape::Nibbles` take
-  `NonZeroUsize`. The owner rejects a declared raw payload wider than the
-  configured reply frame minus its three framing bytes before admission or
-  I/O. Disjoint classes can be live together and cross unrelated reply debt or
-  skew holds, while overlapping and `Unknown` inquiries retain conservative
-  exclusion. Retained debts keep their exact declaration.
+- Raw inquiry matching uses decoder-declared payload shape. Disjoint classes
+  can be live together and cross unrelated reply debt or skew holds, while
+  overlapping and `Unknown` inquiries retain conservative exclusion. Retained
+  debts keep their exact declaration; shape overlap is never treated as a
+  transitive equivalence (#892).
 
 - Engine deadlines use closed lifecycle-derived actions with checked progress,
   positive timeout intervals and optional retry budgets. Timing validates at
