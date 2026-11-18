@@ -1628,8 +1628,11 @@ mid-proof restarts with a fresh two-sample proof. A fixed per-target/per-axis
 generation bank orders successful engine admissions against establishment of
 polled evidence under one lock. Only operation receipts retain the generation
 stamp for their affected axes (#1059). A later conflicting admission supersedes an
-unfinished proof even if the new command is cancelled before writing. Rejected
-admissions do not advance generations. Evidence already cached and exact
+unfinished proof even if the new command is cancelled before writing. The
+waiter checks the stamp before each inquiry, including when moving to the next
+axis in a sample, and caches the superseded verdict. It also checks the stamp
+under the generation lock when committing the result. Rejected admissions do
+not advance generations. Evidence already cached and exact
 profile completion remain valid. Polling errors retain their source while
 reporting observation uncertainty for the original move.
 

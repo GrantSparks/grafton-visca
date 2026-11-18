@@ -500,6 +500,64 @@ facade_matrix! {
             session.shutdown().expect("shutdown");
         }
     }
+
+    /// Supersession stops a running wait before its next axis or snapshot.
+    /// A conflict during the final in-flight query also prevents the commit.
+    fn conflicting_admission_stops_an_in_progress_settlement_wait() {
+        use grafton_visca::{
+            profiles::SonyEviH100,
+            types::{AffectedAxes, IndividualCameraId, PresetNumber},
+        };
+
+        // Hold an answer during the first snapshot, at the end of the
+        // baseline, or at the end of the final stable snapshot.
+        for held_sample in [1, 3, 6] {
+            let mut inquiries = 0;
+            let camera = FakeCamera::new(move |write, answer| {
+                if write.get(1) == Some(&0x09) {
+                    inquiries += 1;
+                    if inquiries != held_sample {
+                        let width = if write == PAN_TILT_POSITION_INQUIRY { 8 } else { 4 };
+                        answer.reply(frames::inquiry_reply(&[0; 8][..width]));
+                    }
+                } else {
+                    answer.reply(frames::ack(1)).reply(frames::complete(1));
+                }
+            });
+            let config = SessionConfig::from_compile_time::<SonyEviH100>().expect("polling profile");
+            let session = open!(camera, config).expect("session");
+            let view = session.camera::<SonyEviH100>(IndividualCameraId::CAMERA_1)
+                .expect("camera");
+            let mut original = wait!(view.presets().recall(PresetNumber::new(1).expect("preset")))
+                .expect("recall");
+            wait!(original.applied()).expect("recall completion");
+
+            let id = original.id();
+            let started = now!();
+            let (error, ()) = together!({
+                let error = wait!(original.settled_with_timeout(WAIT_BUDGET))
+                    .expect_err("admission supersedes the active wait");
+                let cached = wait!(original.settled_with_timeout(Duration::ZERO))
+                    .expect_err("supersession is cached before another wait starts");
+                assert_eq!(debug(&error), debug(&cached));
+                error
+            }, {
+                let writes = wait_for_writes!(camera, 1 + held_sample);
+                let width = if writes[held_sample] == PAN_TILT_POSITION_INQUIRY { 8 } else { 4 };
+                wait!(view.pan_tilt().home()).expect("conflicting admission").detach();
+                camera.push(frames::inquiry_reply(&[0; 8][..width]));
+            });
+            assert!(matches!(error, Error::SettlementSuperseded { operation, axes, .. }
+                if operation == id && axes == AffectedAxes::MOVEMENT));
+            assert!(now!().duration_since(started) < WAIT_BUDGET);
+            wait!(session.close()).expect("close");
+            assert_eq!(
+                camera.writes().iter().filter(|write| write.get(1) == Some(&0x09)).count(),
+                held_sample,
+                "only the already-submitted queries can reach the wire"
+            );
+        }
+    }
 }
 
 /// Scenarios that only the async facade can express; the file header gives

@@ -2628,7 +2628,9 @@ pub(crate) fn observation_timeout(id: RequestId) -> Error {
 /// observation timeout: the operation may still be moving.
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
-    if error.is_caller_deadline() {
+    if matches!(error, Error::SettlementSuperseded { .. }) {
+        error
+    } else if error.is_caller_deadline() {
         observation_timeout(id)
     } else {
         Error::SettlementObservationFailed {

@@ -1595,7 +1595,7 @@ mod metrics {
             .unwrap();
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         let id = crate::OperationId::from_nonzero(admitted.admitted.id().as_nonzero());
-        let mut original = TargetedObservation::new(admitted.motion);
+        let original = TargetedObservation::new(admitted.motion);
         // A same-target, same-axis request rejected before admission cannot
         // steal attribution from the operation occupying the owner.
         let held: Vec<_> = (0..3)

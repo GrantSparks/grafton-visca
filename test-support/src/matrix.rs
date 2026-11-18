@@ -66,7 +66,8 @@ macro_rules! runtime_matrix {
 /// * `wait!(expr)` — `expr.await` on the async facade, `expr` on the blocking
 ///   one;
 /// * `together!({ left }, { right })` — runs two bodies concurrently and
-///   returns their results. Available in scenarios without `paused:`.
+///   returns their results. On paused blocking cases the left body owns its
+///   captures because it runs on a separate clock participant.
 /// * `open!(camera, config)` — opens the facade's `Session` over that
 ///   facade's wire onto the `FakeCamera` `camera` (async sessions run on the
 ///   case's runtime);
@@ -230,6 +231,13 @@ macro_rules! facade_matrix {
                         timer.sleep(duration);
                         f();
                     });
+                }};
+            }
+            macro_rules! together {
+                ($left:block, $right:block) => {{
+                    let left = clock.spawn(move || $left);
+                    let right = $right;
+                    (left.join().expect("concurrent facade test body"), right)
                 }};
             }
             // Deterministic in outcome but not exact: the worker notices a
