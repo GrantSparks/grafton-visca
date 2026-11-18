@@ -1192,6 +1192,24 @@ pub(crate) fn cancellation_outcome(
     terminal.verdict()
 }
 
+/// A cached observation is pending only while its slot can still supply a
+/// verdict for this deadline. A late event remains available to a fresh wait.
+enum OperationDecision {
+    Timely(Result<CancellationOutcome, Error>),
+    Late,
+    Pending,
+}
+
+impl OperationDecision {
+    fn conclude(self, id: RequestId) -> Option<Result<CancellationOutcome, Error>> {
+        match self {
+            Self::Timely(outcome) => Some(outcome),
+            Self::Late => Some(Err(observation_timeout(id))),
+            Self::Pending => None,
+        }
+    }
+}
+
 /// The handle-side observation state of one admitted operation (#777).
 ///
 /// Every wait borrows it, so an abandoned or timed-out wait releases only that
@@ -1258,35 +1276,39 @@ impl OperationObservation {
         }
     }
 
-    /// The application verdict, once the terminal outcome is known.
-    pub(crate) fn applied(&mut self, deadline: Instant) -> Option<Result<(), Error>> {
-        self.poll();
-        self.terminal
-            .as_ref()
-            .filter(|event| event.within(deadline))
-            .map(|event| application_outcome(cancellation_outcome(&event.value)))
+    /// A timely terminal outcome takes precedence. A cancellation wait may
+    /// also conclude from an attempt failure delivered within its window.
+    fn decision(
+        &self,
+        deadline: Instant,
+        cancellation_failure: Option<&Observed<Error>>,
+    ) -> OperationDecision {
+        match (&self.terminal, cancellation_failure) {
+            (Some(terminal), _) if terminal.within(deadline) => {
+                OperationDecision::Timely(cancellation_outcome(&terminal.value))
+            }
+            (_, Some(failure)) if failure.within(deadline) => {
+                OperationDecision::Timely(Err(failure.value.clone()))
+            }
+            (None, None) => OperationDecision::Pending,
+            _ => OperationDecision::Late,
+        }
     }
 
-    /// The cancellation verdict, once known. An on-time terminal outcome
-    /// takes precedence. The cancellation slot answers only when the
-    /// cancellation attempt ended while the operation was still live.
+    pub(crate) fn applied(&mut self, deadline: Instant) -> Option<Result<(), Error>> {
+        self.poll();
+        self.decision(deadline, None)
+            .conclude(self.id())
+            .map(application_outcome)
+    }
+
     pub(crate) fn cancellation(
         &mut self,
         deadline: Instant,
     ) -> Option<Result<CancellationOutcome, Error>> {
         self.poll();
-        match self
-            .terminal
-            .as_ref()
-            .filter(|event| event.within(deadline))
-        {
-            Some(terminal) => Some(cancellation_outcome(&terminal.value)),
-            None => self
-                .cancellation_failure
-                .as_ref()
-                .filter(|event| event.within(deadline))
-                .map(|event| Err(event.value.clone())),
-        }
+        self.decision(deadline, self.cancellation_failure.as_ref())
+            .conclude(self.id())
     }
 
     /// The request to send for this handle's single cancellation intent.

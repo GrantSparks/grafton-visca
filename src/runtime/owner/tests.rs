@@ -1461,7 +1461,10 @@ mod metrics {
             },
             delivered,
         );
-        assert!(observation.cancellation(deadline).is_none());
+        assert!(matches!(
+            observation.cancellation(deadline),
+            Some(Err(Error::ObservationTimeout { .. }))
+        ));
         assert_eq!(
             observation.cancellation_failure.as_ref().unwrap().at,
             delivered
@@ -1727,17 +1730,32 @@ mod metrics {
         ] {
             let (mut observation, cell) = observation_fixture();
             cell.resolve_at(CommandOutcome::Applied, delivered);
-            assert_eq!(
-                observation.applied(deadline).is_some(),
-                delivered <= deadline
-            );
-            assert!(
-                matches!(
-                    observation.applied(deadline + Duration::from_secs(1)),
-                    Some(Ok(()))
-                ),
-                "late result stays reusable"
-            );
+            // Exercise the first read of the slot and subsequent cached reads.
+            for _ in 0..2 {
+                let applied = observation.applied(deadline);
+                let cancelled = observation.cancellation(deadline);
+                if delivered <= deadline {
+                    assert!(matches!(applied, Some(Ok(()))));
+                    assert!(matches!(
+                        cancelled,
+                        Some(Ok(CancellationOutcome::Completed))
+                    ));
+                } else {
+                    assert!(matches!(
+                        applied,
+                        Some(Err(Error::ObservationTimeout { .. }))
+                    ));
+                    assert!(matches!(
+                        cancelled,
+                        Some(Err(Error::ObservationTimeout { .. }))
+                    ));
+                }
+            }
+            assert!(matches!(observation.applied(delivered), Some(Ok(()))));
+            assert!(matches!(
+                observation.cancellation(delivered),
+                Some(Ok(CancellationOutcome::Completed))
+            ));
         }
     }
 
@@ -1763,7 +1781,10 @@ mod metrics {
             Error::CancellationNotSupported,
             deadline + Duration::from_nanos(1),
         );
-        assert!(observation.cancellation(deadline).is_none());
+        assert!(matches!(
+            observation.cancellation(deadline),
+            Some(Err(Error::ObservationTimeout { .. }))
+        ));
         assert!(matches!(
             observation.cancellation(deadline + Duration::from_nanos(1)),
             Some(Err(Error::CancellationNotSupported))

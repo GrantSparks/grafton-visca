@@ -1339,6 +1339,24 @@ fn a_worker_panic_is_a_terminal_error_for_waiters_and_close() {
     assert!(peer.transport_dropped());
 }
 
+#[test]
+fn an_unresolved_operation_reports_the_worker_panic() {
+    let (owner, peer) = Setup::datagram().spawn();
+    let mut operation = owner.submit_operation(zoom_stop()).unwrap();
+    peer.next_write();
+    peer.send(Read::Panic);
+    assert!(matches!(
+        operation.applied(None),
+        Err(Error::OwnerTerminated)
+    ));
+    assert!(matches!(
+        operation.cancel(None),
+        Err(Error::OwnerTerminated)
+    ));
+    assert!(matches!(owner.close(), Err(Error::OwnerTerminated)));
+    assert!(peer.transport_dropped());
+}
+
 /// Constructor failure leaves no worker: a failed Sony reset drops the
 /// transport before any thread starts.
 #[test]

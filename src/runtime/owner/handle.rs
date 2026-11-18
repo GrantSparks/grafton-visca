@@ -505,14 +505,17 @@ macro_rules! owner_handle_methods {
                 &self,
                 observation: &mut super::OperationObservation,
                 deadline: std::time::Instant,
-                verdict: impl Fn(&mut super::OperationObservation, std::time::Instant) -> Option<T>,
+                verdict: impl Fn(
+                    &mut super::OperationObservation,
+                    std::time::Instant,
+                ) -> Option<Result<T, crate::Error>>,
             ) -> Result<T, crate::Error> {
                 self.off_worker("observe_until")?;
                 let mut wait = super::receipt::OperationWait::new(observation, verdict, deadline);
+                if let Some(value) = wait.verdict() {
+                    return value;
+                }
                 loop {
-                    if let Some(value) = wait.verdict() {
-                        return Ok(value);
-                    }
                     let (terminal, cancellation) = wait.slots();
                     let wake = self
                         .next_observation(terminal, cancellation, deadline)
@@ -594,7 +597,7 @@ macro_rules! owner_handle_methods {
                         deadline,
                         super::OperationObservation::applied,
                     )
-                    $($await)* ?
+                    $($await)*
             }
 
             /// Cancels the operation and waits for the cancellation's
@@ -629,7 +632,7 @@ macro_rules! owner_handle_methods {
                         deadline,
                         super::OperationObservation::cancellation,
                     )
-                    $($await)* ?
+                    $($await)*
             }
         }
 
