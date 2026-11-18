@@ -12,7 +12,7 @@ use std::{
 use smallvec::SmallVec;
 
 use super::{
-    AttemptFacts, CorrelationKind, CorrelationOwner, Entry, ExecutingCancellation, Lane, Lifecycle,
+    AttemptFacts, CorrelationKind, CorrelationOwner, Entry, ExecutingCancellation, Lifecycle,
     RequestId, RequestedCancellation, ResolvingCancellation, RuntimeRequest, SendingReply,
     SequenceRecord, TargetSlot, TransmissionId, TransmissionMeta, ViscaSocket,
 };
@@ -320,7 +320,7 @@ pub(super) struct Transitioned {
 
 #[derive(Clone, Copy)]
 struct IndexFacts {
-    ready: Option<(Lane, usize)>,
+    ready: Option<usize>,
     socket: Option<(TargetSlot, ViscaSocket)>,
     sequences: SequenceSlots,
 }
@@ -338,7 +338,7 @@ impl IndexFacts {
             ready: entry
                 .lifecycle()
                 .is_ready()
-                .then(|| (entry.request.lane(), entry.request.priority_index())),
+                .then(|| entry.request.priority_index()),
             socket: entry
                 .lifecycle
                 .active_socket()
@@ -351,8 +351,7 @@ impl IndexFacts {
 #[derive(Debug, Default)]
 pub(super) struct EntryTable {
     entries: BTreeMap<RequestId, Entry>,
-    commands: [VecDeque<RequestId>; 4],
-    inquiries: [VecDeque<RequestId>; 4],
+    ready: [VecDeque<RequestId>; 4],
     sequences: BTreeMap<u32, SmallVec<[CorrelationOwner; 2]>>,
     lower_sequences: BTreeMap<u16, SmallVec<[CorrelationOwner; 2]>>,
     sockets: PerTarget<SocketSlots<Option<RequestId>>>,
@@ -391,17 +390,15 @@ impl EntryTable {
         self.iter()
             .filter(|(_, entry)| entry.lifecycle.active().is_some())
     }
-    pub(super) fn ready(&self, lane: Lane, priority: usize) -> &VecDeque<RequestId> {
-        match lane {
-            Lane::Command => &self.commands[priority],
-            Lane::Inquiry => &self.inquiries[priority],
-        }
+    pub(super) fn ready_candidates(&self) -> impl Iterator<Item = RequestId> + '_ {
+        let candidates = self.ready.iter().rev().flatten().copied();
+        #[cfg(all(test, debug_assertions))]
+        let candidates = CountingIter(candidates);
+        candidates
     }
-    fn ready_mut(&mut self, lane: Lane, priority: usize) -> &mut VecDeque<RequestId> {
-        match lane {
-            Lane::Command => &mut self.commands[priority],
-            Lane::Inquiry => &mut self.inquiries[priority],
-        }
+    #[cfg(test)]
+    pub(super) fn ready(&self, priority: usize) -> &VecDeque<RequestId> {
+        &self.ready[priority]
     }
     pub(super) fn socket_owner(
         &self,
@@ -532,8 +529,8 @@ impl EntryTable {
         Some(entry)
     }
     fn add_indexes(&mut self, id: RequestId, facts: &IndexFacts) {
-        if let Some((lane, priority)) = facts.ready {
-            self.ready_mut(lane, priority).push_back(id);
+        if let Some(priority) = facts.ready {
+            self.ready[priority].push_back(id);
         }
         if let Some((target, socket)) = facts.socket {
             self.sockets[target][socket] = Some(id);
@@ -543,8 +540,8 @@ impl EntryTable {
         }
     }
     fn remove_indexes(&mut self, id: RequestId, facts: &IndexFacts) {
-        if let Some((lane, priority)) = facts.ready {
-            let queue = self.ready_mut(lane, priority);
+        if let Some(priority) = facts.ready {
+            let queue = &mut self.ready[priority];
             if let Some(index) = queue.iter().position(|queued| *queued == id) {
                 queue.remove(index);
             }
@@ -558,14 +555,14 @@ impl EntryTable {
     }
     fn update_indexes(&mut self, id: RequestId, before: &IndexFacts, after: &IndexFacts) {
         if before.ready != after.ready {
-            if let Some((lane, priority)) = before.ready {
-                let queue = self.ready_mut(lane, priority);
+            if let Some(priority) = before.ready {
+                let queue = &mut self.ready[priority];
                 if let Some(index) = queue.iter().position(|queued| *queued == id) {
                     queue.remove(index);
                 }
             }
-            if let Some((lane, priority)) = after.ready {
-                self.ready_mut(lane, priority).push_back(id);
+            if let Some(priority) = after.ready {
+                self.ready[priority].push_back(id);
             }
         }
         if before.socket != after.socket {
@@ -668,8 +665,8 @@ pub(super) fn entry_visits() -> usize {
     ENTRY_VISITS.with(std::cell::Cell::get)
 }
 
-// Debug count tests instrument every full-table iterator. Release timing uses
-// the exact production iterators, with no counter or TLS branch in the hot path.
+// Debug count tests instrument full-table and ready-candidate iterators.
+// Release timing uses the production iterators without a counter or TLS branch.
 #[cfg(all(test, debug_assertions))]
 #[derive(Clone)]
 pub(super) struct CountingIter<I>(I);

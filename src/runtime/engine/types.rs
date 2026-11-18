@@ -392,9 +392,9 @@ pub(crate) use crate::request::builtin_contract::AppliedStateProjection;
 
 /// The two kinds of protocol work a camera serves independently.
 ///
-/// Commands and inquiries are admitted, queued, paced and reported on
-/// separate lanes, and the raw stream ledger latches each lane of a camera
-/// separately (a `CompletionOnly` command's debt holds both).
+/// Commands and inquiries have distinct protocol pacing and reporting rules.
+/// The raw stream ledger latches each lane of a camera separately
+/// (a `CompletionOnly` command's debt holds both).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Lane {
     /// Commands: ACK-bearing, `CompletionOnly` and `NoReply` alike.
@@ -470,7 +470,7 @@ impl RuntimeRequest {
         matches!(self, Self::Inquiry { .. })
     }
 
-    /// The lane this request is admitted, queued and reported on.
+    /// The protocol lane for dispatch eligibility and outcomes.
     pub(crate) const fn lane(&self) -> Lane {
         match self {
             Self::Command { .. } => Lane::Command,

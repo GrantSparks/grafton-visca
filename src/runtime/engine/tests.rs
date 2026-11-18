@@ -6128,7 +6128,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
     }
     assert_eq!(
         (0..4)
-            .map(|priority| engine.entries.ready(Lane::Command, priority).len())
+            .map(|priority| engine.entries.ready(priority).len())
             .sum::<usize>(),
         1
     );

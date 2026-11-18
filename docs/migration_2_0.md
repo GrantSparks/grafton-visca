@@ -671,8 +671,9 @@ lane.
 | `Priority::High` | `SubmissionClass::User` |
 | `Priority::Critical` | No general submission override. Typed STOPs and owner-issued protocol cancellation use the urgent lane; ordinary traffic may be raised only to `SubmissionClass::User`. |
 
-The dispatch rule remains highest occupied class first and admission order
-within a class; a class decides only which *queued* request is written next.
+The highest eligible class goes first. Within that class, the owner takes the
+first eligible queued command or inquiry. New admissions and retries whose
+backoff has elapsed join the tail.
 1.x had no per-request classification, so a handle's priority was the only
 signal and everything a handle submitted sat in one lane. In 2.0 every request
 selects its ordinary class in its policy. Ordinary control uses `Normal`.

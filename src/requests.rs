@@ -98,9 +98,11 @@ pub enum InquiryRetryClass {
 
 /// Caller-selected quality-of-service class for ordinary submissions.
 ///
-/// The owner dispatches eligible queued work from the highest occupied class
-/// first and in admission order within that class. Typed STOPs and owner-issued
-/// cancellation use the urgent safety lane independently of this setting.
+/// The owner dispatches the first eligible request in the highest eligible
+/// class. Commands and inquiries share one queue per class. New admissions
+/// and retries whose backoff has elapsed join the tail of that queue.
+/// Typed STOPs and owner-issued cancellation use the urgent safety lane
+/// independently of this setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]

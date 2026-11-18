@@ -1486,40 +1486,13 @@ trait EngineMethods: EngineAccess {
             .map(TransmissionId::from_nonzero)
     }
 
-    fn eligible_request(
-        &self,
-        lane: Lane,
-        priority: usize,
-        now: Instant,
-        occupancy: &Occupancy,
-    ) -> Option<RequestId> {
-        self.entries
-            .ready(lane, priority)
-            .iter()
-            .copied()
-            .find(|id| self.dispatch_eligible(*id, now, occupancy))
-    }
-
     fn select_dispatch(&self, now: Instant) -> Option<DispatchSelection> {
         let occupancy = Occupancy::build(&self.entries);
-        for priority in (0..4).rev() {
-            let inquiry = self.eligible_request(Lane::Inquiry, priority, now, &occupancy);
-            let command = self.eligible_request(Lane::Command, priority, now, &occupancy);
-            let request = match (inquiry, command) {
-                (Some(inquiry), Some(command)) => {
-                    let inquiry_first = inquiry <= command;
-                    if inquiry_first {
-                        inquiry
-                    } else {
-                        command
-                    }
-                }
-                (Some(id), None) | (None, Some(id)) => id,
-                (None, None) => continue,
-            };
-            return Some(DispatchSelection { request });
-        }
-        None
+        let request = self
+            .entries
+            .ready_candidates()
+            .find(|id| self.dispatch_eligible(*id, now, &occupancy))?;
+        Some(DispatchSelection { request })
     }
 
     fn dispatch_one(&mut self, now: Instant, effects: &mut Decision) {

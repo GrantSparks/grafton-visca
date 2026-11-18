@@ -1416,8 +1416,10 @@ Ordinary requests select a `SubmissionClass` (`Background`, `Normal`, or
 ordinary class. Typed STOPs and owner-issued cancellation always use the
 urgent lane. Preparation lowers typed STOPs to the engine’s ACK-bearing
 `Stop` class.
-Within each effective class the owner retains admission order; class selection
-only chooses the next eligible queued write and never interrupts in-flight I/O.
+Commands and inquiries share one FIFO per effective class. New admissions and
+promoted retries join the tail. The owner selects the first eligible entry in
+the highest eligible class. Class selection chooses the next queued write
+without interrupting in-flight I/O.
 Urgency bypasses ordinary admission backlog, not command-to-command physical
 pacing. A preceding inquiry does not start the urgent command clock (#712).
 Owner-issued socket cancellation is selected before ordinary ready work when

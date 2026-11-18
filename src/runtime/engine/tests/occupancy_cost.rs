@@ -9,6 +9,17 @@ fn blocked_engine(
     transport: TransportKind,
     now: Instant,
 ) -> ProtocolEngine {
+    let engine = saturated_engine(envelope, transport, now, |_| command(1));
+    assert!(engine.select_dispatch(now).is_none());
+    engine
+}
+
+fn saturated_engine(
+    envelope: EnvelopeKind,
+    transport: TransportKind,
+    now: Instant,
+    ready_request: impl Fn(usize) -> RuntimeRequest,
+) -> ProtocolEngine {
     let mut configured = policy(envelope, transport);
     configured.capacity = std::num::NonZeroUsize::new(ENTRIES).unwrap();
     let mut engine = ProtocolEngine::new(
@@ -24,13 +35,13 @@ fn blocked_engine(
     )
     .unwrap();
     for index in 0..ENTRIES {
-        let mut request = command(1);
-        if index == ENTRIES - 1 {
-            let RuntimeRequest::Command { context, .. } = &mut request else {
-                unreachable!()
-            };
-            context.control.class = ControlClass::User;
-        }
+        let request = if index == ENTRIES - 1 {
+            let mut request = command(1);
+            request.context_mut().control.class = ControlClass::User;
+            request
+        } else {
+            ready_request(index)
+        };
         let effects = engine.handle_turn(
             Input::Admit {
                 ticket: AdmissionTicket(index as u64 + 1),
@@ -43,9 +54,9 @@ fn blocked_engine(
             .iter()
             .any(|effect| matches!(effect, Effect::Admitted { .. })));
     }
-    // Dispatch the last entry so short-circuiting scans must visit all N entries.
+    // Reserve the only socket with the newest, highest-priority request.
     let effects = engine.advance(now);
-    let (_, blocker, _) = request_transmit(&effects);
+    let (transmission, blocker, _) = request_transmit(&effects);
     assert_eq!(blocker.get(), u64::try_from(ENTRIES).unwrap());
     assert_eq!(
         engine
@@ -57,10 +68,13 @@ fn blocked_engine(
             .class,
         ControlClass::User
     );
-    send_ok(
+    finish_write_input_only(
         &mut engine,
-        &effects,
-        (envelope == EnvelopeKind::Sony).then_some(0x1001),
+        blocker,
+        transmission,
+        Ok(TransmissionMeta::for_sequence(
+            (envelope == EnvelopeKind::Sony).then_some(0x1001),
+        )),
         now,
     );
     assert!(matches!(
@@ -77,7 +91,6 @@ fn blocked_engine(
     );
     engine.assert_invariants().unwrap();
     assert_eq!(engine.entries.len(), ENTRIES);
-    assert!(engine.select_dispatch(now).is_none());
     engine
 }
 
@@ -101,6 +114,30 @@ fn planner_entry_visits() {
                 "select_dispatch scanned {dispatch} entries"
             );
         }
+    }
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn dispatch_stops_scanning_at_the_first_eligible_mixed_queue_entry() {
+    let now = Instant::now();
+    for inquiry_index in 0..=1 {
+        let engine = saturated_engine(EnvelopeKind::Sony, TransportKind::Datagram, now, |index| {
+            if index == inquiry_index {
+                inquiry(1)
+            } else {
+                command(1)
+            }
+        });
+        super::super::entry_table::reset_entry_visits();
+        let request = engine.select_dispatch(now).unwrap().request;
+        assert_eq!(request.get(), u64::try_from(inquiry_index + 1).unwrap());
+        // One occupancy pass, at most one blocked command, then the inquiry.
+        // Split lanes checked all ENTRIES - 2 socket-blocked ready commands.
+        assert_eq!(
+            super::super::entry_table::entry_visits(),
+            ENTRIES + inquiry_index + 1
+        );
     }
 }
 

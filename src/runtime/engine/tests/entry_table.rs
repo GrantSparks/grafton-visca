@@ -143,7 +143,7 @@ fn admission_and_transitions_never_duplicate_a_ready_position() {
     }
     assert_eq!(
         table
-            .ready(Lane::Inquiry, ControlClass::Normal.priority_index())
+            .ready(ControlClass::Normal.priority_index())
             .iter()
             .copied()
             .collect::<Vec<_>>(),
@@ -151,7 +151,7 @@ fn admission_and_transitions_never_duplicate_a_ready_position() {
     );
     table.remove(&id).unwrap();
     assert!(table
-        .ready(Lane::Inquiry, ControlClass::Normal.priority_index())
+        .ready(ControlClass::Normal.priority_index())
         .is_empty());
 }
 
@@ -167,15 +167,65 @@ fn stop_class_alone_selects_the_highest_priority_ready_index() {
     let turn = engine.begin_input_turn(now);
     let user = engine.admit_in_turn(&turn, ordinary).unwrap();
     let safety = engine.admit_in_turn(&turn, stop).unwrap();
-    assert_eq!(
-        engine.entries.ready(Lane::Command, 3),
-        &VecDeque::from([safety])
-    );
-    assert_eq!(
-        engine.entries.ready(Lane::Command, 2),
-        &VecDeque::from([user])
-    );
-    assert!(engine.entries.ready(Lane::Command, 0).is_empty());
+    assert_eq!(engine.entries.ready(3), &VecDeque::from([safety]));
+    assert_eq!(engine.entries.ready(2), &VecDeque::from([user]));
+    assert!(engine.entries.ready(0).is_empty());
     assert_eq!(engine.entry(safety).unwrap().request.priority_index(), 3);
     engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn retry_promotion_follows_waiting_work_of_either_protocol_lane() {
+    let request_kinds: [fn(u8) -> RuntimeRequest; 2] = [command, inquiry];
+    for make_first in request_kinds {
+        for make_second in request_kinds {
+            let start = Instant::now();
+            let spacing = Duration::from_millis(100);
+            let mut engine = ProtocolEngine::new(
+                ProtocolPolicy {
+                    command_spacing: spacing,
+                    ..policy(EnvelopeKind::Sony, TransportKind::Datagram)
+                },
+                target_policies(&[camera(1)], TargetPolicy::test_default()),
+                start,
+            )
+            .unwrap();
+            let (first, first_id) = admit(&mut engine, 1, make_first(1), start);
+            let sequence = sony_sequence(first_id);
+            send_ok(&mut engine, &first, Some(sequence), start);
+
+            let (second, second_id) = admit(
+                &mut engine,
+                2,
+                make_second(1),
+                start + Duration::from_millis(1),
+            );
+            assert!(request_transmit_optional(&second).is_none());
+            let rejected = engine.handle(
+                frame(
+                    1,
+                    Some(sequence),
+                    DecodedResponse::Error {
+                        socket: None,
+                        code: 0x03.into(),
+                    },
+                ),
+                start + Duration::from_millis(2),
+            );
+            let (retry_id, _, ready_at) = retry_scheduled(&rejected).expect("buffer-full retry");
+            assert_eq!(retry_id, first_id);
+            assert!(ready_at < start + spacing);
+            assert!(request_transmit_optional(&engine.advance(ready_at)).is_none());
+
+            let priority = ControlClass::Normal.priority_index();
+            assert_eq!(
+                engine.entries.ready(priority),
+                &VecDeque::from([second_id, first_id])
+            );
+            let released = engine.advance(start + spacing);
+            assert_eq!(request_transmit(&released).1, second_id);
+            assert_eq!(engine.entries.ready(priority), &VecDeque::from([first_id]));
+            engine.assert_invariants().unwrap();
+        }
+    }
 }
