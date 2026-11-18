@@ -1253,7 +1253,14 @@ mod metrics {
                 AppliedEffect::None
             ));
         }
-        let (receipt, effects) = state.accept_halt(turn, prepared, halt_deadline, 2, remaining);
+        let (receipt, effects) = state.accept_halt(
+            turn,
+            prepared,
+            halt_deadline,
+            2,
+            remaining,
+            EngineTurn::Complete,
+        );
         for effect in effects {
             assert!(matches!(
                 state.apply_effect(effect, delivered),
@@ -1324,6 +1331,7 @@ mod metrics {
                 observer,
             },
             ready_at,
+            EngineTurn::Complete,
         );
         answer.unwrap();
         assert_eq!(
@@ -1418,6 +1426,7 @@ mod metrics {
                     observer,
                 },
                 now + Duration::from_millis(1),
+                EngineTurn::Complete,
             );
             match cancellation {
                 CancellationPolicy::Supported => {
@@ -1975,6 +1984,7 @@ mod metrics {
             now + ACK,
             1,
             crate::runtime::engine::NonZeroDuration::new(ACK).unwrap(),
+            EngineTurn::Complete,
         );
         for effect in effects {
             assert!(matches!(
@@ -2428,7 +2438,12 @@ mod lifecycle_trace {
         )
     }
 
-    fn command(target: TargetSlot, wire: &str, ack: Duration) -> RuntimeRequest {
+    fn command(
+        target: TargetSlot,
+        wire: &str,
+        ack: Duration,
+        applied_state: Option<AppliedStateProjection>,
+    ) -> RuntimeRequest {
         RuntimeRequest::Command {
             not_executable: false,
             reply_shape: CommandReply::AckThenCompletion,
@@ -2450,10 +2465,7 @@ mod lifecycle_trace {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
             },
-            // Fixtures observe this exact write-only effect through StateCache.
-            applied_state: Some(AppliedStateProjection::set(
-                crate::KnownState::ExposureSpotlight(true),
-            )),
+            applied_state,
         }
     }
 
@@ -2647,7 +2659,16 @@ mod lifecycle_trace {
             };
 
             let request = match field(input, "kind").unwrap_or("command") {
-                "command" => command(target, wire, ack),
+                "command" => {
+                    let applied_state =
+                        field(input, "projection").map(|projection| match projection {
+                            "exposure-spotlight" => AppliedStateProjection::set(
+                                crate::KnownState::ExposureSpotlight(true),
+                            ),
+                            other => panic!("unknown fixture state projection {other}"),
+                        });
+                    command(target, wire, ack, applied_state)
+                }
                 "inquiry" => inquiry(target, wire, ack),
                 other => panic!("unknown fixture request kind {other}"),
             };

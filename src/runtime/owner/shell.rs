@@ -173,6 +173,7 @@ enum Continuation {
         halt: super::halt::HaltBoundary,
         cutoff: u64,
         remaining: crate::runtime::engine::NonZeroDuration,
+        engine_turn: EngineTurn,
     },
     /// Feed the next frame of an input turn.
     NextFrame(FrameTurn),
@@ -183,21 +184,19 @@ enum Continuation {
 struct FrameTurn {
     turn: OwnerInputTurn,
     frames: super::FrameBatch,
+    times: ReceiveTimes,
+}
+
+/// A buffered batch has an older wire timestamp and a fresh scheduling clock.
+#[derive(Debug, Clone, Copy)]
+struct ReceiveTimes {
+    input_at: Instant,
+    schedule_at: Instant,
 }
 
 impl Resume {
     const fn done(outcome: TurnOutcome) -> Self {
         Self(Continuation::Done(outcome))
-    }
-
-    /// The input turn the effects being driven belong to. A transmit driven
-    /// inside an input turn finishes in that turn, and needs no clock sample.
-    pub(super) const fn input_turn(&self) -> Option<&OwnerInputTurn> {
-        match &self.0 {
-            Continuation::NextFrame(frames) => Some(&frames.turn),
-            Continuation::AdmitHalt { turn, .. } => Some(turn),
-            _ => None,
-        }
     }
 }
 
@@ -226,6 +225,8 @@ pub(super) struct OwnerShellCore {
     /// pause so an immediately-returning idle read cannot hot-spin the owner,
     /// without recording a transport fault or spending any retry budget (#675).
     idle_receives: IdleReceiveRun,
+    /// Physical arrival of the read from which any retained frames came.
+    read_received_at: Option<Instant>,
     /// Executor-free source arbitration (#776): source phase and fairness, the
     /// control allowance, the receive-first raw-release proof (#723), and the
     /// retained-boundary slot (#775). A field rather than a loop local so
@@ -267,6 +268,7 @@ impl OwnerShellCore {
             lifecycle: ends.lifecycle,
             faults: TransientFaultRun::default(),
             idle_receives: IdleReceiveRun::default(),
+            read_received_at: None,
             coordinator,
         }
     }
@@ -419,6 +421,16 @@ impl OwnerShellCore {
         selected_at: Instant,
         suppress_due_for_raw_probe_fault: bool,
     ) -> TurnStep {
+        // A fairness handoff can accept boundary input between batches.
+        // Keep any scheduler work behind the complete replies from that read.
+        let engine_turn = match &event {
+            OwnerEvent::Admission(Ok(_)) | OwnerEvent::Cancellation(_) | OwnerEvent::Wake
+                if driver.has_ready_buffered_input() =>
+            {
+                EngineTurn::InputOnly
+            }
+            _ => EngineTurn::Complete,
+        };
         match event {
             OwnerEvent::Shutdown | OwnerEvent::Admission(Err(_)) => {
                 self.terminate(ShutdownReason::Explicit, selected_at)
@@ -451,6 +463,7 @@ impl OwnerShellCore {
                                 halt,
                                 cutoff,
                                 remaining,
+                                engine_turn,
                             }),
                         }
                     }
@@ -461,7 +474,9 @@ impl OwnerShellCore {
                 }
             }
             OwnerEvent::Cancellation(CancellationBoundary::Cancel { request, reply }) => {
-                let (effects, answer) = self.state.begin_cancellation(request, selected_at);
+                let (effects, answer) =
+                    self.state
+                        .begin_cancellation(request, selected_at, engine_turn);
                 TurnStep::Drive {
                     effects,
                     then: Resume(Continuation::ConcludeCancellation { answer, reply }),
@@ -471,7 +486,10 @@ impl OwnerShellCore {
                 self.handle_control(control, selected_at);
                 TurnStep::Done(TurnOutcome::Continue)
             }
-            OwnerEvent::Admission(Ok(admission)) => self.admit(admission, selected_at),
+            OwnerEvent::Admission(Ok(admission)) => self.admit(admission, selected_at, engine_turn),
+            OwnerEvent::Wake if engine_turn == EngineTurn::InputOnly => {
+                TurnStep::Done(TurnOutcome::ContinueBuffered)
+            }
             OwnerEvent::Wake => self.wake(driver, selected_at),
             OwnerEvent::Receive {
                 result,
@@ -512,6 +530,7 @@ impl OwnerShellCore {
                 halt,
                 cutoff,
                 remaining,
+                engine_turn,
             } => {
                 let (receipt, effects) = self.state.accept_halt(
                     turn,
@@ -519,6 +538,7 @@ impl OwnerShellCore {
                     halt.claim.deadline(),
                     cutoff,
                     remaining,
+                    engine_turn,
                 );
                 let _ = halt.reply.try_send(Ok(receipt));
                 TurnStep::Drive {
@@ -611,13 +631,10 @@ impl OwnerShellCore {
         self.state.buffers().recycle_effects(effects);
     }
 
-    /// Report a transmit the shell just wrote. Inside an input `turn` it
-    /// finishes in that turn; otherwise it finishes at `finished_at`, the
-    /// instant the write returned. Its exact completion is processed before
-    /// the next effect or any channel input.
+    /// Apply the write result at `finished_at`, the instant the write
+    /// returned, before the next effect or any other input.
     pub(super) fn finish_transmit(
         &mut self,
-        turn: Option<&OwnerInputTurn>,
         staged: &StagedWrite,
         result: WriteOutcome,
         finished_at: Instant,
@@ -627,27 +644,10 @@ impl OwnerShellCore {
             self.idle_receives.reset();
             self.coordinator.end_receive_pause();
         }
-        let Some(turn) = turn else {
-            return self.finish_transmit_outside_turn(staged, result, finished_at, effects);
-        };
-        self.state
-            .finish_write_in_turn_into(turn, staged, result, effects);
-    }
-
-    fn finish_transmit_outside_turn(
-        &mut self,
-        staged: &StagedWrite,
-        result: WriteOutcome,
-        finished_at: Instant,
-        effects: &mut VecDeque<Effect>,
-    ) {
         // A write can complete while the shell is waiting on the transport
         // and cross a raw correlation deadline. Its transmission-result input
         // is real ordered protocol input, but it must not run the due/dispatch
         // tail before the coordinator has taken its mandatory receive probe.
-        // A transmit inside an input turn already has this property by using
-        // the active input turn; this is the equivalent seam for a standalone
-        // effect chain.
         let turn = if self
             .state
             .raw_correlation_releases_due(finished_at)
@@ -763,11 +763,15 @@ impl OwnerShellCore {
         // Real bytes decoded: the transport is not idle, so restart the
         // no-data escalation (#675).
         self.idle_receives.reset();
-        let mut turn = self.state.begin_input_turn(received_at);
-        if frames.framing_failure.is_some() || driver.has_terminal_prefix() {
-            turn.0.mark_terminal_prefix();
+        if !frames.from_retained_read {
+            self.read_received_at = Some(received_at);
         }
-        self.begin_frame_batch(turn, frames, driver)
+        let times = ReceiveTimes {
+            input_at: self.read_received_at.unwrap_or(received_at),
+            schedule_at: received_at,
+        };
+        let turn = self.state.begin_input_turn(times.input_at);
+        self.begin_frame_batch(turn, frames, driver, times)
     }
 
     fn begin_frame_batch(
@@ -775,6 +779,7 @@ impl OwnerShellCore {
         turn: OwnerInputTurn,
         frames: super::FrameBatch,
         driver: &mut impl RetainedStreamInput,
+        times: ReceiveTimes,
     ) -> TurnStep {
         for _ in 0..frames.discarded {
             self.state.record_ignored(IgnoreReason::MalformedFrame);
@@ -790,7 +795,14 @@ impl OwnerShellCore {
                 TurnOutcome::YieldBoundaries
             });
         }
-        self.next_frame(FrameTurn { turn, frames }, driver)
+        self.next_frame(
+            FrameTurn {
+                turn,
+                frames,
+                times,
+            },
+            driver,
+        )
     }
 
     fn next_frame(
@@ -804,7 +816,11 @@ impl OwnerShellCore {
                 then: Resume(Continuation::NextFrame(frames)),
             };
         }
-        let FrameTurn { turn, mut frames } = frames;
+        let FrameTurn {
+            turn,
+            mut frames,
+            times,
+        } = frames;
         let failure = frames.framing_failure.take();
         self.state.buffers().recycle_frames(frames);
         if let Some(cause) = failure {
@@ -822,7 +838,7 @@ impl OwnerShellCore {
             };
         }
         if let Some(prefix) = driver.drain_terminal_prefix(self.state.buffers()) {
-            return self.begin_frame_batch(turn, prefix, driver);
+            return self.begin_frame_batch(turn, prefix, driver, times);
         }
         let buffered = driver.retained().is_some();
         // A frame-limit batch can leave a complete frame followed by an
@@ -835,10 +851,21 @@ impl OwnerShellCore {
                 then: Resume::done(TurnOutcome::ContinueBuffered),
             };
         }
-        let effects = self.state.finish_input_turn(turn, EngineTurn::Complete);
+        // A synthetic buffered receive is no evidence about bytes that
+        // arrived after the original read. Due raw releases still need the
+        // coordinator's receive-first proof at this later instant.
+        if times.input_at != times.schedule_at
+            && !self
+                .state
+                .raw_correlation_releases_due(times.schedule_at)
+                .is_empty()
+        {
+            return TurnStep::Done(TurnOutcome::ProbeAfterBufferedDrain);
+        }
+        let effects = self.state.advance(times.schedule_at);
         // A completed input turn drained the retained fragment before due work
         // ran. If that input settled the old raw correlation at an exact
-        // boundary, `finish_input_turn` released it without another Wake turn,
+        // boundary, the scheduler released it without another Wake turn,
         // so its next independent hold must start with a fresh grace budget.
         // Do not reset for an empty/partial receive: its unresolved prefix
         // still owns the current deadline. Driving the effects never reads
@@ -971,7 +998,12 @@ impl OwnerShellCore {
         }
     }
 
-    fn admit(&mut self, admission: AdmissionBoundary, accepted_at: Instant) -> TurnStep {
+    fn admit(
+        &mut self,
+        admission: AdmissionBoundary,
+        accepted_at: Instant,
+        engine_turn: EngineTurn,
+    ) -> TurnStep {
         // A deadline or abandoned caller that wins before this exact boundary
         // is admitted is not observer detachment: no engine entry exists yet.
         // Drop the boundary (and therefore its permit and observer) before
@@ -998,7 +1030,7 @@ impl OwnerShellCore {
             }
         }
         TurnStep::Drive {
-            effects: self.state.finish_input_turn(turn, EngineTurn::Complete),
+            effects: self.state.finish_input_turn(turn, engine_turn),
             then: Resume::done(TurnOutcome::Continue),
         }
     }
@@ -1248,6 +1280,7 @@ mod tests {
                     crate::transport::AddressingMode::Ip,
                 ),
                 transport,
+                recv_buffer_size: crate::transport::BufferConfig::default().recv_buffer_size(),
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,
@@ -1284,6 +1317,130 @@ mod tests {
             step = core.resume(then, &mut Datagrams);
         }
         step
+    }
+
+    #[test]
+    fn buffered_frames_do_not_prove_a_later_raw_release() {
+        use super::super::turn::{ReceiveArm, SourcePhase};
+        use crate::runtime::engine::{
+            DecodedFrame, DecodedResponse, EncodedMessage, RuntimeRequest,
+        };
+
+        let (handle, mut core) = owner_for(
+            1,
+            EnvelopeKind::Raw,
+            crate::runtime::engine::TransportKind::Stream,
+        );
+        let at = Instant::now();
+        let request = RuntimeRequest::Inquiry {
+            wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0x01, 0xff]).unwrap()),
+            context: *declared_request(false).context(),
+            payload_shape: crate::PayloadShape::Unknown,
+            syntax: false,
+        };
+        let (_terminal, _admitted) = handle
+            .enqueue_admission::<super::super::RuntimeOutcome>(request, None)
+            .unwrap();
+        let admission = core.receivers.admissions.recv().unwrap();
+        let TurnStep::Drive { mut effects, then } = core.handle(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut Datagrams,
+            at,
+            false,
+        ) else {
+            panic!("inquiry admission must dispatch");
+        };
+        let staged = core.next_transmit(&mut effects, at).unwrap();
+        core.finish_transmit(
+            &staged,
+            WriteOutcome::Sent(TransmissionMeta::Known),
+            at,
+            &mut effects,
+        );
+        assert!(core.next_transmit(&mut effects, at).is_none());
+        assert!(matches!(
+            core.resume(then, &mut Datagrams),
+            TurnStep::Done(_)
+        ));
+
+        let frame = |response| DecodedFrame {
+            target: TargetSlot::CAMERA_1,
+            sequence: None,
+            response,
+        };
+        let rejected = vec![frame(DecodedResponse::Error {
+            socket: None,
+            code: 0x41.into(),
+        })];
+        let step = core.handle(
+            receive(OwnerReceive::Frames(rejected.into()), at),
+            &mut Datagrams,
+            at,
+            false,
+        );
+        run_turn(&mut core, step);
+        let release_at = at + Duration::from_secs(1);
+        let releases = core.state.raw_correlation_releases_due(release_at);
+        assert!(!releases.is_empty());
+        let _ = core.coordinator.release_mut().observe(releases);
+        core.coordinator
+            .release_mut()
+            .wait_for_input_until(release_at);
+
+        // The last buffered batch exhausts the framer at the hold deadline.
+        // Its frames still belong to the preceding read, before the hold.
+        let wire_at = release_at - Duration::from_nanos(1);
+        core.read_received_at = Some(wire_at);
+        let mut buffered =
+            super::super::FrameBatch::from(vec![frame(DecodedResponse::NetworkChange)]);
+        buffered.from_retained_read = true;
+        let step = core.handle(
+            receive(OwnerReceive::Frames(buffered), release_at),
+            &mut Datagrams,
+            release_at,
+            false,
+        );
+        let TurnStep::Done(outcome @ TurnOutcome::ProbeAfterBufferedDrain) =
+            run_turn(&mut core, step)
+        else {
+            panic!("a buffered batch at a later clock must request a native probe");
+        };
+        assert!(!core
+            .state
+            .raw_correlation_releases_due(release_at)
+            .is_empty());
+        core.coordinator
+            .set_fairness_ceiling(std::num::NonZeroUsize::MIN);
+        assert!(core.finish(
+            NonBoundarySelected::receive(releases, ReceiveClass::Other).kind(),
+            None,
+            outcome,
+        ));
+        assert!(
+            !core.begin_turn(),
+            "the native probe precedes a forced fairness turn"
+        );
+        {
+            let (TurnPlan::Select { selection, .. }, _, _) = core.plan(release_at, &mut Datagrams)
+            else {
+                panic!("the release must select a native probe");
+            };
+            assert_eq!(selection.phase, SourcePhase::ReceiveFirst);
+            assert_eq!(selection.receive, ReceiveArm::Poll);
+        }
+
+        let fresh = vec![frame(DecodedResponse::NetworkChange)];
+        let step = core.handle(
+            receive(OwnerReceive::Frames(fresh.into()), release_at),
+            &mut Datagrams,
+            release_at,
+            false,
+        );
+        run_turn(&mut core, step);
+        assert!(core
+            .state
+            .raw_correlation_releases_due(release_at)
+            .is_empty());
     }
 
     #[test]
@@ -1630,10 +1787,6 @@ mod tests {
 
         struct TerminalPrefix(Option<FrameBatch>);
         impl RetainedStreamInput for TerminalPrefix {
-            fn has_terminal_prefix(&self) -> bool {
-                self.0.is_some()
-            }
-
             fn drain_terminal_prefix(&mut self, _: &mut OwnerBuffers) -> Option<FrameBatch> {
                 self.0.take()
             }
@@ -1660,7 +1813,6 @@ mod tests {
         };
         let staged = core.next_transmit(&mut effects, at).unwrap();
         core.finish_transmit(
-            None,
             &staged,
             WriteOutcome::Sent(TransmissionMeta::Allocated { sequence }),
             at,
@@ -1676,9 +1828,11 @@ mod tests {
             .engine
             .command_id(admitted.recv().unwrap().unwrap().id());
         let (_cancelled, observer) = super::super::CancellationObserver::pair();
-        let (mut effects, accepted) = core
-            .state
-            .begin_cancellation(super::super::CancellationRequest { id, observer }, at);
+        let (mut effects, accepted) = core.state.begin_cancellation(
+            super::super::CancellationRequest { id, observer },
+            at,
+            EngineTurn::Complete,
+        );
         accepted.unwrap();
         assert!(core.next_transmit(&mut effects, at).is_none());
 
@@ -1992,7 +2146,6 @@ mod tests {
         while let TurnStep::Drive { mut effects, then } = step {
             while let Some(staged) = core.next_transmit(&mut effects, now) {
                 core.finish_transmit(
-                    None,
                     &staged,
                     WriteOutcome::Sent(TransmissionMeta::Known),
                     now,
@@ -2183,7 +2336,6 @@ mod tests {
         let staged = core.next_transmit(&mut effects, now).unwrap();
         assert!(core.coordinator.receive_not_before().is_some());
         core.finish_transmit(
-            None,
             &staged,
             WriteOutcome::Sent(TransmissionMeta::Known),
             now,

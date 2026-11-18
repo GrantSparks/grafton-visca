@@ -63,15 +63,18 @@ impl InquiryShapes {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use super::*;
 
     #[test]
     fn exact_reservations_do_not_merge_overlap_or_transitive_unknown() {
         let mut shapes = InquiryShapes::default();
         for shape in [
-            PayloadShape::Bytes(4),
-            PayloadShape::Nibbles(4),
+            PayloadShape::Bytes(NonZeroUsize::new(4).unwrap()),
+            PayloadShape::Nibbles(NonZeroUsize::new(4).unwrap()),
             PayloadShape::Unknown,
         ] {
             assert!(shapes.try_insert(shape));
@@ -79,10 +82,10 @@ mod tests {
         }
         assert_eq!(shapes.len(), 3);
         for length in 5..18 {
-            assert!(shapes.try_insert(PayloadShape::Bytes(length)));
+            assert!(shapes.try_insert(PayloadShape::Bytes(NonZeroUsize::new(length).unwrap())));
         }
         assert_eq!(shapes.len(), MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET);
-        assert!(!shapes.try_insert(PayloadShape::Bytes(18)));
+        assert!(!shapes.try_insert(PayloadShape::Bytes(NonZeroUsize::new(18).unwrap())));
         assert!(shapes.try_insert(PayloadShape::Unknown));
         assert_eq!(shapes.len(), MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET);
     }

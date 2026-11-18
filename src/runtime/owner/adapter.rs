@@ -270,6 +270,7 @@ pub(super) fn owner_policy_for_registry_with_tuning(
             capacity: admission_capacity,
             wire,
             transport,
+            recv_buffer_size: config.buffer_config().recv_buffer_size(),
             command_spacing,
             inquiry_spacing,
             // A syntax-error inquiry retry needs to respect the strictest
@@ -425,7 +426,10 @@ impl<T, F> TransportAdapter<T, F> {
     /// adapter reads again; see [`AdapterFraming::drain_buffered`].
     pub(super) fn buffered(&mut self, buffers: &mut OwnerBuffers) -> Option<OwnerReceive> {
         match self.framing.drain_buffered(buffers) {
-            Ok(frames) => frames.map(OwnerReceive::Frames),
+            Ok(frames) => frames.map(|mut frames| {
+                frames.from_retained_read = true;
+                OwnerReceive::Frames(frames)
+            }),
             Err(_) => Some(OwnerReceive::NoProgress(
                 NoProgressReason::MalformedDatagram,
             )),
@@ -483,8 +487,8 @@ impl<T, F> TransportAdapter<T, F> {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl<T, F> RetainedStreamInput for TransportAdapter<T, F> {
-    fn has_terminal_prefix(&self) -> bool {
-        self.framing.has_terminal_prefix()
+    fn has_ready_buffered_input(&mut self) -> bool {
+        self.framing.has_ready_buffered_input()
     }
 
     fn retained(&mut self) -> Option<RetainedInput<'_>> {
@@ -707,13 +711,16 @@ impl AdapterFraming {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl RetainedStreamInput for AdapterFraming {
-    fn has_terminal_prefix(&self) -> bool {
+    fn has_ready_buffered_input(&mut self) -> bool {
+        if !self.is_stream() {
+            return false;
+        }
+        if let EnvelopeFraming::Sony { framer, .. } = &self.framing {
+            return framer.has_buffered_verdict();
+        }
         matches!(
-            self.framing,
-            EnvelopeFraming::Sony {
-                terminal_prefix: true,
-                ..
-            }
+            self.retained().and_then(|input| input.evidence()),
+            Some(super::RawPrefixEvidence::Complete)
         )
     }
 

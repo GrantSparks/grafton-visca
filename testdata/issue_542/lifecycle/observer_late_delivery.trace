@@ -7,7 +7,7 @@
 1 effect cache-observer-added observer=target-one target=1
 2 input observe-state target-two target=2
 2 effect cache-observer-added observer=target-two target=2
-3 input admit timed target=1 wire=81010604ff observer=async
+3 input admit timed target=1 wire=81010604ff observer=async projection=exposure-spotlight
 3 effect admitted ticket=timed id=1 target=1 permit=acquired state=ready observer=async
 3 outcome admission ticket=timed id=1
 4 input dispatch timed result=ok
@@ -26,7 +26,7 @@
 21 effect terminal id=1 outcome=Applied source=protocol state=removed permit=released
 21 effect delivery-discarded id=1 observer=detached
 21 outcome applied-state observer=target-one target=1 id=1 state=applied
-22 input admit detached target=2 wire=8201040700ff observer=async
+22 input admit detached target=2 wire=8201040700ff observer=async projection=exposure-spotlight
 22 effect admitted ticket=detached id=2 target=2 permit=acquired state=ready observer=async
 22 outcome admission ticket=detached id=2
 23 input dispatch detached result=ok

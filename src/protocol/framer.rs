@@ -186,8 +186,21 @@ pub(crate) trait Framer: private::Sealed {
     fn buffer(&self) -> &FrameBuffer;
     fn buffer_mut(&mut self) -> &mut FrameBuffer;
     fn from_buffer(buffer: FrameBuffer) -> Self;
+    /// Scan independent input, such as a datagram, without changing stream state.
     fn scan<'a>(&self, input: &'a [u8]) -> FrameScan<Self::Frame<'a>, Self::Rejection>;
     fn discard_rejected(&mut self, rejection: Self::Rejection);
+
+    fn scan_buffered(&mut self) -> FrameScan<Self::Frame<'_>, Self::Rejection> {
+        self.scan(&self.buffer().buf)
+    }
+
+    /// Forget scan state relative to the previous buffer start.
+    fn reset_scan(&mut self) {}
+
+    fn advance_buffer(&mut self, length: usize) {
+        self.buffer_mut().buf.advance(length);
+        self.reset_scan();
+    }
 
     /// Push bytes without changing retained input if the hard bound is exceeded.
     fn push_slice(&mut self, chunk: &[u8]) -> Result<(), BufferOverflow> {
@@ -207,7 +220,7 @@ pub(crate) trait Framer: private::Sealed {
         &mut self,
         visit: impl FnOnce(Self::Frame<'_>) -> T,
     ) -> Option<Result<T, Self::Rejection>> {
-        let frame = match self.scan(&self.buffer().buf) {
+        let frame = match self.scan_buffered() {
             FrameScan::Complete(frame) => frame,
             FrameScan::NeedMore => return None,
             FrameScan::Rejected(rejection) => {
@@ -217,13 +230,14 @@ pub(crate) trait Framer: private::Sealed {
         };
         let length = frame.bytes().len();
         let value = visit(frame);
-        self.buffer_mut().buf.advance(length);
+        self.advance_buffer(length);
         Some(Ok(value))
     }
 
     #[cfg(any(test, feature = "transport-serial", feature = "transport-serial-tokio"))]
     fn clear(&mut self) {
         self.buffer_mut().buf.clear();
+        self.reset_scan();
     }
     fn buffered_len(&self) -> usize {
         self.buffer().buf.len()
@@ -269,6 +283,18 @@ pub(crate) trait Framer: private::Sealed {
 #[derive(Debug)]
 pub(crate) struct RawFramer {
     buffer: FrameBuffer,
+    boundary: RawBoundary,
+    #[cfg(test)]
+    terminator_checks: usize,
+}
+
+/// Search state relative to the start of the retained buffer.
+#[derive(Debug)]
+enum RawBoundary {
+    /// Number of bytes already examined without finding a terminator.
+    Unterminated(usize),
+    /// Byte count through the first terminator, inclusive.
+    Terminated(NonZeroUsize),
 }
 
 impl RawFramer {
@@ -276,21 +302,55 @@ impl RawFramer {
         Self::from_buffer(FrameBuffer::new(config))
     }
 
-    /// Classify the first retained raw input using the owner's routing rule.
-    pub(crate) fn buffered_raw_incomplete_prefix(
+    /// Borrow the first retained raw input using the owner's routing rule.
+    pub(crate) fn retained_input(
+        &mut self,
+        target_for_source: impl FnMut(u8) -> Option<TargetSlot>,
+    ) -> Option<RetainedRawFrame<'_>> {
+        let length = NonZeroUsize::new(self.buffered_len())?;
+        let (evidence, discard_through) = match self.find_boundary() {
+            Some(through) => (RawBufferedInput::Complete, through),
+            None => (self.classify_incomplete_prefix(target_for_source), length),
+        };
+        Some(RetainedRawFrame {
+            evidence,
+            length,
+            discard_through,
+            framer: self,
+        })
+    }
+
+    fn find_boundary(&mut self) -> Option<NonZeroUsize> {
+        let scanned = match self.boundary {
+            RawBoundary::Unterminated(scanned) => scanned,
+            RawBoundary::Terminated(through) => return Some(through),
+        };
+        #[cfg(test)]
+        let checks = &mut self.terminator_checks;
+        let through = self.buffer.buf[scanned..]
+            .iter()
+            .position(|byte| {
+                #[cfg(test)]
+                {
+                    *checks += 1;
+                }
+                *byte == VISCA_TERMINATOR
+            })
+            .map(|position| NonZeroUsize::MIN.saturating_add(scanned + position));
+        self.boundary = match through {
+            Some(through) => RawBoundary::Terminated(through),
+            None => RawBoundary::Unterminated(self.buffered_len()),
+        };
+        through
+    }
+
+    fn classify_incomplete_prefix(
         &self,
         mut target_for_source: impl FnMut(u8) -> Option<TargetSlot>,
-    ) -> Option<RawBufferedInput> {
-        if self.buffer.buf.is_empty() {
-            return None;
-        }
-        if self.buffer.buf.contains(&VISCA_TERMINATOR) {
-            return Some(RawBufferedInput::Complete);
-        }
-
+    ) -> RawBufferedInput {
         let source = self.buffer.buf[0];
         let Some(target) = target_for_source(source) else {
-            return Some(RawBufferedInput::Malformed);
+            return RawBufferedInput::Malformed;
         };
         let kind = match self.buffer.buf.get(1).copied() {
             None => RawIncompletePrefix::SourceOnly,
@@ -310,21 +370,22 @@ impl RawFramer {
             },
             Some(_) => RawIncompletePrefix::Noncorrelating,
         };
-        Some(RawBufferedInput::Incomplete { target, kind })
+        RawBufferedInput::Incomplete { target, kind }
     }
 
-    /// Borrow the first retained raw input and its discard operation.
-    pub(crate) fn retained_input(
-        &mut self,
-        target_for_source: impl FnMut(u8) -> Option<TargetSlot>,
-    ) -> Option<RetainedRawFrame<'_>> {
-        let evidence = self.buffered_raw_incomplete_prefix(target_for_source)?;
-        let length = NonZeroUsize::new(self.buffered_len())?;
-        Some(RetainedRawFrame {
-            evidence,
-            length,
-            buffer: &mut self.buffer.buf,
-        })
+    fn frame_through<'a>(
+        &self,
+        input: &'a [u8],
+        through: NonZeroUsize,
+    ) -> FrameScan<&'a [u8], OversizedRawFrame> {
+        if through.get() > self.buffer.max_frame_size {
+            FrameScan::Rejected(OversizedRawFrame {
+                max_size: self.buffer.max_frame_size,
+                through,
+            })
+        } else {
+            FrameScan::Complete(&input[..through.get()])
+        }
     }
 }
 
@@ -333,7 +394,8 @@ impl RawFramer {
 pub(crate) struct RetainedRawFrame<'a> {
     pub(crate) evidence: RawBufferedInput,
     length: NonZeroUsize,
-    buffer: &'a mut BytesMut,
+    discard_through: NonZeroUsize,
+    framer: &'a mut RawFramer,
 }
 
 impl RetainedRawFrame<'_> {
@@ -343,15 +405,8 @@ impl RetainedRawFrame<'_> {
 
     /// Discard one delimited frame, or the sole incomplete fragment.
     pub(crate) fn discard_first(self) -> NonZeroUsize {
-        let count = self
-            .buffer
-            .iter()
-            .position(|byte| *byte == VISCA_TERMINATOR)
-            .map_or(self.length, |position| {
-                NonZeroUsize::MIN.saturating_add(position)
-            });
-        self.buffer.advance(count.get());
-        count
+        self.framer.advance_buffer(self.discard_through.get());
+        self.discard_through
     }
 }
 
@@ -360,7 +415,7 @@ impl Framer for RawFramer {
     type Frame<'a> = &'a [u8];
 
     fn discard_rejected(&mut self, rejection: Self::Rejection) {
-        self.buffer.buf.advance(rejection.through.get());
+        self.advance_buffer(rejection.through.get());
     }
     fn buffer(&self) -> &FrameBuffer {
         &self.buffer
@@ -369,22 +424,27 @@ impl Framer for RawFramer {
         &mut self.buffer
     }
     fn from_buffer(buffer: FrameBuffer) -> Self {
-        Self { buffer }
+        Self {
+            buffer,
+            boundary: RawBoundary::Unterminated(0),
+            #[cfg(test)]
+            terminator_checks: 0,
+        }
     }
     fn scan<'a>(&self, input: &'a [u8]) -> FrameScan<Self::Frame<'a>, Self::Rejection> {
         let Some(position) = input.iter().position(|byte| *byte == VISCA_TERMINATOR) else {
             return FrameScan::NeedMore;
         };
-        let through = NonZeroUsize::MIN.saturating_add(position);
-        let length = through.get();
-        if length > self.buffer.max_frame_size {
-            FrameScan::Rejected(OversizedRawFrame {
-                max_size: self.buffer.max_frame_size,
-                through,
-            })
-        } else {
-            FrameScan::Complete(&input[..length])
-        }
+        self.frame_through(input, NonZeroUsize::MIN.saturating_add(position))
+    }
+    fn scan_buffered(&mut self) -> FrameScan<Self::Frame<'_>, Self::Rejection> {
+        let Some(through) = self.find_boundary() else {
+            return FrameScan::NeedMore;
+        };
+        self.frame_through(&self.buffer.buf, through)
+    }
+    fn reset_scan(&mut self) {
+        self.boundary = RawBoundary::Unterminated(0);
     }
 }
 
@@ -397,6 +457,11 @@ pub(crate) struct SonyFramer {
 impl SonyFramer {
     pub(crate) fn new(config: BufferConfig) -> Self {
         Self::from_buffer(FrameBuffer::new(config))
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn has_buffered_verdict(&self) -> bool {
+        !matches!(self.scan(&self.buffer.buf), FrameScan::NeedMore)
     }
 
     /// Inspect only buffered Sony boundaries. A rejected header makes all
@@ -473,15 +538,28 @@ mod tests {
         SonyFramer::new_with_limits(256, usize::MAX, usize::MAX)
     }
 
+    fn raw_prefix(framer: &mut RawFramer) -> Option<RawBufferedInput> {
+        framer
+            .retained_input(|source| (source == 0x90).then_some(TargetSlot::CAMERA_1))
+            .map(|prefix| prefix.evidence)
+    }
+
     #[test]
     fn discard_reports_through_the_first_terminator() {
         let mut framer = raw_framer();
-        framer.push_slice(&[0x90, 0xff, 0x90]).unwrap();
+        framer.push_slice(&[0x90, 0xff, 0x90, 0x41, 0xff]).unwrap();
+        assert_eq!(raw_prefix(&mut framer), Some(RawBufferedInput::Complete));
+        assert_eq!(framer.terminator_checks, 2);
         let prefix = framer
             .retained_input(|_| Some(TargetSlot::CAMERA_1))
             .unwrap();
         assert_eq!(prefix.discard_first().get(), 2);
-        assert_eq!(framer.buffered_len(), 1);
+        assert_eq!(framer.terminator_checks, 2);
+        assert_eq!(
+            framer.drain_frames().next(),
+            Some(Ok(Bytes::from_static(&[0x90, 0x41, 0xff])))
+        );
+        assert_eq!(framer.terminator_checks, 5);
     }
 
     #[test]
@@ -492,7 +570,144 @@ mod tests {
             .retained_input(|_| Some(TargetSlot::CAMERA_1))
             .unwrap();
         assert_eq!(prefix.discard_first().get(), 2);
+        assert_eq!(framer.terminator_checks, 2);
         assert!(framer.is_empty());
+        framer.push_slice(&[0x90, 0x41, 0xff]).unwrap();
+        assert_eq!(
+            framer.drain_frames().next(),
+            Some(Ok(Bytes::from_static(&[0x90, 0x41, 0xff])))
+        );
+        assert_eq!(framer.terminator_checks, 5);
+    }
+
+    #[test]
+    fn fragmented_raw_stream_searches_each_byte_once() {
+        for length in [3, 128, 8192] {
+            let mut frame = vec![0x02; length];
+            frame[..2].copy_from_slice(&[0x90, 0x50]);
+            frame[length - 1] = VISCA_TERMINATOR;
+
+            for chunk_size in [1, 2, 7, 64, length] {
+                let mut framer = RawFramer::new_with_limits(length, length, length);
+                let mut decoded = Vec::new();
+                for chunk in frame.chunks(chunk_size) {
+                    framer.push_slice(chunk).unwrap();
+                    let prefix = raw_prefix(&mut framer);
+                    assert!(prefix.is_some());
+                    assert_eq!(raw_prefix(&mut framer), prefix);
+                    decoded.extend(framer.drain_frames());
+                    let prefix = raw_prefix(&mut framer);
+                    assert_eq!(raw_prefix(&mut framer), prefix);
+                }
+                assert_eq!(decoded, [Ok(Bytes::copy_from_slice(&frame))]);
+                assert!(framer.is_empty());
+                assert_eq!(framer.terminator_checks, length, "chunk size {chunk_size}");
+            }
+        }
+    }
+
+    #[test]
+    fn raw_scan_progress_survives_failed_append_and_resets_on_clear() {
+        let mut framer = RawFramer::new_with_limits(4, 4, 4);
+        framer.push_slice(&[0x90, 0x41]).unwrap();
+        assert_eq!(framer.drain_frames().next(), None);
+        assert_eq!(framer.terminator_checks, 2);
+
+        assert_eq!(
+            framer.push_slice(&[0xff; 3]),
+            Err(BufferOverflow { max_size: 4 })
+        );
+        assert_eq!(framer.drain_frames().next(), None);
+        assert_eq!(framer.terminator_checks, 2);
+
+        framer.clear();
+        framer.push_slice(&[0xff, 0x90, 0x41]).unwrap();
+        assert_eq!(raw_prefix(&mut framer), Some(RawBufferedInput::Complete));
+        assert_eq!(framer.terminator_checks, 3);
+        assert_eq!(
+            framer.push_slice(&[0xff; 2]),
+            Err(BufferOverflow { max_size: 4 })
+        );
+        assert_eq!(raw_prefix(&mut framer), Some(RawBufferedInput::Complete));
+        assert_eq!(framer.terminator_checks, 3);
+
+        framer.clear();
+        framer.push_slice(&[0x90, 0x41, 0xff]).unwrap();
+        assert_eq!(
+            framer.drain_frames().next(),
+            Some(Ok(Bytes::from_static(&[0x90, 0x41, 0xff])))
+        );
+        assert_eq!(framer.terminator_checks, 6);
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn raw_datagram_scan_is_independent_of_buffered_stream_boundary() {
+        let mut framer = RawFramer::new_with_limits(8, 3, 8);
+        let complete = &[0x90, 0x41, 0xff];
+        framer.push_slice(complete).unwrap();
+        assert_eq!(raw_prefix(&mut framer), Some(RawBufferedInput::Complete));
+
+        assert_eq!(framer.scan(&[0x90, 0x41]), FrameScan::NeedMore);
+        assert_eq!(framer.scan(&[0xff, 0x00]), FrameScan::Complete(&[0xff][..]));
+        assert_eq!(
+            framer.scan(&[0x90, 0x50, 0x02, 0xff]),
+            FrameScan::Rejected(OversizedRawFrame {
+                max_size: 3,
+                through: NonZeroUsize::new(4).unwrap(),
+            })
+        );
+
+        assert_eq!(
+            framer.drain_frames().next(),
+            Some(Ok(Bytes::copy_from_slice(complete)))
+        );
+        assert_eq!(framer.terminator_checks, complete.len());
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn raw_stream_partitions_match_unfragmented_grammar(
+            bytes_and_cuts in proptest::collection::vec((
+                proptest::prop_oneof![3 => proptest::num::u8::ANY, 1 => proptest::strategy::Just(VISCA_TERMINATOR)],
+                proptest::bool::ANY,
+            ), 0..128),
+            max_frame_size in 1..32usize,
+        ) {
+            let stream: Vec<_> = bytes_and_cuts.iter().map(|&(byte, _)| byte).collect();
+            let mut expected = Vec::new();
+            let mut retained = &[][..];
+            for frame in stream.split_inclusive(|byte| *byte == VISCA_TERMINATOR) {
+                if !frame.ends_with(&[VISCA_TERMINATOR]) {
+                    retained = frame;
+                } else if frame.len() > max_frame_size {
+                    expected.push(Err(OversizedRawFrame {
+                        max_size: max_frame_size,
+                        through: NonZeroUsize::new(frame.len()).unwrap(),
+                    }));
+                } else {
+                    expected.push(Ok(Bytes::copy_from_slice(frame)));
+                }
+            }
+
+            let mut framer = RawFramer::new_with_limits(max_frame_size, max_frame_size, stream.len());
+            let mut actual = Vec::new();
+            let mut start = 0;
+            for (index, &(_, cut)) in bytes_and_cuts.iter().enumerate() {
+                let end = index + 1;
+                if cut || end == stream.len() {
+                    framer.push_slice(&stream[start..end]).unwrap();
+                    let _ = raw_prefix(&mut framer);
+                    actual.extend(framer.drain_frames());
+                    let _ = raw_prefix(&mut framer);
+                    start = end;
+                }
+            }
+
+            proptest::prop_assert_eq!(actual, expected);
+            proptest::prop_assert_eq!(&framer.buffer.buf[..], retained);
+            proptest::prop_assert_eq!(framer.terminator_checks, stream.len());
+        }
     }
 
     #[test]
@@ -560,9 +775,9 @@ mod tests {
 
     #[test]
     fn raw_prefix_classifier_handles_empty_buffer() {
-        let framer = RawFramer::new_with_limits(32, 32, 32);
+        let mut framer = RawFramer::new_with_limits(32, 32, 32);
 
-        assert_eq!(framer.buffered_raw_incomplete_prefix(|_| None), None);
+        assert_eq!(raw_prefix(&mut framer), None);
     }
 
     #[test]
@@ -571,9 +786,7 @@ mod tests {
         framer.push_slice(&[0x90]).unwrap();
 
         assert_eq!(
-            framer.buffered_raw_incomplete_prefix(|source| {
-                (source == 0x90).then_some(TargetSlot::ALL[0])
-            }),
+            raw_prefix(&mut framer),
             Some(RawBufferedInput::Incomplete {
                 target: TargetSlot::CAMERA_1,
                 kind: RawIncompletePrefix::SourceOnly,
@@ -587,9 +800,7 @@ mod tests {
         framer.push_slice(&[0x90, 0x51]).unwrap();
 
         assert_eq!(
-            framer.buffered_raw_incomplete_prefix(|source| {
-                (source == 0x90).then_some(TargetSlot::ALL[0])
-            }),
+            raw_prefix(&mut framer),
             Some(RawBufferedInput::Incomplete {
                 target: TargetSlot::CAMERA_1,
                 kind: RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
@@ -620,9 +831,7 @@ mod tests {
             let mut framer = RawFramer::new_with_limits(32, 32, 32);
             framer.push_slice(bytes).unwrap();
             assert_eq!(
-                framer.buffered_raw_incomplete_prefix(|source| {
-                    (source == 0x90).then_some(TargetSlot::ALL[0])
-                }),
+                raw_prefix(&mut framer),
                 Some(RawBufferedInput::Incomplete {
                     target: TargetSlot::CAMERA_1,
                     kind: expected,
@@ -639,12 +848,7 @@ mod tests {
             .push_slice(&[0x90, 0x51, VISCA_TERMINATOR, 0x90, 0x41, VISCA_TERMINATOR])
             .unwrap();
 
-        assert_eq!(
-            framer.buffered_raw_incomplete_prefix(|source| {
-                (source == 0x90).then_some(TargetSlot::ALL[0])
-            }),
-            Some(RawBufferedInput::Complete)
-        );
+        assert_eq!(raw_prefix(&mut framer), Some(RawBufferedInput::Complete));
     }
 
     #[test]
@@ -654,12 +858,7 @@ mod tests {
             .push_slice(&[0x90, VISCA_TERMINATOR, 0x51, VISCA_TERMINATOR])
             .unwrap();
 
-        assert_eq!(
-            framer.buffered_raw_incomplete_prefix(|source| {
-                (source == 0x90).then_some(TargetSlot::ALL[0])
-            }),
-            Some(RawBufferedInput::Complete)
-        );
+        assert_eq!(raw_prefix(&mut framer), Some(RawBufferedInput::Complete));
     }
 
     /// Issue #745: malformed incomplete prefixes are classified at the raw
@@ -671,9 +870,7 @@ mod tests {
             let mut framer = RawFramer::new_with_limits(32, 32, 32);
             framer.push_slice(bytes).unwrap();
             assert_eq!(
-                framer.buffered_raw_incomplete_prefix(|source| {
-                    (source == 0x90).then_some(TargetSlot::ALL[0])
-                }),
+                raw_prefix(&mut framer),
                 Some(RawBufferedInput::Malformed),
                 "bytes {bytes:02x?}",
             );

@@ -1,5 +1,7 @@
 //! Independent scans for decision-local occupancy and dispatch gates.
 //! Expected phase sets intentionally do not call the new lifecycle predicates.
+use std::num::NonZeroUsize;
+
 use super::*;
 use crate::runtime::owner::AdmissionPermitPool;
 
@@ -108,11 +110,11 @@ pub(super) fn assert_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant)
         if raw {
             let probes = [
                 PayloadShape::Unknown,
-                PayloadShape::Bytes(0),
-                PayloadShape::Nibbles(1),
-                PayloadShape::Bytes(2),
-                PayloadShape::Nibbles(4),
-                PayloadShape::Bytes(16),
+                PayloadShape::Bytes(NonZeroUsize::MIN),
+                PayloadShape::Nibbles(NonZeroUsize::MIN),
+                PayloadShape::Bytes(NonZeroUsize::new(2).unwrap()),
+                PayloadShape::Nibbles(NonZeroUsize::new(4).unwrap()),
+                PayloadShape::Bytes(NonZeroUsize::new(16).unwrap()),
             ]
             .into_iter()
             .chain(expected.declared_shapes.iter().copied())
@@ -158,13 +160,13 @@ fn a_single_admission_slot_excludes_a_second_inquiry_for_every_envelope() {
         (EnvelopeKind::Sony, TransportKind::Datagram),
     ] {
         let mut engine = engine(envelope, transport);
-        engine.policy.capacity = std::num::NonZeroUsize::MIN;
+        engine.policy.capacity = NonZeroUsize::MIN;
         let permits = AdmissionPermitPool::new(1, PerTarget::default());
         let first_permit = permits.try_acquire_ordinary().unwrap();
         let (write, first) = admit(
             &mut engine,
             1,
-            inquiry_with_shape(1, PayloadShape::Bytes(1)),
+            inquiry_with_shape(1, PayloadShape::Bytes(NonZeroUsize::MIN)),
             now,
         );
         let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
@@ -192,7 +194,7 @@ fn a_single_admission_slot_excludes_a_second_inquiry_for_every_envelope() {
         let (write, next) = admit(
             &mut engine,
             3,
-            inquiry_with_shape(1, PayloadShape::Bytes(2)),
+            inquiry_with_shape(1, PayloadShape::Bytes(NonZeroUsize::new(2).unwrap())),
             now,
         );
         assert_eq!(request_transmit(&write).1, next);
@@ -215,7 +217,7 @@ proptest::proptest! {
             _ => (EnvelopeKind::Sony, TransportKind::Datagram),
         };
         let mut engine = engine(envelope, transport);
-        engine.policy.capacity = std::num::NonZeroUsize::new(capacity).unwrap();
+        engine.policy.capacity = NonZeroUsize::new(capacity).unwrap();
         let mut now = Instant::now();
         for (index, action) in actions.into_iter().enumerate() {
             now += Duration::from_millis(if action & 7 == 7 { 35 } else { 1 });
@@ -225,7 +227,7 @@ proptest::proptest! {
             } else if action & 7 < 5 {
                 engine.handle(Input::Admit {
                     ticket: AdmissionTicket(index as u64),
-                    request: inquiry_with_shape(target, PayloadShape::Bytes(1 + usize::from(action & 3))),
+                    request: inquiry_with_shape(target, PayloadShape::Bytes(NonZeroUsize::MIN.saturating_add(usize::from(action & 3)))),
                 }, now)
             } else {
                 let candidate = engine.entries.iter().find(|(_, entry)| {
@@ -233,7 +235,7 @@ proptest::proptest! {
                 });
                 let (sequence, length) = candidate.map_or((None, 1), |(_, entry)| {
                     let length = match entry.request.payload_shape().unwrap() {
-                        PayloadShape::Bytes(length) | PayloadShape::Nibbles(length) => length,
+                        PayloadShape::Bytes(length) | PayloadShape::Nibbles(length) => length.get(),
                         PayloadShape::Unknown => 1,
                     };
                     (entry.current_sequence(), length)

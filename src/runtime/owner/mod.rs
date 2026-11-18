@@ -635,6 +635,8 @@ pub(crate) struct FrameBatch {
     frames: VecDeque<DecodedFrame>,
     limit: usize,
     pub(crate) discarded: usize,
+    /// Decoded without another transport read, from the previous read's bytes.
+    from_retained_read: bool,
     /// Stream position was lost after the last verified frame in this batch.
     framing_failure: Option<Arc<Error>>,
 }
@@ -674,6 +676,7 @@ impl FrameBatch {
     fn clear(&mut self) {
         self.frames.clear();
         self.discarded = 0;
+        self.from_retained_read = false;
         self.framing_failure = None;
     }
 }
@@ -1732,7 +1735,8 @@ impl RawRetention<'_> {
 
 /// Inspect and drain input already retained by the stream framer.
 pub(crate) trait RetainedStreamInput {
-    fn has_terminal_prefix(&self) -> bool {
+    /// A complete frame or framing verdict can be decoded without reading.
+    fn has_ready_buffered_input(&mut self) -> bool {
         false
     }
 
@@ -2139,28 +2143,6 @@ impl OwnerState {
         self.buffers.prepend_effects(effects);
     }
 
-    /// Records and applies an identified write result in the same decoded-input
-    /// turn that produced it, without allowing deadlines between source frames.
-    pub(super) fn finish_write_in_turn_into(
-        &mut self,
-        turn: &OwnerInputTurn,
-        staged: &StagedWrite,
-        result: WriteOutcome,
-        effects: &mut VecDeque<Effect>,
-    ) {
-        self.observe_write(staged, &result);
-        self.engine.handle_in_turn_into(
-            &turn.0,
-            Input::TransmissionFinished {
-                request: staged.request,
-                transmission: staged.transmission,
-                result,
-            },
-            &mut self.buffers.effect_scratch,
-        );
-        self.buffers.prepend_effects(effects);
-    }
-
     pub(super) fn expire_unwritten_halt_into(
         &mut self,
         staged: &StagedWrite,
@@ -2293,6 +2275,7 @@ impl OwnerState {
         &mut self,
         request: CancellationRequest,
         now: Instant,
+        engine_turn: EngineTurn,
     ) -> (VecDeque<Effect>, Result<(), Error>) {
         let Some(active) = self.active.get_mut(&request.id.request_id()) else {
             return (self.buffers.take_effects(), Ok(()));
@@ -2309,11 +2292,8 @@ impl OwnerState {
             // A refused cancellation leaves no provisional owner state.
             active.cancellation = Some(request.observer);
         }
-        self.engine.finish_input_turn_into(
-            turn,
-            EngineTurn::Complete,
-            &mut self.buffers.effect_scratch,
-        );
+        self.engine
+            .finish_input_turn_into(turn, engine_turn, &mut self.buffers.effect_scratch);
         (self.buffers.take_effects(), answer)
     }
 

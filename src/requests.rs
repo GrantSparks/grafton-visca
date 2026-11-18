@@ -1,6 +1,10 @@
 //! Typed request contracts and immutable request semantics.
 
-use std::{fmt, num::NonZeroU8, sync::Arc};
+use std::{
+    fmt,
+    num::{NonZeroU8, NonZeroUsize},
+    sync::Arc,
+};
 
 use crate::{completion, request, CameraId, Error, Result};
 
@@ -1049,18 +1053,29 @@ impl<T> PlainCommand for T where T: Request<Class = request::PlainClass> + ?Size
 
 /// Structural evidence describing an inquiry's decoded data payload.
 ///
-/// Lengths count data bytes, excluding the VISCA address, reply header and
-/// terminator. Shape constrains framing and nibble width; the response decoder
-/// remains responsible for documented values, padding and profile ranges.
+/// Exact lengths count one or more data bytes, excluding the VISCA address,
+/// reply header and terminator. Shape constrains framing and nibble width.
+/// The response decoder checks documented values, padding and profile ranges.
+///
+/// # Examples
+///
+/// ```
+/// use grafton_visca::request::PayloadShape;
+/// use std::num::NonZeroUsize;
+///
+/// let one_nibble = PayloadShape::Nibbles(NonZeroUsize::MIN);
+/// assert!(one_nibble.admits(&[0x0F]));
+/// assert!(!one_nibble.admits(&[]));
+/// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum PayloadShape {
     /// No declared structure. Admits every payload and overlaps every shape.
     #[default]
     Unknown,
     /// Exactly this many data bytes, with unrestricted byte values.
-    Bytes(usize),
+    Bytes(NonZeroUsize),
     /// Exactly this many data bytes, each in `0x00..=0x0F`.
-    Nibbles(usize),
+    Nibbles(NonZeroUsize),
 }
 
 impl PayloadShape {
@@ -1069,9 +1084,9 @@ impl PayloadShape {
     pub fn admits(self, payload: &[u8]) -> bool {
         match self {
             Self::Unknown => true,
-            Self::Bytes(length) => payload.len() == length,
+            Self::Bytes(length) => payload.len() == length.get(),
             Self::Nibbles(length) => {
-                payload.len() == length && payload.iter().all(|byte| *byte <= 0x0F)
+                payload.len() == length.get() && payload.iter().all(|byte| *byte <= 0x0F)
             }
         }
     }
@@ -1088,7 +1103,7 @@ impl PayloadShape {
             (
                 Self::Bytes(left) | Self::Nibbles(left),
                 Self::Bytes(right) | Self::Nibbles(right),
-            ) => left == right,
+            ) => left.get() == right.get(),
         }
     }
 }
@@ -1102,6 +1117,9 @@ pub trait Inquiry: Request<Class = request::InquiryClass> {
     ///
     /// Custom inquiries may declare a shape to supply correlation evidence for
     /// raw VISCA replies. The default retains conservative positional behavior.
+    /// On raw transports, an exact shape exceeding the configured reply frame
+    /// limit after VISCA framing overhead fails with [`Error::InvalidParameter`]
+    /// before engine admission.
     /// A raw target reserves at most 16 exact declarations across admitted
     /// inquiries, unpaid replies and skew holds. A new declaration at that
     /// limit fails with [`Error::InquiryShapeCapacityExhausted`]; releasing its
@@ -1262,7 +1280,7 @@ mod affected_axes_tests {
 
 #[cfg(test)]
 mod payload_shape_tests {
-    use super::{Inquiry, PayloadShape, Request, ResponseDecoder};
+    use super::{Inquiry, NonZeroUsize, PayloadShape, Request, ResponseDecoder};
 
     #[test]
     fn payload_shape_admission_checks_exact_length_and_every_nibble() {
@@ -1270,46 +1288,48 @@ mod payload_shape_tests {
         for payload in [vec![], vec![0], vec![0xFF; 32]] {
             assert!(PayloadShape::Unknown.admits(&payload));
         }
-        assert!(PayloadShape::Bytes(0).admits(&[]));
-        assert!(PayloadShape::Nibbles(0).admits(&[]));
-        assert!(PayloadShape::Bytes(4).admits(&[0xFF; 4]));
-        assert!(PayloadShape::Nibbles(4).admits(&[0, 1, 14, 15]));
+        for shape in [PayloadShape::Bytes, PayloadShape::Nibbles] {
+            assert_eq!(NonZeroUsize::new(0).map(shape), None);
+            assert!(shape(NonZeroUsize::MIN).admits(&[0x0F]));
+            assert!(!shape(NonZeroUsize::MIN).admits(&[]));
+            assert!(!shape(NonZeroUsize::MAX).admits(&[]));
+        }
+        let four = NonZeroUsize::MIN.saturating_add(3);
+        let bytes = PayloadShape::Bytes(four);
+        let nibbles = PayloadShape::Nibbles(four);
+        assert!(bytes.admits(&[0xFF; 4]));
+        assert!(nibbles.admits(&[0, 1, 14, 15]));
         for length in [0, 1, 3, 5, 10] {
-            assert!(!PayloadShape::Bytes(4).admits(&vec![0; length]));
-            assert!(!PayloadShape::Nibbles(4).admits(&vec![0; length]));
+            assert!(!bytes.admits(&vec![0; length]));
+            assert!(!nibbles.admits(&vec![0; length]));
         }
         for index in 0..4 {
             for byte in 0x10..=u8::MAX {
                 let mut payload = [0; 4];
                 payload[index] = byte;
-                assert!(!PayloadShape::Nibbles(4).admits(&payload));
-                assert!(PayloadShape::Bytes(4).admits(&payload));
+                assert!(!nibbles.admits(&payload));
+                assert!(bytes.admits(&payload));
             }
         }
-        assert!(!PayloadShape::Bytes(usize::MAX).admits(&[]));
-        assert!(!PayloadShape::Nibbles(usize::MAX).admits(&[]));
     }
 
     #[test]
     fn payload_shape_overlap_is_symmetric_and_pairwise_not_transitive() {
         use PayloadShape::{Bytes, Nibbles, Unknown};
+        let four = NonZeroUsize::MIN.saturating_add(3);
         let shapes = [
             Unknown,
-            Bytes(0),
-            Nibbles(0),
-            Bytes(1),
-            Nibbles(1),
-            Bytes(4),
-            Nibbles(4),
+            Bytes(NonZeroUsize::MIN),
+            Nibbles(NonZeroUsize::MIN),
+            Bytes(four),
+            Nibbles(four),
         ];
         let expected = [
-            [true, true, true, true, true, true, true],
-            [true, true, true, false, false, false, false],
-            [true, true, true, false, false, false, false],
-            [true, false, false, true, true, false, false],
-            [true, false, false, true, true, false, false],
-            [true, false, false, false, false, true, true],
-            [true, false, false, false, false, true, true],
+            [true, true, true, true, true],
+            [true, true, true, false, false],
+            [true, true, true, false, false],
+            [true, false, false, true, true],
+            [true, false, false, true, true],
         ];
         for (left_index, left) in shapes.into_iter().enumerate() {
             for (right_index, right) in shapes.into_iter().enumerate() {
@@ -1321,10 +1341,10 @@ mod payload_shape_tests {
                 assert_eq!(left.overlaps(right), right.overlaps(left));
             }
         }
-        const UNKNOWN_OVERLAPS_BYTE: bool = Unknown.overlaps(Bytes(1));
-        assert_eq!(UNKNOWN_OVERLAPS_BYTE, shapes[0].overlaps(shapes[3]));
-        assert!(Bytes(usize::MAX).overlaps(Nibbles(usize::MAX)));
-        assert!(!Bytes(usize::MAX).overlaps(Bytes(1)));
+        const UNKNOWN_OVERLAPS_BYTE: bool = Unknown.overlaps(Bytes(NonZeroUsize::MIN));
+        assert_eq!(UNKNOWN_OVERLAPS_BYTE, shapes[0].overlaps(shapes[1]));
+        assert!(Bytes(NonZeroUsize::MAX).overlaps(Nibbles(NonZeroUsize::MAX)));
+        assert!(!Bytes(NonZeroUsize::MAX).overlaps(Bytes(NonZeroUsize::MIN)));
     }
 
     struct UndeclaredInquiry;

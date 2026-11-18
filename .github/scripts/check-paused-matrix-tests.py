@@ -26,6 +26,7 @@ SUITES = {
     "issue_795_raw_correlation_evidence": "",
     "issue_795_stream_stall_inquiry": "",
     "issue_839_menu_navigation": "",
+    "issue_848_stream_framing": "cancellation",
     "issue_858_late_evidence": "",
     "issue_869_envelope_admission": "",
     # The #872 observer-budget body has no feature-selected behavior either.

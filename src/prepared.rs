@@ -1327,7 +1327,15 @@ mod tests {
 
     #[test]
     fn profile_payload_shape_is_selected_once_and_retained_through_templates_and_admission() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::{
+            num::NonZeroUsize,
+            sync::atomic::{AtomicUsize, Ordering},
+        };
+
+        const ONE_BYTE: crate::PayloadShape = crate::PayloadShape::Bytes(NonZeroUsize::MIN);
+        const FOUR_NIBBLES: crate::PayloadShape =
+            crate::PayloadShape::Nibbles(NonZeroUsize::MIN.saturating_add(3));
+
         struct ProfileSelectedInquiry(AtomicUsize);
         impl Request for ProfileSelectedInquiry {
             type Class = crate::request::InquiryClass;
@@ -1350,15 +1358,15 @@ mod tests {
         impl Inquiry for ProfileSelectedInquiry {
             type Response = usize;
             fn payload_shape(&self) -> crate::PayloadShape {
-                crate::PayloadShape::Bytes(1)
+                ONE_BYTE
             }
             fn payload_shape_for_profile(&self, _: &ProfileSpec) -> crate::PayloadShape {
                 self.0.fetch_add(1, Ordering::Relaxed);
-                crate::PayloadShape::Nibbles(4)
+                FOUR_NIBBLES
             }
             fn decoder(&self) -> ResponseDecoder<usize> {
                 ResponseDecoder::from_fn(|payload| {
-                    if crate::PayloadShape::Bytes(1).admits(payload) {
+                    if ONE_BYTE.admits(payload) {
                         Ok(payload.len())
                     } else {
                         Err(Error::InvalidResponseFormat)
@@ -1367,7 +1375,7 @@ mod tests {
             }
             fn decoder_for_profile(&self, _: &ProfileSpec) -> Result<ResponseDecoder<usize>> {
                 Ok(ResponseDecoder::from_fn(|payload| {
-                    if crate::PayloadShape::Nibbles(4).admits(payload) {
+                    if FOUR_NIBBLES.admits(payload) {
                         Ok(payload.len())
                     } else {
                         Err(Error::InvalidResponseFormat)
@@ -1387,8 +1395,8 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("prepare");
-        assert_eq!(query.payload_shape(), crate::PayloadShape::Bytes(1));
-        assert_eq!(prepared.payload_shape, crate::PayloadShape::Nibbles(4));
+        assert_eq!(query.payload_shape(), ONE_BYTE);
+        assert_eq!(prepared.payload_shape, FOUR_NIBBLES);
         assert_eq!(query.0.load(Ordering::Relaxed), 1);
         let template = prepared.into_template();
         for template in [template.clone(), template] {
@@ -1396,9 +1404,9 @@ mod tests {
                 assert!(matches!(
                     request.into_inner(),
                     RuntimeRequest::Inquiry {
-                        payload_shape: crate::PayloadShape::Nibbles(4),
+                        payload_shape: crate::PayloadShape::Nibbles(length),
                         ..
-                    }
+                    } if length.get() == 4
                 ));
                 assert_eq!(decoder.decode(&[0, 1, 14, 15]).expect("profile decoder"), 4);
                 assert!(decoder.decode(&[0]).is_err());

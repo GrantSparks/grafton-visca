@@ -27,6 +27,7 @@ macro_rules! owner_coordinator_contract {
                         pub fn probe_scope(self) -> Option<RawCorrelationReleaseSet> { None }
                         pub fn fence_no_input(&mut self, _: RawCorrelationReleaseSet) {}
                         pub fn clear_fence(&mut self) {}
+                        pub fn complete(&mut self) {}
                     }
                     pub mod coordinator {
                         include!(concat!(env!("GRAFTON_VISCA_SOURCE_ROOT"), "/src/runtime/owner/turn/coordinator.rs"));

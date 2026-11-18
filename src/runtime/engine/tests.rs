@@ -1502,7 +1502,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let first = inquiry_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: inquiry_with_shape(1, PayloadShape::Bytes(1)),
+                request: inquiry_with_shape(1, PayloadShape::Bytes(std::num::NonZeroUsize::MIN)),
             },
             start,
         );
@@ -1511,7 +1511,10 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let second = inquiry_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(2),
-                request: inquiry_with_shape(1, PayloadShape::Bytes(2)),
+                request: inquiry_with_shape(
+                    1,
+                    PayloadShape::Bytes(std::num::NonZeroUsize::new(2).unwrap()),
+                ),
             },
             start,
         );
@@ -2302,9 +2305,8 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         start,
     );
 
-    // B's ACK deadline is the same instant. Cancellation intent makes its ACK
-    // produce a cancel transmission, which the owner must drain before it
-    // applies the next frame from the wire batch.
+    // B's ACK deadline is the same instant. Its cancellation intent stays
+    // pending through the rest of the read.
     let b_started = start + Duration::from_millis(20);
     let b = engine.handle(
         Input::Admit {
@@ -2326,8 +2328,8 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
     let turn = engine.begin_input_turn(deadline);
     let mut ordered_effects = Vec::new();
 
-    // Wire frame 1: ACK(B). Drain its cancel-transmit effect recursively at
-    // the same sampled instant before consuming wire frame 2.
+    // Wire frame 1: ACK(B). The socket is known but the write has to wait
+    // until every available reply has been applied.
     let ack_b = engine.handle_in_turn(
         &turn,
         frame(
@@ -2338,23 +2340,14 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
             },
         ),
     );
-    let (cancel_tx, cancel_id, cancel_socket) = cancel_transmit(&ack_b);
-    assert_eq!(cancel_id, b_id);
-    assert_eq!(cancel_socket, ViscaSocket::S2);
+    assert!(cancel_transmit_optional(&ack_b).is_none());
+    assert_eq!(
+        engine
+            .entry(b_id)
+            .and_then(|entry| entry.lifecycle().pending_cancellation_socket()),
+        Some(ViscaSocket::S2),
+    );
     ordered_effects.extend(ack_b);
-    engine.assert_invariants().unwrap();
-    ordered_effects.extend(engine.handle_in_turn(
-        &turn,
-        Input::TransmissionFinished {
-            request: b_id,
-            transmission: cancel_tx,
-            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
-        },
-    ));
-    assert!(matches!(
-        engine.entry(b_id).map(Entry::cancellation),
-        Some(CancelState::AwaitingTerminal { .. })
-    ));
     engine.assert_invariants().unwrap();
 
     // Wire frame 2: Completion(A). It must be applied before due work runs,
@@ -2370,7 +2363,11 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         ),
     ));
     engine.assert_invariants().unwrap();
-    ordered_effects.extend(engine.finish_input_turn(turn, EngineTurn::Complete));
+    let finished = engine.finish_input_turn(turn, EngineTurn::Complete);
+    let (cancel_tx, cancel_id, cancel_socket) = cancel_transmit(&finished);
+    assert_eq!(cancel_id, b_id);
+    assert_eq!(cancel_socket, ViscaSocket::S2);
+    ordered_effects.extend(finished);
 
     let cancel_index = ordered_effects
         .iter()
@@ -2397,7 +2394,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
             )
         })
         .expect("A applied terminal");
-    assert!(cancel_index < applied_index);
+    assert!(applied_index < cancel_index);
     assert!(ordered_effects.iter().any(|effect| matches!(
         effect,
         Effect::Terminal {
@@ -2417,6 +2414,19 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         } if *id == a_id
     )));
     assert!(engine.entry(a_id).is_none());
+
+    engine.handle(
+        Input::TransmissionFinished {
+            request: b_id,
+            transmission: cancel_tx,
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
+        },
+        deadline,
+    );
+    assert!(matches!(
+        engine.entry(b_id).map(Entry::cancellation),
+        Some(CancelState::AwaitingTerminal { .. })
+    ));
     engine.assert_invariants().unwrap();
 }
 
@@ -2918,9 +2928,8 @@ fn zero_spacing_drains_pending_cancellations_in_request_order() {
     engine.assert_invariants().unwrap();
 }
 
-/// #1021: an immediate cancel may arrive before the matured retry's timer.
-/// Its write receipt is the next legal input, and only that receipt may resume
-/// due work and ordinary dispatch.
+/// #1021: a cancellation recorded as a retry matures keeps wire priority.
+/// Once staged, its write receipt must arrive before dispatching the retry.
 #[test]
 fn zero_spacing_cancel_with_a_matured_retry_preserves_the_write_boundary() {
     for (transport, finish_turn) in [TransportKind::Stream, TransportKind::Datagram]
@@ -2983,7 +2992,7 @@ fn zero_spacing_cancel_with_a_matured_retry_preserves_the_write_boundary() {
         );
         assert!(matches!(
             engine.entry(retry).unwrap().lifecycle(),
-            Lifecycle::Backoff { .. }
+            Lifecycle::Ready { .. }
         ));
         let mut finished = engine.handle_turn(
             Input::TransmissionFinished {
@@ -4400,7 +4409,9 @@ fn fixture_shape(fields: &BTreeMap<String, String>) -> PayloadShape {
         "unknown" => PayloadShape::Unknown,
         declaration => {
             let (kind, length) = declaration.split_once(':').expect("declared payload shape");
-            let length = length.parse::<usize>().expect("payload length");
+            let length = length
+                .parse::<std::num::NonZeroUsize>()
+                .expect("positive payload length");
             match kind {
                 "bytes" => PayloadShape::Bytes(length),
                 "nibbles" => PayloadShape::Nibbles(length),

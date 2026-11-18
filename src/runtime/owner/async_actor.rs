@@ -27,8 +27,8 @@ use super::shell::{
     ClassifiedEvent, NonBoundaryEvent, OwnerEvent, OwnerShellCore, SelectedOwnerInput, TurnStep,
 };
 use super::{
-    CancellationObserver, OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState,
-    RetainedStreamInput, TerminalObserver, WireWrite, WriteOutcome,
+    CancellationObserver, OwnerPolicy, OwnerReceive, OwnerState, RetainedStreamInput,
+    TerminalObserver, WireWrite, WriteOutcome,
 };
 
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]

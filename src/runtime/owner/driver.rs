@@ -77,7 +77,7 @@ macro_rules! owner_turn_driver {
             loop {
                 match step {
                     TurnStep::Drive { effects, then } => {
-                        self.drive(driver, effects, then.input_turn()) $($await)*;
+                        self.drive(driver, effects) $($await)*;
                         step = self.core.resume(then, driver);
                     }
                     TurnStep::Pace { pause, outcome } => {
@@ -93,7 +93,6 @@ macro_rules! owner_turn_driver {
             &mut self,
             driver: &mut D,
             mut effects: std::collections::VecDeque<Effect>,
-            turn: Option<&OwnerInputTurn>,
         )
         where
             D: $driver,
@@ -108,7 +107,6 @@ macro_rules! owner_turn_driver {
                 // input or staging another write (#860). NotSent proves only
                 // this attempt avoided I/O; the engine owns logical certainty.
                 self.core.finish_transmit(
-                    turn,
                     &staged,
                     result,
                     self.io.now(),

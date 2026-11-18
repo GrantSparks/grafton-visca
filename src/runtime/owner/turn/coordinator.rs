@@ -44,6 +44,9 @@ pub(in crate::runtime::owner) enum TurnOutcome {
     /// fairness ceiling: an adversarial stream can alternate buffered and
     /// transport-backed batches forever.
     ContinueBuffered,
+    /// Exhausted a buffered read at a later clock. Poll native receive
+    /// before releasing any raw correlation now due.
+    ProbeAfterBufferedDrain,
     /// This receive turn made no protocol progress, so poll the ordered
     /// boundary sources first on the next selection after one cooperative
     /// handoff.
@@ -55,7 +58,9 @@ pub(in crate::runtime::owner) enum TurnOutcome {
 impl TurnOutcome {
     pub(in crate::runtime::owner) const fn next_source_phase(self) -> Option<SourcePhase> {
         match self {
-            Self::Continue | Self::ContinueBuffered => Some(SourcePhase::ReceiveFirst),
+            Self::Continue | Self::ContinueBuffered | Self::ProbeAfterBufferedDrain => {
+                Some(SourcePhase::ReceiveFirst)
+            }
             Self::YieldBoundaries => Some(SourcePhase::BoundariesFirst),
             Self::Stop => None,
         }
@@ -764,6 +769,11 @@ impl<B> OwnerCoordinator<B> {
             self.control_allowance_consumed_for = None;
         } else if let Some(wake) = control_consumed_wake {
             self.control_allowance_consumed_for = Some(wake);
+        }
+        if outcome == TurnOutcome::ProbeAfterBufferedDrain {
+            // The old prefix has drained. Neither a prior no-input proof nor
+            // its grace timer can stand in for polling the now-empty framer.
+            self.release.complete();
         }
         let receive = matches!(
             selected,

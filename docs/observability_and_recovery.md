@@ -192,6 +192,11 @@ establish a value. The owner commits effects before notifying observers or
 resolving the terminal outcome, independently of observer attachment. A fresh
 session starts every target at `Unknown`; target views remain isolated.
 
+The scheduler orders writes to the same `StateKey` on the same target by
+admission. A setter holds its place through retry backoff and socket
+reassignment until its terminal result, even after its observer detaches.
+Writes for different keys or targets can use otherwise available sockets.
+
 On an FR7, a pan/tilt drive using speed 25–50 waits for an in-flight
 speed-mode change on that target, including when the drive is ready to retry.
 The write requires a confirmed `Fine50`. An applied `Standard24` or an
@@ -559,6 +564,10 @@ See the [raw stream correlation ledger](architecture_2_0.md#the-raw-byte-stream-
 for the rules for inquiry and command debts, including
 `Error::CommandCorrelationLost`. To clear a debt on a camera that never answers
 any work, close and reopen the session.
+
+An exact raw inquiry shape that exceeds `recv_buffer_size - 3` data bytes
+returns `Error::InvalidParameter` before engine admission. The rejected
+declaration does not reserve a shape or leave a reply owed.
 
 The inquiry timeout itself is retryable and
 `requires_new_session() == false`: it proves only that this request received no

@@ -10,5 +10,5 @@ struct Some;
 struct Power;
 
 fn main() {
-    assert_eq!(Power.payload_shape(), PayloadShape::Bytes(1));
+    assert_eq!(Power.payload_shape(), PayloadShape::Bytes(std::num::NonZeroUsize::MIN));
 }

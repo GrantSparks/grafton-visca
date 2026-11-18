@@ -25,12 +25,7 @@ mod coordinator;
 ))]
 pub(super) use coordinator::Source;
 
-// The async actor tests build only with an executor adapter.
-#[cfg(all(
-    test,
-    feature = "async",
-    any(feature = "runtime-tokio", feature = "runtime-smol")
-))]
+#[cfg(all(test, any(feature = "async", feature = "blocking")))]
 pub(super) use coordinator::SourcePhase;
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(super) use coordinator::{

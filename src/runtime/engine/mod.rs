@@ -37,7 +37,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
-use crate::protocol::response::CameraErrorCode;
+use crate::protocol::response::{CameraErrorCode, REPLY_FRAME_OVERHEAD};
 use crate::target::{PerTarget, TargetSlot};
 pub(crate) use crate::transport::envelope::FrameSequence;
 use crate::{
@@ -112,8 +112,8 @@ impl RawHoldScope {
             Self::Socket(ViscaSocket::S2) => (1, 0),
             Self::PreAck => (2, 0),
             Self::Inquiry(PayloadShape::Unknown) => (3, 0),
-            Self::Inquiry(PayloadShape::Bytes(length)) => (4, length),
-            Self::Inquiry(PayloadShape::Nibbles(length)) => (5, length),
+            Self::Inquiry(PayloadShape::Bytes(length)) => (4, length.get()),
+            Self::Inquiry(PayloadShape::Nibbles(length)) => (5, length.get()),
             Self::AllResponses => (6, 0),
         }
     }
@@ -507,15 +507,6 @@ struct DueWork {
 #[derive(Debug)]
 pub(crate) struct InputTurn {
     now: Instant,
-    terminal_prefix: bool,
-}
-
-impl InputTurn {
-    /// Preserve all receive evidence before the framing verdict without
-    /// initiating a wire write against the already failed stream.
-    pub(crate) fn mark_terminal_prefix(&mut self) {
-        self.terminal_prefix = true;
-    }
 }
 
 impl DueWork {
@@ -1009,7 +1000,7 @@ trait EngineMethods: EngineAccess {
                 !self
                     .stop_wait_bound_in(entry)
                     .is_some_and(|bound| now >= bound)
-                    && (state.speed_mode_blocks(id, &entry.request)
+                    && (state.state_write_blocks(id, &entry.request)
                         || self.hold_blocks_in(entry, target, occupancy)
                         || self.command_gate_in(entry, target, occupancy)
                         || (if entry.request.is_stop() {
@@ -1128,23 +1119,18 @@ trait EngineMethods: EngineAccess {
     /// Starts an ordered external-input turn at one owner-sampled instant.
     ///
     /// The owner must fully drain the effects returned for one input before it
-    /// applies the next input in the turn. Any identified transmission result
-    /// produced by that draining is applied with [`Self::handle_in_turn_into`] and
-    /// the same token. Once every frame in wire order is applied, the owner
-    /// calls [`Self::finish_input_turn_into`] exactly once with the selected
-    /// [`EngineTurn`] boundary.
+    /// applies the next input in the turn. Once every frame in wire order is
+    /// applied, the owner calls [`Self::finish_input_turn_into`] with the
+    /// selected [`EngineTurn`] boundary. A write staged by the scheduler is
+    /// completed in its own turn at the sampled write-return instant.
     fn begin_input_turn(&self, now: Instant) -> InputTurn {
-        InputTurn {
-            now,
-            terminal_prefix: false,
-        }
+        InputTurn { now }
     }
 
     /// Applies one input without running due deadlines or ordinary dispatch.
     ///
-    /// This is the recursive input seam for an active [`InputTurn`]. Effects
-    /// remain in the exact order produced by this input; the owner drains them
-    /// before passing the next wire frame.
+    /// The owner drains the effects of each input in order before passing the
+    /// next wire frame in an active [`InputTurn`].
     fn handle_in_turn_into(&mut self, turn: &InputTurn, input: Input, sink: &mut Vec<Effect>) {
         if !matches!(input, Input::TransmissionFinished { .. }) {
             self.debug_assert_input_boundary();
@@ -1155,7 +1141,6 @@ trait EngineMethods: EngineAccess {
             return;
         }
         let mut effects = Decision::new(sink);
-        effects.terminal_prefix = turn.terminal_prefix;
         self.apply_input(input, turn.now, &mut effects);
         self.finish_decision(turn.now, effects);
     }
@@ -1450,6 +1435,22 @@ trait EngineMethods: EngineAccess {
             });
         }
         if let Some(shape) = request.payload_shape().filter(|_| self.mode().is_raw()) {
+            let max_payload = self
+                .policy
+                .recv_buffer_size
+                .saturating_sub(REPLY_FRAME_OVERHEAD);
+            match shape {
+                PayloadShape::Bytes(length) | PayloadShape::Nibbles(length)
+                    if length.get() > max_payload =>
+                {
+                    return Err(Error::invalid_parameter(
+                        "payload_shape",
+                        length.to_string(),
+                        format!("raw reply payload must be at most {max_payload} bytes"),
+                    ));
+                }
+                _ => {}
+            }
             let available = self
                 .tracked_inquiry_shapes(context.target)
                 .is_ok_and(|tracked| {
@@ -1530,10 +1531,10 @@ trait EngineMethods: EngineAccess {
         }
     }
 
-    /// Sends every pacing-eligible cancellation whose ACK has already
-    /// established a command socket.  Cancellation is urgent with respect to
-    /// ordinary queued work, but its wire write still advances the shared
-    /// command spacing deadline.  Re-scan after each write so zero-spacing
+    /// Sends every pacing-eligible cancellation whose ACK established a
+    /// socket it still owns after the available replies have been applied.
+    /// Cancellations take priority over ordinary queued work, and their writes
+    /// advance the shared command spacing deadline. Re-scan so zero-spacing
     /// profiles drain the complete urgent set; a positive spacing naturally
     /// stops the scan after the first write advances [`Pacing::last_request`].
     fn drain_pending_cancellations(&mut self, now: Instant, effects: &mut Decision) {
@@ -1631,10 +1632,10 @@ trait EngineMethods: EngineAccess {
 
     /// The per-lane dispatch gate: whether protocol state, rather than
     /// pacing, keeps ready `entry` from being written. Raw holds, protocol
-    /// capacity, the raw command gate, the stream ledger and uncorrelated raw
-    /// shapes each block; a byte-stream STOP that has waited out its
-    /// [`Self::stop_wait_bound_in`] by `now` bypasses the command gates. Pacing
-    /// (spacing and the inquiry cooldown) is [`Self::candidate_send_at`]'s
+    /// capacity, ordered state writes, the raw command gate, the stream ledger
+    /// and uncorrelated raw shapes each block. A byte-stream STOP that has waited
+    /// out its [`Self::stop_wait_bound_in`] by `now` bypasses the command gates.
+    /// Pacing (spacing and the inquiry cooldown) is [`Self::candidate_send_at`]'s
     /// alone.
     #[cfg(test)]
     fn dispatch_blocked(&self, id: RequestId, entry: &Entry, now: Instant) -> bool {
@@ -1655,20 +1656,23 @@ trait EngineMethods: EngineAccess {
                 let Some(policy) = self.targets[target].policy else {
                     return true;
                 };
-                let speed_mode_conflict = self.entries.iter().any(|(other_id, other)| {
-                    if other.request.context().target != target
-                        || !other.request.sets_pan_tilt_speed_mode()
-                    {
+                let state_key = entry.request.applied_state_key();
+                let state_conflict = self.entries.iter().any(|(other_id, other)| {
+                    if other.request.context().target != target {
                         return false;
                     }
-                    (*other_id < id && entry.request.sets_pan_tilt_speed_mode())
-                        || (entry.request.context().requires_extended_pan_tilt_speed
+                    let Some(other_key) = other.request.applied_state_key() else {
+                        return false;
+                    };
+                    (*other_id < id && state_key == Some(other_key))
+                        || (other_key == crate::StateKey::PanTiltSpeedMode
+                            && entry.request.context().requires_extended_pan_tilt_speed
                             && (*other_id < id
                                 || other.prior.is_some()
                                 || !other.lifecycle().is_ready()))
                 });
                 !self.stop_wait_ended(entry, now)
-                    && (speed_mode_conflict
+                    && (state_conflict
                         || self.raw_hold_blocks_dispatch(entry, target)
                         || self.raw_command_gate_blocks(entry, target)
                         || self.command_capacity_used_by(entry, target)
@@ -3201,13 +3205,6 @@ trait EngineMethods: EngineAccess {
                 to: changed.to,
             });
         }
-        if let Some(pending) = self
-            .entries
-            .get(&id)
-            .and_then(|entry| entry.lifecycle().pending_cancellation())
-        {
-            self.emit_cancel(id, pending, now, effects);
-        }
     }
 
     fn completion(
@@ -3733,13 +3730,6 @@ trait EngineMethods: EngineAccess {
                     id,
                     observation: CancellationObservation::Recorded,
                 });
-                if let Some(pending) = self
-                    .entries
-                    .get(&id)
-                    .and_then(|entry| entry.lifecycle().pending_cancellation())
-                {
-                    self.emit_cancel(id, pending, now, effects);
-                }
             }
         }
         Ok(())
@@ -3755,9 +3745,7 @@ trait EngineMethods: EngineAccess {
         let Some(entry) = self.entries.get(&id) else {
             return;
         };
-        if effects.terminal_prefix || self.cancellation_send_at(entry) > now {
-            return;
-        }
+        debug_assert!(self.cancellation_send_at(entry) <= now);
         let ambiguity_deadline = pending.ambiguity_deadline().max(add_duration(
             now,
             entry.request.context().timeout.ambiguity.get(),

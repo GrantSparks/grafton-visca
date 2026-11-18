@@ -11,8 +11,8 @@ use super::{
     driver::owner_turn_driver,
     shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep},
     turn::{Selection, TurnOutcome, TurnPlan},
-    CommandOutcome, Effect, Observed, Observer, OwnerInputTurn, OwnerReceive, OwnerState,
-    RetainedStreamInput, RuntimeRequest, TransmissionMeta, WireWrite, WriteOutcome,
+    CommandOutcome, Effect, Observed, Observer, OwnerReceive, OwnerState, RetainedStreamInput,
+    RuntimeRequest, TransmissionMeta, WireWrite, WriteOutcome,
 };
 use crate::{
     request::Request,
@@ -300,7 +300,7 @@ impl TurnProbe {
         }
         let writes = self.driver.writes;
         let effects = self.shell.core.state.advance(self.shell.io.now);
-        self.shell.drive(&mut self.driver, effects, None);
+        self.shell.drive(&mut self.driver, effects);
         if self.driver.writes != writes + 1 {
             return Err(Error::InvalidState {
                 reason: "probe command did not write exactly once".into(),

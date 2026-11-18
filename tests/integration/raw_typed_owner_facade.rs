@@ -1,8 +1,4 @@
-//! Owner-facade coverage for the isolated typed raw request classes.
-//!
-//! The blocking facade has one scenario. The async facade runs the same
-//! scenario under each enabled runtime, as the cases
-//! `async_tests::owner_admits_all_typed_raw_classes::tokio` and `::smol`.
+//! Owner-facade coverage for typed raw request classes and admission bounds.
 
 #![cfg(any(
     feature = "blocking",
@@ -12,17 +8,124 @@
     )
 ))]
 
-use grafton_visca_test_support::fake_camera;
+use std::num::NonZeroUsize;
+
+use grafton_visca_test_support::{facade_matrix, fake_camera};
 
 use grafton_visca::{
-    profiles::ProfileSpec,
+    config::SessionConfig,
+    profiles::{GenericVisca, ProfileSpec},
     raw,
-    request::{CommandRetryClass, ResponseDecoder},
-    types::AffectedAxes,
+    request::{
+        CommandRetryClass, InquiryRetryClass, PayloadShape, ResponseDecoder, SubmissionClass,
+    },
+    transport::{AddressingMode, BufferConfig, IoBounds, SendSemantics},
+    types::{AffectedAxes, IndividualCameraId},
     Error,
 };
 
 use fake_camera::{frames, FakeCamera};
+
+struct BoundedRawCamera {
+    peer: FakeCamera,
+    bounds: IoBounds,
+}
+
+impl BoundedRawCamera {
+    fn new(frame_limit: usize) -> Self {
+        let bounds = IoBounds::default()
+            .with_buffer_config(BufferConfig::default().with_recv_buffer_size(frame_limit))
+            .expect("receive frame limit");
+        let peer = FakeCamera::new(move |request, answer| {
+            if request[2] == 0x01 {
+                answer.reply(frames::inquiry_reply(&[0x02]));
+            } else {
+                let reply = frames::inquiry_reply(&vec![0x03; frame_limit - 3]);
+                let (prefix, suffix) = reply.split_at(frame_limit / 2);
+                answer.reply(prefix).reply(suffix);
+            }
+        });
+        Self { peer, bounds }
+    }
+
+    #[cfg(feature = "blocking")]
+    fn blocking_wire(&self) -> fake_camera::BlockingWire {
+        self.peer
+            .blocking_wire()
+            .with_config(self.bounds)
+            .with_semantics(SendSemantics::Stream)
+            .with_addressing(AddressingMode::Ip)
+    }
+
+    #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+    fn async_wire(&self) -> fake_camera::AsyncWire {
+        self.peer
+            .async_wire()
+            .with_config(self.bounds)
+            .with_semantics(SendSemantics::Stream)
+            .with_addressing(AddressingMode::Ip)
+    }
+}
+
+fn length_inquiry(selector: u8, shape: PayloadShape) -> raw::InquiryRequest<usize> {
+    raw::InquiryRequest::new(
+        [0x81, 0x09, selector, 0xff],
+        ResponseDecoder::from_fn(|data| Ok(data.len())),
+        InquiryRetryClass::Inquiry,
+        SubmissionClass::Normal,
+    )
+    .expect("raw inquiry")
+    .with_payload_shape(shape)
+}
+
+facade_matrix! {
+    fn raw_inquiry_shapes_fit_the_transport_reply_frame_before_admission() {
+        for frame_limit in [BufferConfig::default().recv_buffer_size(), 64] {
+            for exact in [PayloadShape::Bytes, PayloadShape::Nibbles] {
+                let fixture = BoundedRawCamera::new(frame_limit);
+                let config = SessionConfig::from_compile_time::<GenericVisca>().expect("profile");
+                let session = open!(fixture, config).expect("raw stream session");
+                let camera = session.camera::<GenericVisca>(IndividualCameraId::CAMERA_1)
+                    .expect("camera");
+                let max_payload = frame_limit - 3;
+
+                for length in [NonZeroUsize::new(max_payload + 1).unwrap(), NonZeroUsize::MAX] {
+                    let impossible = length_inquiry(0x02, exact(length));
+                    let error = wait!(camera.inquire(&impossible)).expect_err("pre-admission rejection");
+                    match error {
+                        Error::InvalidParameter { parameter, value, reason, .. } => {
+                            assert_eq!(parameter, "payload_shape");
+                            assert_eq!(value, length.to_string());
+                            assert_eq!(reason, format!("raw reply payload must be at most {max_payload} bytes"));
+                        }
+                        other => panic!("expected invalid shape count, got {other:?}"),
+                    }
+                }
+
+                let rejected = wait!(session.metrics()).expect("rejection metrics");
+                assert_eq!(rejected.admission_rejected, 2);
+                assert_eq!(
+                    (rejected.admitted, rejected.active, rejected.pending, rejected.writes),
+                    (0, 0, 0, 0)
+                );
+                assert_eq!(fixture.peer.write_count(), 0);
+
+                let overlapping = length_inquiry(0x01, PayloadShape::Unknown);
+                assert_eq!(wait!(camera.inquire(&overlapping)).expect("no leftover reply debt"), 1);
+                let one = length_inquiry(0x01, exact(NonZeroUsize::MIN));
+                assert_eq!(wait!(camera.inquire(&one)).expect("one data byte"), 1);
+                let maximum = length_inquiry(0x02, exact(NonZeroUsize::new(max_payload).unwrap()));
+                assert_eq!(wait!(camera.inquire(&maximum)).expect("split maximum reply"), max_payload);
+                assert_eq!(
+                    fixture.peer.writes(),
+                    [overlapping.bytes(), one.bytes(), maximum.bytes()]
+                );
+                assert_eq!(fixture.peer.read_count(), 4);
+                wait!(session.close()).expect("close");
+            }
+        }
+    }
+}
 
 /// A camera that answers an inquiry with data `[1, 2]` and every other
 /// request with ACK and completion on socket 1.

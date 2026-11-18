@@ -569,10 +569,12 @@ impl<R> InquiryRequest<R> {
 
     /// Declares the decoded data shape accepted by this inquiry's decoder.
     ///
-    /// Lengths exclude the address, reply header and terminator. A declared
-    /// shape supplies raw-reply correlation evidence; decoder value checks
-    /// still apply. The default [`crate::request::PayloadShape::Unknown`] overlaps all
-    /// shapes and preserves conservative positional correlation.
+    /// Exact lengths exclude the address, reply header and terminator.
+    /// The raw owner returns [`Error::InvalidParameter`] before admission if
+    /// the declared payload will not fit in the configured receive frame.
+    /// A declared shape supplies raw-reply correlation evidence and the
+    /// decoder still checks values. The default [`crate::request::PayloadShape::Unknown`]
+    /// overlaps all shapes and preserves conservative positional correlation.
     /// Raw targets reserve at most 16 exact declarations across admitted
     /// inquiries, unpaid replies and skew holds; a new declaration at capacity
     /// fails with [`Error::InquiryShapeCapacityExhausted`].
@@ -1007,7 +1009,12 @@ mod tests {
 
     #[test]
     fn every_raw_inquiry_constructor_retains_its_optional_payload_shape() {
+        use std::num::NonZeroUsize;
+
         use crate::PayloadShape;
+
+        let four_nibbles = PayloadShape::Nibbles(NonZeroUsize::new(4).unwrap());
+        let seven_bytes = PayloadShape::Bytes(NonZeroUsize::new(7).unwrap());
         let bytes = [0x81, 0x09, 0x04, 0xFF];
         let policy = InquiryPolicy::new(InquiryRetryClass::Never, SubmissionClass::Normal);
         let queries = [
@@ -1044,14 +1051,11 @@ mod tests {
                 inquiry.payload_shape_for_profile(&profile),
                 PayloadShape::Unknown
             );
-            let shaped = inquiry.with_payload_shape(PayloadShape::Nibbles(4));
+            let shaped = inquiry.with_payload_shape(four_nibbles);
             let cloned = shaped.clone();
             for query in [&shaped, &cloned] {
-                assert_eq!(query.payload_shape(), PayloadShape::Nibbles(4));
-                assert_eq!(
-                    query.payload_shape_for_profile(&profile),
-                    PayloadShape::Nibbles(4)
-                );
+                assert_eq!(query.payload_shape(), four_nibbles);
+                assert_eq!(query.payload_shape_for_profile(&profile), four_nibbles);
                 assert_eq!(query.bytes(), bytes);
                 assert_eq!(
                     query
@@ -1062,10 +1066,8 @@ mod tests {
                 );
             }
             assert_eq!(
-                cloned
-                    .with_payload_shape(PayloadShape::Bytes(7))
-                    .payload_shape(),
-                PayloadShape::Bytes(7)
+                cloned.with_payload_shape(seven_bytes).payload_shape(),
+                seven_bytes
             );
         }
     }

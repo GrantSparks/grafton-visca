@@ -177,7 +177,7 @@ mod tests {
     fn paid_reply_resets_to_skew_instead_of_extending_the_old_window() {
         let now = Instant::now();
         let target = TargetSlot::ALL[0];
-        let shape = PayloadShape::Nibbles(2);
+        let shape = PayloadShape::Nibbles(std::num::NonZeroUsize::new(2).unwrap());
         let mut holds = HoldTable::<StreamScope>::new();
         holds.extend(
             target,
@@ -198,7 +198,7 @@ mod tests {
     fn an_owed_reply_keeps_its_shape_until_evidence_pays_it() {
         let now = Instant::now();
         let target = TargetSlot::ALL[0];
-        let shape = PayloadShape::Nibbles(2);
+        let shape = PayloadShape::Nibbles(std::num::NonZeroUsize::new(2).unwrap());
         let mut ledger = StreamLedger::new();
         ledger.push(target, id(1), super::super::Owes::Reply(shape));
         ledger.mark_written(target, id(1), false);

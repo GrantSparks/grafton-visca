@@ -11,6 +11,9 @@ use crate::{
     ViscaSocket,
 };
 
+/// Bytes for the reply address, reply header and terminator.
+pub(crate) const REPLY_FRAME_OVERHEAD: usize = 3;
+
 /// A decoded VISCA camera error, shared by routing, retries and diagnostics.
 ///
 /// A named `NoSocket` answers a cancellation; without a socket it may reject
@@ -191,8 +194,7 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
 /// Keeping source validation outside this helper lets the owner classify a
 /// serial frame once, without rewriting it into a camera-1 scratch buffer.
 pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<BasicResponse<'_>> {
-    // Minimum valid response is 3 bytes (e.g., 90 38 FF)
-    if frame.len() < 3 {
+    if frame.len() < REPLY_FRAME_OVERHEAD {
         return None;
     }
 
@@ -204,7 +206,7 @@ pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<
     let kind = match frame[1] {
         // ACKs are fixed-format replies, including socketless compatibility.
         byte if (byte & 0xf0) == 0x40 => {
-            if frame.len() != 3 {
+            if frame.len() != REPLY_FRAME_OVERHEAD {
                 return None;
             }
             BasicKind::Ack {
@@ -213,9 +215,9 @@ pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<
         }
         byte if (byte & 0xf0) == 0x50 => {
             let socket = byte & 0x0f;
-            if socket == 0 && frame.len() > 3 {
+            if socket == 0 && frame.len() > REPLY_FRAME_OVERHEAD {
                 BasicKind::DataReply(Payload::new(&frame[2..frame.len() - 1]))
-            } else if frame.len() == 3 {
+            } else if frame.len() == REPLY_FRAME_OVERHEAD {
                 BasicKind::Completion {
                     socket: decode_fixed_socket(socket)?,
                 }
@@ -224,7 +226,7 @@ pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<
             }
         }
         byte if (byte & 0xf0) == 0x60 => {
-            if frame.len() != 4 {
+            if frame.len() != REPLY_FRAME_OVERHEAD + 1 {
                 return None;
             }
             BasicKind::Error {
@@ -233,7 +235,7 @@ pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<
             }
         }
         0x38 => {
-            if frame.len() != 3 {
+            if frame.len() != REPLY_FRAME_OVERHEAD {
                 return None;
             }
             BasicKind::NetworkChange

@@ -44,8 +44,8 @@ use super::turn::{
     SelectionPoll, Source, TimerArm, TurnOutcome, TurnPlan,
 };
 use super::{
-    CancellationObserver, OwnerBuffers, OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState,
-    RetainedStreamInput, TerminalObserver, WireWrite, WriteOutcome,
+    CancellationObserver, OwnerBuffers, OwnerPolicy, OwnerReceive, OwnerState, RetainedStreamInput,
+    TerminalObserver, WireWrite, WriteOutcome,
 };
 use crate::runtime::engine::Effect;
 
